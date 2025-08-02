@@ -916,9 +916,9 @@ CONTROL_INTERFACE_HTML = """
             console.log('Pinging server...');
             fetch('/ping')
                 .then(response => {
-                    console.log(`Ping response status: ${response.status}`);
+                    console.log('Ping response status: ' + response.status);
                     if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        throw new Error('HTTP ' + response.status + ': ' + response.statusText);
                     }
                     return response.json();
                 })
@@ -957,11 +957,11 @@ CONTROL_INTERFACE_HTML = """
             const gx = document.getElementById('grid_size_x').value;
             const gy = document.getElementById('grid_size_y').value;
             
-            console.log(`Starting grid scan: (${x1},${y1}) to (${x2},${y2}) with grid ${gx}x${gy}`);
+            console.log('Starting grid scan: (' + x1 + ',' + y1 + ') to (' + x2 + ',' + y2 + ') with grid ' + gx + 'x' + gy);
             
-            fetch(`/start_grid_scan/${x1}/${y1}/${x2}/${y2}/${gx}/${gy}`)
+            fetch('/start_grid_scan/' + x1 + '/' + y1 + '/' + x2 + '/' + y2 + '/' + gx + '/' + gy)
                 .then(response => {
-                    console.log(`Grid scan response status: ${response.status}`);
+                    console.log('Grid scan response status: ' + response.status);
                     return response.json();
                 })
                 .then(data => {
@@ -980,11 +980,11 @@ CONTROL_INTERFACE_HTML = """
             const r = document.getElementById('circle_radius').value;
             const p = document.getElementById('circle_positions').value;
             
-            console.log(`Starting circular scan: center (${x},${y}) radius ${r} positions ${p}`);
+            console.log('Starting circular scan: center (' + x + ',' + y + ') radius ' + r + ' positions ' + p);
             
-            fetch(`/start_circular_scan/${x}/${y}/${r}/${p}`)
+            fetch('/start_circular_scan/' + x + '/' + y + '/' + r + '/' + p)
                 .then(response => {
-                    console.log(`Circular scan response status: ${response.status}`);
+                    console.log('Circular scan response status: ' + response.status);
                     return response.json();
                 })
                 .then(data => {
@@ -1008,16 +1008,16 @@ CONTROL_INTERFACE_HTML = """
                 return;
             }
             
-            const url = `/move_to/${x}/${y}/${z}`;
-            console.log(`Moving to position: (${x}, ${y}, ${z})`);
-            console.log(`Request URL: ${url}`);
+            const url = '/move_to/' + x + '/' + y + '/' + z;
+            console.log('Moving to position: (' + x + ', ' + y + ', ' + z + ')');
+            console.log('Request URL: ' + url);
             
             fetch(url)
                 .then(response => {
-                    console.log(`Move response status: ${response.status}`);
-                    console.log(`Response URL: ${response.url}`);
+                    console.log('Move response status: ' + response.status);
+                    console.log('Response URL: ' + response.url);
                     if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        throw new Error('HTTP ' + response.status + ': ' + response.statusText);
                     }
                     return response.json();
                 })
@@ -1035,12 +1035,12 @@ CONTROL_INTERFACE_HTML = """
             console.log('Getting registered routes...');
             fetch('/debug_routes')
                 .then(response => {
-                    console.log(`Debug routes response status: ${response.status}`);
+                    console.log('Debug routes response status: ' + response.status);
                     return response.json();
                 })
                 .then(data => {
                     console.log('Registered routes:', data.routes);
-                    let routeList = data.routes.map(r => `${r.rule} (${r.methods.join(', ')})`).join('\n');
+                    let routeList = data.routes.map(r => r.rule + ' (' + r.methods.join(', ') + ')').join('\n');
                     alert('Registered Routes:\n' + routeList);
                 })
                 .catch(error => {
@@ -1053,7 +1053,7 @@ CONTROL_INTERFACE_HTML = """
             console.log('Testing JSON response...');
             fetch('/test_json')
                 .then(response => {
-                    console.log(`Test JSON response status: ${response.status}`);
+                    console.log('Test JSON response status: ' + response.status);
                     console.log('Response headers:', response.headers);
                     return response.json();
                 })
@@ -1071,7 +1071,7 @@ CONTROL_INTERFACE_HTML = """
             console.log('Capturing single photo...');
             fetch('/capture_single_photo')
                 .then(response => {
-                    console.log(`Capture photo response status: ${response.status}`);
+                    console.log('Capture photo response status: ' + response.status);
                     return response.json();
                 })
                 .then(data => {
@@ -1088,7 +1088,7 @@ CONTROL_INTERFACE_HTML = """
             console.log('Testing GRBL connection...');
             fetch('/test_connection')
                 .then(response => {
-                    console.log(`Test connection response status: ${response.status}`);
+                    console.log('Test connection response status: ' + response.status);
                     return response.json();
                 })
                 .then(data => {
@@ -1105,7 +1105,7 @@ CONTROL_INTERFACE_HTML = """
             console.log('Testing step movements...');
             fetch('/test_step_movements')
                 .then(response => {
-                    console.log(`Test step movements response status: ${response.status}`);
+                    console.log('Test step movements response status: ' + response.status);
                     return response.json();
                 })
                 .then(data => {
@@ -1122,13 +1122,13 @@ CONTROL_INTERFACE_HTML = """
             console.log('Getting current position...');
             fetch('/get_current_position')
                 .then(response => {
-                    console.log(`Get position response status: ${response.status}`);
+                    console.log('Get position response status: ' + response.status);
                     return response.json();
                 })
                 .then(data => {
                     console.log('Get position response data:', data);
                     const pos = data.position;
-                    alert(`Current Position: X${pos.x} Y${pos.y} Z${pos.z}\nGRBL Status: ${data.grbl_status}`);
+                    alert('Current Position: X' + pos.x + ' Y' + pos.y + ' Z' + pos.z + '\nGRBL Status: ' + data.grbl_status);
                 })
                 .catch(error => {
                     console.error('Get position error:', error);
@@ -1140,7 +1140,7 @@ CONTROL_INTERFACE_HTML = """
             console.log('Returning to home position...');
             fetch('/return_home')
                 .then(response => {
-                    console.log(`Return home response status: ${response.status}`);
+                    console.log('Return home response status: ' + response.status);
                     return response.json();
                 })
                 .then(data => {
