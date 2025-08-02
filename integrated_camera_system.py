@@ -853,39 +853,32 @@ CONTROL_INTERFACE_HTML = """
             console.error('Error details:', e.filename, e.lineno, e.colno);
         });
         
-        function ping() {
-            console.log('Pinging server...');
-            fetch('/ping')
-                .then(response => {
-                    console.log(`Ping response status: ${response.status}`);
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    console.log('Ping response data:', data);
-                    alert('Server ping successful: ' + data.message);
-                })
-                .catch(error => {
-                    console.error('Ping error:', error);
-                    alert('Server ping failed: ' + error.message);
-                });
-        }
+        // Debug function definitions
+        console.log('=== SCRIPT LOADING ===');
+        console.log('JavaScript is loading...');
         
+        // Define test functions FIRST
         function simpleAlert() {
             console.log('Simple alert test called');
             alert('Simple JavaScript alert working!');
-            document.getElementById('test-output').innerHTML = 'Simple alert test executed at ' + new Date().toLocaleTimeString();
+            try {
+                document.getElementById('test-output').innerHTML = 'Simple alert test executed at ' + new Date().toLocaleTimeString();
+            } catch(e) {
+                console.error('Error updating test output:', e);
+            }
         }
         
         function buttonTest() {
             console.log('Button test function called');
-            document.getElementById('test-output').innerHTML = 'Button test started at ' + new Date().toLocaleTimeString();
+            try {
+                document.getElementById('test-output').innerHTML = 'Button test started at ' + new Date().toLocaleTimeString();
+            } catch(e) {
+                console.error('Error updating test output:', e);
+            }
             
             fetch('/button_test')
                 .then(response => {
-                    console.log(`Button test response status: ${response.status}`);
+                    console.log('Button test response status:', response.status);
                     return response.json();
                 })
                 .then(data => {
@@ -905,8 +898,38 @@ CONTROL_INTERFACE_HTML = """
             console.log('Current time:', new Date());
             console.log('Window location:', window.location.href);
             console.log('Document ready state:', document.readyState);
-            document.getElementById('test-output').innerHTML = 'Console test completed - check browser console';
+            try {
+                document.getElementById('test-output').innerHTML = 'Console test completed - check browser console';
+            } catch(e) {
+                console.error('Error updating test output:', e);
+            }
             alert('Console test completed - check browser console (F12)');
+        }
+        
+        // Log function definitions
+        console.log('Test functions defined:');
+        console.log('- simpleAlert:', typeof simpleAlert);
+        console.log('- buttonTest:', typeof buttonTest);
+        console.log('- consoleTest:', typeof consoleTest);
+        
+        function ping() {
+            console.log('Pinging server...');
+            fetch('/ping')
+                .then(response => {
+                    console.log(`Ping response status: ${response.status}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Ping response data:', data);
+                    alert('Server ping successful: ' + data.message);
+                })
+                .catch(error => {
+                    console.error('Ping error:', error);
+                    alert('Server ping failed: ' + error.message);
+                });
         }
         
         function updateStatus() {
@@ -1141,6 +1164,21 @@ CONTROL_INTERFACE_HTML = """
             console.log('=== PAGE LOADED ===');
             console.log('Current URL:', window.location.href);
             console.log('Starting status updates...');
+            
+            // Verify test functions are available
+            console.log('=== FUNCTION VERIFICATION ===');
+            console.log('simpleAlert function available:', typeof simpleAlert === 'function');
+            console.log('buttonTest function available:', typeof buttonTest === 'function');
+            console.log('consoleTest function available:', typeof consoleTest === 'function');
+            
+            // Add test functions to window object for debugging
+            window.testFunctions = {
+                simpleAlert: simpleAlert,
+                buttonTest: buttonTest,
+                consoleTest: consoleTest
+            };
+            
+            console.log('Test functions added to window.testFunctions');
             
             // Test basic server connectivity on page load
             ping();
