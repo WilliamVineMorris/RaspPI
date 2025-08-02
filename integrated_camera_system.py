@@ -127,12 +127,71 @@ class IntegratedCameraSystem:
     def initialize_positioning_system(self, configure_grbl: bool = False) -> bool:
         """Initialize the GRBL positioning system"""
         logger.info("Initializing GRBL positioning system...")
-        success = self.camera_controller.initialize_system(configure_grbl=configure_grbl)
-        if success:
+        
+        # Check if already connected
+        if self.grbl_controller.is_connected:
+            logger.info("GRBL controller already connected")
+            return True
+        
+        # Connect to GRBL
+        if not self.grbl_controller.connect(configure_settings=configure_grbl):
+            logger.error("Failed to connect to GRBL controller")
+            return False
+        
+        # Check GRBL status
+        status = self.grbl_controller.get_grbl_status()
+        logger.info(f"GRBL Status: {status}")
+        
+        # Try to unlock GRBL if needed
+        self.grbl_controller._send_raw_gcode("$X")
+        
+        # Set current position as home (don't call camera_controller.initialize_system again)
+        try:
+            self.grbl_controller.home_axes()
             logger.info("GRBL positioning system initialized successfully")
-        else:
-            logger.error("Failed to initialize GRBL positioning system")
-        return success
+            return True
+        except Exception as e:
+            logger.warning(f"Homing failed: {e}. System still usable.")
+            return True  # Continue even if homing fails
+    
+    def test_grbl_connection(self) -> bool:
+        """Test GRBL connection and basic movement capability"""
+        logger.info("Testing GRBL connection...")
+        
+        if not self.grbl_controller.is_connected:
+            logger.error("GRBL controller not connected")
+            return False
+        
+        # Test basic commands
+        try:
+            # Send status query
+            status = self.grbl_controller.get_grbl_status()
+            logger.info(f"GRBL Status: {status}")
+            
+            # Test basic G-code commands
+            logger.info("Testing basic G-code commands...")
+            self.grbl_controller._send_raw_gcode("G21")  # Set units to mm
+            self.grbl_controller._send_raw_gcode("G90")  # Absolute positioning
+            self.grbl_controller._send_raw_gcode("G94")  # Feed rate mode
+            
+            # Test small movement (1mm)
+            logger.info("Testing small movement (1mm)...")
+            current_pos = self.grbl_controller.current_position
+            test_pos = Point(current_pos.x + 1, current_pos.y, current_pos.z)
+            
+            success = self.grbl_controller.move_to_point(test_pos, feedrate=100)
+            if success:
+                logger.info("Test movement successful")
+                # Return to original position
+                self.grbl_controller.move_to_point(current_pos, feedrate=100)
+                return True
+            else:
+                logger.error("Test movement failed")
+                return False
+                
+        except Exception as e:
+            logger.error(f"GRBL connection test failed: {e}")
+            return False
     
     def capture_photo_at_position(self, position: Point, position_name: str = None) -> str:
         """
@@ -332,7 +391,11 @@ class IntegratedCameraSystem:
         @self.app.route('/scan_status')
         def scan_status():
             """Get current scan status"""
-            return jsonify(self.current_scan_data)
+            status_data = self.current_scan_data.copy()
+            # Add GRBL connection status
+            status_data["grbl_connected"] = self.grbl_controller.is_connected
+            status_data["grbl_status"] = self.grbl_controller.get_grbl_status() if self.grbl_controller.is_connected else "Disconnected"
+            return jsonify(status_data)
         
         @self.app.route('/start_grid_scan/<float:x1>/<float:y1>/<float:x2>/<float:y2>/<int:grid_x>/<int:grid_y>')
         def start_grid_scan(x1, y1, x2, y2, grid_x, grid_y):
@@ -385,7 +448,7 @@ class IntegratedCameraSystem:
                 return jsonify({"error": "Cannot move during active scan"}), 400
             
             target = Point(x, y, z)
-            success = self.grbl_controller.move_to_point(target)
+            success = self.grbl_controller.move_to_point(target, feedrate=self.scan_config.movement_feedrate)
             
             if success:
                 return jsonify({"message": f"Moved to X{x} Y{y} Z{z}"})
@@ -402,6 +465,15 @@ class IntegratedCameraSystem:
                 return jsonify({"message": "Photo captured", "filename": filename})
             else:
                 return jsonify({"error": "Photo capture failed"}), 500
+        
+        @self.app.route('/test_connection')
+        def test_connection():
+            """Test GRBL connection and movement"""
+            success = self.test_grbl_connection()
+            if success:
+                return jsonify({"message": "GRBL connection test successful"})
+            else:
+                return jsonify({"error": "GRBL connection test failed"}), 500
         
         @self.app.route('/return_home')
         def return_home():
@@ -517,6 +589,7 @@ CONTROL_INTERFACE_HTML = """
                 
                 <div>
                     <button class="btn-success" onclick="capturePhoto()">Capture Photo</button>
+                    <button class="btn-primary" onclick="testConnection()">Test GRBL Connection</button>
                     <button class="btn-primary" onclick="returnHome()">Return Home</button>
                     <button class="btn-danger" onclick="emergencyStop()">EMERGENCY STOP</button>
                 </div>
@@ -535,9 +608,15 @@ CONTROL_INTERFACE_HTML = """
                 .then(response => response.json())
                 .then(data => {
                     document.getElementById('status-content').innerHTML = 
+                        '<strong>GRBL Connected:</strong> ' + data.grbl_connected + '<br>' +
+                        '<strong>GRBL Status:</strong> ' + data.grbl_status + '<br>' +
                         '<strong>Scan Active:</strong> ' + data.active + '<br>' +
                         '<strong>Progress:</strong> ' + data.completed_positions + '/' + data.total_positions + '<br>' +
                         '<strong>Photos Captured:</strong> ' + data.photos_captured.length;
+                })
+                .catch(error => {
+                    document.getElementById('status-content').innerHTML = 
+                        '<strong>Error:</strong> Unable to connect to server';
                 });
         }
         
@@ -581,6 +660,12 @@ CONTROL_INTERFACE_HTML = """
                 .then(data => alert(data.message || data.error));
         }
         
+        function testConnection() {
+            fetch('/test_connection')
+                .then(response => response.json())
+                .then(data => alert(data.message || data.error));
+        }
+        
         function returnHome() {
             fetch('/return_home')
                 .then(response => response.json())
@@ -619,12 +704,13 @@ def main():
         print("System initialized successfully!")
         print("\nAvailable operations:")
         print("1. Start web interface")
-        print("2. Run test grid scan")
-        print("3. Run test circular scan")
-        print("4. Manual photo capture test")
-        print("5. Exit")
+        print("2. Test GRBL connection and movement")
+        print("3. Run test grid scan")
+        print("4. Run test circular scan")
+        print("5. Manual photo capture test")
+        print("6. Exit")
         
-        choice = input("\nSelect operation (1-5): ").strip()
+        choice = input("\nSelect operation (1-6): ").strip()
         
         if choice == "1":
             print(f"Starting web interface on http://localhost:{system.video_server_port}")
@@ -632,26 +718,31 @@ def main():
             system.start_web_interface()
             
         elif choice == "2":
+            print("Testing GRBL connection and movement...")
+            success = system.test_grbl_connection()
+            print(f"GRBL test {'passed' if success else 'failed'}")
+            
+        elif choice == "3":
             print("Running test grid scan...")
             corner1 = Point(0, 0, 5)
             corner2 = Point(10, 10, 5)
             success = system.grid_scan_with_photos(corner1, corner2, (3, 3))
             print(f"Grid scan {'completed' if success else 'failed'}")
             
-        elif choice == "3":
+        elif choice == "4":
             print("Running test circular scan...")
             center = Point(5, 5, 5)
             success = system.circular_scan_with_photos(center, 3, 6)
             print(f"Circular scan {'completed' if success else 'failed'}")
             
-        elif choice == "4":
+        elif choice == "5":
             print("Testing manual photo capture...")
             pos = Point(0, 0, 5)
-            system.grbl_controller.move_to_point(pos)
+            system.grbl_controller.move_to_point(pos, feedrate=500)
             filename = system.capture_photo_at_position(pos, "test")
             print(f"Photo captured: {filename}" if filename else "Photo capture failed")
             
-        elif choice == "5":
+        elif choice == "6":
             print("Exiting...")
         
         else:
