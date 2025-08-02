@@ -21,6 +21,8 @@ import threading
 import requests
 import json
 import os
+import cv2
+import io
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
@@ -253,9 +255,9 @@ class IntegratedCameraSystem:
                 # Generate filename with position data
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 if position_name:
-                    filename = f"scan_{position_name}_{timestamp}.jpg"
+                    filename = "scan_" + position_name + "_" + timestamp + ".jpg"
                 else:
-                    filename = f"scan_X{position.x:.1f}_Y{position.y:.1f}_Z{position.z:.1f}_{timestamp}.jpg"
+                    filename = "scan_X{:.1f}_Y{:.1f}_Z{:.1f}_{}.jpg".format(position.x, position.y, position.z, timestamp)
                 
                 filepath = os.path.join(self.scan_config.photo_directory, filename)
                 
@@ -847,67 +849,66 @@ CONTROL_INTERFACE_HTML = """
     </div>
     
     <script>
+        console.log('=== JAVASCRIPT LOADING ===');
+        
         // Add global error handler
         window.addEventListener('error', function(e) {
             console.error('JavaScript error:', e.error);
             console.error('Error details:', e.filename, e.lineno, e.colno);
         });
         
-        // Debug function definitions
-        console.log('=== SCRIPT LOADING ===');
-        console.log('JavaScript is loading...');
-        
-        // Define test functions FIRST
+        // Test functions defined first
         function simpleAlert() {
-            console.log('Simple alert test called');
-            alert('Simple JavaScript alert working!');
-            try {
-                document.getElementById('test-output').innerHTML = 'Simple alert test executed at ' + new Date().toLocaleTimeString();
-            } catch(e) {
-                console.error('Error updating test output:', e);
+            console.log('Simple alert called');
+            alert('JavaScript is working!');
+            var testOutput = document.getElementById('test-output');
+            if (testOutput) {
+                testOutput.innerHTML = 'Alert test at ' + new Date().toLocaleTimeString();
             }
         }
         
         function buttonTest() {
-            console.log('Button test function called');
-            try {
-                document.getElementById('test-output').innerHTML = 'Button test started at ' + new Date().toLocaleTimeString();
-            } catch(e) {
-                console.error('Error updating test output:', e);
+            console.log('Button test called');
+            var testOutput = document.getElementById('test-output');
+            if (testOutput) {
+                testOutput.innerHTML = 'Testing server connection...';
             }
             
             fetch('/button_test')
-                .then(response => {
-                    console.log('Button test response status:', response.status);
+                .then(function(response) {
+                    console.log('Response status:', response.status);
                     return response.json();
                 })
-                .then(data => {
-                    console.log('Button test response data:', data);
-                    document.getElementById('test-output').innerHTML = 'Server response: ' + data.message;
+                .then(function(data) {
+                    console.log('Response data:', data);
+                    if (testOutput) {
+                        testOutput.innerHTML = 'Server response: ' + data.message;
+                    }
                     alert('Button test successful!');
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Button test error:', error);
-                    document.getElementById('test-output').innerHTML = 'Button test failed: ' + error.message;
+                    if (testOutput) {
+                        testOutput.innerHTML = 'Test failed: ' + error.message;
+                    }
                     alert('Button test failed: ' + error.message);
                 });
         }
         
         function consoleTest() {
-            console.log('=== CONSOLE TEST ===');
-            console.log('Current time:', new Date());
-            console.log('Window location:', window.location.href);
-            console.log('Document ready state:', document.readyState);
-            try {
-                document.getElementById('test-output').innerHTML = 'Console test completed - check browser console';
-            } catch(e) {
-                console.error('Error updating test output:', e);
+            console.log('=== CONSOLE TEST START ===');
+            console.log('Time:', new Date());
+            console.log('Location:', window.location.href);
+            console.log('=== CONSOLE TEST END ===');
+            var testOutput = document.getElementById('test-output');
+            if (testOutput) {
+                testOutput.innerHTML = 'Console test completed - check browser console (F12)';
             }
-            alert('Console test completed - check browser console (F12)');
+            alert('Console test completed');
         }
         
-        // Log function definitions
-        console.log('Test functions defined:');
+        // Check function definitions
+        console.log('Functions defined:');
         console.log('- simpleAlert:', typeof simpleAlert);
         console.log('- buttonTest:', typeof buttonTest);
         console.log('- consoleTest:', typeof consoleTest);
