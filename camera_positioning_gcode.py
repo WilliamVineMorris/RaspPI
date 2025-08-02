@@ -221,14 +221,14 @@ class ArduinoGCodeController:
             '$102': '400.0',   # Z-axis steps/mm (lead screw example)
             
             # Maximum rates (mm/min)
-            '$110': '3000',    # X-axis max rate
-            '$111': '3000',    # Y-axis max rate  
-            '$112': '1000',    # Z-axis max rate (slower for precision)
+            '$110': '500',    # X-axis max rate
+            '$111': '500',    # Y-axis max rate  
+            '$112': '100',    # Z-axis max rate (slower for precision)
             
             # Acceleration (mm/sec²)
-            '$120': '500.0',   # X-axis acceleration
-            '$121': '500.0',   # Y-axis acceleration
-            '$122': '200.0',   # Z-axis acceleration (slower for stability)
+            '$120': '50.0',   # X-axis acceleration
+            '$121': '50.0',   # Y-axis acceleration
+            '$122': '20.0',   # Z-axis acceleration (slower for stability)
             
             # Travel resolution (mm)
             '$12': '0.002',    # Arc tolerance
@@ -675,10 +675,10 @@ def test_basic_movement():
         
         # Test movements
         test_positions = [
-            (50, 50, 30),
-            (100, 50, 30),
-            (100, 100, 30),
-            (50, 100, 30)
+            (5, 5, 3),    # 5mm x, 5mm y, 3mm z
+            (10, 5, 3),   # 10mm x, 5mm y, 3mm z
+            (10, 10, 3),  # 10mm x, 10mm y, 3mm z
+            (5, 10, 3)    # 5mm x, 10mm y, 3mm z
         ]
         
         for x, y, z in test_positions:
