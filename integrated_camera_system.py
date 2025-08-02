@@ -1163,7 +1163,7 @@ CONTROL_INTERFACE_HTML = """
                 .then(function(data) {
                     console.log('Get position response data:', data);
                     var pos = data.position;
-                    alert('Current Position: X' + pos.x + ' Y' + pos.y + ' Z' + pos.z + '\nGRBL Status: ' + data.grbl_status);
+                    alert('Current Position: X' + pos.x + ' Y' + pos.y + ' Z' + pos.z + '\\nGRBL Status: ' + data.grbl_status);
                 })
                 .catch(function(error) {
                     console.error('Get position error:', error);
