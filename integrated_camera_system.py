@@ -434,6 +434,18 @@ class IntegratedCameraSystem:
             """Main control interface"""
             return render_template_string(CONTROL_INTERFACE_HTML)
         
+        @self.app.route('/debug_routes')
+        def debug_routes():
+            """Debug: List all registered routes"""
+            routes = []
+            for rule in self.app.url_map.iter_rules():
+                routes.append({
+                    'rule': str(rule),
+                    'methods': list(rule.methods),
+                    'endpoint': rule.endpoint
+                })
+            return jsonify({"routes": routes})
+        
         @self.app.route('/test_json')
         def test_json():
             """Test JSON response"""
@@ -521,13 +533,14 @@ class IntegratedCameraSystem:
             self.current_scan_data["active"] = False
             return jsonify({"message": "Emergency stop activated"})
         
-        @self.app.route('/move_to/<float:x>/<float:y>/<float:z>')
+        @self.app.route('/move_to/<float:x>/<float:y>/<float:z>', methods=['GET', 'POST'])
         def move_to_position(x, y, z):
             """Move to specific position"""
             try:
                 logger.info(f"=== MOVE TO POSITION ROUTE CALLED ===")
                 logger.info(f"Web interface move request: X{x} Y{y} Z{z}")
-                logger.info(f"Request method: {request.method if 'request' in globals() else 'Unknown'}")
+                logger.info(f"Request method: {request.method}")
+                logger.info(f"Request URL: {request.url}")
                 
                 if self.current_scan_data["active"]:
                     logger.warning("Move request rejected - scan already in progress")
@@ -647,6 +660,13 @@ class IntegratedCameraSystem:
     def start_web_interface(self):
         """Start the web interface server"""
         logger.info(f"Starting web interface on port {self.video_server_port}")
+        
+        # Debug: Print all registered routes
+        logger.info("=== REGISTERED FLASK ROUTES ===")
+        for rule in self.app.url_map.iter_rules():
+            logger.info(f"Route: {rule.rule} -> {rule.endpoint} ({list(rule.methods)})")
+        logger.info("=== END ROUTES ===")
+        
         self.app.run(host='0.0.0.0', port=self.video_server_port, threaded=True, debug=False)
     
     def shutdown(self):
@@ -775,6 +795,7 @@ CONTROL_INTERFACE_HTML = """
                 <div>
                     <button class="btn-success" onclick="capturePhoto()">Capture Photo</button>
                     <button class="btn-primary" onclick="testJSON()">Test JSON Response</button>
+                    <button class="btn-primary" onclick="debugRoutes()">Debug Routes</button>
                     <button class="btn-primary" onclick="testConnection()">Test GRBL Connection</button>
                     <button class="btn-primary" onclick="testStepMovements()">Test Step Movements</button>
                     <button class="btn-primary" onclick="returnHome()">Return Home</button>
@@ -860,11 +881,23 @@ CONTROL_INTERFACE_HTML = """
             const y = document.getElementById('move_y').value;
             const z = document.getElementById('move_z').value;
             
-            console.log(`Moving to position: (${x}, ${y}, ${z})`);
+            // Validate inputs
+            if (!x || !y || !z) {
+                alert('Please enter all coordinates (X, Y, Z)');
+                return;
+            }
             
-            fetch(`/move_to/${x}/${y}/${z}`)
+            const url = `/move_to/${x}/${y}/${z}`;
+            console.log(`Moving to position: (${x}, ${y}, ${z})`);
+            console.log(`Request URL: ${url}`);
+            
+            fetch(url)
                 .then(response => {
                     console.log(`Move response status: ${response.status}`);
+                    console.log(`Response URL: ${response.url}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
                     return response.json();
                 })
                 .then(data => {
@@ -874,6 +907,24 @@ CONTROL_INTERFACE_HTML = """
                 .catch(error => {
                     console.error('Move error:', error);
                     alert('Failed to move: ' + error.message);
+                });
+        }
+        
+        function debugRoutes() {
+            console.log('Getting registered routes...');
+            fetch('/debug_routes')
+                .then(response => {
+                    console.log(`Debug routes response status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Registered routes:', data.routes);
+                    let routeList = data.routes.map(r => `${r.rule} (${r.methods.join(', ')})`).join('\n');
+                    alert('Registered Routes:\n' + routeList);
+                })
+                .catch(error => {
+                    console.error('Debug routes error:', error);
+                    alert('Failed to get routes: ' + error.message);
                 });
         }
         
