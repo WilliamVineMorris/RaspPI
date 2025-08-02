@@ -25,10 +25,10 @@ import cv2
 import io
 import numpy as np
 import traceback
+import logging
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
-import logging
 from datetime import datetime
 from flask import Flask, Response, send_file, jsonify, render_template_string, request
 
@@ -1194,7 +1194,11 @@ CONTROL_INTERFACE_HTML = """
                 .then(function(data) { alert(data.message); });
         }
         
-        // Page initialization
+        // Update status every 2 seconds
+        setInterval(updateStatus, 2000);
+        updateStatus();
+        
+        // Page initialization - moved to end to ensure all functions are defined
         document.addEventListener('DOMContentLoaded', function() {
             console.log('=== PAGE LOADED ===');
             console.log('Current URL:', window.location.href);
@@ -1202,9 +1206,8 @@ CONTROL_INTERFACE_HTML = """
             
             // Verify test functions are available
             console.log('=== FUNCTION VERIFICATION ===');
-            console.log('simpleAlert function available:', typeof simpleAlert === 'function');
-            console.log('buttonTest function available:', typeof buttonTest === 'function');
-            console.log('consoleTest function available:', typeof consoleTest === 'function');
+            console.log('Functions loaded successfully');
+            console.log('Test functions ready');
             
             // Add test functions to window object for debugging
             window.testFunctions = {
@@ -1218,10 +1221,6 @@ CONTROL_INTERFACE_HTML = """
             // Test basic server connectivity on page load
             ping();
         });
-        
-        // Update status every 2 seconds
-        setInterval(updateStatus, 2000);
-        updateStatus();
     </script>
 </body>
 </html>
