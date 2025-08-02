@@ -713,6 +713,8 @@ class IntegratedCameraSystem:
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 return jsonify({"error": f"Failed to start movement: {str(e)}"}), 500
         
+        logger.info("Added route: /move_to/<float:x>/<float:y>/<float:z>")
+        
         @self.app.route('/capture_single_photo')
         def capture_single_photo():
             """Capture a single photo at current position"""
