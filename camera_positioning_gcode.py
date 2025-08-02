@@ -78,8 +78,8 @@ class ArduinoGCodeController:
             self._send_raw_gcode("G90")  # Absolute positioning
             self._send_raw_gcode("G94")  # Feed rate mode (units per minute)
             
-            # Optional: Home all axes (only if limit switches are installed)
-            # self._send_raw_gcode("$H")  # GRBL home command
+            # Set current position as origin (instead of homing)
+            self._send_raw_gcode("G92 X0 Y0 Z0")  # Set current position as (0,0,0)
             
             self.is_connected = True
             logger.info(f"Connected to GRBL on {self.port}")
@@ -152,15 +152,20 @@ class ArduinoGCodeController:
         return False
     
     def home_axes(self, axes: str = "XYZ") -> bool:
-        """Home specified axes using GRBL homing command"""
-        if axes == "XYZ" or axes == "":
-            # GRBL home all axes command
-            return self._send_raw_gcode("$H")
-        else:
-            # Individual axis homing not directly supported in GRBL
-            # Use $H for all axes
-            logger.warning("GRBL homes all axes simultaneously. Using $H command.")
-            return self._send_raw_gcode("$H")
+        """Home specified axes using GRBL homing command (if available)"""
+        try:
+            # Try homing command
+            result = self._send_raw_gcode("$H")
+            if result:
+                logger.info("Homing completed successfully")
+                return True
+            else:
+                # If homing fails, just set current position as origin
+                logger.warning("Homing not available, setting current position as origin")
+                return self._send_raw_gcode("G92 X0 Y0 Z0")
+        except Exception as e:
+            logger.warning(f"Homing failed: {e}. Setting current position as origin")
+            return self._send_raw_gcode("G92 X0 Y0 Z0")
     
     def get_grbl_status(self) -> str:
         """Get GRBL real-time status"""
@@ -273,15 +278,23 @@ class CameraPositionController:
     def __init__(self, gcode_controller: ArduinoGCodeController):
         self.controller = gcode_controller
         self.planner = PathPlanner(gcode_controller)
-        self.safe_height = 50.0  # Safe Z height for movements
+        self.safe_height = 10.0  # Reduced safe Z height for safer testing
         
     def initialize_system(self) -> bool:
-        """Initialize and home the camera positioning system"""
+        """Initialize the camera positioning system"""
         if not self.controller.connect():
             return False
         
-        logger.info("Homing camera positioning system...")
-        return self.controller.home_axes()
+        logger.info("Initializing camera positioning system...")
+        
+        # Try to home, but don't fail if homing isn't available
+        home_success = self.controller.home_axes()
+        if home_success:
+            logger.info("System initialized successfully")
+        else:
+            logger.warning("Homing not available, but system is connected")
+        
+        return True  # Continue even if homing fails
     
     def move_to_capture_position(self, x: float, y: float, z: float = None, 
                                 feedrate: float = 1000) -> bool:
@@ -328,9 +341,9 @@ class CameraPositionController:
         return self.planner.execute_path(circular_path, feedrate, pause_between_points=1.0)
     
     def return_to_home(self) -> bool:
-        """Return camera to home position"""
-        logger.info("Returning to home position")
-        return self.controller.home_axes()
+        """Return camera to origin position"""
+        logger.info("Returning to origin position")
+        return self.controller.move_to_point(Point(0, 0, 0), feedrate=500)
     
     def emergency_stop(self):
         """Emergency stop - immediately halt all movement"""
@@ -409,6 +422,46 @@ def test_single_axis(axis: str = 'X', distance: float = 50.0, steps: int = 5):
         return False
     finally:
         camera_system.shutdown()
+
+def test_simple_movement():
+    """Test simple movement without homing requirement"""
+    controller = ArduinoGCodeController('/dev/ttyUSB0')
+    
+    try:
+        # Just connect, don't initialize system
+        if not controller.connect():
+            logger.error("Failed to connect to GRBL")
+            return False
+        
+        logger.info("Testing simple movements (no homing required)...")
+        
+        # Set current position as origin
+        controller._send_raw_gcode("G92 X0 Y0 Z0")
+        
+        # Test small movements
+        movements = [
+            Point(10, 0, 0),   # Move X 10mm
+            Point(10, 10, 0),  # Move Y 10mm
+            Point(0, 10, 0),   # Move X back to 0
+            Point(0, 0, 0)     # Return to origin
+        ]
+        
+        for i, point in enumerate(movements):
+            logger.info(f"Moving to: X{point.x} Y{point.y} Z{point.z}")
+            success = controller.move_to_point(point, feedrate=300)
+            if not success:
+                logger.error(f"Failed movement {i}")
+                return False
+            time.sleep(2)  # Wait between movements
+        
+        logger.info("Simple movement test completed successfully!")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Simple movement test failed: {e}")
+        return False
+    finally:
+        controller.disconnect()
 
 def test_grbl_connection():
     """Test GRBL connection and basic functionality"""
@@ -489,29 +542,33 @@ if __name__ == "__main__":
     print("Camera Positioning G-code Controller (GRBL)")
     print("Available tests:")
     print("1. Test GRBL connection")
-    print("2. Single axis test (X, Y, or Z)")
-    print("3. Basic movement test (square pattern)")
-    print("4. Exit")
+    print("2. Simple movement test (no homing)")
+    print("3. Single axis test (X, Y, or Z)")
+    print("4. Basic movement test (square pattern)")
+    print("5. Exit")
     
-    choice = input("Select test (1-4): ").strip()
+    choice = input("Select test (1-5): ").strip()
     
     if choice == "1":
         print("Testing GRBL connection...")
         test_grbl_connection()
     elif choice == "2":
+        print("Running simple movement test...")
+        test_simple_movement()
+    elif choice == "3":
         axis = input("Enter axis to test (X/Y/Z): ").strip().upper()
         if axis in ['X', 'Y', 'Z']:
-            distance = float(input(f"Enter maximum {axis} distance (mm, default 50): ") or "50")
-            steps = int(input("Enter number of steps (default 5): ") or "5")
+            distance = float(input(f"Enter maximum {axis} distance (mm, default 20): ") or "20")
+            steps = int(input("Enter number of steps (default 3): ") or "3")
             print(f"Running single {axis}-axis test...")
             test_single_axis(axis, distance, steps)
         else:
             print("Invalid axis. Please enter X, Y, or Z.")
-    elif choice == "3":
+    elif choice == "4":
         print("Running basic movement test...")
         test_basic_movement()
-    elif choice == "4":
+    elif choice == "5":
         print("Exiting...")
     else:
-        print("Invalid choice. Running GRBL connection test by default...")
-        test_grbl_connection()
+        print("Invalid choice. Running simple movement test...")
+        test_simple_movement()
