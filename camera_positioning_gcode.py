@@ -118,47 +118,69 @@ class ArduinoGCodeController:
             self.serial_connection.write(command.encode())
             logger.debug(f"Sent: {gcode}")
             
-            # Wait for response - GRBL can send multiple types
-            response = self.serial_connection.readline().decode().strip()
-            
-            # Handle different GRBL response types
-            if response == "ok":
-                logger.debug(f"Command acknowledged: {gcode}")
-                return True
-            elif response.startswith("Grbl"):
-                # GRBL version/startup message
-                self.grbl_version = response
-                logger.info(f"GRBL Version: {response}")
-                return True
-            elif response.startswith("error:"):
-                logger.error(f"GRBL error: {response}")
-                return False
-            elif response.startswith("ALARM:"):
-                logger.error(f"GRBL alarm: {response}")
-                return False
-            elif response.startswith("$"):
-                # GRBL settings response
-                logger.debug(f"GRBL setting: {response}")
-                return True
-            elif response == "":
-                # Empty response - might be normal for some commands
-                logger.debug(f"Empty response for: {gcode}")
-                return True
-            else:
-                logger.warning(f"Unexpected GRBL response: {response}")
-                return True  # Continue anyway for unknown responses
+            # Wait for response - GRBL sends "ok" when movement is complete
+            start_time = time.time()
+            while True:
+                if self.serial_connection.in_waiting > 0:
+                    response = self.serial_connection.readline().decode().strip()
+                    
+                    # Handle different GRBL response types
+                    if response == "ok":
+                        logger.debug(f"Command completed: {gcode}")
+                        return True
+                    elif response.startswith("Grbl"):
+                        # GRBL version/startup message
+                        self.grbl_version = response
+                        logger.info(f"GRBL Version: {response}")
+                        return True
+                    elif response.startswith("error:"):
+                        logger.error(f"GRBL error: {response}")
+                        return False
+                    elif response.startswith("ALARM:"):
+                        logger.error(f"GRBL alarm: {response}")
+                        return False
+                    elif response.startswith("$"):
+                        # GRBL settings response
+                        logger.debug(f"GRBL setting: {response}")
+                        return True
+                    elif response == "":
+                        # Empty response - continue waiting
+                        continue
+                    else:
+                        logger.debug(f"GRBL response: {response}")
+                        # For movement commands, continue waiting for "ok"
+                        if gcode.startswith(('G0', 'G1', 'G2', 'G3')):
+                            continue
+                        else:
+                            return True
+                
+                # Check for timeout
+                if time.time() - start_time > self.timeout:
+                    logger.error(f"Timeout waiting for response to: {gcode}")
+                    return False
+                
+                time.sleep(0.01)  # Small delay to prevent busy waiting
                 
         except Exception as e:
             logger.error(f"Error sending G-code: {e}")
             return False
     
     def move_to_point(self, target: Point, feedrate: float = 1000, movement_type: MovementType = MovementType.LINEAR) -> bool:
-        """Move to a specific point"""
+        """Move to a specific point and wait for completion"""
         gcode = f"{movement_type.value} X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} F{feedrate}"
         
+        logger.debug(f"Moving to: X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f}")
+        
+        # Send movement command
         if self._send_raw_gcode(gcode):
-            self.current_position = target
-            return True
+            # Additional wait for movement completion using status query
+            if self.wait_for_movement_complete():
+                self.current_position = target
+                logger.debug(f"Successfully moved to: X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f}")
+                return True
+            else:
+                logger.error("Movement did not complete properly")
+                return False
         return False
     
     def home_axes(self, axes: str = "XYZ") -> bool:
@@ -202,6 +224,43 @@ class ArduinoGCodeController:
             logger.error(f"Error sending GRBL reset: {e}")
         return False
     
+    def wait_for_movement_complete(self, timeout: float = 30.0) -> bool:
+        """Wait for GRBL to complete all movements"""
+        start_time = time.time()
+        
+        while True:
+            # Get GRBL status
+            try:
+                self.serial_connection.write(b"?")
+                time.sleep(0.1)
+                
+                if self.serial_connection.in_waiting > 0:
+                    status = self.serial_connection.readline().decode().strip()
+                    logger.debug(f"GRBL Status: {status}")
+                    
+                    # Parse status - look for "Idle" state
+                    if "Idle" in status:
+                        logger.debug("Movement completed - GRBL is idle")
+                        return True
+                    elif "Run" in status:
+                        logger.debug("Movement in progress...")
+                        time.sleep(0.1)
+                        continue
+                    elif "Alarm" in status:
+                        logger.error("GRBL is in alarm state")
+                        return False
+                
+                # Check timeout
+                if time.time() - start_time > timeout:
+                    logger.error("Timeout waiting for movement completion")
+                    return False
+                
+                time.sleep(0.1)
+                
+            except Exception as e:
+                logger.error(f"Error checking movement status: {e}")
+                return False
+    
     def set_relative_mode(self):
         """Set to relative positioning mode"""
         return self._send_raw_gcode("G91")
@@ -226,8 +285,8 @@ class ArduinoGCodeController:
             '$112': '100',    # Z-axis max rate (slower for precision)
             
             # Acceleration (mm/sec²)
-            '$120': '50.0',   # X-axis acceleration
-            '$121': '50.0',   # Y-axis acceleration
+            '$120': '30.0',   # X-axis acceleration
+            '$121': '30.0',   # Y-axis acceleration
             '$122': '20.0',   # Z-axis acceleration (slower for stability)
             
             # Travel resolution (mm)
