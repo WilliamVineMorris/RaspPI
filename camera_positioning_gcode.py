@@ -216,13 +216,13 @@ class ArduinoGCodeController:
         # Default settings for camera positioning (modify as needed for your hardware)
         default_settings = {
             # Steps per mm (adjust for your motors/mechanics)
-            '$100': '400.0',    # X-axis steps/mm (belt drive example)
-            '$101': '400.0',    # Y-axis steps/mm 
-            '$102': '400.0',   # Z-axis steps/mm (lead screw example)
+            '$100': '40.0',    # X-axis steps/mm (belt drive example)
+            '$101': '40.0',    # Y-axis steps/mm 
+            '$102': '40.0',   # Z-axis steps/mm (lead screw example)
             
             # Maximum rates (mm/min)
-            '$110': '500',    # X-axis max rate
-            '$111': '500',    # Y-axis max rate  
+            '$110': '100',    # X-axis max rate
+            '$111': '100',    # Y-axis max rate  
             '$112': '100',    # Z-axis max rate (slower for precision)
             
             # Acceleration (mm/sec²)
@@ -237,7 +237,7 @@ class ArduinoGCodeController:
             '$22': '0',        # Homing cycle enable (0=disable, 1=enable)
             '$23': '0',        # Homing direction invert mask
             '$24': '25.0',     # Homing feed rate (mm/min)
-            '$25': '500.0',    # Homing seek rate (mm/min)
+            '$25': '100.0',    # Homing seek rate (mm/min)
             
             # Limits and safety
             '$20': '0',        # Soft limits enable (0=disable, 1=enable)
