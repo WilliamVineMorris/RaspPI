@@ -442,225 +442,266 @@ class IntegratedCameraSystem:
         """Setup Flask routes for web interface"""
         logger.info("Setting up Flask routes...")
         
-        # Add error handler for unhandled exceptions
-        @self.app.errorhandler(Exception)
-        def handle_exception(e):
-            logger.error(f"Unhandled Flask exception: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            return jsonify({"error": f"Server error: {str(e)}"}), 500
-        
-        logger.info("Added exception handler")
-        
-        @self.app.route('/')
-        def index():
-            """Main control interface"""
-            return render_template_string(CONTROL_INTERFACE_HTML)
-        
-        logger.info("Added route: /")
-        
-        @self.app.route('/ping')
-        def ping():
-            """Simple ping test"""
-            return jsonify({"status": "alive", "message": "Server is responding"})
-        
-        logger.info("Added route: /ping")
-        
-        @self.app.route('/grbl_status')
-        def grbl_status():
-            """Check GRBL connection and status"""
-            try:
-                connected = self.grbl_controller.is_connected
-                if connected:
-                    status = self.grbl_controller.get_grbl_status()
-                    try:
-                        pos = self.grbl_controller.current_position
-                        position = {"x": pos.x, "y": pos.y, "z": pos.z}
-                    except Exception as e:
-                        position = {"error": f"Failed to get position: {str(e)}"}
-                else:
-                    status = "Not connected"
-                    position = {"error": "Not connected"}
-                
-                return jsonify({
-                    "connected": connected,
-                    "grbl_status": status,
-                    "position": position,
-                    "port": getattr(self.grbl_controller, 'port', 'Unknown')
-                })
-            except Exception as e:
-                return jsonify({
-                    "connected": False,
-                    "error": f"GRBL status check failed: {str(e)}",
-                    "port": getattr(self.grbl_controller, 'port', 'Unknown')
-                })
-        
-        logger.info("Added route: /grbl_status")
-        
-        @self.app.route('/button_test')
-        def button_test():
-            """Simple button test"""
-            logger.info("Button test route called!")
-            return jsonify({"status": "success", "message": "Button click received!"})
-        
-        logger.info("Added route: /button_test")
-        
-        @self.app.route('/debug_routes')
-        def debug_routes():
-            """Debug: List all registered routes"""
-            routes = []
-            for rule in self.app.url_map.iter_rules():
-                routes.append({
-                    'rule': str(rule),
-                    'methods': list(rule.methods) if rule.methods else [],
-                    'endpoint': rule.endpoint
-                })
-            return jsonify({"routes": routes})
-        
-        @self.app.route('/test_json')
-        def test_json():
-            """Test JSON response"""
-            logger.info("Test JSON route called")
-            return jsonify({"status": "success", "message": "JSON response working"})
-        
-        @self.app.route('/video_feed')
-        def video_feed():
-            """Live video stream"""
-            return Response(self._generate_frames(),
-                          mimetype='multipart/x-mixed-replace; boundary=frame')
-        
-        @self.app.route('/scan_status')
-        def scan_status():
-            """Get current scan status"""
-            status_data = self.current_scan_data.copy()
-            # Add GRBL connection status
-            status_data["grbl_connected"] = self.grbl_controller.is_connected
-            status_data["grbl_status"] = self.grbl_controller.get_grbl_status() if self.grbl_controller.is_connected else "Disconnected"
-            return jsonify(status_data)
-        
-        @self.app.route('/start_grid_scan/<float:x1>/<float:y1>/<float:x2>/<float:y2>/<int:grid_x>/<int:grid_y>')
-        def start_grid_scan(x1, y1, x2, y2, grid_x, grid_y):
-            """Start a grid scan"""
-            try:
-                logger.info(f"Web interface grid scan request: corner1=({x1},{y1}) corner2=({x2},{y2}) grid=({grid_x},{grid_y})")
-                
-                if self.current_scan_data["active"]:
-                    logger.warning("Grid scan request rejected - scan already in progress")
-                    return jsonify({"error": "Scan already in progress"}), 400
-                
-                corner1 = Point(x1, y1, self.scan_config.safe_height)
-                corner2 = Point(x2, y2, self.scan_config.safe_height)
-                
-                logger.info(f"Starting grid scan thread...")
-                
-                # Start scan in background thread
-                scan_thread = threading.Thread(
-                    target=self.grid_scan_with_photos, 
-                    args=(corner1, corner2, (grid_x, grid_y))
-                )
-                scan_thread.daemon = True
-                scan_thread.start()
-                
-                logger.info(f"Grid scan thread started successfully")
-                return jsonify({"message": "Grid scan started", "grid_size": [grid_x, grid_y]})
-                
-            except Exception as e:
-                logger.error(f"Error starting grid scan: {e}")
-                return jsonify({"error": f"Failed to start grid scan: {str(e)}"}), 500
-        
-        @self.app.route('/start_circular_scan/<float:center_x>/<float:center_y>/<float:radius>/<int:positions>')
-        def start_circular_scan(center_x, center_y, radius, positions):
-            """Start a circular scan"""
-            try:
-                logger.info(f"Web interface circular scan request: center=({center_x},{center_y}) radius={radius} positions={positions}")
-                
-                if self.current_scan_data["active"]:
-                    logger.warning("Circular scan request rejected - scan already in progress")
-                    return jsonify({"error": "Scan already in progress"}), 400
-                
-                center = Point(center_x, center_y, self.scan_config.safe_height)
-                
-                logger.info(f"Starting circular scan thread...")
-                
-                # Start scan in background thread
-                scan_thread = threading.Thread(
-                    target=self.circular_scan_with_photos,
-                    args=(center, radius, positions)
-                )
-                scan_thread.daemon = True
-                scan_thread.start()
-                
-                logger.info(f"Circular scan thread started successfully")
-                return jsonify({"message": "Circular scan started", "center": [center_x, center_y], "radius": radius})
-                
-            except Exception as e:
-                logger.error(f"Error starting circular scan: {e}")
-                return jsonify({"error": f"Failed to start circular scan: {str(e)}"}), 500
-        
-        @self.app.route('/emergency_stop')
-        def emergency_stop():
-            """Emergency stop all operations"""
-            self.camera_controller.emergency_stop()
-            self.current_scan_data["active"] = False
-            return jsonify({"message": "Emergency stop activated"})
-        
-        @self.app.route('/test_move_simple/<float:x>/<float:y>/<float:z>')
-        def test_move_simple(x, y, z):
-            """Simple move test without threading"""
-            try:
-                logger.info(f"=== SIMPLE MOVE TEST ===")
-                logger.info(f"Test move request: X{x} Y{y} Z{z}")
-                
-                # Check GRBL connection
-                if not self.grbl_controller.is_connected:
-                    return jsonify({"error": "GRBL not connected"}), 500
-                
-                # Test Point creation
-                logger.info(f"Testing Point creation...")
-                try:
-                    target = Point(x, y, z)
-                    logger.info(f"Point created successfully: {target}")
-                except Exception as point_error:
-                    logger.error(f"Point creation failed: {point_error}")
-                    return jsonify({"error": f"Point creation failed: {str(point_error)}"}), 500
-                
-                # Test current position access
-                logger.info(f"Testing current position access...")
-                try:
-                    current = self.grbl_controller.current_position
-                    logger.info(f"Current position: {current}")
-                except Exception as pos_error:
-                    logger.error(f"Position access failed: {pos_error}")
-                    return jsonify({"error": f"Position access failed: {str(pos_error)}"}), 500
-                
-                # Test scan config access
-                logger.info(f"Testing scan config access...")
-                try:
-                    feedrate = self.scan_config.movement_feedrate
-                    logger.info(f"Feedrate: {feedrate}")
-                except Exception as config_error:
-                    logger.error(f"Config access failed: {config_error}")
-                    return jsonify({"error": f"Config access failed: {str(config_error)}"}), 500
-                
-                return jsonify({
-                    "message": "Simple move test passed",
-                    "target": {"x": target.x, "y": target.y, "z": target.z},
-                    "current": {"x": current.x, "y": current.y, "z": current.z},
-                    "feedrate": feedrate
-                })
-                
-            except Exception as e:
-                logger.error(f"Simple move test exception: {e}")
+        try:
+            # Add error handler for unhandled exceptions
+            @self.app.errorhandler(Exception)
+            def handle_exception(e):
+                logger.error(f"Unhandled Flask exception: {e}")
                 logger.error(f"Traceback: {traceback.format_exc()}")
-                return jsonify({"error": f"Simple move test failed: {str(e)}"}), 500
+                return jsonify({"error": f"Server error: {str(e)}"}), 500
+            
+            logger.info("Added exception handler")
+            
+            @self.app.route('/')
+            def index():
+                """Main control interface"""
+                return render_template_string(CONTROL_INTERFACE_HTML)
+            
+            logger.info("Added route: /")
+            
+            @self.app.route('/ping')
+            def ping():
+                """Simple ping test"""
+                return jsonify({"status": "alive", "message": "Server is responding"})
+            
+            logger.info("Added route: /ping")
+            
+            @self.app.route('/grbl_status')
+            def grbl_status():
+                """Check GRBL connection and status"""
+                try:
+                    connected = self.grbl_controller.is_connected
+                    if connected:
+                        status = self.grbl_controller.get_grbl_status()
+                        try:
+                            pos = self.grbl_controller.current_position
+                            position = {"x": pos.x, "y": pos.y, "z": pos.z}
+                        except Exception as e:
+                            position = {"error": f"Failed to get position: {str(e)}"}
+                    else:
+                        status = "Not connected"
+                        position = {"error": "Not connected"}
+                    
+                    return jsonify({
+                        "connected": connected,
+                        "grbl_status": status,
+                        "position": position,
+                        "port": getattr(self.grbl_controller, 'port', 'Unknown')
+                    })
+                except Exception as e:
+                    return jsonify({
+                        "connected": False,
+                        "error": f"GRBL status check failed: {str(e)}",
+                        "port": getattr(self.grbl_controller, 'port', 'Unknown')
+                    })
+            
+            logger.info("Added route: /grbl_status")
+            
+            @self.app.route('/button_test')
+            def button_test():
+                """Simple button test"""
+                logger.info("Button test route called!")
+                return jsonify({"status": "success", "message": "Button click received!"})
+            
+            logger.info("Added route: /button_test")
+            
+            @self.app.route('/debug_routes')
+            def debug_routes():
+                """Debug: List all registered routes"""
+                routes = []
+                for rule in self.app.url_map.iter_rules():
+                    routes.append({
+                        'rule': str(rule),
+                        'methods': list(rule.methods) if rule.methods else [],
+                        'endpoint': rule.endpoint
+                    })
+                return jsonify({"routes": routes})
+            
+            @self.app.route('/test_json')
+            def test_json():
+                """Test JSON response"""
+                logger.info("Test JSON route called")
+                return jsonify({"status": "success", "message": "JSON response working"})
+            
+            @self.app.route('/video_feed')
+            def video_feed():
+                """Live video stream"""
+                return Response(self._generate_frames(),
+                              mimetype='multipart/x-mixed-replace; boundary=frame')
+            
+            @self.app.route('/scan_status')
+            def scan_status():
+                """Get current scan status"""
+                status_data = self.current_scan_data.copy()
+                # Add GRBL connection status
+                status_data["grbl_connected"] = self.grbl_controller.is_connected
+                status_data["grbl_status"] = self.grbl_controller.get_grbl_status() if self.grbl_controller.is_connected else "Disconnected"
+                return jsonify(status_data)
+            
+            logger.info("=== REGISTERING PARAMETERIZED ROUTES ===")
+            
+        except Exception as e:
+            logger.error(f"ERROR during basic route setup: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return
         
-        @self.app.route('/move_to/<float:x>/<float:y>/<float:z>', methods=['GET', 'POST'])
-        def move_to_position(x, y, z):
-            """Move to specific position"""
-            try:
-                logger.info(f"=== MOVE TO POSITION ROUTE CALLED ===")
-                logger.info(f"Web interface move request: X{x} Y{y} Z{z}")
-                logger.info(f"Request method: {request.method}")
-                logger.info(f"Request URL: {request.url}")
+        try:
+            logger.info("Registering grid scan route...")
+            @self.app.route('/start_grid_scan/<float:x1>/<float:y1>/<float:x2>/<float:y2>/<int:grid_x>/<int:grid_y>')
+            def start_grid_scan(x1, y1, x2, y2, grid_x, grid_y):
+                """Start a grid scan"""
+                try:
+                    logger.info(f"Web interface grid scan request: corner1=({x1},{y1}) corner2=({x2},{y2}) grid=({grid_x},{grid_y})")
+                    
+                    if self.current_scan_data["active"]:
+                        logger.warning("Grid scan request rejected - scan already in progress")
+                        return jsonify({"error": "Scan already in progress"}), 400
+                    
+                    corner1 = Point(x1, y1, self.scan_config.safe_height)
+                    corner2 = Point(x2, y2, self.scan_config.safe_height)
+                    
+                    logger.info(f"Starting grid scan thread...")
+                    
+                    # Start scan in background thread
+                    scan_thread = threading.Thread(
+                        target=self.grid_scan_with_photos, 
+                        args=(corner1, corner2, (grid_x, grid_y))
+                    )
+                    scan_thread.daemon = True
+                    scan_thread.start()
+                    
+                    logger.info(f"Grid scan thread started successfully")
+                    return jsonify({"message": "Grid scan started", "grid_size": [grid_x, grid_y]})
+                    
+                except Exception as e:
+                    logger.error(f"Error starting grid scan: {e}")
+                    return jsonify({"error": f"Failed to start grid scan: {str(e)}"}), 500
+            
+            logger.info("Added route: /start_grid_scan/<float:x1>/<float:y1>/<float:x2>/<float:y2>/<int:grid_x>/<int:grid_y>")
+            
+        except Exception as e:
+            logger.error(f"ERROR registering grid scan route: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        logger.info("Added route: /start_grid_scan/<float:x1>/<float:y1>/<float:x2>/<float:y2>/<int:grid_x>/<int:grid_y>")
+        
+        try:
+            logger.info("Registering circular scan route...")
+            @self.app.route('/start_circular_scan/<float:center_x>/<float:center_y>/<float:radius>/<int:positions>')
+            def start_circular_scan(center_x, center_y, radius, positions):
+                """Start a circular scan"""
+                try:
+                    logger.info(f"Web interface circular scan request: center=({center_x},{center_y}) radius={radius} positions={positions}")
+                    
+                    if self.current_scan_data["active"]:
+                        logger.warning("Circular scan request rejected - scan already in progress")
+                        return jsonify({"error": "Scan already in progress"}), 400
+                    
+                    center = Point(center_x, center_y, self.scan_config.safe_height)
+                    
+                    logger.info(f"Starting circular scan thread...")
+                    
+                    # Start scan in background thread
+                    scan_thread = threading.Thread(
+                        target=self.circular_scan_with_photos,
+                        args=(center, radius, positions)
+                    )
+                    scan_thread.daemon = True
+                    scan_thread.start()
+                    
+                    logger.info(f"Circular scan thread started successfully")
+                    return jsonify({"message": "Circular scan started", "center": [center_x, center_y], "radius": radius})
+                    
+                except Exception as e:
+                    logger.error(f"Error starting circular scan: {e}")
+                    return jsonify({"error": f"Failed to start circular scan: {str(e)}"}), 500
+            
+            logger.info("Added route: /start_circular_scan/<float:center_x>/<float:center_y>/<float:radius>/<int:positions>")
+            
+        except Exception as e:
+            logger.error(f"ERROR registering circular scan route: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        try:
+            @self.app.route('/emergency_stop')
+            def emergency_stop():
+                """Emergency stop all operations"""
+                self.camera_controller.emergency_stop()
+                self.current_scan_data["active"] = False
+                return jsonify({"message": "Emergency stop activated"})
+            
+        except Exception as e:
+            logger.error(f"ERROR registering emergency stop route: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        try:
+            logger.info("Registering test move simple route...")
+            @self.app.route('/test_move_simple/<float:x>/<float:y>/<float:z>')
+            def test_move_simple(x, y, z):
+                """Simple move test without threading"""
+                try:
+                    logger.info(f"=== SIMPLE MOVE TEST ===")
+                    logger.info(f"Test move request: X{x} Y{y} Z{z}")
+                    
+                    # Check GRBL connection
+                    if not self.grbl_controller.is_connected:
+                        return jsonify({"error": "GRBL not connected"}), 500
+                    
+                    # Test Point creation
+                    logger.info(f"Testing Point creation...")
+                    try:
+                        target = Point(x, y, z)
+                        logger.info(f"Point created successfully: {target}")
+                    except Exception as point_error:
+                        logger.error(f"Point creation failed: {point_error}")
+                        return jsonify({"error": f"Point creation failed: {str(point_error)}"}), 500
+                    
+                    # Test current position access
+                    logger.info(f"Testing current position access...")
+                    try:
+                        current = self.grbl_controller.current_position
+                        logger.info(f"Current position: {current}")
+                    except Exception as pos_error:
+                        logger.error(f"Position access failed: {pos_error}")
+                        return jsonify({"error": f"Position access failed: {str(pos_error)}"}), 500
+                    
+                    # Test scan config access
+                    logger.info(f"Testing scan config access...")
+                    try:
+                        feedrate = self.scan_config.movement_feedrate
+                        logger.info(f"Feedrate: {feedrate}")
+                    except Exception as config_error:
+                        logger.error(f"Config access failed: {config_error}")
+                        return jsonify({"error": f"Config access failed: {str(config_error)}"}), 500
+                    
+                    return jsonify({
+                        "message": "Simple move test passed",
+                        "target": {"x": target.x, "y": target.y, "z": target.z},
+                        "current": {"x": current.x, "y": current.y, "z": current.z},
+                        "feedrate": feedrate
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Simple move test exception: {e}")
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    return jsonify({"error": f"Simple move test failed: {str(e)}"}), 500
+            
+            logger.info("Added route: /test_move_simple/<float:x>/<float:y>/<float:z>")
+            
+        except Exception as e:
+            logger.error(f"ERROR registering test move simple route: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        try:
+            logger.info("Registering move_to route...")
+            @self.app.route('/move_to/<float:x>/<float:y>/<float:z>', methods=['GET', 'POST'])
+            def move_to_position(x, y, z):
+                """Move to specific position"""
+                try:
+                    logger.info(f"=== MOVE TO POSITION ROUTE CALLED ===")
+                    logger.info(f"Web interface move request: X{x} Y{y} Z{z}")
+                    logger.info(f"Request method: {request.method}")
+                    logger.info(f"Request URL: {request.url}")
                 
                 if self.current_scan_data["active"]:
                     logger.warning("Move request rejected - scan already in progress")
