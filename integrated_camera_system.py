@@ -84,7 +84,10 @@ class IntegratedCameraSystem:
         
         # Flask app for web interface
         self.app = Flask(__name__)
+        self.app.config['DEBUG'] = False  # Disable debug mode but keep logging
         self.video_server_port = video_server_port
+        
+        logger.info("Flask app created successfully")
         
         # Scan configuration
         self.scan_config = ScanConfig()
@@ -420,6 +423,7 @@ class IntegratedCameraSystem:
     # Flask routes for web interface
     def _setup_routes(self):
         """Setup Flask routes for web interface"""
+        logger.info("Setting up Flask routes...")
         
         # Add error handler for unhandled exceptions
         @self.app.errorhandler(Exception)
@@ -429,10 +433,21 @@ class IntegratedCameraSystem:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return jsonify({"error": f"Server error: {str(e)}"}), 500
         
+        logger.info("Added exception handler")
+        
         @self.app.route('/')
         def index():
             """Main control interface"""
             return render_template_string(CONTROL_INTERFACE_HTML)
+        
+        logger.info("Added route: /")
+        
+        @self.app.route('/ping')
+        def ping():
+            """Simple ping test"""
+            return jsonify({"status": "alive", "message": "Server is responding"})
+        
+        logger.info("Added route: /ping")
         
         @self.app.route('/debug_routes')
         def debug_routes():
@@ -643,6 +658,8 @@ class IntegratedCameraSystem:
             except Exception as e:
                 logger.error(f"Error starting return home: {e}")
                 return jsonify({"error": f"Failed to start return home: {str(e)}"}), 500
+        
+        logger.info("Flask routes setup completed successfully")
     
     def _generate_frames(self):
         """Generate video frames for streaming"""
@@ -794,6 +811,7 @@ CONTROL_INTERFACE_HTML = """
                 
                 <div>
                     <button class="btn-success" onclick="capturePhoto()">Capture Photo</button>
+                    <button class="btn-primary" onclick="ping()">Ping Server</button>
                     <button class="btn-primary" onclick="testJSON()">Test JSON Response</button>
                     <button class="btn-primary" onclick="debugRoutes()">Debug Routes</button>
                     <button class="btn-primary" onclick="testConnection()">Test GRBL Connection</button>
@@ -811,6 +829,32 @@ CONTROL_INTERFACE_HTML = """
     </div>
     
     <script>
+        // Add global error handler
+        window.addEventListener('error', function(e) {
+            console.error('JavaScript error:', e.error);
+            console.error('Error details:', e.filename, e.lineno, e.colno);
+        });
+        
+        function ping() {
+            console.log('Pinging server...');
+            fetch('/ping')
+                .then(response => {
+                    console.log(`Ping response status: ${response.status}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Ping response data:', data);
+                    alert('Server ping successful: ' + data.message);
+                })
+                .catch(error => {
+                    console.error('Ping error:', error);
+                    alert('Server ping failed: ' + error.message);
+                });
+        }
+        
         function updateStatus() {
             fetch('/scan_status')
                 .then(response => response.json())
@@ -1037,6 +1081,16 @@ CONTROL_INTERFACE_HTML = """
                 .then(response => response.json())
                 .then(data => alert(data.message));
         }
+        
+        // Page initialization
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('=== PAGE LOADED ===');
+            console.log('Current URL:', window.location.href);
+            console.log('Starting status updates...');
+            
+            // Test basic server connectivity on page load
+            ping();
+        });
         
         // Update status every 2 seconds
         setInterval(updateStatus, 2000);
