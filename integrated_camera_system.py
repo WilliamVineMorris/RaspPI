@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from enum import Enum
 import logging
 from datetime import datetime
-from flask import Flask, Response, send_file, jsonify, render_template_string
+from flask import Flask, Response, send_file, jsonify, render_template_string, request
 from picamera2 import Picamera2
 import cv2
 import io
@@ -421,10 +421,24 @@ class IntegratedCameraSystem:
     def _setup_routes(self):
         """Setup Flask routes for web interface"""
         
+        # Add error handler for unhandled exceptions
+        @self.app.errorhandler(Exception)
+        def handle_exception(e):
+            logger.error(f"Unhandled Flask exception: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return jsonify({"error": f"Server error: {str(e)}"}), 500
+        
         @self.app.route('/')
         def index():
             """Main control interface"""
             return render_template_string(CONTROL_INTERFACE_HTML)
+        
+        @self.app.route('/test_json')
+        def test_json():
+            """Test JSON response"""
+            logger.info("Test JSON route called")
+            return jsonify({"status": "success", "message": "JSON response working"})
         
         @self.app.route('/video_feed')
         def video_feed():
@@ -511,14 +525,23 @@ class IntegratedCameraSystem:
         def move_to_position(x, y, z):
             """Move to specific position"""
             try:
+                logger.info(f"=== MOVE TO POSITION ROUTE CALLED ===")
                 logger.info(f"Web interface move request: X{x} Y{y} Z{z}")
+                logger.info(f"Request method: {request.method if 'request' in globals() else 'Unknown'}")
                 
                 if self.current_scan_data["active"]:
                     logger.warning("Move request rejected - scan already in progress")
                     return jsonify({"error": "Cannot move during active scan"}), 400
 
+                # Check GRBL connection
+                if not self.grbl_controller.is_connected:
+                    logger.error("GRBL controller not connected")
+                    return jsonify({"error": "GRBL controller not connected"}), 500
+
                 target = Point(x, y, z)
-                logger.info(f"Current position: X{self.grbl_controller.current_position.x} Y{self.grbl_controller.current_position.y} Z{self.grbl_controller.current_position.z}")
+                current = self.grbl_controller.current_position
+                logger.info(f"Current position: X{current.x} Y{current.y} Z{current.z}")
+                logger.info(f"Target position: X{target.x} Y{target.y} Z{target.z}")
                 
                 logger.info(f"Starting movement thread...")
                 
@@ -532,10 +555,16 @@ class IntegratedCameraSystem:
                 move_thread.start()
                 
                 logger.info(f"Movement thread started successfully")
-                return jsonify({"message": f"Moving to X{x} Y{y} Z{z}"})
+                response_data = {"message": f"Moving to X{x} Y{y} Z{z}"}
+                logger.info(f"Returning JSON response: {response_data}")
+                return jsonify(response_data)
                 
             except Exception as e:
+                logger.error(f"=== MOVE ROUTE EXCEPTION ===")
                 logger.error(f"Error starting movement: {e}")
+                logger.error(f"Exception type: {type(e)}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 return jsonify({"error": f"Failed to start movement: {str(e)}"}), 500
         
         @self.app.route('/capture_single_photo')
@@ -745,6 +774,7 @@ CONTROL_INTERFACE_HTML = """
                 
                 <div>
                     <button class="btn-success" onclick="capturePhoto()">Capture Photo</button>
+                    <button class="btn-primary" onclick="testJSON()">Test JSON Response</button>
                     <button class="btn-primary" onclick="testConnection()">Test GRBL Connection</button>
                     <button class="btn-primary" onclick="testStepMovements()">Test Step Movements</button>
                     <button class="btn-primary" onclick="returnHome()">Return Home</button>
@@ -844,6 +874,24 @@ CONTROL_INTERFACE_HTML = """
                 .catch(error => {
                     console.error('Move error:', error);
                     alert('Failed to move: ' + error.message);
+                });
+        }
+        
+        function testJSON() {
+            console.log('Testing JSON response...');
+            fetch('/test_json')
+                .then(response => {
+                    console.log(`Test JSON response status: ${response.status}`);
+                    console.log('Response headers:', response.headers);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Test JSON response data:', data);
+                    alert('JSON test successful: ' + data.message);
+                })
+                .catch(error => {
+                    console.error('Test JSON error:', error);
+                    alert('JSON test failed: ' + error.message);
                 });
         }
         
