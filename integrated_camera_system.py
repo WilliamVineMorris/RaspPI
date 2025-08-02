@@ -154,6 +154,47 @@ class IntegratedCameraSystem:
             logger.warning(f"Homing failed: {e}. System still usable.")
             return True  # Continue even if homing fails
     
+    def test_step_movements(self) -> bool:
+        """Test step-by-step movements with detailed logging"""
+        logger.info("=== Starting Step Movement Test ===")
+        
+        if not self.grbl_controller.is_connected:
+            logger.error("GRBL controller not connected")
+            return False
+        
+        # Get starting position
+        start_pos = self.grbl_controller.current_position
+        logger.info(f"Starting position: X{start_pos.x} Y{start_pos.y} Z{start_pos.z}")
+        
+        # Test movements in sequence
+        test_moves = [
+            Point(start_pos.x + 5, start_pos.y, start_pos.z),     # Move +5mm in X
+            Point(start_pos.x + 5, start_pos.y + 5, start_pos.z), # Move +5mm in Y  
+            Point(start_pos.x, start_pos.y + 5, start_pos.z),     # Move back X
+            Point(start_pos.x, start_pos.y, start_pos.z)          # Return to start
+        ]
+        
+        move_names = ["X+5mm", "Y+5mm", "X back", "Return to start"]
+        
+        for i, (move, name) in enumerate(zip(test_moves, move_names)):
+            logger.info(f"=== Move {i+1}: {name} to X{move.x} Y{move.y} Z{move.z} ===")
+            
+            success = self.grbl_controller.move_to_point(move, feedrate=200)  # Slow speed
+            
+            if success:
+                logger.info(f"✓ Move {i+1} completed successfully")
+                # Verify position
+                current = self.grbl_controller.current_position
+                logger.info(f"Current position: X{current.x} Y{current.y} Z{current.z}")
+            else:
+                logger.error(f"✗ Move {i+1} failed!")
+                return False
+            
+            time.sleep(2)  # Pause between moves
+        
+        logger.info("=== Step Movement Test Complete ===")
+        return True
+    
     def test_grbl_connection(self) -> bool:
         """Test GRBL connection and basic movement capability"""
         logger.info("Testing GRBL connection...")
@@ -292,6 +333,7 @@ class IntegratedCameraSystem:
                 }
                 
                 logger.info(f"Moving to position {i+1}/{len(scan_path)}: X{position.x:.1f} Y{position.y:.1f} Z{position.z:.1f}")
+                logger.info(f"Using feedrate: {self.scan_config.movement_feedrate}")
                 
                 # Move to position
                 success = self.grbl_controller.move_to_point(
@@ -300,8 +342,10 @@ class IntegratedCameraSystem:
                 )
                 
                 if not success:
-                    logger.error(f"Failed to move to position {i+1}")
+                    logger.error(f"Failed to move to position {i+1}: X{position.x:.1f} Y{position.y:.1f} Z{position.z:.1f}")
                     return False
+                else:
+                    logger.info(f"Successfully moved to position {i+1}: X{position.x:.1f} Y{position.y:.1f} Z{position.z:.1f}")
                 
                 # Capture photo if configured
                 if self.scan_config.capture_mode in [CaptureMode.PHOTO_AT_POSITION, CaptureMode.PHOTO_AND_STREAMING]:
@@ -448,11 +492,16 @@ class IntegratedCameraSystem:
                 return jsonify({"error": "Cannot move during active scan"}), 400
             
             target = Point(x, y, z)
+            logger.info(f"Web interface move request: X{x} Y{y} Z{z}")
+            logger.info(f"Current position: X{self.grbl_controller.current_position.x} Y{self.grbl_controller.current_position.y} Z{self.grbl_controller.current_position.z}")
+            
             success = self.grbl_controller.move_to_point(target, feedrate=self.scan_config.movement_feedrate)
             
             if success:
+                logger.info(f"Move successful: X{x} Y{y} Z{z}")
                 return jsonify({"message": f"Moved to X{x} Y{y} Z{z}"})
             else:
+                logger.error(f"Move failed: X{x} Y{y} Z{z}")
                 return jsonify({"error": "Movement failed"}), 500
         
         @self.app.route('/capture_single_photo')
@@ -474,6 +523,24 @@ class IntegratedCameraSystem:
                 return jsonify({"message": "GRBL connection test successful"})
             else:
                 return jsonify({"error": "GRBL connection test failed"}), 500
+        
+        @self.app.route('/test_step_movements')
+        def test_step_movements():
+            """Test step-by-step movements"""
+            success = self.test_step_movements()
+            if success:
+                return jsonify({"message": "Step movement test completed successfully"})
+            else:
+                return jsonify({"error": "Step movement test failed"}), 500
+        
+        @self.app.route('/get_current_position')
+        def get_current_position():
+            """Get current GRBL position"""
+            pos = self.grbl_controller.current_position
+            return jsonify({
+                "position": {"x": pos.x, "y": pos.y, "z": pos.z},
+                "grbl_status": self.grbl_controller.get_grbl_status()
+            })
         
         @self.app.route('/return_home')
         def return_home():
@@ -542,7 +609,10 @@ CONTROL_INTERFACE_HTML = """
         .btn-primary { background-color: #007bff; color: white; }
         .btn-danger { background-color: #dc3545; color: white; }
         .btn-success { background-color: #28a745; color: white; }
-        input { padding: 5px; margin: 2px; border: 1px solid #ccc; border-radius: 3px; }
+        input { padding: 5px; margin: 2px 5px 5px 2px; border: 1px solid #ccc; border-radius: 3px; width: 80px; }
+        label { display: inline-block; min-width: 120px; font-weight: bold; color: #333; margin-right: 5px; }
+        .input-group { margin-bottom: 8px; }
+        h4 { margin-bottom: 10px; color: #2c3e50; }
     </style>
 </head>
 <body>
@@ -558,21 +628,49 @@ CONTROL_INTERFACE_HTML = """
                 <h3>Scan Controls</h3>
                 <div>
                     <h4>Grid Scan</h4>
-                    <input type="number" id="grid_x1" placeholder="X1" value="0">
-                    <input type="number" id="grid_y1" placeholder="Y1" value="0">
-                    <input type="number" id="grid_x2" placeholder="X2" value="20">
-                    <input type="number" id="grid_y2" placeholder="Y2" value="20"><br>
-                    <input type="number" id="grid_size_x" placeholder="Grid X" value="3">
-                    <input type="number" id="grid_size_y" placeholder="Grid Y" value="3">
+                    <div class="input-group">
+                        <label for="grid_x1">Start X (mm):</label>
+                        <input type="number" id="grid_x1" placeholder="X1" value="0">
+                    </div>
+                    <div class="input-group">
+                        <label for="grid_y1">Start Y (mm):</label>
+                        <input type="number" id="grid_y1" placeholder="Y1" value="0">
+                    </div>
+                    <div class="input-group">
+                        <label for="grid_x2">End X (mm):</label>
+                        <input type="number" id="grid_x2" placeholder="X2" value="10">
+                    </div>
+                    <div class="input-group">
+                        <label for="grid_y2">End Y (mm):</label>
+                        <input type="number" id="grid_y2" placeholder="Y2" value="10">
+                    </div>
+                    <div class="input-group">
+                        <label for="grid_size_x">Grid Points X:</label>
+                        <input type="number" id="grid_size_x" placeholder="Grid X" value="2">
+                        <label for="grid_size_y">Grid Points Y:</label>
+                        <input type="number" id="grid_size_y" placeholder="Grid Y" value="2">
+                    </div>
                     <button class="btn-primary" onclick="startGridScan()">Start Grid Scan</button>
                 </div>
                 
                 <div>
                     <h4>Circular Scan</h4>
-                    <input type="number" id="circle_x" placeholder="Center X" value="10">
-                    <input type="number" id="circle_y" placeholder="Center Y" value="10">
-                    <input type="number" id="circle_radius" placeholder="Radius" value="5">
-                    <input type="number" id="circle_positions" placeholder="Positions" value="8">
+                    <div class="input-group">
+                        <label for="circle_x">Center X (mm):</label>
+                        <input type="number" id="circle_x" placeholder="Center X" value="10">
+                    </div>
+                    <div class="input-group">
+                        <label for="circle_y">Center Y (mm):</label>
+                        <input type="number" id="circle_y" placeholder="Center Y" value="10">
+                    </div>
+                    <div class="input-group">
+                        <label for="circle_radius">Radius (mm):</label>
+                        <input type="number" id="circle_radius" placeholder="Radius" value="5">
+                    </div>
+                    <div class="input-group">
+                        <label for="circle_positions">Number of Positions:</label>
+                        <input type="number" id="circle_positions" placeholder="Positions" value="8">
+                    </div>
                     <button class="btn-primary" onclick="startCircularScan()">Start Circular Scan</button>
                 </div>
             </div>
@@ -581,15 +679,26 @@ CONTROL_INTERFACE_HTML = """
                 <h3>Manual Controls</h3>
                 <div>
                     <h4>Move To Position</h4>
-                    <input type="number" id="move_x" placeholder="X" value="0">
-                    <input type="number" id="move_y" placeholder="Y" value="0">
-                    <input type="number" id="move_z" placeholder="Z" value="5">
+                    <div class="input-group">
+                        <label for="move_x">X Position (mm):</label>
+                        <input type="number" id="move_x" placeholder="X" value="5">
+                    </div>
+                    <div class="input-group">
+                        <label for="move_y">Y Position (mm):</label>
+                        <input type="number" id="move_y" placeholder="Y" value="0">
+                    </div>
+                    <div class="input-group">
+                        <label for="move_z">Z Position (mm):</label>
+                        <input type="number" id="move_z" placeholder="Z" value="5">
+                    </div>
                     <button class="btn-primary" onclick="moveToPosition()">Move</button>
+                    <button class="btn-primary" onclick="getCurrentPosition()">Get Current Position</button>
                 </div>
                 
                 <div>
                     <button class="btn-success" onclick="capturePhoto()">Capture Photo</button>
                     <button class="btn-primary" onclick="testConnection()">Test GRBL Connection</button>
+                    <button class="btn-primary" onclick="testStepMovements()">Test Step Movements</button>
                     <button class="btn-primary" onclick="returnHome()">Return Home</button>
                     <button class="btn-danger" onclick="emergencyStop()">EMERGENCY STOP</button>
                 </div>
@@ -666,6 +775,22 @@ CONTROL_INTERFACE_HTML = """
                 .then(data => alert(data.message || data.error));
         }
         
+        function testStepMovements() {
+            fetch('/test_step_movements')
+                .then(response => response.json())
+                .then(data => alert(data.message || data.error));
+        }
+        
+        function getCurrentPosition() {
+            fetch('/get_current_position')
+                .then(response => response.json())
+                .then(data => {
+                    const pos = data.position;
+                    alert(`Current Position: X${pos.x} Y${pos.y} Z${pos.z}\nGRBL Status: ${data.grbl_status}`);
+                })
+                .catch(error => alert('Error getting position'));
+        }
+        
         function returnHome() {
             fetch('/return_home')
                 .then(response => response.json())
@@ -705,12 +830,13 @@ def main():
         print("\nAvailable operations:")
         print("1. Start web interface")
         print("2. Test GRBL connection and movement")
-        print("3. Run test grid scan")
-        print("4. Run test circular scan")
-        print("5. Manual photo capture test")
-        print("6. Exit")
+        print("3. Test step-by-step movements (5mm steps)")
+        print("4. Run test grid scan")
+        print("5. Run test circular scan")
+        print("6. Manual photo capture test")
+        print("7. Exit")
         
-        choice = input("\nSelect operation (1-6): ").strip()
+        choice = input("\nSelect operation (1-7): ").strip()
         
         if choice == "1":
             print(f"Starting web interface on http://localhost:{system.video_server_port}")
@@ -723,26 +849,31 @@ def main():
             print(f"GRBL test {'passed' if success else 'failed'}")
             
         elif choice == "3":
+            print("Testing step-by-step movements...")
+            success = system.test_step_movements()
+            print(f"Step movement test {'passed' if success else 'failed'}")
+            
+        elif choice == "4":
             print("Running test grid scan...")
             corner1 = Point(0, 0, 5)
             corner2 = Point(10, 10, 5)
-            success = system.grid_scan_with_photos(corner1, corner2, (3, 3))
+            success = system.grid_scan_with_photos(corner1, corner2, (2, 2))
             print(f"Grid scan {'completed' if success else 'failed'}")
             
-        elif choice == "4":
+        elif choice == "5":
             print("Running test circular scan...")
             center = Point(5, 5, 5)
-            success = system.circular_scan_with_photos(center, 3, 6)
+            success = system.circular_scan_with_photos(center, 3, 4)
             print(f"Circular scan {'completed' if success else 'failed'}")
             
-        elif choice == "5":
+        elif choice == "6":
             print("Testing manual photo capture...")
             pos = Point(0, 0, 5)
             system.grbl_controller.move_to_point(pos, feedrate=500)
             filename = system.capture_photo_at_position(pos, "test")
             print(f"Photo captured: {filename}" if filename else "Photo capture failed")
             
-        elif choice == "6":
+        elif choice == "7":
             print("Exiting...")
         
         else:
