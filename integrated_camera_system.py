@@ -983,12 +983,12 @@ CONTROL_INTERFACE_HTML = """
         }
         
         function startGridScan() {
-            const x1 = document.getElementById('grid_x1').value;
-            const y1 = document.getElementById('grid_y1').value;
-            const x2 = document.getElementById('grid_x2').value;
-            const y2 = document.getElementById('grid_y2').value;
-            const gx = document.getElementById('grid_size_x').value;
-            const gy = document.getElementById('grid_size_y').value;
+            var x1 = document.getElementById('grid_x1').value;
+            var y1 = document.getElementById('grid_y1').value;
+            var x2 = document.getElementById('grid_x2').value;
+            var y2 = document.getElementById('grid_y2').value;
+            var gx = document.getElementById('grid_size_x').value;
+            var gy = document.getElementById('grid_size_y').value;
             
             console.log('Starting grid scan: (' + x1 + ',' + y1 + ') to (' + x2 + ',' + y2 + ') with grid ' + gx + 'x' + gy);
             
@@ -1008,10 +1008,10 @@ CONTROL_INTERFACE_HTML = """
         }
         
         function startCircularScan() {
-            const x = document.getElementById('circle_x').value;
-            const y = document.getElementById('circle_y').value;
-            const r = document.getElementById('circle_radius').value;
-            const p = document.getElementById('circle_positions').value;
+            var x = document.getElementById('circle_x').value;
+            var y = document.getElementById('circle_y').value;
+            var r = document.getElementById('circle_radius').value;
+            var p = document.getElementById('circle_positions').value;
             
             console.log('Starting circular scan: center (' + x + ',' + y + ') radius ' + r + ' positions ' + p);
             
@@ -1031,9 +1031,9 @@ CONTROL_INTERFACE_HTML = """
         }
         
         function moveToPosition() {
-            const x = document.getElementById('move_x').value;
-            const y = document.getElementById('move_y').value;
-            const z = document.getElementById('move_z').value;
+            var x = document.getElementById('move_x').value;
+            var y = document.getElementById('move_y').value;
+            var z = document.getElementById('move_z').value;
             
             // Validate inputs
             if (!x || !y || !z) {
@@ -1041,7 +1041,7 @@ CONTROL_INTERFACE_HTML = """
                 return;
             }
             
-            const url = '/move_to/' + x + '/' + y + '/' + z;
+            var url = '/move_to/' + x + '/' + y + '/' + z;
             console.log('Moving to position: (' + x + ', ' + y + ', ' + z + ')');
             console.log('Request URL: ' + url);
             
@@ -1073,7 +1073,7 @@ CONTROL_INTERFACE_HTML = """
                 })
                 .then(function(data) {
                     console.log('Registered routes:', data.routes);
-                    let routeList = data.routes.map(function(r) { 
+                    var routeList = data.routes.map(function(r) { 
                         return r.rule + ' (' + r.methods.join(', ') + ')'; 
                     }).join('\n');
                     alert('Registered Routes:\n' + routeList);
@@ -1162,7 +1162,7 @@ CONTROL_INTERFACE_HTML = """
                 })
                 .then(function(data) {
                     console.log('Get position response data:', data);
-                    const pos = data.position;
+                    var pos = data.position;
                     alert('Current Position: X' + pos.x + ' Y' + pos.y + ' Z' + pos.z + '\nGRBL Status: ' + data.grbl_status);
                 })
                 .catch(function(error) {
