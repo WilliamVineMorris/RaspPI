@@ -24,6 +24,7 @@ import os
 import cv2
 import io
 import numpy as np
+import traceback
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
@@ -445,7 +446,6 @@ class IntegratedCameraSystem:
         @self.app.errorhandler(Exception)
         def handle_exception(e):
             logger.error(f"Unhandled Flask exception: {e}")
-            import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             return jsonify({"error": f"Server error: {str(e)}"}), 500
         
@@ -615,7 +615,6 @@ class IntegratedCameraSystem:
                 logger.error(f"=== MOVE ROUTE EXCEPTION ===")
                 logger.error(f"Error starting movement: {e}")
                 logger.error(f"Exception type: {type(e)}")
-                import traceback
                 logger.error(f"Traceback: {traceback.format_exc()}")
                 return jsonify({"error": f"Failed to start movement: {str(e)}"}), 500
         
