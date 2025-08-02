@@ -603,6 +603,56 @@ class IntegratedCameraSystem:
             self.current_scan_data["active"] = False
             return jsonify({"message": "Emergency stop activated"})
         
+        @self.app.route('/test_move_simple/<float:x>/<float:y>/<float:z>')
+        def test_move_simple(x, y, z):
+            """Simple move test without threading"""
+            try:
+                logger.info(f"=== SIMPLE MOVE TEST ===")
+                logger.info(f"Test move request: X{x} Y{y} Z{z}")
+                
+                # Check GRBL connection
+                if not self.grbl_controller.is_connected:
+                    return jsonify({"error": "GRBL not connected"}), 500
+                
+                # Test Point creation
+                logger.info(f"Testing Point creation...")
+                try:
+                    target = Point(x, y, z)
+                    logger.info(f"Point created successfully: {target}")
+                except Exception as point_error:
+                    logger.error(f"Point creation failed: {point_error}")
+                    return jsonify({"error": f"Point creation failed: {str(point_error)}"}), 500
+                
+                # Test current position access
+                logger.info(f"Testing current position access...")
+                try:
+                    current = self.grbl_controller.current_position
+                    logger.info(f"Current position: {current}")
+                except Exception as pos_error:
+                    logger.error(f"Position access failed: {pos_error}")
+                    return jsonify({"error": f"Position access failed: {str(pos_error)}"}), 500
+                
+                # Test scan config access
+                logger.info(f"Testing scan config access...")
+                try:
+                    feedrate = self.scan_config.movement_feedrate
+                    logger.info(f"Feedrate: {feedrate}")
+                except Exception as config_error:
+                    logger.error(f"Config access failed: {config_error}")
+                    return jsonify({"error": f"Config access failed: {str(config_error)}"}), 500
+                
+                return jsonify({
+                    "message": "Simple move test passed",
+                    "target": {"x": target.x, "y": target.y, "z": target.z},
+                    "current": {"x": current.x, "y": current.y, "z": current.z},
+                    "feedrate": feedrate
+                })
+                
+            except Exception as e:
+                logger.error(f"Simple move test exception: {e}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                return jsonify({"error": f"Simple move test failed: {str(e)}"}), 500
+        
         @self.app.route('/move_to/<float:x>/<float:y>/<float:z>', methods=['GET', 'POST'])
         def move_to_position(x, y, z):
             """Move to specific position"""
@@ -621,26 +671,34 @@ class IntegratedCameraSystem:
                     logger.error("GRBL controller not connected")
                     return jsonify({"error": "GRBL controller not connected"}), 500
 
+                # Create target point
+                logger.info(f"Creating Point object for target position...")
                 target = Point(x, y, z)
-                logger.info(f"Target position: X{target.x} Y{target.y} Z{target.z}")
+                logger.info(f"Target position created: X{target.x} Y{target.y} Z{target.z}")
                 
                 # Try to get current position safely
+                logger.info(f"Attempting to get current position...")
                 try:
                     current = self.grbl_controller.current_position
-                    logger.info(f"Current position: X{current.x} Y{current.y} Z{current.z}")
+                    logger.info(f"Current position retrieved: X{current.x} Y{current.y} Z{current.z}")
                 except Exception as pos_error:
                     logger.error(f"Failed to get current position: {pos_error}")
+                    logger.error(f"Position error traceback: {traceback.format_exc()}")
                     return jsonify({"error": f"Failed to get current position: {str(pos_error)}"}), 500
                 
-                logger.info(f"Starting movement thread...")
+                logger.info(f"Preparing to start movement thread...")
+                logger.info(f"Movement feedrate: {self.scan_config.movement_feedrate}")
                 
                 # Start movement in background thread
+                logger.info(f"Creating movement thread...")
                 move_thread = threading.Thread(
                     target=self.grbl_controller.move_to_point,
                     args=(target,),
                     kwargs={"feedrate": self.scan_config.movement_feedrate}
                 )
                 move_thread.daemon = True
+                
+                logger.info(f"Starting movement thread...")
                 move_thread.start()
                 
                 logger.info(f"Movement thread started successfully")
@@ -895,6 +953,7 @@ CONTROL_INTERFACE_HTML = """
                         <input type="number" id="move_z" placeholder="Z" value="5">
                     </div>
                     <button class="btn-primary" onclick="moveToPosition()">Move</button>
+                    <button class="btn-primary" onclick="testMoveSimple()">Test Move (Debug)</button>
                     <button class="btn-primary" onclick="getCurrentPosition()">Get Current Position</button>
                 </div>
                 
@@ -1100,6 +1159,48 @@ CONTROL_INTERFACE_HTML = """
                 .catch(function(error) {
                     console.error('Circular scan error:', error);
                     alert('Failed to start circular scan: ' + error.message);
+                });
+        }
+        
+        function testMoveSimple() {
+            var x = document.getElementById('move_x').value;
+            var y = document.getElementById('move_y').value;
+            var z = document.getElementById('move_z').value;
+            
+            // Validate inputs
+            if (!x || !y || !z) {
+                alert('Please enter all coordinates (X, Y, Z)');
+                return;
+            }
+            
+            var url = '/test_move_simple/' + x + '/' + y + '/' + z;
+            console.log('Testing simple move: (' + x + ', ' + y + ', ' + z + ')');
+            console.log('Request URL: ' + url);
+            
+            fetch(url)
+                .then(function(response) {
+                    console.log('Test move response status: ' + response.status);
+                    console.log('Response URL: ' + response.url);
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
+                    console.log('Test move response data:', data);
+                    if (data.error) {
+                        alert('Test Move Error: ' + data.error);
+                    } else {
+                        var message = 'Test Move Success!\\n' +
+                            'Target: X' + data.target.x + ' Y' + data.target.y + ' Z' + data.target.z + '\\n' +
+                            'Current: X' + data.current.x + ' Y' + data.current.y + ' Z' + data.current.z + '\\n' +
+                            'Feedrate: ' + data.feedrate;
+                        alert(message);
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Test move error:', error);
+                    alert('Test move failed: ' + error.message);
                 });
         }
         
