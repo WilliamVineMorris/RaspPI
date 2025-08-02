@@ -14,22 +14,31 @@ Features:
 - Web interface for monitoring and control
 """
 
-# import serial
+import serial
 import time
 import math
 import threading
 import requests
 import json
 import os
-
+import cv2
 import io
+import numpy as np
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
 import logging
 from datetime import datetime
 from flask import Flask, Response, send_file, jsonify, render_template_string, request
-from picamera2 import Picamera2
+
+# Try to import Picamera2, but handle gracefully if not available (e.g., on Windows)
+try:
+    from picamera2 import Picamera2
+    PICAMERA_AVAILABLE = True
+except ImportError:
+    print("Warning: Picamera2 not available - running in test mode")
+    Picamera2 = None
+    PICAMERA_AVAILABLE = False
 
 # Import our camera positioning system
 from camera_positioning_gcode import (
@@ -111,6 +120,13 @@ class IntegratedCameraSystem:
     def _init_camera(self):
         """Initialize Picamera2 with video and still configurations"""
         try:
+            if not PICAMERA_AVAILABLE:
+                logger.warning("Picamera2 not available - running in simulation mode")
+                self.picam2 = None
+                self.video_config = None
+                self.still_config = None
+                return
+                
             self.picam2 = Picamera2()
             self.video_config = self.picam2.create_video_configuration(main={"size": (1280, 720)})
             self.still_config = self.picam2.create_still_configuration(main={"size": (3280, 2464)})
@@ -119,7 +135,7 @@ class IntegratedCameraSystem:
             logger.info("Camera initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize camera: {e}")
-            raise
+            self.picam2 = None
     
     def ensure_photo_directory(self):
         """Create photo directory if it doesn't exist"""
@@ -464,7 +480,7 @@ class IntegratedCameraSystem:
             for rule in self.app.url_map.iter_rules():
                 routes.append({
                     'rule': str(rule),
-                    'methods': list(rule.methods),
+                    'methods': list(rule.methods) if rule.methods else [],
                     'endpoint': rule.endpoint
                 })
             return jsonify({"routes": routes})
@@ -671,16 +687,34 @@ class IntegratedCameraSystem:
     
     def _generate_frames(self):
         """Generate video frames for streaming"""
-        while True:
-            try:
-                frame = self.picam2.capture_array()
-                ret, buffer = cv2.imencode('.jpg', frame)
-                frame = buffer.tobytes()
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            except Exception as e:
-                logger.error(f"Frame generation error: {e}")
-                break
+        if not PICAMERA_AVAILABLE or self.picam2 is None:
+            # Generate a dummy frame for testing when camera is not available
+            dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+            dummy_frame[240-50:240+50, 320-150:320+150] = [100, 100, 255]  # Blue rectangle
+            cv2.putText(dummy_frame, 'Camera Simulation Mode', (150, 240), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            
+            while True:
+                try:
+                    ret, buffer = cv2.imencode('.jpg', dummy_frame)
+                    frame = buffer.tobytes()
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                    time.sleep(0.1)  # 10 FPS for simulation
+                except Exception as e:
+                    logger.error(f"Dummy frame generation error: {e}")
+                    break
+        else:
+            while True:
+                try:
+                    frame = self.picam2.capture_array()
+                    ret, buffer = cv2.imencode('.jpg', frame)
+                    frame = buffer.tobytes()
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                except Exception as e:
+                    logger.error(f"Frame generation error: {e}")
+                    break
     
     def start_web_interface(self):
         """Start the web interface server"""
@@ -689,7 +723,8 @@ class IntegratedCameraSystem:
         # Debug: Print all registered routes
         logger.info("=== REGISTERED FLASK ROUTES ===")
         for rule in self.app.url_map.iter_rules():
-            logger.info(f"Route: {rule.rule} -> {rule.endpoint} ({list(rule.methods)})")
+            methods = list(rule.methods) if rule.methods else []
+            logger.info(f"Route: {rule.rule} -> {rule.endpoint} ({methods})")
         logger.info("=== END ROUTES ===")
         
         self.app.run(host='0.0.0.0', port=self.video_server_port, threaded=True, debug=False)
