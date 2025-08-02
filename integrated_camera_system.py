@@ -465,6 +465,37 @@ class IntegratedCameraSystem:
         
         logger.info("Added route: /ping")
         
+        @self.app.route('/grbl_status')
+        def grbl_status():
+            """Check GRBL connection and status"""
+            try:
+                connected = self.grbl_controller.is_connected
+                if connected:
+                    status = self.grbl_controller.get_grbl_status()
+                    try:
+                        pos = self.grbl_controller.current_position
+                        position = {"x": pos.x, "y": pos.y, "z": pos.z}
+                    except Exception as e:
+                        position = {"error": f"Failed to get position: {str(e)}"}
+                else:
+                    status = "Not connected"
+                    position = {"error": "Not connected"}
+                
+                return jsonify({
+                    "connected": connected,
+                    "grbl_status": status,
+                    "position": position,
+                    "port": getattr(self.grbl_controller, 'port', 'Unknown')
+                })
+            except Exception as e:
+                return jsonify({
+                    "connected": False,
+                    "error": f"GRBL status check failed: {str(e)}",
+                    "port": getattr(self.grbl_controller, 'port', 'Unknown')
+                })
+        
+        logger.info("Added route: /grbl_status")
+        
         @self.app.route('/button_test')
         def button_test():
             """Simple button test"""
@@ -591,9 +622,15 @@ class IntegratedCameraSystem:
                     return jsonify({"error": "GRBL controller not connected"}), 500
 
                 target = Point(x, y, z)
-                current = self.grbl_controller.current_position
-                logger.info(f"Current position: X{current.x} Y{current.y} Z{current.z}")
                 logger.info(f"Target position: X{target.x} Y{target.y} Z{target.z}")
+                
+                # Try to get current position safely
+                try:
+                    current = self.grbl_controller.current_position
+                    logger.info(f"Current position: X{current.x} Y{current.y} Z{current.z}")
+                except Exception as pos_error:
+                    logger.error(f"Failed to get current position: {pos_error}")
+                    return jsonify({"error": f"Failed to get current position: {str(pos_error)}"}), 500
                 
                 logger.info(f"Starting movement thread...")
                 
@@ -864,6 +901,7 @@ CONTROL_INTERFACE_HTML = """
                 <div>
                     <button class="btn-success" onclick="capturePhoto()">Capture Photo</button>
                     <button class="btn-primary" onclick="ping()">Ping Server</button>
+                    <button class="btn-primary" onclick="checkGrblStatus()">Check GRBL Status</button>
                     <button class="btn-primary" onclick="testJSON()">Test JSON Response</button>
                     <button class="btn-primary" onclick="debugRoutes()">Debug Routes</button>
                     <button class="btn-primary" onclick="testConnection()">Test GRBL Connection</button>
@@ -962,6 +1000,41 @@ CONTROL_INTERFACE_HTML = """
                 .catch(function(error) {
                     console.error('Ping error:', error);
                     alert('Server ping failed: ' + error.message);
+                });
+        }
+        
+        function checkGrblStatus() {
+            console.log('Checking GRBL status...');
+            fetch('/grbl_status')
+                .then(function(response) {
+                    console.log('GRBL status response status: ' + response.status);
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
+                    console.log('GRBL status response data:', data);
+                    var message = 'GRBL Status:\\n' +
+                        'Connected: ' + data.connected + '\\n' +
+                        'Port: ' + data.port + '\\n' +
+                        'GRBL Status: ' + data.grbl_status + '\\n';
+                    
+                    if (data.position && !data.position.error) {
+                        message += 'Position: X' + data.position.x + ' Y' + data.position.y + ' Z' + data.position.z;
+                    } else if (data.position && data.position.error) {
+                        message += 'Position Error: ' + data.position.error;
+                    }
+                    
+                    if (data.error) {
+                        message += '\\nError: ' + data.error;
+                    }
+                    
+                    alert(message);
+                })
+                .catch(function(error) {
+                    console.error('GRBL status error:', error);
+                    alert('GRBL status check failed: ' + error.message);
                 });
         }
         
