@@ -14,14 +14,14 @@ Features:
 - Web interface for monitoring and control
 """
 
-import serial
+# import serial
 import time
 import math
 import threading
 import requests
 import json
 import os
-import cv2
+
 import io
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
@@ -30,8 +30,6 @@ import logging
 from datetime import datetime
 from flask import Flask, Response, send_file, jsonify, render_template_string, request
 from picamera2 import Picamera2
-import cv2
-import io
 
 # Import our camera positioning system
 from camera_positioning_gcode import (
@@ -916,18 +914,18 @@ CONTROL_INTERFACE_HTML = """
         function ping() {
             console.log('Pinging server...');
             fetch('/ping')
-                .then(response => {
+                .then(function(response) {
                     console.log('Ping response status: ' + response.status);
                     if (!response.ok) {
                         throw new Error('HTTP ' + response.status + ': ' + response.statusText);
                     }
                     return response.json();
                 })
-                .then(data => {
+                .then(function(data) {
                     console.log('Ping response data:', data);
                     alert('Server ping successful: ' + data.message);
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Ping error:', error);
                     alert('Server ping failed: ' + error.message);
                 });
@@ -935,8 +933,8 @@ CONTROL_INTERFACE_HTML = """
         
         function updateStatus() {
             fetch('/scan_status')
-                .then(response => response.json())
-                .then(data => {
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
                     document.getElementById('status-content').innerHTML = 
                         '<strong>GRBL Connected:</strong> ' + data.grbl_connected + '<br>' +
                         '<strong>GRBL Status:</strong> ' + data.grbl_status + '<br>' +
@@ -944,7 +942,7 @@ CONTROL_INTERFACE_HTML = """
                         '<strong>Progress:</strong> ' + data.completed_positions + '/' + data.total_positions + '<br>' +
                         '<strong>Photos Captured:</strong> ' + data.photos_captured.length;
                 })
-                .catch(error => {
+                .catch(function(error) {
                     document.getElementById('status-content').innerHTML = 
                         '<strong>Error:</strong> Unable to connect to server';
                 });
@@ -961,15 +959,15 @@ CONTROL_INTERFACE_HTML = """
             console.log('Starting grid scan: (' + x1 + ',' + y1 + ') to (' + x2 + ',' + y2 + ') with grid ' + gx + 'x' + gy);
             
             fetch('/start_grid_scan/' + x1 + '/' + y1 + '/' + x2 + '/' + y2 + '/' + gx + '/' + gy)
-                .then(response => {
+                .then(function(response) {
                     console.log('Grid scan response status: ' + response.status);
                     return response.json();
                 })
-                .then(data => {
+                .then(function(data) {
                     console.log('Grid scan response data:', data);
                     alert(data.message || data.error);
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Grid scan error:', error);
                     alert('Failed to start grid scan: ' + error.message);
                 });
@@ -984,15 +982,15 @@ CONTROL_INTERFACE_HTML = """
             console.log('Starting circular scan: center (' + x + ',' + y + ') radius ' + r + ' positions ' + p);
             
             fetch('/start_circular_scan/' + x + '/' + y + '/' + r + '/' + p)
-                .then(response => {
+                .then(function(response) {
                     console.log('Circular scan response status: ' + response.status);
                     return response.json();
                 })
-                .then(data => {
+                .then(function(data) {
                     console.log('Circular scan response data:', data);
                     alert(data.message || data.error);
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Circular scan error:', error);
                     alert('Failed to start circular scan: ' + error.message);
                 });
@@ -1014,7 +1012,7 @@ CONTROL_INTERFACE_HTML = """
             console.log('Request URL: ' + url);
             
             fetch(url)
-                .then(response => {
+                .then(function(response) {
                     console.log('Move response status: ' + response.status);
                     console.log('Response URL: ' + response.url);
                     if (!response.ok) {
@@ -1022,11 +1020,11 @@ CONTROL_INTERFACE_HTML = """
                     }
                     return response.json();
                 })
-                .then(data => {
+                .then(function(data) {
                     console.log('Move response data:', data);
                     alert(data.message || data.error);
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Move error:', error);
                     alert('Failed to move: ' + error.message);
                 });
@@ -1035,16 +1033,18 @@ CONTROL_INTERFACE_HTML = """
         function debugRoutes() {
             console.log('Getting registered routes...');
             fetch('/debug_routes')
-                .then(response => {
+                .then(function(response) {
                     console.log('Debug routes response status: ' + response.status);
                     return response.json();
                 })
-                .then(data => {
+                .then(function(data) {
                     console.log('Registered routes:', data.routes);
-                    let routeList = data.routes.map(r => r.rule + ' (' + r.methods.join(', ') + ')').join('\n');
+                    let routeList = data.routes.map(function(r) { 
+                        return r.rule + ' (' + r.methods.join(', ') + ')'; 
+                    }).join('\n');
                     alert('Registered Routes:\n' + routeList);
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Debug routes error:', error);
                     alert('Failed to get routes: ' + error.message);
                 });
@@ -1053,16 +1053,16 @@ CONTROL_INTERFACE_HTML = """
         function testJSON() {
             console.log('Testing JSON response...');
             fetch('/test_json')
-                .then(response => {
+                .then(function(response) {
                     console.log('Test JSON response status: ' + response.status);
                     console.log('Response headers:', response.headers);
                     return response.json();
                 })
-                .then(data => {
+                .then(function(data) {
                     console.log('Test JSON response data:', data);
                     alert('JSON test successful: ' + data.message);
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Test JSON error:', error);
                     alert('JSON test failed: ' + error.message);
                 });
@@ -1071,15 +1071,15 @@ CONTROL_INTERFACE_HTML = """
         function capturePhoto() {
             console.log('Capturing single photo...');
             fetch('/capture_single_photo')
-                .then(response => {
+                .then(function(response) {
                     console.log('Capture photo response status: ' + response.status);
                     return response.json();
                 })
-                .then(data => {
+                .then(function(data) {
                     console.log('Capture photo response data:', data);
                     alert(data.message || data.error);
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Capture photo error:', error);
                     alert('Failed to capture photo: ' + error.message);
                 });
@@ -1088,15 +1088,15 @@ CONTROL_INTERFACE_HTML = """
         function testConnection() {
             console.log('Testing GRBL connection...');
             fetch('/test_connection')
-                .then(response => {
+                .then(function(response) {
                     console.log('Test connection response status: ' + response.status);
                     return response.json();
                 })
-                .then(data => {
+                .then(function(data) {
                     console.log('Test connection response data:', data);
                     alert(data.message || data.error);
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Test connection error:', error);
                     alert('Failed to test connection: ' + error.message);
                 });
@@ -1105,15 +1105,15 @@ CONTROL_INTERFACE_HTML = """
         function testStepMovements() {
             console.log('Testing step movements...');
             fetch('/test_step_movements')
-                .then(response => {
+                .then(function(response) {
                     console.log('Test step movements response status: ' + response.status);
                     return response.json();
                 })
-                .then(data => {
+                .then(function(data) {
                     console.log('Test step movements response data:', data);
                     alert(data.message || data.error);
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Test step movements error:', error);
                     alert('Failed to test step movements: ' + error.message);
                 });
@@ -1122,16 +1122,16 @@ CONTROL_INTERFACE_HTML = """
         function getCurrentPosition() {
             console.log('Getting current position...');
             fetch('/get_current_position')
-                .then(response => {
+                .then(function(response) {
                     console.log('Get position response status: ' + response.status);
                     return response.json();
                 })
-                .then(data => {
+                .then(function(data) {
                     console.log('Get position response data:', data);
                     const pos = data.position;
                     alert('Current Position: X' + pos.x + ' Y' + pos.y + ' Z' + pos.z + '\nGRBL Status: ' + data.grbl_status);
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Get position error:', error);
                     alert('Error getting position: ' + error.message);
                 });
@@ -1140,15 +1140,15 @@ CONTROL_INTERFACE_HTML = """
         function returnHome() {
             console.log('Returning to home position...');
             fetch('/return_home')
-                .then(response => {
+                .then(function(response) {
                     console.log('Return home response status: ' + response.status);
                     return response.json();
                 })
-                .then(data => {
+                .then(function(data) {
                     console.log('Return home response data:', data);
                     alert(data.message || data.error);
                 })
-                .catch(error => {
+                .catch(function(error) {
                     console.error('Return home error:', error);
                     alert('Failed to return home: ' + error.message);
                 });
@@ -1156,8 +1156,8 @@ CONTROL_INTERFACE_HTML = """
         
         function emergencyStop() {
             fetch('/emergency_stop')
-                .then(response => response.json())
-                .then(data => alert(data.message));
+                .then(function(response) { return response.json(); })
+                .then(function(data) { alert(data.message); });
         }
         
         // Page initialization
