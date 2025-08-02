@@ -449,6 +449,14 @@ class IntegratedCameraSystem:
         
         logger.info("Added route: /ping")
         
+        @self.app.route('/button_test')
+        def button_test():
+            """Simple button test"""
+            logger.info("Button test route called!")
+            return jsonify({"status": "success", "message": "Button click received!"})
+        
+        logger.info("Added route: /button_test")
+        
         @self.app.route('/debug_routes')
         def debug_routes():
             """Debug: List all registered routes"""
@@ -723,6 +731,7 @@ CONTROL_INTERFACE_HTML = """
         .btn-primary { background-color: #007bff; color: white; }
         .btn-danger { background-color: #dc3545; color: white; }
         .btn-success { background-color: #28a745; color: white; }
+        .btn-test { background-color: #ff9800; color: white; }
         input { padding: 5px; margin: 2px 5px 5px 2px; border: 1px solid #ccc; border-radius: 3px; width: 80px; }
         label { display: inline-block; min-width: 120px; font-weight: bold; color: #333; margin-right: 5px; }
         .input-group { margin-bottom: 8px; }
@@ -732,6 +741,15 @@ CONTROL_INTERFACE_HTML = """
 <body>
     <div class="container">
         <h1>Integrated Camera Positioning System</h1>
+        
+        <!-- Add a simple test section at the top -->
+        <div class="control-panel" style="background-color: #fffbf0; margin-bottom: 20px;">
+            <h3>🔧 Button Test Section</h3>
+            <button class="btn-test" onclick="simpleAlert()">Simple Alert Test</button>
+            <button class="btn-test" onclick="buttonTest()">Server Button Test</button>
+            <button class="btn-test" onclick="consoleTest()">Console Test</button>
+            <div id="test-output" style="margin-top: 10px; padding: 5px; background: #f9f9f9; border: 1px solid #ddd;"></div>
+        </div>
         
         <div class="video-container">
             <img src="/video_feed" style="max-width: 640px; border: 1px solid #ccc;">
@@ -853,6 +871,42 @@ CONTROL_INTERFACE_HTML = """
                     console.error('Ping error:', error);
                     alert('Server ping failed: ' + error.message);
                 });
+        }
+        
+        function simpleAlert() {
+            console.log('Simple alert test called');
+            alert('Simple JavaScript alert working!');
+            document.getElementById('test-output').innerHTML = 'Simple alert test executed at ' + new Date().toLocaleTimeString();
+        }
+        
+        function buttonTest() {
+            console.log('Button test function called');
+            document.getElementById('test-output').innerHTML = 'Button test started at ' + new Date().toLocaleTimeString();
+            
+            fetch('/button_test')
+                .then(response => {
+                    console.log(`Button test response status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Button test response data:', data);
+                    document.getElementById('test-output').innerHTML = 'Server response: ' + data.message;
+                    alert('Button test successful!');
+                })
+                .catch(error => {
+                    console.error('Button test error:', error);
+                    document.getElementById('test-output').innerHTML = 'Button test failed: ' + error.message;
+                    alert('Button test failed: ' + error.message);
+                });
+        }
+        
+        function consoleTest() {
+            console.log('=== CONSOLE TEST ===');
+            console.log('Current time:', new Date());
+            console.log('Window location:', window.location.href);
+            console.log('Document ready state:', document.readyState);
+            document.getElementById('test-output').innerHTML = 'Console test completed - check browser console';
+            alert('Console test completed - check browser console (F12)');
         }
         
         function updateStatus() {
