@@ -444,39 +444,61 @@ class IntegratedCameraSystem:
         @self.app.route('/start_grid_scan/<float:x1>/<float:y1>/<float:x2>/<float:y2>/<int:grid_x>/<int:grid_y>')
         def start_grid_scan(x1, y1, x2, y2, grid_x, grid_y):
             """Start a grid scan"""
-            if self.current_scan_data["active"]:
-                return jsonify({"error": "Scan already in progress"}), 400
-            
-            corner1 = Point(x1, y1, self.scan_config.safe_height)
-            corner2 = Point(x2, y2, self.scan_config.safe_height)
-            
-            # Start scan in background thread
-            scan_thread = threading.Thread(
-                target=self.grid_scan_with_photos, 
-                args=(corner1, corner2, (grid_x, grid_y))
-            )
-            scan_thread.daemon = True
-            scan_thread.start()
-            
-            return jsonify({"message": "Grid scan started", "grid_size": [grid_x, grid_y]})
+            try:
+                logger.info(f"Web interface grid scan request: corner1=({x1},{y1}) corner2=({x2},{y2}) grid=({grid_x},{grid_y})")
+                
+                if self.current_scan_data["active"]:
+                    logger.warning("Grid scan request rejected - scan already in progress")
+                    return jsonify({"error": "Scan already in progress"}), 400
+                
+                corner1 = Point(x1, y1, self.scan_config.safe_height)
+                corner2 = Point(x2, y2, self.scan_config.safe_height)
+                
+                logger.info(f"Starting grid scan thread...")
+                
+                # Start scan in background thread
+                scan_thread = threading.Thread(
+                    target=self.grid_scan_with_photos, 
+                    args=(corner1, corner2, (grid_x, grid_y))
+                )
+                scan_thread.daemon = True
+                scan_thread.start()
+                
+                logger.info(f"Grid scan thread started successfully")
+                return jsonify({"message": "Grid scan started", "grid_size": [grid_x, grid_y]})
+                
+            except Exception as e:
+                logger.error(f"Error starting grid scan: {e}")
+                return jsonify({"error": f"Failed to start grid scan: {str(e)}"}), 500
         
         @self.app.route('/start_circular_scan/<float:center_x>/<float:center_y>/<float:radius>/<int:positions>')
         def start_circular_scan(center_x, center_y, radius, positions):
             """Start a circular scan"""
-            if self.current_scan_data["active"]:
-                return jsonify({"error": "Scan already in progress"}), 400
-            
-            center = Point(center_x, center_y, self.scan_config.safe_height)
-            
-            # Start scan in background thread
-            scan_thread = threading.Thread(
-                target=self.circular_scan_with_photos,
-                args=(center, radius, positions)
-            )
-            scan_thread.daemon = True
-            scan_thread.start()
-            
-            return jsonify({"message": "Circular scan started", "center": [center_x, center_y], "radius": radius})
+            try:
+                logger.info(f"Web interface circular scan request: center=({center_x},{center_y}) radius={radius} positions={positions}")
+                
+                if self.current_scan_data["active"]:
+                    logger.warning("Circular scan request rejected - scan already in progress")
+                    return jsonify({"error": "Scan already in progress"}), 400
+                
+                center = Point(center_x, center_y, self.scan_config.safe_height)
+                
+                logger.info(f"Starting circular scan thread...")
+                
+                # Start scan in background thread
+                scan_thread = threading.Thread(
+                    target=self.circular_scan_with_photos,
+                    args=(center, radius, positions)
+                )
+                scan_thread.daemon = True
+                scan_thread.start()
+                
+                logger.info(f"Circular scan thread started successfully")
+                return jsonify({"message": "Circular scan started", "center": [center_x, center_y], "radius": radius})
+                
+            except Exception as e:
+                logger.error(f"Error starting circular scan: {e}")
+                return jsonify({"error": f"Failed to start circular scan: {str(e)}"}), 500
         
         @self.app.route('/emergency_stop')
         def emergency_stop():
@@ -488,21 +510,33 @@ class IntegratedCameraSystem:
         @self.app.route('/move_to/<float:x>/<float:y>/<float:z>')
         def move_to_position(x, y, z):
             """Move to specific position"""
-            if self.current_scan_data["active"]:
-                return jsonify({"error": "Cannot move during active scan"}), 400
-            
-            target = Point(x, y, z)
-            logger.info(f"Web interface move request: X{x} Y{y} Z{z}")
-            logger.info(f"Current position: X{self.grbl_controller.current_position.x} Y{self.grbl_controller.current_position.y} Z{self.grbl_controller.current_position.z}")
-            
-            success = self.grbl_controller.move_to_point(target, feedrate=self.scan_config.movement_feedrate)
-            
-            if success:
-                logger.info(f"Move successful: X{x} Y{y} Z{z}")
-                return jsonify({"message": f"Moved to X{x} Y{y} Z{z}"})
-            else:
-                logger.error(f"Move failed: X{x} Y{y} Z{z}")
-                return jsonify({"error": "Movement failed"}), 500
+            try:
+                logger.info(f"Web interface move request: X{x} Y{y} Z{z}")
+                
+                if self.current_scan_data["active"]:
+                    logger.warning("Move request rejected - scan already in progress")
+                    return jsonify({"error": "Cannot move during active scan"}), 400
+
+                target = Point(x, y, z)
+                logger.info(f"Current position: X{self.grbl_controller.current_position.x} Y{self.grbl_controller.current_position.y} Z{self.grbl_controller.current_position.z}")
+                
+                logger.info(f"Starting movement thread...")
+                
+                # Start movement in background thread
+                move_thread = threading.Thread(
+                    target=self.grbl_controller.move_to_point,
+                    args=(target,),
+                    kwargs={"feedrate": self.scan_config.movement_feedrate}
+                )
+                move_thread.daemon = True
+                move_thread.start()
+                
+                logger.info(f"Movement thread started successfully")
+                return jsonify({"message": f"Moving to X{x} Y{y} Z{z}"})
+                
+            except Exception as e:
+                logger.error(f"Error starting movement: {e}")
+                return jsonify({"error": f"Failed to start movement: {str(e)}"}), 500
         
         @self.app.route('/capture_single_photo')
         def capture_single_photo():
@@ -545,14 +579,28 @@ class IntegratedCameraSystem:
         @self.app.route('/return_home')
         def return_home():
             """Return to home position"""
-            if self.current_scan_data["active"]:
-                return jsonify({"error": "Cannot return home during active scan"}), 400
-            
-            success = self.camera_controller.return_to_home()
-            if success:
-                return jsonify({"message": "Returned to home position"})
-            else:
-                return jsonify({"error": "Failed to return home"}), 500
+            try:
+                logger.info(f"Web interface return home request")
+                
+                if self.current_scan_data["active"]:
+                    logger.warning("Return home request rejected - scan already in progress")
+                    return jsonify({"error": "Cannot return home during active scan"}), 400
+                
+                logger.info(f"Starting return home thread...")
+                
+                # Start return home in background thread
+                home_thread = threading.Thread(
+                    target=self.camera_controller.return_to_home
+                )
+                home_thread.daemon = True
+                home_thread.start()
+                
+                logger.info(f"Return home thread started successfully")
+                return jsonify({"message": "Returning to home position"})
+                
+            except Exception as e:
+                logger.error(f"Error starting return home: {e}")
+                return jsonify({"error": f"Failed to start return home: {str(e)}"}), 500
     
     def _generate_frames(self):
         """Generate video frames for streaming"""
@@ -737,9 +785,21 @@ CONTROL_INTERFACE_HTML = """
             const gx = document.getElementById('grid_size_x').value;
             const gy = document.getElementById('grid_size_y').value;
             
+            console.log(`Starting grid scan: (${x1},${y1}) to (${x2},${y2}) with grid ${gx}x${gy}`);
+            
             fetch(`/start_grid_scan/${x1}/${y1}/${x2}/${y2}/${gx}/${gy}`)
-                .then(response => response.json())
-                .then(data => alert(data.message || data.error));
+                .then(response => {
+                    console.log(`Grid scan response status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Grid scan response data:', data);
+                    alert(data.message || data.error);
+                })
+                .catch(error => {
+                    console.error('Grid scan error:', error);
+                    alert('Failed to start grid scan: ' + error.message);
+                });
         }
         
         function startCircularScan() {
@@ -748,9 +808,21 @@ CONTROL_INTERFACE_HTML = """
             const r = document.getElementById('circle_radius').value;
             const p = document.getElementById('circle_positions').value;
             
+            console.log(`Starting circular scan: center (${x},${y}) radius ${r} positions ${p}`);
+            
             fetch(`/start_circular_scan/${x}/${y}/${r}/${p}`)
-                .then(response => response.json())
-                .then(data => alert(data.message || data.error));
+                .then(response => {
+                    console.log(`Circular scan response status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Circular scan response data:', data);
+                    alert(data.message || data.error);
+                })
+                .catch(error => {
+                    console.error('Circular scan error:', error);
+                    alert('Failed to start circular scan: ' + error.message);
+                });
         }
         
         function moveToPosition() {
@@ -758,43 +830,107 @@ CONTROL_INTERFACE_HTML = """
             const y = document.getElementById('move_y').value;
             const z = document.getElementById('move_z').value;
             
+            console.log(`Moving to position: (${x}, ${y}, ${z})`);
+            
             fetch(`/move_to/${x}/${y}/${z}`)
-                .then(response => response.json())
-                .then(data => alert(data.message || data.error));
+                .then(response => {
+                    console.log(`Move response status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Move response data:', data);
+                    alert(data.message || data.error);
+                })
+                .catch(error => {
+                    console.error('Move error:', error);
+                    alert('Failed to move: ' + error.message);
+                });
         }
         
         function capturePhoto() {
+            console.log('Capturing single photo...');
             fetch('/capture_single_photo')
-                .then(response => response.json())
-                .then(data => alert(data.message || data.error));
+                .then(response => {
+                    console.log(`Capture photo response status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Capture photo response data:', data);
+                    alert(data.message || data.error);
+                })
+                .catch(error => {
+                    console.error('Capture photo error:', error);
+                    alert('Failed to capture photo: ' + error.message);
+                });
         }
         
         function testConnection() {
+            console.log('Testing GRBL connection...');
             fetch('/test_connection')
-                .then(response => response.json())
-                .then(data => alert(data.message || data.error));
+                .then(response => {
+                    console.log(`Test connection response status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Test connection response data:', data);
+                    alert(data.message || data.error);
+                })
+                .catch(error => {
+                    console.error('Test connection error:', error);
+                    alert('Failed to test connection: ' + error.message);
+                });
         }
         
         function testStepMovements() {
+            console.log('Testing step movements...');
             fetch('/test_step_movements')
-                .then(response => response.json())
-                .then(data => alert(data.message || data.error));
+                .then(response => {
+                    console.log(`Test step movements response status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Test step movements response data:', data);
+                    alert(data.message || data.error);
+                })
+                .catch(error => {
+                    console.error('Test step movements error:', error);
+                    alert('Failed to test step movements: ' + error.message);
+                });
         }
         
         function getCurrentPosition() {
+            console.log('Getting current position...');
             fetch('/get_current_position')
-                .then(response => response.json())
+                .then(response => {
+                    console.log(`Get position response status: ${response.status}`);
+                    return response.json();
+                })
                 .then(data => {
+                    console.log('Get position response data:', data);
                     const pos = data.position;
                     alert(`Current Position: X${pos.x} Y${pos.y} Z${pos.z}\nGRBL Status: ${data.grbl_status}`);
                 })
-                .catch(error => alert('Error getting position'));
+                .catch(error => {
+                    console.error('Get position error:', error);
+                    alert('Error getting position: ' + error.message);
+                });
         }
         
         function returnHome() {
+            console.log('Returning to home position...');
             fetch('/return_home')
-                .then(response => response.json())
-                .then(data => alert(data.message || data.error));
+                .then(response => {
+                    console.log(`Return home response status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Return home response data:', data);
+                    alert(data.message || data.error);
+                })
+                .catch(error => {
+                    console.error('Return home error:', error);
+                    alert('Failed to return home: ' + error.message);
+                });
         }
         
         function emergencyStop() {
