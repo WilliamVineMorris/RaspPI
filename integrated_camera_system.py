@@ -1075,8 +1075,8 @@ CONTROL_INTERFACE_HTML = """
                     console.log('Registered routes:', data.routes);
                     var routeList = data.routes.map(function(r) { 
                         return r.rule + ' (' + r.methods.join(', ') + ')'; 
-                    }).join('\n');
-                    alert('Registered Routes:\n' + routeList);
+                    }).join('\\n');
+                    alert('Registered Routes:\\n' + routeList);
                 })
                 .catch(function(error) {
                     console.error('Debug routes error:', error);
