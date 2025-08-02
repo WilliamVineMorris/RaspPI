@@ -51,8 +51,13 @@ class ArduinoGCodeController:
         self.grbl_version = ""
         self.grbl_settings = {}
         
-    def connect(self) -> bool:
-        """Establish serial connection to Arduino with GRBL"""
+    def connect(self, configure_settings: bool = False, custom_settings: dict = None) -> bool:
+        """Establish serial connection to Arduino with GRBL
+        
+        Args:
+            configure_settings: Whether to configure GRBL settings on startup
+            custom_settings: Custom GRBL settings dict, uses defaults if None
+        """
         try:
             self.serial_connection = serial.Serial(
                 port=self.port,
@@ -67,11 +72,16 @@ class ArduinoGCodeController:
             time.sleep(2)
             self.serial_connection.flushInput()  # Clear startup messages
             
-            # Check GRBL version
-            self._send_raw_gcode("$$")  # Get GRBL settings
+            # Read current GRBL settings
+            self.grbl_settings = self.read_grbl_settings()
             
             # Unlock GRBL (disable alarm state)
             self._send_raw_gcode("$X")
+            
+            # Configure GRBL settings if requested
+            if configure_settings:
+                logger.info("Configuring GRBL settings for camera positioning...")
+                self.configure_grbl_settings(custom_settings)
             
             # Send initialization commands
             self._send_raw_gcode("G21")  # Set units to millimeters
@@ -199,6 +209,97 @@ class ArduinoGCodeController:
     def set_absolute_mode(self):
         """Set to absolute positioning mode"""
         return self._send_raw_gcode("G90")
+    
+    def configure_grbl_settings(self, custom_settings: dict = None) -> bool:
+        """Configure GRBL settings for camera positioning system"""
+        
+        # Default settings for camera positioning (modify as needed for your hardware)
+        default_settings = {
+            # Steps per mm (adjust for your motors/mechanics)
+            '$100': '400.0',    # X-axis steps/mm (belt drive example)
+            '$101': '400.0',    # Y-axis steps/mm 
+            '$102': '400.0',   # Z-axis steps/mm (lead screw example)
+            
+            # Maximum rates (mm/min)
+            '$110': '3000',    # X-axis max rate
+            '$111': '3000',    # Y-axis max rate  
+            '$112': '1000',    # Z-axis max rate (slower for precision)
+            
+            # Acceleration (mm/sec²)
+            '$120': '500.0',   # X-axis acceleration
+            '$121': '500.0',   # Y-axis acceleration
+            '$122': '200.0',   # Z-axis acceleration (slower for stability)
+            
+            # Travel resolution (mm)
+            '$12': '0.002',    # Arc tolerance
+            
+            # Homing settings (disable if no limit switches)
+            '$22': '0',        # Homing cycle enable (0=disable, 1=enable)
+            '$23': '0',        # Homing direction invert mask
+            '$24': '25.0',     # Homing feed rate (mm/min)
+            '$25': '500.0',    # Homing seek rate (mm/min)
+            
+            # Limits and safety
+            '$20': '0',        # Soft limits enable (0=disable, 1=enable)
+            '$21': '0',        # Hard limits enable (0=disable, 1=enable)
+            
+            # Spindle settings (not used for camera, but set safe values)
+            '$30': '1000',     # Max spindle speed (RPM)
+            '$31': '0',        # Min spindle speed (RPM)
+        }
+        
+        # Use custom settings if provided, otherwise use defaults
+        settings_to_apply = custom_settings if custom_settings else default_settings
+        
+        logger.info("Configuring GRBL settings for camera positioning...")
+        
+        success_count = 0
+        total_settings = len(settings_to_apply)
+        
+        for setting, value in settings_to_apply.items():
+            command = f"{setting}={value}"
+            if self._send_raw_gcode(command):
+                logger.debug(f"Set {setting} = {value}")
+                success_count += 1
+            else:
+                logger.error(f"Failed to set {setting} = {value}")
+            
+            time.sleep(0.1)  # Small delay between settings
+        
+        # Save settings to EEPROM
+        if success_count > 0:
+            logger.info("Saving settings to EEPROM...")
+            # Settings are automatically saved in GRBL when changed
+            
+        logger.info(f"GRBL configuration completed: {success_count}/{total_settings} settings applied")
+        return success_count == total_settings
+    
+    def read_grbl_settings(self) -> dict:
+        """Read and return current GRBL settings"""
+        if not self.is_connected:
+            logger.error("Not connected to GRBL")
+            return {}
+        
+        try:
+            # Request all settings
+            self.serial_connection.write(b"$$\n")
+            time.sleep(1)
+            
+            settings = {}
+            # Read all available responses
+            while self.serial_connection.in_waiting > 0:
+                line = self.serial_connection.readline().decode().strip()
+                if line.startswith('$') and '=' in line:
+                    parts = line.split('=')
+                    if len(parts) == 2:
+                        settings[parts[0]] = parts[1]
+            
+            logger.info(f"Read {len(settings)} GRBL settings")
+            return settings
+            
+        except Exception as e:
+            logger.error(f"Error reading GRBL settings: {e}")
+            return {}
 
 class PathPlanner:
     def __init__(self, controller: ArduinoGCodeController):
@@ -280,9 +381,14 @@ class CameraPositionController:
         self.planner = PathPlanner(gcode_controller)
         self.safe_height = 10.0  # Reduced safe Z height for safer testing
         
-    def initialize_system(self) -> bool:
-        """Initialize the camera positioning system"""
-        if not self.controller.connect():
+    def initialize_system(self, configure_grbl: bool = False, custom_settings: dict = None) -> bool:
+        """Initialize the camera positioning system
+        
+        Args:
+            configure_grbl: Whether to configure GRBL settings during initialization
+            custom_settings: Custom GRBL settings dict, uses defaults if None
+        """
+        if not self.controller.connect(configure_settings=configure_grbl, custom_settings=custom_settings):
             return False
         
         logger.info("Initializing camera positioning system...")
@@ -440,9 +546,9 @@ def test_simple_movement():
         
         # Test small movements
         movements = [
-            Point(10, 0, 0),   # Move X 10mm
-            Point(10, 10, 0),  # Move Y 10mm
-            Point(0, 10, 0),   # Move X back to 0
+            Point(2, 0, 0),   # Move X 2mm
+            Point(2, 2, 0),  # Move Y 2mm
+            Point(0, 2, 0),   # Move X back to 0
             Point(0, 0, 0)     # Return to origin
         ]
         
@@ -459,6 +565,58 @@ def test_simple_movement():
         
     except Exception as e:
         logger.error(f"Simple movement test failed: {e}")
+        return False
+    finally:
+        controller.disconnect()
+
+def test_grbl_settings():
+    """Test GRBL settings configuration and viewing"""
+    controller = ArduinoGCodeController('/dev/ttyUSB0')
+    
+    try:
+        logger.info("Testing GRBL settings...")
+        
+        # Connect without configuring settings first
+        if not controller.connect():
+            logger.error("Failed to connect to GRBL")
+            return False
+        
+        # Read current settings
+        logger.info("Current GRBL settings:")
+        current_settings = controller.read_grbl_settings()
+        
+        # Display key settings
+        key_settings = ['$100', '$101', '$102', '$110', '$111', '$112', '$120', '$121', '$122']
+        for setting in key_settings:
+            if setting in current_settings:
+                description = {
+                    '$100': 'X-axis steps/mm',
+                    '$101': 'Y-axis steps/mm', 
+                    '$102': 'Z-axis steps/mm',
+                    '$110': 'X-axis max rate (mm/min)',
+                    '$111': 'Y-axis max rate (mm/min)',
+                    '$112': 'Z-axis max rate (mm/min)',
+                    '$120': 'X-axis acceleration (mm/sec²)',
+                    '$121': 'Y-axis acceleration (mm/sec²)',
+                    '$122': 'Z-axis acceleration (mm/sec²)'
+                }
+                print(f"  {setting} = {current_settings[setting]} ({description.get(setting, 'Unknown')})")
+        
+        # Ask if user wants to configure settings
+        configure = input("\nDo you want to configure GRBL settings for camera positioning? (y/N): ").strip().lower()
+        
+        if configure == 'y':
+            logger.info("Configuring GRBL settings...")
+            success = controller.configure_grbl_settings()
+            if success:
+                logger.info("GRBL settings configured successfully!")
+            else:
+                logger.warning("Some GRBL settings failed to configure")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"GRBL settings test failed: {e}")
         return False
     finally:
         controller.disconnect()
@@ -542,20 +700,24 @@ if __name__ == "__main__":
     print("Camera Positioning G-code Controller (GRBL)")
     print("Available tests:")
     print("1. Test GRBL connection")
-    print("2. Simple movement test (no homing)")
-    print("3. Single axis test (X, Y, or Z)")
-    print("4. Basic movement test (square pattern)")
-    print("5. Exit")
+    print("2. Configure/View GRBL settings")
+    print("3. Simple movement test (no homing)")
+    print("4. Single axis test (X, Y, or Z)")
+    print("5. Basic movement test (square pattern)")
+    print("6. Exit")
     
-    choice = input("Select test (1-5): ").strip()
+    choice = input("Select test (1-6): ").strip()
     
     if choice == "1":
         print("Testing GRBL connection...")
         test_grbl_connection()
     elif choice == "2":
+        print("Configuring/Viewing GRBL settings...")
+        test_grbl_settings()
+    elif choice == "3":
         print("Running simple movement test...")
         test_simple_movement()
-    elif choice == "3":
+    elif choice == "4":
         axis = input("Enter axis to test (X/Y/Z): ").strip().upper()
         if axis in ['X', 'Y', 'Z']:
             distance = float(input(f"Enter maximum {axis} distance (mm, default 20): ") or "20")
@@ -564,10 +726,10 @@ if __name__ == "__main__":
             test_single_axis(axis, distance, steps)
         else:
             print("Invalid axis. Please enter X, Y, or Z.")
-    elif choice == "4":
+    elif choice == "5":
         print("Running basic movement test...")
         test_basic_movement()
-    elif choice == "5":
+    elif choice == "6":
         print("Exiting...")
     else:
         print("Invalid choice. Running simple movement test...")
