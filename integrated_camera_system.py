@@ -527,7 +527,7 @@ class IntegratedCameraSystem:
             def video_feed():
                 """Live video stream"""
                 return Response(self._generate_frames(),
-                              mimetype='multipart/x-mixed-replace; boundary=frame')
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
             
             @self.app.route('/scan_status')
             def scan_status():
@@ -538,223 +538,141 @@ class IntegratedCameraSystem:
                 status_data["grbl_status"] = self.grbl_controller.get_grbl_status() if self.grbl_controller.is_connected else "Disconnected"
                 return jsonify(status_data)
             
-            logger.info("=== REGISTERING PARAMETERIZED ROUTES ===")
-            
         except Exception as e:
             logger.error(f"ERROR during basic route setup: {e}")
             logger.error(f"Traceback: {traceback.format_exc()}")
             return
+            
+        # Parameterized routes - SIMPLIFIED REGISTRATION
+        logger.info("=== REGISTERING PARAMETERIZED ROUTES (SIMPLIFIED) ===")
         
-        try:
-            logger.info("Registering grid scan route...")
-            @self.app.route('/start_grid_scan/<float:x1>/<float:y1>/<float:x2>/<float:y2>/<int:grid_x>/<int:grid_y>')
-            def start_grid_scan(x1, y1, x2, y2, grid_x, grid_y):
-                """Start a grid scan"""
-                try:
-                    logger.info(f"Web interface grid scan request: corner1=({x1},{y1}) corner2=({x2},{y2}) grid=({grid_x},{grid_y})")
-                    
-                    if self.current_scan_data["active"]:
-                        logger.warning("Grid scan request rejected - scan already in progress")
-                        return jsonify({"error": "Scan already in progress"}), 400
-                    
-                    corner1 = Point(x1, y1, self.scan_config.safe_height)
-                    corner2 = Point(x2, y2, self.scan_config.safe_height)
-                    
-                    logger.info(f"Starting grid scan thread...")
-                    
-                    # Start scan in background thread
-                    scan_thread = threading.Thread(
-                        target=self.grid_scan_with_photos, 
-                        args=(corner1, corner2, (grid_x, grid_y))
-                    )
-                    scan_thread.daemon = True
-                    scan_thread.start()
-                    
-                    logger.info(f"Grid scan thread started successfully")
-                    return jsonify({"message": "Grid scan started", "grid_size": [grid_x, grid_y]})
-                    
-                except Exception as e:
-                    logger.error(f"Error starting grid scan: {e}")
-                    return jsonify({"error": f"Failed to start grid scan: {str(e)}"}), 500
+        @self.app.route('/move_to/<float:x>/<float:y>/<float:z>', methods=['GET', 'POST'])
+        def move_to_position(x, y, z):
+            """Move to specific position"""
+            logger.info(f"=== MOVE TO POSITION ROUTE CALLED ===")
+            logger.info(f"Web interface move request: X{x} Y{y} Z{z}")
             
-            logger.info("Added route: /start_grid_scan/<float:x1>/<float:y1>/<float:x2>/<float:y2>/<int:grid_x>/<int:grid_y>")
-            
-        except Exception as e:
-            logger.error(f"ERROR registering grid scan route: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-        
-        logger.info("Added route: /start_grid_scan/<float:x1>/<float:y1>/<float:x2>/<float:y2>/<int:grid_x>/<int:grid_y>")
-        
-        try:
-            logger.info("Registering circular scan route...")
-            @self.app.route('/start_circular_scan/<float:center_x>/<float:center_y>/<float:radius>/<int:positions>')
-            def start_circular_scan(center_x, center_y, radius, positions):
-                """Start a circular scan"""
-                try:
-                    logger.info(f"Web interface circular scan request: center=({center_x},{center_y}) radius={radius} positions={positions}")
-                    
-                    if self.current_scan_data["active"]:
-                        logger.warning("Circular scan request rejected - scan already in progress")
-                        return jsonify({"error": "Scan already in progress"}), 400
-                    
-                    center = Point(center_x, center_y, self.scan_config.safe_height)
-                    
-                    logger.info(f"Starting circular scan thread...")
-                    
-                    # Start scan in background thread
-                    scan_thread = threading.Thread(
-                        target=self.circular_scan_with_photos,
-                        args=(center, radius, positions)
-                    )
-                    scan_thread.daemon = True
-                    scan_thread.start()
-                    
-                    logger.info(f"Circular scan thread started successfully")
-                    return jsonify({"message": "Circular scan started", "center": [center_x, center_y], "radius": radius})
-                    
-                except Exception as e:
-                    logger.error(f"Error starting circular scan: {e}")
-                    return jsonify({"error": f"Failed to start circular scan: {str(e)}"}), 500
-            
-            logger.info("Added route: /start_circular_scan/<float:center_x>/<float:center_y>/<float:radius>/<int:positions>")
-            
-        except Exception as e:
-            logger.error(f"ERROR registering circular scan route: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-        
-        try:
-            @self.app.route('/emergency_stop')
-            def emergency_stop():
-                """Emergency stop all operations"""
-                self.camera_controller.emergency_stop()
-                self.current_scan_data["active"] = False
-                return jsonify({"message": "Emergency stop activated"})
-            
-        except Exception as e:
-            logger.error(f"ERROR registering emergency stop route: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-        
-        try:
-            logger.info("Registering test move simple route...")
-            @self.app.route('/test_move_simple/<float:x>/<float:y>/<float:z>')
-            def test_move_simple(x, y, z):
-                """Simple move test without threading"""
-                try:
-                    logger.info(f"=== SIMPLE MOVE TEST ===")
-                    logger.info(f"Test move request: X{x} Y{y} Z{z}")
-                    
-                    # Check GRBL connection
-                    if not self.grbl_controller.is_connected:
-                        return jsonify({"error": "GRBL not connected"}), 500
-                    
-                    # Test Point creation
-                    logger.info(f"Testing Point creation...")
-                    try:
-                        target = Point(x, y, z)
-                        logger.info(f"Point created successfully: {target}")
-                    except Exception as point_error:
-                        logger.error(f"Point creation failed: {point_error}")
-                        return jsonify({"error": f"Point creation failed: {str(point_error)}"}), 500
-                    
-                    # Test current position access
-                    logger.info(f"Testing current position access...")
-                    try:
-                        current = self.grbl_controller.current_position
-                        logger.info(f"Current position: {current}")
-                    except Exception as pos_error:
-                        logger.error(f"Position access failed: {pos_error}")
-                        return jsonify({"error": f"Position access failed: {str(pos_error)}"}), 500
-                    
-                    # Test scan config access
-                    logger.info(f"Testing scan config access...")
-                    try:
-                        feedrate = self.scan_config.movement_feedrate
-                        logger.info(f"Feedrate: {feedrate}")
-                    except Exception as config_error:
-                        logger.error(f"Config access failed: {config_error}")
-                        return jsonify({"error": f"Config access failed: {str(config_error)}"}), 500
-                    
-                    return jsonify({
-                        "message": "Simple move test passed",
-                        "target": {"x": target.x, "y": target.y, "z": target.z},
-                        "current": {"x": current.x, "y": current.y, "z": current.z},
-                        "feedrate": feedrate
-                    })
-                    
-                except Exception as e:
-                    logger.error(f"Simple move test exception: {e}")
-                    logger.error(f"Traceback: {traceback.format_exc()}")
-                    return jsonify({"error": f"Simple move test failed: {str(e)}"}), 500
-            
-            logger.info("Added route: /test_move_simple/<float:x>/<float:y>/<float:z>")
-            
-        except Exception as e:
-            logger.error(f"ERROR registering test move simple route: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
-        
-        try:
-            logger.info("Registering move_to route...")
-            @self.app.route('/move_to/<float:x>/<float:y>/<float:z>', methods=['GET', 'POST'])
-            def move_to_position(x, y, z):
-                """Move to specific position"""
-                try:
-                    logger.info(f"=== MOVE TO POSITION ROUTE CALLED ===")
-                    logger.info(f"Web interface move request: X{x} Y{y} Z{z}")
-                    logger.info(f"Request method: {request.method}")
-                    logger.info(f"Request URL: {request.url}")
-                
+            try:
                 if self.current_scan_data["active"]:
-                    logger.warning("Move request rejected - scan already in progress")
                     return jsonify({"error": "Cannot move during active scan"}), 400
 
-                # Check GRBL connection
                 if not self.grbl_controller.is_connected:
-                    logger.error("GRBL controller not connected")
                     return jsonify({"error": "GRBL controller not connected"}), 500
 
                 # Create target point
-                logger.info(f"Creating Point object for target position...")
                 target = Point(x, y, z)
                 logger.info(f"Target position created: X{target.x} Y{target.y} Z{target.z}")
                 
-                # Try to get current position safely
-                logger.info(f"Attempting to get current position...")
-                try:
-                    current = self.grbl_controller.current_position
-                    logger.info(f"Current position retrieved: X{current.x} Y{current.y} Z{current.z}")
-                except Exception as pos_error:
-                    logger.error(f"Failed to get current position: {pos_error}")
-                    logger.error(f"Position error traceback: {traceback.format_exc()}")
-                    return jsonify({"error": f"Failed to get current position: {str(pos_error)}"}), 500
-                
-                logger.info(f"Preparing to start movement thread...")
-                logger.info(f"Movement feedrate: {self.scan_config.movement_feedrate}")
+                # Get current position
+                current = self.grbl_controller.current_position
+                logger.info(f"Current position: X{current.x} Y{current.y} Z{current.z}")
                 
                 # Start movement in background thread
-                logger.info(f"Creating movement thread...")
                 move_thread = threading.Thread(
                     target=self.grbl_controller.move_to_point,
                     args=(target,),
                     kwargs={"feedrate": self.scan_config.movement_feedrate}
                 )
                 move_thread.daemon = True
-                
-                logger.info(f"Starting movement thread...")
                 move_thread.start()
                 
                 logger.info(f"Movement thread started successfully")
-                response_data = {"message": f"Moving to X{x} Y{y} Z{z}"}
-                logger.info(f"Returning JSON response: {response_data}")
-                return jsonify(response_data)
+                return jsonify({"message": f"Moving to X{x} Y{y} Z{z}", "status": "success"})
                 
             except Exception as e:
-                logger.error(f"=== MOVE ROUTE EXCEPTION ===")
-                logger.error(f"Error starting movement: {e}")
-                logger.error(f"Exception type: {type(e)}")
-                logger.error(f"Traceback: {traceback.format_exc()}")
+                logger.error(f"Move route error: {e}")
                 return jsonify({"error": f"Failed to start movement: {str(e)}"}), 500
         
-        logger.info("Added route: /move_to/<float:x>/<float:y>/<float:z>")
+        @self.app.route('/test_move_simple/<float:x>/<float:y>/<float:z>')
+        def test_move_simple(x, y, z):
+            """Simple move test without threading"""
+            logger.info(f"Test move request: X{x} Y{y} Z{z}")
+            
+            try:
+                if not self.grbl_controller.is_connected:
+                    return jsonify({"error": "GRBL not connected"}), 500
+                
+                target = Point(x, y, z)
+                current = self.grbl_controller.current_position
+                feedrate = self.scan_config.movement_feedrate
+                
+                return jsonify({
+                    "message": "Simple move test passed",
+                    "target": {"x": target.x, "y": target.y, "z": target.z},
+                    "current": {"x": current.x, "y": current.y, "z": current.z},
+                    "feedrate": feedrate,
+                    "status": "success"
+                })
+                
+            except Exception as e:
+                logger.error(f"Test move error: {e}")
+                return jsonify({"error": f"Test move failed: {str(e)}"}), 500
+        
+        @self.app.route('/start_grid_scan/<float:x1>/<float:y1>/<float:x2>/<float:y2>/<int:grid_x>/<int:grid_y>')
+        def start_grid_scan(x1, y1, x2, y2, grid_x, grid_y):
+            """Start a grid scan"""
+            logger.info(f"Grid scan request: corner1=({x1},{y1}) corner2=({x2},{y2}) grid=({grid_x},{grid_y})")
+            
+            try:
+                if self.current_scan_data["active"]:
+                    return jsonify({"error": "Scan already in progress"}), 400
+                
+                corner1 = Point(x1, y1, self.scan_config.safe_height)
+                corner2 = Point(x2, y2, self.scan_config.safe_height)
+                
+                # Start scan in background thread
+                scan_thread = threading.Thread(
+                    target=self.grid_scan_with_photos, 
+                    args=(corner1, corner2, (grid_x, grid_y))
+                )
+                scan_thread.daemon = True
+                scan_thread.start()
+                
+                return jsonify({"message": "Grid scan started", "grid_size": [grid_x, grid_y], "status": "success"})
+                
+            except Exception as e:
+                logger.error(f"Grid scan error: {e}")
+                return jsonify({"error": f"Failed to start grid scan: {str(e)}"}), 500
+        
+        @self.app.route('/start_circular_scan/<float:center_x>/<float:center_y>/<float:radius>/<int:positions>')
+        def start_circular_scan(center_x, center_y, radius, positions):
+            """Start a circular scan"""
+            logger.info(f"Circular scan request: center=({center_x},{center_y}) radius={radius} positions={positions}")
+            
+            try:
+                if self.current_scan_data["active"]:
+                    return jsonify({"error": "Scan already in progress"}), 400
+                
+                center = Point(center_x, center_y, self.scan_config.safe_height)
+                
+                # Start scan in background thread
+                scan_thread = threading.Thread(
+                    target=self.circular_scan_with_photos,
+                    args=(center, radius, positions)
+                )
+                scan_thread.daemon = True
+                scan_thread.start()
+                
+                return jsonify({
+                    "message": "Circular scan started", 
+                    "center": [center_x, center_y], 
+                    "radius": radius,
+                    "status": "success"
+                })
+                
+            except Exception as e:
+                logger.error(f"Circular scan error: {e}")
+                return jsonify({"error": f"Failed to start circular scan: {str(e)}"}), 500
+        
+        logger.info("✅ All parameterized routes registered successfully")
+        
+        # Additional routes
+        @self.app.route('/emergency_stop')
+        def emergency_stop():
+            """Emergency stop all operations"""
+            self.camera_controller.emergency_stop()
+            self.current_scan_data["active"] = False
+            return jsonify({"message": "Emergency stop activated", "status": "success"})
         
         @self.app.route('/capture_single_photo')
         def capture_single_photo():
