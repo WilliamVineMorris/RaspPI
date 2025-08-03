@@ -543,16 +543,30 @@ class IntegratedCameraSystem:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return
             
-        # Parameterized routes - SIMPLIFIED REGISTRATION
-        logger.info("=== REGISTERING PARAMETERIZED ROUTES (SIMPLIFIED) ===")
+        # JSON-based routes - POST with JSON bodies
+        logger.info("=== REGISTERING JSON-BASED ROUTES ===")
         
-        @self.app.route('/move_to/<float:x>/<float:y>/<float:z>', methods=['GET', 'POST'])
-        def move_to_position(x, y, z):
-            """Move to specific position"""
-            logger.info(f"=== MOVE TO POSITION ROUTE CALLED ===")
-            logger.info(f"Web interface move request: X{x} Y{y} Z{z}")
+        @self.app.route('/move_to', methods=['POST'])
+        def move_to_position():
+            """Move to specific position using JSON data"""
+            logger.info(f"=== MOVE TO POSITION ROUTE CALLED (JSON) ===")
             
             try:
+                # Get JSON data from request
+                if not request.is_json:
+                    return jsonify({"error": "Request must be JSON"}), 400
+                
+                data = request.get_json()
+                if not data:
+                    return jsonify({"error": "No JSON data provided"}), 400
+                
+                # Extract coordinates
+                x = float(data.get('x', 0))
+                y = float(data.get('y', 0))
+                z = float(data.get('z', 0))
+                
+                logger.info(f"Web interface move request: X{x} Y{y} Z{z}")
+
                 if self.current_scan_data["active"]:
                     return jsonify({"error": "Cannot move during active scan"}), 400
 
@@ -577,18 +591,39 @@ class IntegratedCameraSystem:
                 move_thread.start()
                 
                 logger.info(f"Movement thread started successfully")
-                return jsonify({"message": f"Moving to X{x} Y{y} Z{z}", "status": "success"})
+                return jsonify({
+                    "message": f"Moving to X{x} Y{y} Z{z}", 
+                    "status": "success",
+                    "target": {"x": x, "y": y, "z": z},
+                    "current": {"x": current.x, "y": current.y, "z": current.z}
+                })
                 
+            except ValueError as e:
+                logger.error(f"Invalid coordinate values: {e}")
+                return jsonify({"error": f"Invalid coordinate values: {str(e)}"}), 400
             except Exception as e:
                 logger.error(f"Move route error: {e}")
                 return jsonify({"error": f"Failed to start movement: {str(e)}"}), 500
         
-        @self.app.route('/test_move_simple/<float:x>/<float:y>/<float:z>')
-        def test_move_simple(x, y, z):
-            """Simple move test without threading"""
-            logger.info(f"Test move request: X{x} Y{y} Z{z}")
-            
+        @self.app.route('/test_move_simple', methods=['POST'])
+        def test_move_simple():
+            """Simple move test without threading using JSON data"""
             try:
+                # Get JSON data from request
+                if not request.is_json:
+                    return jsonify({"error": "Request must be JSON"}), 400
+                
+                data = request.get_json()
+                if not data:
+                    return jsonify({"error": "No JSON data provided"}), 400
+                
+                # Extract coordinates with type conversion
+                x = float(data.get('x', 0))
+                y = float(data.get('y', 0))
+                z = float(data.get('z', 0))
+                
+                logger.info(f"Test move request: X{x} Y{y} Z{z}")
+
                 if not self.grbl_controller.is_connected:
                     return jsonify({"error": "GRBL not connected"}), 500
                 
@@ -604,16 +639,35 @@ class IntegratedCameraSystem:
                     "status": "success"
                 })
                 
+            except ValueError as e:
+                logger.error(f"Invalid coordinate values: {e}")
+                return jsonify({"error": f"Invalid coordinate values: {str(e)}"}), 400
             except Exception as e:
                 logger.error(f"Test move error: {e}")
                 return jsonify({"error": f"Test move failed: {str(e)}"}), 500
         
-        @self.app.route('/start_grid_scan/<float:x1>/<float:y1>/<float:x2>/<float:y2>/<int:grid_x>/<int:grid_y>')
-        def start_grid_scan(x1, y1, x2, y2, grid_x, grid_y):
-            """Start a grid scan"""
-            logger.info(f"Grid scan request: corner1=({x1},{y1}) corner2=({x2},{y2}) grid=({grid_x},{grid_y})")
-            
+        @self.app.route('/start_grid_scan', methods=['POST'])
+        def start_grid_scan():
+            """Start a grid scan using JSON data"""
             try:
+                # Get JSON data from request
+                if not request.is_json:
+                    return jsonify({"error": "Request must be JSON"}), 400
+                
+                data = request.get_json()
+                if not data:
+                    return jsonify({"error": "No JSON data provided"}), 400
+                
+                # Extract grid scan parameters
+                x1 = float(data.get('x1', 0))
+                y1 = float(data.get('y1', 0))
+                x2 = float(data.get('x2', 10))
+                y2 = float(data.get('y2', 10))
+                grid_x = int(data.get('grid_x', 2))
+                grid_y = int(data.get('grid_y', 2))
+                
+                logger.info(f"Grid scan request: corner1=({x1},{y1}) corner2=({x2},{y2}) grid=({grid_x},{grid_y})")
+                
                 if self.current_scan_data["active"]:
                     return jsonify({"error": "Scan already in progress"}), 400
                 
@@ -628,18 +682,40 @@ class IntegratedCameraSystem:
                 scan_thread.daemon = True
                 scan_thread.start()
                 
-                return jsonify({"message": "Grid scan started", "grid_size": [grid_x, grid_y], "status": "success"})
+                return jsonify({
+                    "message": "Grid scan started", 
+                    "grid_size": [grid_x, grid_y], 
+                    "corners": {"corner1": {"x": x1, "y": y1}, "corner2": {"x": x2, "y": y2}},
+                    "status": "success"
+                })
                 
+            except ValueError as e:
+                logger.error(f"Invalid scan parameters: {e}")
+                return jsonify({"error": f"Invalid scan parameters: {str(e)}"}), 400
             except Exception as e:
                 logger.error(f"Grid scan error: {e}")
                 return jsonify({"error": f"Failed to start grid scan: {str(e)}"}), 500
         
-        @self.app.route('/start_circular_scan/<float:center_x>/<float:center_y>/<float:radius>/<int:positions>')
-        def start_circular_scan(center_x, center_y, radius, positions):
-            """Start a circular scan"""
-            logger.info(f"Circular scan request: center=({center_x},{center_y}) radius={radius} positions={positions}")
-            
+        @self.app.route('/start_circular_scan', methods=['POST'])
+        def start_circular_scan():
+            """Start a circular scan using JSON data"""
             try:
+                # Get JSON data from request
+                if not request.is_json:
+                    return jsonify({"error": "Request must be JSON"}), 400
+                
+                data = request.get_json()
+                if not data:
+                    return jsonify({"error": "No JSON data provided"}), 400
+                
+                # Extract circular scan parameters
+                center_x = float(data.get('center_x', 0))
+                center_y = float(data.get('center_y', 0))
+                radius = float(data.get('radius', 5))
+                positions = int(data.get('positions', 8))
+                
+                logger.info(f"Circular scan request: center=({center_x},{center_y}) radius={radius} positions={positions}")
+                
                 if self.current_scan_data["active"]:
                     return jsonify({"error": "Scan already in progress"}), 400
                 
@@ -655,16 +731,20 @@ class IntegratedCameraSystem:
                 
                 return jsonify({
                     "message": "Circular scan started", 
-                    "center": [center_x, center_y], 
+                    "center": {"x": center_x, "y": center_y}, 
                     "radius": radius,
+                    "positions": positions,
                     "status": "success"
                 })
                 
+            except ValueError as e:
+                logger.error(f"Invalid scan parameters: {e}")
+                return jsonify({"error": f"Invalid scan parameters: {str(e)}"}), 400
             except Exception as e:
                 logger.error(f"Circular scan error: {e}")
                 return jsonify({"error": f"Failed to start circular scan: {str(e)}"}), 500
         
-        logger.info("✅ All parameterized routes registered successfully")
+        logger.info("✅ All JSON-based routes registered successfully")
         
         # Additional routes
         @self.app.route('/emergency_stop')
@@ -1083,9 +1163,25 @@ CONTROL_INTERFACE_HTML = """
             var gx = document.getElementById('grid_size_x').value;
             var gy = document.getElementById('grid_size_y').value;
             
-            console.log('Starting grid scan: (' + x1 + ',' + y1 + ') to (' + x2 + ',' + y2 + ') with grid ' + gx + 'x' + gy);
+            // Convert to numbers and create JSON payload
+            var scanData = {
+                x1: parseFloat(x1),
+                y1: parseFloat(y1),
+                x2: parseFloat(x2),
+                y2: parseFloat(y2),
+                grid_x: parseInt(gx),
+                grid_y: parseInt(gy)
+            };
             
-            fetch('/start_grid_scan/' + x1 + '/' + y1 + '/' + x2 + '/' + y2 + '/' + gx + '/' + gy)
+            console.log('Starting grid scan:', scanData);
+            
+            fetch('/start_grid_scan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(scanData)
+            })
                 .then(function(response) {
                     console.log('Grid scan response status: ' + response.status);
                     return response.json();
@@ -1106,9 +1202,23 @@ CONTROL_INTERFACE_HTML = """
             var r = document.getElementById('circle_radius').value;
             var p = document.getElementById('circle_positions').value;
             
-            console.log('Starting circular scan: center (' + x + ',' + y + ') radius ' + r + ' positions ' + p);
+            // Convert to numbers and create JSON payload
+            var scanData = {
+                center_x: parseFloat(x),
+                center_y: parseFloat(y),
+                radius: parseFloat(r),
+                positions: parseInt(p)
+            };
             
-            fetch('/start_circular_scan/' + x + '/' + y + '/' + r + '/' + p)
+            console.log('Starting circular scan:', scanData);
+            
+            fetch('/start_circular_scan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(scanData)
+            })
                 .then(function(response) {
                     console.log('Circular scan response status: ' + response.status);
                     return response.json();
@@ -1134,14 +1244,24 @@ CONTROL_INTERFACE_HTML = """
                 return;
             }
             
-            var url = '/test_move_simple/' + x + '/' + y + '/' + z;
-            console.log('Testing simple move: (' + x + ', ' + y + ', ' + z + ')');
-            console.log('Request URL: ' + url);
+            // Convert to numbers
+            var coords = {
+                x: parseFloat(x),
+                y: parseFloat(y),
+                z: parseFloat(z)
+            };
             
-            fetch(url)
+            console.log('Testing simple move:', coords);
+            
+            fetch('/test_move_simple', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(coords)
+            })
                 .then(function(response) {
                     console.log('Test move response status: ' + response.status);
-                    console.log('Response URL: ' + response.url);
                     if (!response.ok) {
                         throw new Error('HTTP ' + response.status + ': ' + response.statusText);
                     }
@@ -1176,14 +1296,24 @@ CONTROL_INTERFACE_HTML = """
                 return;
             }
             
-            var url = '/move_to/' + x + '/' + y + '/' + z;
-            console.log('Moving to position: (' + x + ', ' + y + ', ' + z + ')');
-            console.log('Request URL: ' + url);
+            // Convert to numbers
+            var coords = {
+                x: parseFloat(x),
+                y: parseFloat(y),
+                z: parseFloat(z)
+            };
             
-            fetch(url)
+            console.log('Moving to position:', coords);
+            
+            fetch('/move_to', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(coords)
+            })
                 .then(function(response) {
                     console.log('Move response status: ' + response.status);
-                    console.log('Response URL: ' + response.url);
                     if (!response.ok) {
                         throw new Error('HTTP ' + response.status + ': ' + response.statusText);
                     }
