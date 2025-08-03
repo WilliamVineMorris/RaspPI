@@ -497,14 +497,6 @@ class IntegratedCameraSystem:
             
             logger.info("Added route: /grbl_status")
             
-            @self.app.route('/button_test')
-            def button_test():
-                """Simple button test"""
-                logger.info("Button test route called!")
-                return jsonify({"status": "success", "message": "Button click received!"})
-            
-            logger.info("Added route: /button_test")
-            
             @self.app.route('/debug_routes')
             def debug_routes():
                 """Debug: List all registered routes"""
@@ -516,6 +508,12 @@ class IntegratedCameraSystem:
                         'endpoint': rule.endpoint
                     })
                 return jsonify({"routes": routes})
+            
+            @self.app.route('/favicon.ico')
+            def favicon():
+                """Handle favicon requests to prevent 404 errors"""
+                # Return a 204 No Content response instead of 404
+                return '', 204
             
             @self.app.route('/test_json')
             def test_json():
@@ -912,15 +910,6 @@ CONTROL_INTERFACE_HTML = """
     <div class="container">
         <h1>Integrated Camera Positioning System</h1>
         
-        <!-- Add a simple test section at the top -->
-        <div class="control-panel" style="background-color: #fffbf0; margin-bottom: 20px;">
-            <h3>🔧 Button Test Section</h3>
-            <button class="btn-test" onclick="simpleAlert()">Simple Alert Test</button>
-            <button class="btn-test" onclick="buttonTest()">Server Button Test</button>
-            <button class="btn-test" onclick="consoleTest()">Console Test</button>
-            <div id="test-output" style="margin-top: 10px; padding: 5px; background: #f9f9f9; border: 1px solid #ddd;"></div>
-        </div>
-        
         <div class="video-container">
             <img src="/video_feed" style="max-width: 640px; border: 1px solid #ccc;">
         </div>
@@ -1026,56 +1015,6 @@ CONTROL_INTERFACE_HTML = """
             console.error('JavaScript error:', e.error);
             console.error('Error details:', e.filename, e.lineno, e.colno);
         });
-        
-        // Test functions defined first
-        function simpleAlert() {
-            console.log('Simple alert called');
-            alert('JavaScript is working!');
-            var testOutput = document.getElementById('test-output');
-            if (testOutput) {
-                testOutput.innerHTML = 'Alert test at ' + new Date().toLocaleTimeString();
-            }
-        }
-        
-        function buttonTest() {
-            console.log('Button test called');
-            var testOutput = document.getElementById('test-output');
-            if (testOutput) {
-                testOutput.innerHTML = 'Testing server connection...';
-            }
-            
-            fetch('/button_test')
-                .then(function(response) {
-                    console.log('Response status:', response.status);
-                    return response.json();
-                })
-                .then(function(data) {
-                    console.log('Response data:', data);
-                    if (testOutput) {
-                        testOutput.innerHTML = 'Server response: ' + data.message;
-                    }
-                    alert('Button test successful!');
-                })
-                .catch(function(error) {
-                    console.error('Button test error:', error);
-                    if (testOutput) {
-                        testOutput.innerHTML = 'Test failed: ' + error.message;
-                    }
-                    alert('Button test failed: ' + error.message);
-                });
-        }
-        
-        function consoleTest() {
-            console.log('=== CONSOLE TEST START ===');
-            console.log('Time:', new Date());
-            console.log('Location:', window.location.href);
-            console.log('=== CONSOLE TEST END ===');
-            var testOutput = document.getElementById('test-output');
-            if (testOutput) {
-                testOutput.innerHTML = 'Console test completed - check browser console (F12)';
-            }
-            alert('Console test completed');
-        }
         
         // Check function definitions
         console.log('Functions defined:');
