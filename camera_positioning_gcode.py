@@ -436,7 +436,7 @@ class FluidNCController:
             'x': {'min': 0, 'max': 200},      # X-axis: 0-200mm
             'y': {'min': 0, 'max': 200},      # Y-axis: 0-200mm  
             'z': {'min': 0, 'max': 360},      # Z-axis: 0-360° (rotational turntable)
-            'c': {'min': 0, 'max': 180}       # C-axis: 0-180mm (0-180°, center=90mm=0° tilt)
+            'c': {'min': -90, 'max': 90}      # C-axis: ±90° (FluidNC native coordinate system)
         }
         
         # Safe feedrate limits (from FluidNC config)
@@ -674,6 +674,16 @@ class FluidNCController:
             
         return safe_feedrate
     
+    def convert_angle_to_fluidnc(self, angle_degrees: float) -> float:
+        """Convert tilt angle (±90°) to FluidNC C-axis coordinate"""
+        # FluidNC expects ±90° directly, no conversion needed
+        return max(-90.0, min(90.0, angle_degrees))
+    
+    def convert_fluidnc_to_angle(self, fluidnc_pos: float) -> float:
+        """Convert FluidNC C-axis coordinate to tilt angle (±90°)"""
+        # FluidNC reports ±90° directly, no conversion needed
+        return max(-90.0, min(90.0, fluidnc_pos))
+    
     def get_safe_test_area(self) -> dict:
         """Get safe area boundaries for testing (with margins)"""
         safety_margin = 10.0  # 10mm safety margin for testing
@@ -685,8 +695,8 @@ class FluidNCController:
             'y_max': self.axis_limits['y']['max'] - safety_margin,
             'z_min': self.axis_limits['z']['min'],
             'z_max': self.axis_limits['z']['max'],
-            'c_min': self.axis_limits['c']['min'] + 10,  # Stay away from C limits
-            'c_max': self.axis_limits['c']['max'] - 10
+            'c_min': self.axis_limits['c']['min'] + 5,   # Stay away from C limits (-85° to +85°)
+            'c_max': self.axis_limits['c']['max'] - 5
         }
     
     def create_safe_point(self, x: float, y: float, z: Optional[float] = None, c: Optional[float] = None) -> Point:
@@ -694,7 +704,7 @@ class FluidNCController:
         if z is None:
             z = 0.0
         if c is None:
-            c = 90.0  # Default center position
+            c = 0.0  # Default center position (0° tilt)
             
         safe_area = self.get_safe_test_area()
         
@@ -1117,15 +1127,14 @@ class PathPlanner:
         """
         path = []
         for c_angle in c_angles:
-            # Convert tilt angle to C-axis position: angle + 90 = position
-            # -90° → 0mm, 0° → 90mm, +90° → 180mm
-            c_position = c_angle + 90
+            # C-axis angle is now used directly (±90° system)
+            c_position = max(-90.0, min(90.0, c_angle))  # Clamp to ±90°
             
-            # Validate C-axis limits (0-180mm as per ConfigV1.2)
-            if 0 <= c_position <= 180:
+            # Validate C-axis limits (±90° as per updated system)
+            if -90 <= c_position <= 90:
                 path.append(Point(base_position.x, base_position.y, base_position.z, c_position))
             else:
-                logger.warning(f"C-axis angle {c_angle}° (position {c_position}mm) outside limits [0-180mm], skipping")
+                logger.warning(f"C-axis angle {c_angle}° outside limits [±90°], skipping")
         return path
     
     def generate_grid_scan_path(self, min_point: Point, max_point: Point, 
@@ -1171,7 +1180,7 @@ class PathPlanner:
                 x = center.x + x_offset
                 y = center.y + y_offset
                 z = z_angle  # Direct angle mapping for turntable
-                c = c_angle + 90  # Convert tilt angle to C-axis position (ConfigV1.2 format)
+                c = max(-90.0, min(90.0, c_angle))  # Direct ±90° coordinate system
                 
                 # Validate position before adding to path
                 test_point = Point(x, y, z, c)
@@ -1222,8 +1231,18 @@ class CameraPositionController:
         self.controller = controller
         self.planner = PathPlanner(controller)
         self.safe_height = 10.0  # Safe Z height for movements
-        self.default_c_position = 90.0  # Default camera position (90mm = 0° tilt in ConfigV1.2)
-        
+        self.default_c_position = 0.0  # Default camera position (0° tilt in ±90° system)
+    
+    def convert_angle_to_fluidnc(self, angle_degrees: float) -> float:
+        """Convert tilt angle (±90°) to FluidNC C-axis coordinate"""
+        # FluidNC expects ±90° directly, no conversion needed
+        return max(-90.0, min(90.0, angle_degrees))
+    
+    def convert_fluidnc_to_angle(self, fluidnc_pos: float) -> float:
+        """Convert FluidNC C-axis coordinate to tilt angle (±90°)"""
+        # FluidNC reports ±90° directly, no conversion needed
+        return max(-90.0, min(90.0, fluidnc_pos))
+    
     def initialize_system(self, configure_grbl: bool = False, custom_settings: dict = None) -> bool:
         """Initialize the camera positioning system (4DOF)"""
         # Handle different controller types
@@ -1261,18 +1280,18 @@ class CameraPositionController:
         Args:
             x, y: Linear position in mm
             z: Rotation angle in degrees (optional)
-            c: Camera tilt angle in degrees ±90° (optional, will be converted to 0-180mm)
+            c: Camera tilt angle in degrees ±90° (optional, direct FluidNC coordinate)
             feedrate: Movement speed
         """
         if z is None:
             z = self.safe_height
         if c is None:
-            c_position = self.default_c_position  # Use default position (90mm = 0° tilt)
+            c_position = self.default_c_position  # Use default position (0° tilt)
         else:
-            c_position = c + 90  # Convert tilt angle to position: -90° → 0mm, 0° → 90mm, +90° → 180mm
+            c_position = self.convert_angle_to_fluidnc(c)  # Ensure within ±90° range
         
         target = Point(x, y, z, c_position)
-        logger.info(f"Moving to 4DOF capture position: X{x} Y{y} Z{z}° C{c}° (pos:{c_position})")
+        logger.info(f"Moving to 4DOF capture position: X{x} Y{y} Z{z}° C{c}° (FluidNC: {c_position})")
         
         # Use movement completion waiting for capture positioning
         return self.controller.move_to_point_and_wait(target, feedrate)
@@ -1384,7 +1403,7 @@ class CameraPositionController:
         """Return camera to origin position (4DOF)"""
         logger.info("Returning to 4DOF origin position")
         # Use center C position (90mm = 0° tilt) for home
-        return self.controller.move_to_point(Point(0, 0, 0, 90), feedrate=500)
+        return self.controller.move_to_point(Point(0, 0, 0, 0), feedrate=500)
     
     def emergency_stop(self):
         """Emergency stop - immediately halt all movement"""
