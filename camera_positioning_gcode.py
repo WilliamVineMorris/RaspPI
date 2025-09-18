@@ -22,6 +22,7 @@ class Point:
     x: float
     y: float
     z: float = 0.0
+    c: float = 0.0  # Camera tilt axis ±90°
 
 @dataclass
 class GCodeCommand:
@@ -224,6 +225,29 @@ class ArduinoGCodeController:
             logger.error(f"Error sending GRBL reset: {e}")
         return False
     
+    def get_grbl_status(self) -> str:
+        """Get current GRBL status"""
+        if not self.is_connected:
+            return "Not connected"
+        
+        try:
+            self.serial_connection.reset_input_buffer()
+            self.serial_connection.write(b"?")
+            
+            start_time = time.time()
+            while time.time() - start_time < 2:
+                if self.serial_connection.in_waiting > 0:
+                    status = self.serial_connection.readline().decode().strip()
+                    if status.startswith('<') and status.endswith('>'):
+                        return status
+                time.sleep(0.1)
+            
+            return "No status response"
+            
+        except Exception as e:
+            logger.error(f"Error getting GRBL status: {e}")
+            return f"Error: {e}"
+    
     def wait_for_movement_complete(self, timeout: float = 30.0) -> bool:
         """Wait for GRBL to complete all movements"""
         start_time = time.time()
@@ -360,25 +384,214 @@ class ArduinoGCodeController:
             logger.error(f"Error reading GRBL settings: {e}")
             return {}
 
+
+class FluidNCController:
+    """Controller for FluidNC-based 4DOF camera positioning system"""
+    
+    def __init__(self, port: str = '/dev/ttyUSB0', baudrate: int = 115200, timeout: float = 5.0):
+        """
+        Initialize FluidNC controller for 4DOF system
+        
+        Args:
+            port: Serial port (e.g., '/dev/ttyUSB0' for Pi, 'COM3' for Windows)
+            baudrate: Communication speed
+            timeout: Serial timeout in seconds
+        """
+        self.port = port
+        self.baudrate = baudrate
+        self.timeout = timeout
+        self.serial_connection: Optional[serial.Serial] = None
+        self.is_connected = False
+        self.current_position = Point(0, 0, 0, 0)  # X, Y, Z, C
+        self.fluidnc_version = ""
+        
+        # 4DOF system constraints based on FluidNC ConfigV1.2
+        self.axis_limits = {
+            'x': {'min': 0, 'max': 200},      # X-axis: 0-200mm
+            'y': {'min': 0, 'max': 200},      # Y-axis: 0-200mm  
+            'z': {'min': 0, 'max': 360},      # Z-axis: 0-360° (rotational turntable)
+            'c': {'min': 0, 'max': 180}       # C-axis: 0-180mm (0-180°, center=90mm=0° tilt)
+        }
+        
+    def connect(self) -> bool:
+        """Establish serial connection to FluidNC controller"""
+        try:
+            self.serial_connection = serial.Serial(
+                port=self.port,
+                baudrate=self.baudrate,
+                timeout=self.timeout,
+                write_timeout=self.timeout
+            )
+            time.sleep(2)  # Allow FluidNC to initialize
+            
+            # FluidNC wake up sequence
+            self.serial_connection.write(b"\r\n\r\n")
+            time.sleep(2)
+            self.serial_connection.reset_input_buffer()  # Clear startup messages
+            
+            # Unlock FluidNC (disable alarm state)
+            self._send_raw_gcode("$X")
+            
+            # Send initialization commands
+            self._send_raw_gcode("G21")  # Set units to millimeters
+            self._send_raw_gcode("G90")  # Absolute positioning
+            self._send_raw_gcode("G94")  # Feed rate mode (units per minute)
+            
+            # Set current position as origin
+            self._send_raw_gcode("G92 X0 Y0 Z0 C0")  # Set current position as origin
+            
+            # Enable all axes
+            self._send_raw_gcode("M17")  # Enable steppers
+            
+            self.is_connected = True
+            logger.info(f"Connected to FluidNC on {self.port}")
+            return True
+            
+        except serial.SerialException as e:
+            logger.error(f"Failed to connect to FluidNC: {e}")
+            return False
+    
+    def disconnect(self):
+        """Close serial connection"""
+        if self.serial_connection and self.serial_connection.is_open:
+            self.serial_connection.close()
+            self.is_connected = False
+            logger.info("Disconnected from FluidNC")
+    
+    def _send_raw_gcode(self, gcode: str) -> bool:
+        """Send raw G-code command and wait for FluidNC response"""
+        if not self.is_connected or not self.serial_connection:
+            logger.error("Not connected to FluidNC")
+            return False
+        
+        try:
+            # Send command
+            command = f"{gcode}\n"
+            self.serial_connection.write(command.encode())
+            logger.debug(f"Sent: {gcode}")
+            
+            # Wait for response - FluidNC sends "ok" when movement is complete
+            start_time = time.time()
+            while True:
+                if self.serial_connection.in_waiting > 0:
+                    response = self.serial_connection.readline().decode().strip()
+                    
+                    # Handle different FluidNC response types
+                    if response == "ok":
+                        logger.debug(f"Command completed: {gcode}")
+                        return True
+                    elif response.startswith("[MSG:"):
+                        # FluidNC info message
+                        logger.info(f"FluidNC message: {response}")
+                        continue
+                    elif response.startswith("error:"):
+                        logger.error(f"FluidNC error: {response}")
+                        return False
+                    elif response.startswith("ALARM:"):
+                        logger.error(f"FluidNC alarm: {response}")
+                        return False
+                    elif response.startswith("$"):
+                        # FluidNC settings response
+                        logger.debug(f"FluidNC setting: {response}")
+                        return True
+                    elif response == "":
+                        # Empty response - continue waiting
+                        continue
+                    else:
+                        logger.debug(f"FluidNC response: {response}")
+                
+                # Timeout check
+                if time.time() - start_time > self.timeout:
+                    logger.error(f"Command timeout: {gcode}")
+                    return False
+                    
+                time.sleep(0.1)
+                
+        except Exception as e:
+            logger.error(f"Error sending G-code '{gcode}': {e}")
+            return False
+    
+    def validate_position(self, point: Point) -> bool:
+        """Validate that position is within axis limits"""
+        if not (self.axis_limits['x']['min'] <= point.x <= self.axis_limits['x']['max']):
+            logger.error(f"X position {point.x} outside limits [{self.axis_limits['x']['min']}, {self.axis_limits['x']['max']}]")
+            return False
+        if not (self.axis_limits['y']['min'] <= point.y <= self.axis_limits['y']['max']):
+            logger.error(f"Y position {point.y} outside limits [{self.axis_limits['y']['min']}, {self.axis_limits['y']['max']}]")
+            return False
+        if not (self.axis_limits['z']['min'] <= point.z <= self.axis_limits['z']['max']):
+            logger.error(f"Z position {point.z} outside limits [{self.axis_limits['z']['min']}, {self.axis_limits['z']['max']}]")
+            return False
+        if not (self.axis_limits['c']['min'] <= point.c <= self.axis_limits['c']['max']):
+            logger.error(f"C position {point.c} outside limits [{self.axis_limits['c']['min']}, {self.axis_limits['c']['max']}]")
+            return False
+        return True
+    
+    def move_to_point(self, point: Point, feedrate: float = 500) -> bool:
+        """Move to specified 4DOF point with validation"""
+        if not self.validate_position(point):
+            return False
+            
+        # Build G-code command for 4DOF movement
+        gcode = f"G1 X{point.x:.3f} Y{point.y:.3f} Z{point.z:.3f} C{point.c:.3f} F{feedrate}"
+        
+        success = self._send_raw_gcode(gcode)
+        if success:
+            self.current_position = Point(point.x, point.y, point.z, point.c)
+            logger.info(f"Moved to X:{point.x:.1f} Y:{point.y:.1f} Z:{point.z:.1f} C:{point.c:.1f}")
+        
+        return success
+    
+    def home_axes(self) -> bool:
+        """Home configured axes"""
+        logger.info("Homing FluidNC axes...")
+        return self._send_raw_gcode("$H")
+    
+    def get_status(self) -> str:
+        """Get current FluidNC status"""
+        if not self.is_connected:
+            return "Not connected"
+        
+        try:
+            self.serial_connection.reset_input_buffer()
+            self.serial_connection.write(b"?")
+            
+            start_time = time.time()
+            while time.time() - start_time < 2:
+                if self.serial_connection.in_waiting > 0:
+                    status = self.serial_connection.readline().decode().strip()
+                    if status.startswith('<') and status.endswith('>'):
+                        return status
+                time.sleep(0.1)
+            
+            return "No status response"
+            
+        except Exception as e:
+            logger.error(f"Error getting status: {e}")
+            return f"Error: {e}"
+
+
 class PathPlanner:
-    def __init__(self, controller: ArduinoGCodeController):
+    def __init__(self, controller):
+        """Initialize PathPlanner with either ArduinoGCodeController or FluidNCController"""
         self.controller = controller
-        self.current_position = Point(0, 0, 0)
+        self.current_position = Point(0, 0, 0, 0)  # Support 4DOF
         
     def generate_linear_path(self, start: Point, end: Point, steps: int = 10) -> List[Point]:
-        """Generate linear interpolation between two points"""
+        """Generate linear interpolation between two points (4DOF)"""
         path = []
         for i in range(steps + 1):
             t = i / steps
             x = start.x + t * (end.x - start.x)
             y = start.y + t * (end.y - start.y)
             z = start.z + t * (end.z - start.z)
-            path.append(Point(x, y, z))
+            c = start.c + t * (end.c - start.c)
+            path.append(Point(x, y, z, c))
         return path
     
     def generate_circular_path(self, center: Point, radius: float, start_angle: float = 0, 
                              end_angle: float = 360, steps: int = 36) -> List[Point]:
-        """Generate circular path around center point"""
+        """Generate circular path around center point (XY plane)"""
         path = []
         angle_step = math.radians(end_angle - start_angle) / steps
         
@@ -386,16 +599,52 @@ class PathPlanner:
             angle = math.radians(start_angle) + i * angle_step
             x = center.x + radius * math.cos(angle)
             y = center.y + radius * math.sin(angle)
-            path.append(Point(x, y, center.z))
+            path.append(Point(x, y, center.z, center.c))
         
+        return path
+    
+    def generate_rotational_scan(self, center: Point, z_angles: List[float], 
+                               c_position: float = 90) -> List[Point]:
+        """Generate rotational scan path using Z-axis turntable
+        
+        Args:
+            center: Center position (XY coordinates)
+            z_angles: List of turntable rotation angles in degrees
+            c_position: C-axis position in mm (0-180mm, default 90mm = 0° tilt)
+        """
+        path = []
+        for z_angle in z_angles:
+            # Z-axis is rotational: 360° = 360mm in FluidNC
+            z_position = z_angle  # Direct mapping: 1° = 1mm
+            path.append(Point(center.x, center.y, z_position, c_position))
+        return path
+    
+    def generate_tilt_scan(self, base_position: Point, c_angles: List[float]) -> List[Point]:
+        """Generate camera tilt scan at fixed XYZ position
+        
+        Args:
+            base_position: Fixed XYZ position
+            c_angles: List of tilt angles in degrees (±90°)
+        """
+        path = []
+        for c_angle in c_angles:
+            # Convert tilt angle to C-axis position: angle + 90 = position
+            # -90° → 0mm, 0° → 90mm, +90° → 180mm
+            c_position = c_angle + 90
+            
+            # Validate C-axis limits (0-180mm as per ConfigV1.2)
+            if 0 <= c_position <= 180:
+                path.append(Point(base_position.x, base_position.y, base_position.z, c_position))
+            else:
+                logger.warning(f"C-axis angle {c_angle}° (position {c_position}mm) outside limits [0-180mm], skipping")
         return path
     
     def generate_grid_scan_path(self, min_point: Point, max_point: Point, 
                                x_steps: int = 10, y_steps: int = 10) -> List[Point]:
-        """Generate zigzag scanning pattern over rectangular area"""
+        """Generate zigzag scanning pattern over rectangular area (4DOF)"""
         path = []
-        x_step = (max_point.x - min_point.x) / x_steps
-        y_step = (max_point.y - min_point.y) / y_steps
+        x_step = (max_point.x - min_point.x) / x_steps if x_steps > 0 else 0
+        y_step = (max_point.y - min_point.y) / y_steps if y_steps > 0 else 0
         
         for j in range(y_steps + 1):
             y = min_point.y + j * y_step
@@ -403,11 +652,46 @@ class PathPlanner:
             if j % 2 == 0:  # Even rows: left to right
                 for i in range(x_steps + 1):
                     x = min_point.x + i * x_step
-                    path.append(Point(x, y, min_point.z))
+                    path.append(Point(x, y, min_point.z, min_point.c))
             else:  # Odd rows: right to left
                 for i in range(x_steps, -1, -1):
                     x = min_point.x + i * x_step
-                    path.append(Point(x, y, min_point.z))
+                    path.append(Point(x, y, min_point.z, min_point.c))
+        
+        return path
+    
+    def generate_spherical_scan(self, center: Point, radius: float, 
+                              z_angles: List[float], c_angles: List[float]) -> List[Point]:
+        """Generate spherical scan combining XY movement, Z rotation, and C tilt
+        
+        Args:
+            center: Center position for spherical scan
+            radius: Radius for XY movement
+            z_angles: List of turntable rotation angles (degrees)
+            c_angles: List of camera tilt angles (degrees, ±90°)
+        """
+        path = []
+        
+        for z_angle in z_angles:
+            for c_angle in c_angles:
+                # Calculate XY position for spherical coordinates
+                # This is a simplified approach - could be enhanced with true spherical coordinates
+                x_offset = radius * math.cos(math.radians(c_angle)) * math.cos(math.radians(z_angle))
+                y_offset = radius * math.cos(math.radians(c_angle)) * math.sin(math.radians(z_angle))
+                
+                x = center.x + x_offset
+                y = center.y + y_offset
+                z = z_angle  # Direct angle mapping for turntable
+                c = c_angle + 90  # Convert tilt angle to C-axis position (ConfigV1.2 format)
+                
+                # Validate position before adding to path
+                test_point = Point(x, y, z, c)
+                if hasattr(self.controller, 'validate_position'):
+                    if self.controller.validate_position(test_point):
+                        path.append(test_point)
+                else:
+                    # For backward compatibility with ArduinoGCodeController
+                    path.append(Point(x, y, z, c))
         
         return path
     
@@ -435,80 +719,173 @@ class PathPlanner:
         return True
 
 class CameraPositionController:
-    def __init__(self, gcode_controller: ArduinoGCodeController):
-        self.controller = gcode_controller
-        self.planner = PathPlanner(gcode_controller)
-        self.safe_height = 10.0  # Reduced safe Z height for safer testing
+    def __init__(self, controller):
+        """Initialize with either ArduinoGCodeController or FluidNCController"""
+        self.controller = controller
+        self.planner = PathPlanner(controller)
+        self.safe_height = 10.0  # Safe Z height for movements
+        self.default_c_position = 90.0  # Default camera position (90mm = 0° tilt in ConfigV1.2)
         
     def initialize_system(self, configure_grbl: bool = False, custom_settings: dict = None) -> bool:
-        """Initialize the camera positioning system
-        
-        Args:
-            configure_grbl: Whether to configure GRBL settings during initialization
-            custom_settings: Custom GRBL settings dict, uses defaults if None
-        """
-        if not self.controller.connect(configure_settings=configure_grbl, custom_settings=custom_settings):
+        """Initialize the camera positioning system (4DOF)"""
+        # Handle different controller types
+        if hasattr(self.controller, 'connect'):
+            if isinstance(self.controller, FluidNCController):
+                success = self.controller.connect()
+            else:  # ArduinoGCodeController
+                success = self.controller.connect(configure_settings=configure_grbl, 
+                                                custom_settings=custom_settings)
+        else:
+            logger.error("Controller does not have a connect method")
+            return False
+            
+        if not success:
             return False
         
-        logger.info("Initializing camera positioning system...")
+        logger.info("Initializing 4DOF camera positioning system...")
         
         # Try to home, but don't fail if homing isn't available
-        home_success = self.controller.home_axes()
-        if home_success:
-            logger.info("System initialized successfully")
-        else:
-            logger.warning("Homing not available, but system is connected")
+        try:
+            home_success = self.controller.home_axes()
+            if home_success:
+                logger.info("4DOF system initialized successfully")
+            else:
+                logger.warning("Homing not available, but system is connected")
+        except Exception as e:
+            logger.warning(f"Homing failed: {e}, but system is connected")
         
-        return True  # Continue even if homing fails
+        return True
     
     def move_to_capture_position(self, x: float, y: float, z: float = None, 
-                                feedrate: float = 1000) -> bool:
-        """Move camera to specific capture position"""
+                                c: float = None, feedrate: float = 1000) -> bool:
+        """Move camera to specific 4DOF capture position
+        
+        Args:
+            x, y: Linear position in mm
+            z: Rotation angle in degrees (optional)
+            c: Camera tilt angle in degrees ±90° (optional, will be converted to 0-180mm)
+            feedrate: Movement speed
+        """
         if z is None:
             z = self.safe_height
+        if c is None:
+            c_position = self.default_c_position  # Use default position (90mm = 0° tilt)
+        else:
+            c_position = c + 90  # Convert tilt angle to position: -90° → 0mm, 0° → 90mm, +90° → 180mm
         
-        target = Point(x, y, z)
-        logger.info(f"Moving to capture position: X{x} Y{y} Z{z}")
+        target = Point(x, y, z, c_position)
+        logger.info(f"Moving to 4DOF capture position: X{x} Y{y} Z{z}° C{c}° (pos:{c_position})")
         
         return self.controller.move_to_point(target, feedrate)
     
     def scan_area(self, corner1: Point, corner2: Point, grid_size: Tuple[int, int] = (5, 5),
-                  capture_height: float = None, feedrate: float = 500) -> bool:
-        """Perform systematic scan of rectangular area"""
+                  capture_height: float = None, c_angle: float = None, 
+                  feedrate: float = 500) -> bool:
+        """Perform systematic scan of rectangular area (4DOF)
+        
+        Args:
+            corner1, corner2: Corner points defining scan area
+            grid_size: (x_steps, y_steps) for grid pattern
+            capture_height: Z height for scan (optional)
+            c_angle: Camera tilt angle in degrees (optional, converted to position)
+            feedrate: Movement speed
+        """
         if capture_height is None:
             capture_height = self.safe_height
+        if c_angle is None:
+            c_position = self.default_c_position
+        else:
+            c_position = c_angle + 90  # Convert tilt angle to position
         
-        # Define scan area
-        min_point = Point(min(corner1.x, corner2.x), min(corner1.y, corner2.y), capture_height)
-        max_point = Point(max(corner1.x, corner2.x), max(corner1.y, corner2.y), capture_height)
+        # Define scan area with 4DOF
+        min_point = Point(min(corner1.x, corner2.x), min(corner1.y, corner2.y), 
+                         capture_height, c_position)
+        max_point = Point(max(corner1.x, corner2.x), max(corner1.y, corner2.y), 
+                         capture_height, c_position)
         
         # Generate scan path
         scan_path = self.planner.generate_grid_scan_path(min_point, max_point, 
                                                         grid_size[0], grid_size[1])
         
         # Execute scan
-        logger.info(f"Starting area scan: {len(scan_path)} positions")
+        logger.info(f"Starting 4DOF area scan: {len(scan_path)} positions")
         return self.planner.execute_path(scan_path, feedrate, pause_between_points=0.5)
     
     def circular_scan(self, center: Point, radius: float, num_positions: int = 8,
-                     capture_height: float = None, feedrate: float = 500) -> bool:
-        """Perform circular scan around center point"""
+                     capture_height: float = None, c_angle: float = None,
+                     feedrate: float = 500) -> bool:
+        """Perform circular scan around center point (4DOF)
+        
+        Args:
+            center: Center point for circular scan
+            radius: Radius of circular path
+            num_positions: Number of positions around circle
+            capture_height: Z height for scan (optional)
+            c_angle: Camera tilt angle in degrees (optional, converted to position)
+            feedrate: Movement speed
+        """
         if capture_height is None:
             capture_height = self.safe_height
+        if c_angle is None:
+            c_position = self.default_c_position
+        else:
+            c_position = c_angle + 90  # Convert tilt angle to position
         
         center.z = capture_height
+        center.c = c_position
         
         # Generate circular path
         circular_path = self.planner.generate_circular_path(center, radius, 0, 360, num_positions)
         
         # Execute circular scan
-        logger.info(f"Starting circular scan: {len(circular_path)} positions")
+        logger.info(f"Starting 4DOF circular scan: {len(circular_path)} positions")
         return self.planner.execute_path(circular_path, feedrate, pause_between_points=1.0)
     
+    def rotational_scan(self, base_position: Point, z_angles: List[float], 
+                       c_angle: float = None, feedrate: float = 300) -> bool:
+        """Perform rotational scan using Z-axis turntable
+        
+        Args:
+            base_position: Fixed XY position for scan
+            z_angles: List of turntable rotation angles in degrees
+            c_angle: Camera tilt angle in degrees (optional, converted to position)
+            feedrate: Movement speed
+        """
+        if c_angle is None:
+            c_position = self.default_c_position
+        else:
+            c_position = c_angle + 90  # Convert tilt angle to position
+        
+        # Generate rotational scan path
+        rotation_path = self.planner.generate_rotational_scan(base_position, z_angles, c_position)
+        
+        logger.info(f"Starting rotational scan: {len(rotation_path)} positions")
+        return self.planner.execute_path(rotation_path, feedrate, pause_between_points=1.0)
+    
+    def tilt_scan(self, base_position: Point, c_angles: List[float], 
+                 feedrate: float = 200) -> bool:
+        """Perform camera tilt scan at fixed XYZ position"""
+        # Generate tilt scan path
+        tilt_path = self.planner.generate_tilt_scan(base_position, c_angles)
+        
+        logger.info(f"Starting camera tilt scan: {len(tilt_path)} positions")
+        return self.planner.execute_path(tilt_path, feedrate, pause_between_points=0.5)
+    
+    def spherical_scan(self, center: Point, radius: float, 
+                      z_angles: List[float], c_angles: List[float],
+                      feedrate: float = 300) -> bool:
+        """Perform comprehensive spherical scan combining rotation and tilt"""
+        # Generate spherical scan path
+        spherical_path = self.planner.generate_spherical_scan(center, radius, z_angles, c_angles)
+        
+        logger.info(f"Starting spherical scan: {len(spherical_path)} positions")
+        return self.planner.execute_path(spherical_path, feedrate, pause_between_points=1.5)
+    
     def return_to_home(self) -> bool:
-        """Return camera to origin position"""
-        logger.info("Returning to origin position")
-        return self.controller.move_to_point(Point(0, 0, 0), feedrate=500)
+        """Return camera to origin position (4DOF)"""
+        logger.info("Returning to 4DOF origin position")
+        # Use center C position (90mm = 0° tilt) for home
+        return self.controller.move_to_point(Point(0, 0, 0, 90), feedrate=500)
     
     def emergency_stop(self):
         """Emergency stop - immediately halt all movement"""

@@ -44,6 +44,7 @@ except ImportError:
 # Import our camera positioning system
 from camera_positioning_gcode import (
     ArduinoGCodeController, 
+    FluidNCController,
     CameraPositionController, 
     PathPlanner, 
     Point, 
@@ -70,20 +71,29 @@ class ScanConfig:
     safe_height: float = 10.0         # Safe Z height for movements
 
 class IntegratedCameraSystem:
-    """Combined camera positioning and photo capture system"""
+    """Combined camera positioning and photo capture system (4DOF FluidNC)"""
     
-    def __init__(self, grbl_port: str = '/dev/ttyUSB0', video_server_port: int = 5000):
+    def __init__(self, controller_port: str = '/dev/ttyUSB0', video_server_port: int = 5000, 
+                 use_fluidnc: bool = True):
         """
         Initialize the integrated camera system
         
         Args:
-            grbl_port: Serial port for GRBL controller
+            controller_port: Serial port for FluidNC/GRBL controller
             video_server_port: Port for video streaming server
+            use_fluidnc: True for FluidNC (4DOF), False for GRBL (legacy 3DOF)
         """
-        # Initialize GRBL controller
-        self.grbl_controller = ArduinoGCodeController(grbl_port)
-        self.camera_controller = CameraPositionController(self.grbl_controller)
-        self.path_planner = PathPlanner(self.grbl_controller)
+        # Initialize controller based on type
+        if use_fluidnc:
+            self.controller = FluidNCController(controller_port)
+            logger.info("Initialized FluidNC controller for 4DOF system")
+        else:
+            self.controller = ArduinoGCodeController(controller_port)
+            logger.info("Initialized GRBL controller for 3DOF system")
+            
+        self.camera_controller = CameraPositionController(self.controller)
+        self.path_planner = PathPlanner(self.controller)
+        self.use_fluidnc = use_fluidnc
         
         # Initialize camera system
         self.picam2 = None
@@ -145,30 +155,39 @@ class IntegratedCameraSystem:
             logger.info(f"Created photo directory: {self.scan_config.photo_directory}")
     
     def initialize_positioning_system(self, configure_grbl: bool = False) -> bool:
-        """Initialize the GRBL positioning system"""
-        logger.info("Initializing GRBL positioning system...")
+        """Initialize the FluidNC/GRBL positioning system"""
+        logger.info("Initializing positioning system...")
         
         # Check if already connected
-        if self.grbl_controller.is_connected:
-            logger.info("GRBL controller already connected")
+        if self.controller.is_connected:
+            logger.info("Controller already connected")
             return True
         
-        # Connect to GRBL
-        if not self.grbl_controller.connect(configure_settings=configure_grbl):
-            logger.error("Failed to connect to GRBL controller")
+        # Connect to controller
+        if self.use_fluidnc:
+            success = self.controller.connect()
+        else:
+            success = self.controller.connect(configure_settings=configure_grbl)
+            
+        if not success:
+            logger.error("Failed to connect to controller")
             return False
         
-        # Check GRBL status
-        status = self.grbl_controller.get_grbl_status()
-        logger.info(f"GRBL Status: {status}")
+        # Check controller status
+        if hasattr(self.controller, 'get_grbl_status'):
+            status = self.controller.get_grbl_status()
+            logger.info(f"GRBL Status: {status}")
+        elif hasattr(self.controller, 'get_status'):
+            status = self.controller.get_status()
+            logger.info(f"FluidNC Status: {status}")
         
-        # Try to unlock GRBL if needed
-        self.grbl_controller._send_raw_gcode("$X")
+        # Try to unlock controller if needed
+        self.controller._send_raw_gcode("$X")
         
         # Set current position as home (don't call camera_controller.initialize_system again)
         try:
-            self.grbl_controller.home_axes()
-            logger.info("GRBL positioning system initialized successfully")
+            self.controller.home_axes()
+            logger.info("Positioning system initialized successfully")
             return True
         except Exception as e:
             logger.warning(f"Homing failed: {e}. System still usable.")
@@ -178,15 +197,15 @@ class IntegratedCameraSystem:
         """Test step-by-step movements with detailed logging"""
         logger.info("=== Starting Step Movement Test ===")
         
-        if not self.grbl_controller.is_connected:
-            logger.error("GRBL controller not connected")
+        if not self.controller.is_connected:
+            logger.error("Controller not connected")
             return False
         
         # Get starting position
-        start_pos = self.grbl_controller.current_position
+        start_pos = self.controller.current_position
         logger.info(f"Starting position: X{start_pos.x} Y{start_pos.y} Z{start_pos.z}")
         
-        # Test movements in sequence
+        # Test movements in sequence (3DOF for compatibility)
         test_moves = [
             Point(start_pos.x + 5, start_pos.y, start_pos.z),     # Move +5mm in X
             Point(start_pos.x + 5, start_pos.y + 5, start_pos.z), # Move +5mm in Y  
@@ -199,12 +218,12 @@ class IntegratedCameraSystem:
         for i, (move, name) in enumerate(zip(test_moves, move_names)):
             logger.info(f"=== Move {i+1}: {name} to X{move.x} Y{move.y} Z{move.z} ===")
             
-            success = self.grbl_controller.move_to_point(move, feedrate=200)  # Slow speed
+            success = self.controller.move_to_point(move, feedrate=200)  # Slow speed
             
             if success:
                 logger.info(f"✓ Move {i+1} completed successfully")
                 # Verify position
-                current = self.grbl_controller.current_position
+                current = self.controller.current_position
                 logger.info(f"Current position: X{current.x} Y{current.y} Z{current.z}")
             else:
                 logger.error(f"✗ Move {i+1} failed!")
@@ -216,42 +235,46 @@ class IntegratedCameraSystem:
         return True
     
     def test_grbl_connection(self) -> bool:
-        """Test GRBL connection and basic movement capability"""
-        logger.info("Testing GRBL connection...")
+        """Test controller connection and basic movement capability"""
+        logger.info("Testing controller connection...")
         
-        if not self.grbl_controller.is_connected:
-            logger.error("GRBL controller not connected")
+        if not self.controller.is_connected:
+            logger.error("Controller not connected")
             return False
         
         # Test basic commands
         try:
             # Send status query
-            status = self.grbl_controller.get_grbl_status()
-            logger.info(f"GRBL Status: {status}")
+            if hasattr(self.controller, 'get_grbl_status'):
+                status = self.controller.get_grbl_status()
+                logger.info(f"GRBL Status: {status}")
+            elif hasattr(self.controller, 'get_status'):
+                status = self.controller.get_status()
+                logger.info(f"FluidNC Status: {status}")
             
             # Test basic G-code commands
             logger.info("Testing basic G-code commands...")
-            self.grbl_controller._send_raw_gcode("G21")  # Set units to mm
-            self.grbl_controller._send_raw_gcode("G90")  # Absolute positioning
-            self.grbl_controller._send_raw_gcode("G94")  # Feed rate mode
+            self.controller._send_raw_gcode("G21")  # Set units to mm
+            self.controller._send_raw_gcode("G90")  # Absolute positioning
+            self.controller._send_raw_gcode("G94")  # Feed rate mode
             
             # Test small movement (1mm)
             logger.info("Testing small movement (1mm)...")
-            current_pos = self.grbl_controller.current_position
+            current_pos = self.controller.current_position
             test_pos = Point(current_pos.x + 1, current_pos.y, current_pos.z)
             
-            success = self.grbl_controller.move_to_point(test_pos, feedrate=100)
+            success = self.controller.move_to_point(test_pos, feedrate=100)
             if success:
                 logger.info("Test movement successful")
                 # Return to original position
-                self.grbl_controller.move_to_point(current_pos, feedrate=100)
+                self.controller.move_to_point(current_pos, feedrate=100)
                 return True
             else:
                 logger.error("Test movement failed")
                 return False
                 
         except Exception as e:
-            logger.error(f"GRBL connection test failed: {e}")
+            logger.error(f"Controller connection test failed: {e}")
             return False
     
     def capture_photo_at_position(self, position: Point, position_name: str = None) -> str:
@@ -328,8 +351,8 @@ class IntegratedCameraSystem:
         Returns:
             True if scan completed successfully
         """
-        if not self.grbl_controller.is_connected:
-            logger.error("GRBL controller not connected")
+        if not self.controller.is_connected:
+            logger.error("Controller not connected")
             return False
         
         # Initialize scan data
@@ -356,7 +379,7 @@ class IntegratedCameraSystem:
                 logger.info(f"Using feedrate: {self.scan_config.movement_feedrate}")
                 
                 # Move to position
-                success = self.grbl_controller.move_to_point(
+                success = self.controller.move_to_point(
                     position, 
                     feedrate=self.scan_config.movement_feedrate
                 )
@@ -468,14 +491,22 @@ class IntegratedCameraSystem:
             
             @self.app.route('/grbl_status')
             def grbl_status():
-                """Check GRBL connection and status"""
+                """Check controller connection and status"""
                 try:
-                    connected = self.grbl_controller.is_connected
+                    connected = self.controller.is_connected
                     if connected:
-                        status = self.grbl_controller.get_grbl_status()
+                        if hasattr(self.controller, 'get_grbl_status'):
+                            status = self.controller.get_grbl_status()
+                        elif hasattr(self.controller, 'get_status'):
+                            status = self.controller.get_status()
+                        else:
+                            status = "Status not available"
                         try:
-                            pos = self.grbl_controller.current_position
-                            position = {"x": pos.x, "y": pos.y, "z": pos.z}
+                            pos = self.controller.current_position
+                            if hasattr(pos, 'c'):  # 4DOF
+                                position = {"x": pos.x, "y": pos.y, "z": pos.z, "c": pos.c}
+                            else:  # 3DOF
+                                position = {"x": pos.x, "y": pos.y, "z": pos.z}
                         except Exception as e:
                             position = {"error": f"Failed to get position: {str(e)}"}
                     else:
@@ -484,15 +515,17 @@ class IntegratedCameraSystem:
                     
                     return jsonify({
                         "connected": connected,
-                        "grbl_status": status,
+                        "controller_status": status,
                         "position": position,
-                        "port": getattr(self.grbl_controller, 'port', 'Unknown')
+                        "port": getattr(self.controller, 'port', 'Unknown'),
+                        "controller_type": "FluidNC" if self.use_fluidnc else "GRBL"
                     })
                 except Exception as e:
                     return jsonify({
                         "connected": False,
-                        "error": f"GRBL status check failed: {str(e)}",
-                        "port": getattr(self.grbl_controller, 'port', 'Unknown')
+                        "error": f"Controller status check failed: {str(e)}",
+                        "port": getattr(self.controller, 'port', 'Unknown'),
+                        "controller_type": "FluidNC" if self.use_fluidnc else "GRBL"
                     })
             
             logger.info("Added route: /grbl_status")
@@ -531,9 +564,17 @@ class IntegratedCameraSystem:
             def scan_status():
                 """Get current scan status"""
                 status_data = self.current_scan_data.copy()
-                # Add GRBL connection status
-                status_data["grbl_connected"] = self.grbl_controller.is_connected
-                status_data["grbl_status"] = self.grbl_controller.get_grbl_status() if self.grbl_controller.is_connected else "Disconnected"
+                # Add controller connection status
+                status_data["controller_connected"] = self.controller.is_connected
+                if self.controller.is_connected:
+                    if hasattr(self.controller, 'get_grbl_status'):
+                        status_data["controller_status"] = self.controller.get_grbl_status()
+                    elif hasattr(self.controller, 'get_status'):
+                        status_data["controller_status"] = self.controller.get_status()
+                    else:
+                        status_data["controller_status"] = "Connected"
+                else:
+                    status_data["controller_status"] = "Disconnected"
                 return jsonify(status_data)
             
         except Exception as e:
@@ -568,20 +609,21 @@ class IntegratedCameraSystem:
                 if self.current_scan_data["active"]:
                     return jsonify({"error": "Cannot move during active scan"}), 400
 
-                if not self.grbl_controller.is_connected:
-                    return jsonify({"error": "GRBL controller not connected"}), 500
+                if not self.controller.is_connected:
+                    return jsonify({"error": "Controller not connected"}), 500
 
-                # Create target point
-                target = Point(x, y, z)
-                logger.info(f"Target position created: X{target.x} Y{target.y} Z{target.z}")
+                # Create target point (support 4DOF)
+                c = float(data.get('c', 0))  # Camera tilt for 4DOF
+                target = Point(x, y, z, c)
+                logger.info(f"Target position created: X{target.x} Y{target.y} Z{target.z} C{target.c}")
                 
                 # Get current position
-                current = self.grbl_controller.current_position
-                logger.info(f"Current position: X{current.x} Y{current.y} Z{current.z}")
+                current = self.controller.current_position
+                logger.info(f"Current position: X{current.x} Y{current.y} Z{current.z} C{current.c}")
                 
                 # Start movement in background thread
                 move_thread = threading.Thread(
-                    target=self.grbl_controller.move_to_point,
+                    target=self.controller.move_to_point,
                     args=(target,),
                     kwargs={"feedrate": self.scan_config.movement_feedrate}
                 )
@@ -615,24 +657,25 @@ class IntegratedCameraSystem:
                 if not data:
                     return jsonify({"error": "No JSON data provided"}), 400
                 
-                # Extract coordinates with type conversion
+                # Extract coordinates with type conversion (support 4DOF)
                 x = float(data.get('x', 0))
                 y = float(data.get('y', 0))
                 z = float(data.get('z', 0))
+                c = float(data.get('c', 0))
                 
-                logger.info(f"Test move request: X{x} Y{y} Z{z}")
+                logger.info(f"Test move request: X{x} Y{y} Z{z} C{c}")
 
-                if not self.grbl_controller.is_connected:
-                    return jsonify({"error": "GRBL not connected"}), 500
+                if not self.controller.is_connected:
+                    return jsonify({"error": "Controller not connected"}), 500
                 
-                target = Point(x, y, z)
-                current = self.grbl_controller.current_position
+                target = Point(x, y, z, c)
+                current = self.controller.current_position
                 feedrate = self.scan_config.movement_feedrate
                 
                 return jsonify({
                     "message": "Simple move test passed",
-                    "target": {"x": target.x, "y": target.y, "z": target.z},
-                    "current": {"x": current.x, "y": current.y, "z": current.z},
+                    "target": {"x": target.x, "y": target.y, "z": target.z, "c": target.c},
+                    "current": {"x": current.x, "y": current.y, "z": current.z, "c": current.c},
                     "feedrate": feedrate,
                     "status": "success"
                 })
@@ -755,7 +798,7 @@ class IntegratedCameraSystem:
         @self.app.route('/capture_single_photo')
         def capture_single_photo():
             """Capture a single photo at current position"""
-            current_pos = self.grbl_controller.current_position
+            current_pos = self.controller.current_position
             filename = self.capture_photo_at_position(current_pos, "manual")
             
             if filename:
@@ -783,11 +826,23 @@ class IntegratedCameraSystem:
         
         @self.app.route('/get_current_position')
         def get_current_position():
-            """Get current GRBL position"""
-            pos = self.grbl_controller.current_position
+            """Get current controller position (4DOF)"""
+            pos = self.controller.current_position
+            position_data = {"x": pos.x, "y": pos.y, "z": pos.z}
+            if hasattr(pos, 'c'):
+                position_data["c"] = pos.c
+            
+            # Get status based on controller type
+            status = "Unknown"
+            if hasattr(self.controller, 'get_grbl_status'):
+                status = self.controller.get_grbl_status()
+            elif hasattr(self.controller, 'get_status'):
+                status = self.controller.get_status()
+            
             return jsonify({
-                "position": {"x": pos.x, "y": pos.y, "z": pos.z},
-                "grbl_status": self.grbl_controller.get_grbl_status()
+                "position": position_data,
+                "controller_status": status,
+                "controller_type": "FluidNC" if self.use_fluidnc else "GRBL"
             })
         
         @self.app.route('/return_home')
@@ -1433,26 +1488,37 @@ CONTROL_INTERFACE_HTML = """
 def main():
     """Main function to run the integrated system"""
     print("Integrated Camera Positioning and Photo Capture System")
+    print("FluidNC 4DOF Version")
     print("=" * 60)
     
-    # Initialize system
-    system = IntegratedCameraSystem()
+    # Initialize system with FluidNC (4DOF) by default
+    print("Initializing FluidNC 4DOF system...")
+    system = IntegratedCameraSystem(use_fluidnc=True)
     
     try:
         # Initialize positioning system
-        print("Initializing GRBL positioning system...")
         if not system.initialize_positioning_system():
-            print("Failed to initialize positioning system!")
-            return
+            print("Failed to initialize FluidNC system!")
+            print("Trying GRBL fallback...")
+            # Try GRBL fallback
+            system = IntegratedCameraSystem(use_fluidnc=False)
+            if not system.initialize_positioning_system():
+                print("Failed to initialize any positioning system!")
+                return
         
-        print("System initialized successfully!")
+        controller_type = "FluidNC 4DOF" if system.use_fluidnc else "GRBL 3DOF"
+        print(f"System initialized successfully with {controller_type}!")
         print("\nAvailable operations:")
         print("1. Start web interface")
-        print("2. Test GRBL connection and movement")
+        print("2. Test controller connection and movement") 
         print("3. Test step-by-step movements (5mm steps)")
-        print("4. Run test grid scan")
+        print("4. Run test grid scan (with 4DOF if FluidNC)")
         print("5. Run test circular scan")
         print("6. Manual photo capture test")
+        if system.use_fluidnc:
+            print("7. Test 4DOF rotational scan")
+            print("8. Test 4DOF camera tilt scan")
+            print("9. Test 4DOF spherical scan")
         print("7. Exit")
         
         choice = input("\nSelect operation (1-7): ").strip()
@@ -1487,8 +1553,8 @@ def main():
             
         elif choice == "6":
             print("Testing manual photo capture...")
-            pos = Point(0, 0, 5)
-            system.grbl_controller.move_to_point(pos, feedrate=500)
+            pos = Point(0, 0, 5, 0)  # 4DOF point
+            system.controller.move_to_point(pos, feedrate=500)
             filename = system.capture_photo_at_position(pos, "test")
             print(f"Photo captured: {filename}" if filename else "Photo capture failed")
             
