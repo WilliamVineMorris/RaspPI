@@ -489,15 +489,15 @@ class FluidNCController:
         gcode_upper = gcode.upper().strip()
         
         if gcode_upper == "$H":  # Homing command
-            return 60.0  # Homing can take up to 60 seconds
+            return 120.0  # Increased from 60s - homing can take longer for larger machines
         elif gcode_upper.startswith("G1") or gcode_upper.startswith("G0"):  # Movement commands
-            return 30.0  # Movement commands can take longer
+            return 60.0  # Increased from 30s - give more time for long movements
         elif gcode_upper.startswith("?"):  # Status query
-            return 2.0   # Status should be quick
+            return 5.0   # Increased from 2s - give more time for status response
         elif gcode_upper.startswith("$X"):  # Unlock command
-            return 10.0  # Unlock might take a moment
+            return 15.0  # Increased from 10s - unlock might need more time
         else:
-            return self.timeout  # Default timeout for other commands
+            return 10.0  # Increased default timeout from self.timeout (5s)
     
     def _send_raw_gcode(self, gcode: str) -> bool:
         """Send raw G-code command and wait for FluidNC response"""
@@ -608,7 +608,7 @@ class FluidNCController:
                     logger.error(f"Command timeout after {elapsed:.1f}s (limit: {command_timeout}s): {gcode}")
                     return False
                     
-                time.sleep(0.05)  # Reduced sleep for better responsiveness
+                time.sleep(0.02)  # Reduced from 0.05s for better responsiveness
                 
         except Exception as e:
             logger.error(f"Error sending G-code '{gcode}': {e}")
@@ -692,7 +692,7 @@ class FluidNCController:
             
         return Point(safe_x, safe_y, safe_z, safe_c)
     
-    def move_to_point(self, point: Point, feedrate: float = 500) -> bool:
+    def move_to_point(self, point: Point, feedrate: float = 1200) -> bool:
         """Move to specified 4DOF point with validation (command only - use move_to_point_and_wait for scanning)"""
         # Clamp coordinates to prevent negative X/Y values
         clamped_point = self.clamp_coordinates(point)
@@ -952,37 +952,46 @@ class FluidNCController:
             logger.error(f"Error checking homing status: {e}")
             return False
     
-    def wait_for_movement_complete(self, timeout: float = 30.0) -> bool:
+    def wait_for_movement_complete(self, timeout: float = 60.0) -> bool:
         """Wait for FluidNC to complete all movements by monitoring status"""
         start_time = time.time()
+        last_status_time = 0
+        status_check_interval = 0.05  # Check status every 50ms for faster response
         
         while time.time() - start_time < timeout:
-            status = self.get_status()
+            current_time = time.time()
             
-            if status.startswith('<') and status.endswith('>'):
-                # Parse status: <State|MPos:X,Y,Z,C|FS:feedrate,spindle>
-                parts = status[1:-1].split('|')
-                state = parts[0] if parts else ""
+            # Only query status at specified intervals to avoid overwhelming FluidNC
+            if current_time - last_status_time >= status_check_interval:
+                status = self.get_status()
+                last_status_time = current_time
                 
-                # Check if system is idle (movement complete)
-                if state == 'Idle':
-                    logger.debug("Movement completed - system idle")
-                    return True
-                elif state in ['Run', 'Jog']:
-                    # Still moving
-                    logger.debug(f"Movement in progress - state: {state}")
-                elif state.startswith('Alarm'):
-                    logger.error("Movement stopped due to alarm")
-                    return False
-                else:
-                    logger.debug(f"Unknown state during movement: {state}")
+                if status.startswith('<') and status.endswith('>'):
+                    # Parse status: <State|MPos:X,Y,Z,C|FS:feedrate,spindle>
+                    parts = status[1:-1].split('|')
+                    state = parts[0] if parts else ""
+                    
+                    # Check if system is idle (movement complete)
+                    if state == 'Idle':
+                        logger.debug("Movement completed - system idle")
+                        return True
+                    elif state in ['Run', 'Jog']:
+                        # Still moving - log occasionally for feedback
+                        elapsed = current_time - start_time
+                        if elapsed > 0 and int(elapsed) % 5 == 0 and elapsed - int(elapsed) < 0.1:
+                            logger.info(f"Movement in progress ({elapsed:.1f}s) - state: {state}")
+                    elif state.startswith('Alarm'):
+                        logger.error("Movement stopped due to alarm")
+                        return False
+                    else:
+                        logger.debug(f"Unknown state during movement: {state}")
             
-            time.sleep(0.1)  # Check every 100ms
+            time.sleep(0.02)  # Reduced from 0.1s to 0.02s for more responsive monitoring
         
         logger.warning(f"Movement completion timeout after {timeout}s")
         return False
     
-    def move_to_point_and_wait(self, point: Point, feedrate: float = 500) -> bool:
+    def move_to_point_and_wait(self, point: Point, feedrate: float = 1200) -> bool:
         """Move to specified point and wait for completion"""
         # Clamp coordinates to prevent negative X/Y values
         clamped_point = self.clamp_coordinates(point)
@@ -1152,14 +1161,14 @@ class PathPlanner:
         
         return path
     
-    def execute_path(self, path: List[Point], feedrate: float = 1000, 
-                    pause_between_points: float = 0.5) -> bool:
+    def execute_path(self, path: List[Point], feedrate: float = 1500, 
+                    pause_between_points: float = 0.2) -> bool:
         """Execute a planned path with proper movement completion waiting"""
         if not self.controller.is_connected:
             logger.error("Controller not connected")
             return False
         
-        logger.info(f"Executing path with {len(path)} points (waiting for movement completion)")
+        logger.info(f"Executing path with {len(path)} points at {feedrate}mm/min (optimized for speed)")
         
         for i, point in enumerate(path):
             # Use movement completion waiting for all scanning operations
@@ -1169,12 +1178,17 @@ class PathPlanner:
                 logger.error(f"Failed to move to point {i}: {point}")
                 return False
             
-            # Additional pause for settling/photo capture if specified
+            # Reduced pause for settling/photo capture if specified
             if pause_between_points > 0:
                 logger.debug(f"Settling pause: {pause_between_points}s")
                 time.sleep(pause_between_points)
             
-            logger.debug(f"Completed move to point {i+1}/{len(path)}: X{point.x:.3f} Y{point.y:.3f} Z{point.z:.3f}")
+            # Progress feedback every 10 points for long paths
+            if (i + 1) % 10 == 0 or i == len(path) - 1:
+                progress = ((i + 1) / len(path)) * 100
+                logger.info(f"Path progress: {i+1}/{len(path)} ({progress:.1f}%) - X{point.x:.1f} Y{point.y:.1f}")
+            else:
+                logger.debug(f"Completed move to point {i+1}/{len(path)}: X{point.x:.3f} Y{point.y:.3f} Z{point.z:.3f}")
         
         logger.info("Path execution completed successfully")
         return True
@@ -1242,7 +1256,7 @@ class CameraPositionController:
     
     def scan_area(self, corner1: Point, corner2: Point, grid_size: Tuple[int, int] = (5, 5),
                   capture_height: float = None, c_angle: float = None, 
-                  feedrate: float = 500) -> bool:
+                  feedrate: float = 1200) -> bool:
         """Perform systematic scan of rectangular area (4DOF)
         
         Args:
