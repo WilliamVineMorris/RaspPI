@@ -871,6 +871,227 @@ class IntegratedCameraSystem:
                 logger.error(f"Error starting return home: {e}")
                 return jsonify({"error": f"Failed to start return home: {str(e)}"}), 500
         
+        # Add new 4DOF routes
+        @self.app.route('/home_system', methods=['POST'])
+        def home_system():
+            """Home all axes of the 4DOF system"""
+            try:
+                if not self.controller.is_connected:
+                    return jsonify({"success": False, "error": "Controller not connected"}), 500
+                
+                logger.info("Starting system homing sequence...")
+                success = self.controller.home_axes()
+                
+                if success:
+                    logger.info("System homing completed successfully")
+                    return jsonify({"success": True, "message": "System homed successfully"})
+                else:
+                    logger.error("System homing failed")
+                    return jsonify({"success": False, "error": "Homing sequence failed"}), 500
+                    
+            except Exception as e:
+                logger.error(f"Error during homing: {e}")
+                return jsonify({"success": False, "error": f"Homing failed: {str(e)}"}), 500
+        
+        @self.app.route('/move_to_4dof', methods=['POST'])
+        def move_to_4dof():
+            """Move to specific 4DOF position"""
+            try:
+                if not request.is_json:
+                    return jsonify({"success": False, "error": "Request must be JSON"}), 400
+                
+                data = request.get_json()
+                if not data:
+                    return jsonify({"success": False, "error": "No JSON data provided"}), 400
+                
+                x = float(data.get('x', 0))
+                y = float(data.get('y', 0))
+                z = float(data.get('z', 0))
+                c = float(data.get('c', 0))
+                
+                if not self.controller.is_connected:
+                    return jsonify({"success": False, "error": "Controller not connected"}), 500
+                
+                target = Point(x, y, z, c)
+                success = self.camera_controller.move_to_capture_position(x, y, z, c)
+                
+                if success:
+                    return jsonify({"success": True, "message": f"Moved to X{x} Y{y} Z{z}° C{c}°"})
+                else:
+                    return jsonify({"success": False, "error": "Movement failed"}), 500
+                    
+            except Exception as e:
+                logger.error(f"4DOF move error: {e}")
+                return jsonify({"success": False, "error": f"Move failed: {str(e)}"}), 500
+        
+        @self.app.route('/controller_status')
+        def controller_status():
+            """Get detailed controller status including 4DOF position"""
+            try:
+                connected = self.controller.is_connected
+                if connected:
+                    # Try to get status from controller
+                    try:
+                        if hasattr(self.controller, '_send_raw_gcode'):
+                            # Send a simple status command and parse response
+                            response = self.controller._send_raw_gcode("?")
+                            status = response if response else "Connected"
+                        else:
+                            status = "Connected"
+                    except:
+                        status = "Connected"
+                        
+                    try:
+                        pos = self.controller.current_position
+                        if hasattr(pos, 'c'):  # 4DOF
+                            position = {"x": pos.x, "y": pos.y, "z": pos.z, "c": pos.c}
+                        else:  # 3DOF
+                            position = {"x": pos.x, "y": pos.y, "z": pos.z}
+                    except Exception as e:
+                        position = {"error": f"Failed to get position: {str(e)}"}
+                else:
+                    status = "Not connected"
+                    position = {"error": "Not connected"}
+                
+                return jsonify({
+                    "connected": connected,
+                    "controller_status": status,
+                    "position": position,
+                    "port": getattr(self.controller, 'port', 'Unknown'),
+                    "controller_type": "FluidNC" if self.use_fluidnc else "GRBL"
+                })
+            except Exception as e:
+                return jsonify({
+                    "connected": False,
+                    "error": f"Controller status check failed: {str(e)}",
+                    "port": getattr(self.controller, 'port', 'Unknown'),
+                    "controller_type": "FluidNC" if self.use_fluidnc else "GRBL"
+                })
+        
+        @self.app.route('/start_grid_scan_4dof', methods=['POST'])
+        def start_grid_scan_4dof():
+            """Start a 4DOF grid scan"""
+            try:
+                if not request.is_json:
+                    return jsonify({"success": False, "error": "Request must be JSON"}), 400
+                
+                data = request.get_json()
+                x1, y1 = float(data['x1']), float(data['y1'])
+                x2, y2 = float(data['x2']), float(data['y2'])
+                grid_x, grid_y = int(data['grid_x']), int(data['grid_y'])
+                z, c = float(data['z']), float(data['c'])
+                
+                corner1 = Point(x1, y1, z, c)
+                corner2 = Point(x2, y2, z, c)
+                
+                success = self.camera_controller.scan_area(corner1, corner2, (grid_x, grid_y))
+                
+                if success:
+                    return jsonify({"success": True, "message": f"4DOF Grid scan started ({grid_x}×{grid_y} points)"})
+                else:
+                    return jsonify({"success": False, "error": "Grid scan failed to start"}), 500
+                    
+            except Exception as e:
+                logger.error(f"4DOF grid scan error: {e}")
+                return jsonify({"success": False, "error": f"Grid scan failed: {str(e)}"}), 500
+        
+        @self.app.route('/start_circular_scan_4dof', methods=['POST'])
+        def start_circular_scan_4dof():
+            """Start a 4DOF circular scan"""
+            try:
+                if not request.is_json:
+                    return jsonify({"success": False, "error": "Request must be JSON"}), 400
+                
+                data = request.get_json()
+                center_x, center_y = float(data['center_x']), float(data['center_y'])
+                radius = float(data['radius'])
+                positions = int(data['positions'])
+                z, c = float(data['z']), float(data['c'])
+                
+                center = Point(center_x, center_y, z, c)
+                success = self.camera_controller.circular_scan(center, radius, positions)
+                
+                if success:
+                    return jsonify({"success": True, "message": f"4DOF Circular scan started ({positions} positions)"})
+                else:
+                    return jsonify({"success": False, "error": "Circular scan failed to start"}), 500
+                    
+            except Exception as e:
+                logger.error(f"4DOF circular scan error: {e}")
+                return jsonify({"success": False, "error": f"Circular scan failed: {str(e)}"}), 500
+        
+        @self.app.route('/start_rotational_scan', methods=['POST'])
+        def start_rotational_scan():
+            """Start a rotational scan (vary Z-axis)"""
+            try:
+                if not request.is_json:
+                    return jsonify({"success": False, "error": "Request must be JSON"}), 400
+                
+                data = request.get_json()
+                x, y, c = float(data['x']), float(data['y']), float(data['c'])
+                z_angles = data['z_angles']
+                
+                base_position = Point(x, y, 0, c)
+                success = self.camera_controller.rotational_scan(base_position, z_angles, c)
+                
+                if success:
+                    return jsonify({"success": True, "message": f"Rotational scan started ({len(z_angles)} positions)"})
+                else:
+                    return jsonify({"success": False, "error": "Rotational scan failed to start"}), 500
+                    
+            except Exception as e:
+                logger.error(f"Rotational scan error: {e}")
+                return jsonify({"success": False, "error": f"Rotational scan failed: {str(e)}"}), 500
+        
+        @self.app.route('/start_tilt_scan', methods=['POST'])
+        def start_tilt_scan():
+            """Start a tilt scan (vary C-axis)"""
+            try:
+                if not request.is_json:
+                    return jsonify({"success": False, "error": "Request must be JSON"}), 400
+                
+                data = request.get_json()
+                x, y, z = float(data['x']), float(data['y']), float(data['z'])
+                c_angles = data['c_angles']
+                
+                position = Point(x, y, z, 0)
+                success = self.camera_controller.tilt_scan(position, c_angles)
+                
+                if success:
+                    return jsonify({"success": True, "message": f"Tilt scan started ({len(c_angles)} positions)"})
+                else:
+                    return jsonify({"success": False, "error": "Tilt scan failed to start"}), 500
+                    
+            except Exception as e:
+                logger.error(f"Tilt scan error: {e}")
+                return jsonify({"success": False, "error": f"Tilt scan failed: {str(e)}"}), 500
+        
+        @self.app.route('/start_spherical_scan', methods=['POST'])
+        def start_spherical_scan():
+            """Start a spherical scan (vary both Z and C axes)"""
+            try:
+                if not request.is_json:
+                    return jsonify({"success": False, "error": "Request must be JSON"}), 400
+                
+                data = request.get_json()
+                center_x, center_y = float(data['center_x']), float(data['center_y'])
+                z_angles = data['z_angles']
+                c_angles = data['c_angles']
+                
+                center = Point(center_x, center_y, 0, 0)
+                success = self.camera_controller.spherical_scan(center, 0, z_angles, c_angles)
+                
+                total_positions = len(z_angles) * len(c_angles)
+                
+                if success:
+                    return jsonify({"success": True, "message": f"Spherical scan started ({total_positions} positions)"})
+                else:
+                    return jsonify({"success": False, "error": "Spherical scan failed to start"}), 500
+                    
+            except Exception as e:
+                logger.error(f"Spherical scan error: {e}")
+                return jsonify({"success": False, "error": f"Spherical scan failed: {str(e)}"}), 500
+        
         logger.info("Flask routes setup completed successfully")
     
     def _generate_frames(self):
@@ -942,7 +1163,7 @@ CONTROL_INTERFACE_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Integrated Camera Positioning System</title>
+    <title>FluidNC 4DOF Camera Positioning System</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; }
         .container { max-width: 1200px; margin: 0 auto; }
@@ -952,6 +1173,7 @@ CONTROL_INTERFACE_HTML = """
         .status { background-color: #f0f0f0; padding: 10px; border-radius: 5px; margin: 10px 0; }
         button { padding: 10px 15px; margin: 5px; border: none; border-radius: 3px; cursor: pointer; }
         .btn-primary { background-color: #007bff; color: white; }
+        .btn-primary:disabled { background-color: #6c757d; cursor: not-allowed; }
         .btn-danger { background-color: #dc3545; color: white; }
         .btn-success { background-color: #28a745; color: white; }
         .btn-test { background-color: #ff9800; color: white; }
@@ -963,7 +1185,7 @@ CONTROL_INTERFACE_HTML = """
 </head>
 <body>
     <div class="container">
-        <h1>Integrated Camera Positioning System</h1>
+        <h1>FluidNC 4DOF Camera Positioning System</h1>
         
         <div class="video-container">
             <img src="/video_feed" style="max-width: 640px; border: 1px solid #ccc;">
@@ -973,92 +1195,136 @@ CONTROL_INTERFACE_HTML = """
             <div class="control-panel">
                 <h3>Scan Controls</h3>
                 <div>
-                    <h4>Grid Scan</h4>
+                    <h4>4DOF Grid Scan</h4>
                     <div class="input-group">
                         <label for="grid_x1">Start X (mm):</label>
-                        <input type="number" id="grid_x1" placeholder="X1" value="0">
+                        <input type="number" id="grid_x1" placeholder="0-200" value="50" min="0" max="200">
                     </div>
                     <div class="input-group">
                         <label for="grid_y1">Start Y (mm):</label>
-                        <input type="number" id="grid_y1" placeholder="Y1" value="0">
+                        <input type="number" id="grid_y1" placeholder="0-200" value="50" min="0" max="200">
                     </div>
                     <div class="input-group">
                         <label for="grid_x2">End X (mm):</label>
-                        <input type="number" id="grid_x2" placeholder="X2" value="10">
+                        <input type="number" id="grid_x2" placeholder="0-200" value="150" min="0" max="200">
                     </div>
                     <div class="input-group">
                         <label for="grid_y2">End Y (mm):</label>
-                        <input type="number" id="grid_y2" placeholder="Y2" value="10">
+                        <input type="number" id="grid_y2" placeholder="0-200" value="150" min="0" max="200">
                     </div>
                     <div class="input-group">
                         <label for="grid_size_x">Grid Points X:</label>
-                        <input type="number" id="grid_size_x" placeholder="Grid X" value="2">
+                        <input type="number" id="grid_size_x" placeholder="Grid X" value="3" min="2" max="10">
                         <label for="grid_size_y">Grid Points Y:</label>
-                        <input type="number" id="grid_size_y" placeholder="Grid Y" value="2">
+                        <input type="number" id="grid_size_y" placeholder="Grid Y" value="3" min="2" max="10">
                     </div>
-                    <button class="btn-primary" onclick="startGridScan()">Start Grid Scan</button>
+                    <div class="input-group">
+                        <label for="grid_z">Z Rotation (°):</label>
+                        <input type="number" id="grid_z" placeholder="0-360" value="0" min="0" max="360">
+                    </div>
+                    <div class="input-group">
+                        <label for="grid_c">C Tilt (°):</label>
+                        <input type="number" id="grid_c" placeholder="-90 to +90" value="0" min="-90" max="90">
+                    </div>
+                    <button class="btn-primary" onclick="startGridScan()" id="gridScanBtn" disabled>Start 4DOF Grid Scan</button>
                 </div>
                 
                 <div>
-                    <h4>Circular Scan</h4>
+                    <h4>4DOF Circular Scan</h4>
                     <div class="input-group">
                         <label for="circle_x">Center X (mm):</label>
-                        <input type="number" id="circle_x" placeholder="Center X" value="10">
+                        <input type="number" id="circle_x" placeholder="0-200" value="100" min="0" max="200">
                     </div>
                     <div class="input-group">
                         <label for="circle_y">Center Y (mm):</label>
-                        <input type="number" id="circle_y" placeholder="Center Y" value="10">
+                        <input type="number" id="circle_y" placeholder="0-200" value="100" min="0" max="200">
                     </div>
                     <div class="input-group">
                         <label for="circle_radius">Radius (mm):</label>
-                        <input type="number" id="circle_radius" placeholder="Radius" value="5">
+                        <input type="number" id="circle_radius" placeholder="Radius" value="30" min="5" max="50">
                     </div>
                     <div class="input-group">
                         <label for="circle_positions">Number of Positions:</label>
-                        <input type="number" id="circle_positions" placeholder="Positions" value="8">
+                        <input type="number" id="circle_positions" placeholder="Positions" value="8" min="4" max="16">
                     </div>
-                    <button class="btn-primary" onclick="startCircularScan()">Start Circular Scan</button>
+                    <div class="input-group">
+                        <label for="circle_z">Z Rotation (°):</label>
+                        <input type="number" id="circle_z" placeholder="0-360" value="0" min="0" max="360">
+                    </div>
+                    <div class="input-group">
+                        <label for="circle_c">C Tilt (°):</label>
+                        <input type="number" id="circle_c" placeholder="-90 to +90" value="0" min="-90" max="90">
+                    </div>
+                    <button class="btn-primary" onclick="startCircularScan()" id="circScanBtn" disabled>Start 4DOF Circular Scan</button>
                 </div>
             </div>
             
             <div class="control-panel">
                 <h3>Manual Controls</h3>
                 <div>
-                    <h4>Move To Position</h4>
+                    <h4>System Control</h4>
+                    <div class="input-group">
+                        <button class="btn-success" onclick="homeSystem()" id="homeBtn">🏠 Home System</button>
+                        <span id="homeStatus" style="margin-left: 10px; font-weight: bold; color: red;">⚠️ SYSTEM NOT HOMED</span>
+                    </div>
+                </div>
+                
+                <div>
+                    <h4>4DOF Move To Position</h4>
                     <div class="input-group">
                         <label for="move_x">X Position (mm):</label>
-                        <input type="number" id="move_x" placeholder="X" value="5">
+                        <input type="number" id="move_x" placeholder="0-200" value="100" min="0" max="200">
                     </div>
                     <div class="input-group">
                         <label for="move_y">Y Position (mm):</label>
-                        <input type="number" id="move_y" placeholder="Y" value="0">
+                        <input type="number" id="move_y" placeholder="0-200" value="100" min="0" max="200">
                     </div>
                     <div class="input-group">
-                        <label for="move_z">Z Position (mm):</label>
-                        <input type="number" id="move_z" placeholder="Z" value="5">
+                        <label for="move_z">Z Rotation (°):</label>
+                        <input type="number" id="move_z" placeholder="0-360" value="0" min="0" max="360">
                     </div>
-                    <button class="btn-primary" onclick="moveToPosition()">Move</button>
-                    <button class="btn-primary" onclick="testMoveSimple()">Test Move (Debug)</button>
+                    <div class="input-group">
+                        <label for="move_c">C Tilt (°):</label>
+                        <input type="number" id="move_c" placeholder="-90 to +90" value="0" min="-90" max="90">
+                    </div>
+                    <button class="btn-primary" onclick="moveToPosition()" id="moveBtn" disabled>Move (Home First)</button>
                     <button class="btn-primary" onclick="getCurrentPosition()">Get Current Position</button>
                 </div>
                 
                 <div>
-                    <button class="btn-success" onclick="capturePhoto()">Capture Photo</button>
-                    <button class="btn-primary" onclick="ping()">Ping Server</button>
-                    <button class="btn-primary" onclick="checkGrblStatus()">Check GRBL Status</button>
-                    <button class="btn-primary" onclick="testJSON()">Test JSON Response</button>
-                    <button class="btn-primary" onclick="debugRoutes()">Debug Routes</button>
-                    <button class="btn-primary" onclick="testConnection()">Test GRBL Connection</button>
-                    <button class="btn-primary" onclick="testStepMovements()">Test Step Movements</button>
-                    <button class="btn-primary" onclick="returnHome()">Return Home</button>
-                    <button class="btn-danger" onclick="emergencyStop()">EMERGENCY STOP</button>
+                    <h4>4DOF Scan Patterns</h4>
+                    <div class="input-group">
+                        <label for="scan_z">Z Base Rotation (°):</label>
+                        <input type="number" id="scan_z" placeholder="0-360" value="0" min="0" max="360">
+                    </div>
+                    <div class="input-group">
+                        <label for="scan_c">C Base Tilt (°):</label>
+                        <input type="number" id="scan_c" placeholder="-90 to +90" value="0" min="-90" max="90">
+                    </div>
+                    <button class="btn-primary" onclick="startRotationalScan()" id="rotScanBtn" disabled>Rotational Scan</button>
+                    <button class="btn-primary" onclick="startTiltScan()" id="tiltScanBtn" disabled>Tilt Scan</button>
+                    <button class="btn-primary" onclick="startSphericalScan()" id="spherScanBtn" disabled>Spherical Scan</button>
+                </div>
+                
+                <div>
+                    <h4>System Tools</h4>
+                    <button class="btn-success" onclick="capturePhoto()">📷 Capture Photo</button>
+                    <button class="btn-primary" onclick="ping()">📡 Ping Server</button>
+                    <button class="btn-primary" onclick="checkControllerStatus()">🔍 Check Controller Status</button>
+                    <button class="btn-primary" onclick="testJSON()">🧪 Test JSON Response</button>
+                    <button class="btn-primary" onclick="testConnection()">🔗 Test Controller Connection</button>
+                    <button class="btn-primary" onclick="testStepMovements()">👣 Test Step Movements</button>
+                    <button class="btn-danger" onclick="emergencyStop()">🛑 EMERGENCY STOP</button>
                 </div>
             </div>
         </div>
         
         <div class="status" id="status">
-            <h3>System Status</h3>
+            <h3>FluidNC 4DOF System Status</h3>
             <div id="status-content">Loading...</div>
+            <div id="position-display" style="margin-top: 10px; padding: 10px; background-color: #e9ecef; border-radius: 5px;">
+                <strong>Current Position:</strong> <span id="current-position">Unknown</span>
+            </div>
         </div>
     </div>
     
@@ -1097,25 +1363,34 @@ CONTROL_INTERFACE_HTML = """
                 });
         }
         
-        function checkGrblStatus() {
-            console.log('Checking GRBL status...');
-            fetch('/grbl_status')
+        function checkControllerStatus() {
+            console.log('Checking controller status...');
+            fetch('/controller_status')
                 .then(function(response) {
-                    console.log('GRBL status response status: ' + response.status);
+                    console.log('Controller status response status: ' + response.status);
                     if (!response.ok) {
                         throw new Error('HTTP ' + response.status + ': ' + response.statusText);
                     }
                     return response.json();
                 })
                 .then(function(data) {
-                    console.log('GRBL status response data:', data);
-                    var message = 'GRBL Status:\\n' +
+                    console.log('Controller status response data:', data);
+                    var message = 'FluidNC Status:\\n' +
                         'Connected: ' + data.connected + '\\n' +
                         'Port: ' + data.port + '\\n' +
-                        'GRBL Status: ' + data.grbl_status + '\\n';
+                        'Controller Type: ' + data.controller_type + '\\n' +
+                        'Status: ' + data.controller_status + '\\n';
                     
                     if (data.position && !data.position.error) {
-                        message += 'Position: X' + data.position.x + ' Y' + data.position.y + ' Z' + data.position.z;
+                        if (data.position.c !== undefined) {
+                            // 4DOF position
+                            var tilt_angle = data.position.c - 90; // Convert position back to angle
+                            message += 'Position: X' + data.position.x + ' Y' + data.position.y + 
+                                      ' Z' + data.position.z + '° C' + tilt_angle + '° (' + data.position.c + 'mm)';
+                        } else {
+                            // 3DOF position
+                            message += 'Position: X' + data.position.x + ' Y' + data.position.y + ' Z' + data.position.z;
+                        }
                     } else if (data.position && data.position.error) {
                         message += 'Position Error: ' + data.position.error;
                     }
@@ -1127,8 +1402,31 @@ CONTROL_INTERFACE_HTML = """
                     alert(message);
                 })
                 .catch(function(error) {
-                    console.error('GRBL status error:', error);
-                    alert('GRBL status check failed: ' + error.message);
+                    console.error('Controller status error:', error);
+                    alert('Controller status check failed: ' + error.message);
+                });
+        }
+        
+        function updateCurrentPosition() {
+            fetch('/controller_status')
+                .then(function(response) { return response.json(); })
+                .then(function(data) {
+                    var positionText = 'Unknown';
+                    if (data.position && !data.position.error) {
+                        if (data.position.c !== undefined) {
+                            // 4DOF position
+                            var tilt_angle = data.position.c - 90; // Convert position back to angle
+                            positionText = 'X:' + data.position.x + 'mm Y:' + data.position.y + 
+                                          'mm Z:' + data.position.z + '° C:' + tilt_angle + '°';
+                        } else {
+                            // 3DOF position
+                            positionText = 'X:' + data.position.x + 'mm Y:' + data.position.y + 'mm Z:' + data.position.z + 'mm';
+                        }
+                    }
+                    document.getElementById('current-position').textContent = positionText;
+                })
+                .catch(function(error) {
+                    document.getElementById('current-position').textContent = 'Error reading position';
                 });
         }
         
@@ -1137,8 +1435,8 @@ CONTROL_INTERFACE_HTML = """
                 .then(function(response) { return response.json(); })
                 .then(function(data) {
                     document.getElementById('status-content').innerHTML = 
-                        '<strong>GRBL Connected:</strong> ' + data.grbl_connected + '<br>' +
-                        '<strong>GRBL Status:</strong> ' + data.grbl_status + '<br>' +
+                        '<strong>Controller Connected:</strong> ' + data.controller_connected + '<br>' +
+                        '<strong>Controller Status:</strong> ' + data.controller_status + '<br>' +
                         '<strong>Scan Active:</strong> ' + data.active + '<br>' +
                         '<strong>Progress:</strong> ' + data.completed_positions + '/' + data.total_positions + '<br>' +
                         '<strong>Photos Captured:</strong> ' + data.photos_captured.length;
@@ -1149,13 +1447,33 @@ CONTROL_INTERFACE_HTML = """
                 });
         }
         
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Page loaded, initializing...');
+            updateButtonStates();
+            updateStatus();
+            updateCurrentPosition();
+            
+            // Update position every 5 seconds
+            setInterval(updateCurrentPosition, 5000);
+            // Update status every 2 seconds  
+            setInterval(updateStatus, 2000);
+        });
+        
         function startGridScan() {
+            if (!isHomed) {
+                alert('⚠️ Please home the system first before scanning!');
+                return;
+            }
+            
             var x1 = document.getElementById('grid_x1').value;
             var y1 = document.getElementById('grid_y1').value;
             var x2 = document.getElementById('grid_x2').value;
             var y2 = document.getElementById('grid_y2').value;
             var gx = document.getElementById('grid_size_x').value;
             var gy = document.getElementById('grid_size_y').value;
+            var z = document.getElementById('grid_z').value;
+            var c = document.getElementById('grid_c').value;
             
             // Convert to numbers and create JSON payload
             var scanData = {
@@ -1164,12 +1482,14 @@ CONTROL_INTERFACE_HTML = """
                 x2: parseFloat(x2),
                 y2: parseFloat(y2),
                 grid_x: parseInt(gx),
-                grid_y: parseInt(gy)
+                grid_y: parseInt(gy),
+                z: parseFloat(z),
+                c: parseFloat(c)
             };
             
-            console.log('Starting grid scan:', scanData);
+            console.log('Starting 4DOF grid scan:', scanData);
             
-            fetch('/start_grid_scan', {
+            fetch('/start_grid_scan_4dof', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1182,31 +1502,44 @@ CONTROL_INTERFACE_HTML = """
                 })
                 .then(function(data) {
                     console.log('Grid scan response data:', data);
-                    alert(data.message || data.error);
+                    if (data.success) {
+                        alert('✅ 4DOF Grid scan started!');
+                    } else {
+                        alert('❌ Grid scan failed: ' + (data.error || 'Unknown error'));
+                    }
                 })
                 .catch(function(error) {
                     console.error('Grid scan error:', error);
-                    alert('Failed to start grid scan: ' + error.message);
+                    alert('❌ Failed to start grid scan: ' + error.message);
                 });
         }
         
         function startCircularScan() {
+            if (!isHomed) {
+                alert('⚠️ Please home the system first before scanning!');
+                return;
+            }
+            
             var x = document.getElementById('circle_x').value;
             var y = document.getElementById('circle_y').value;
             var r = document.getElementById('circle_radius').value;
             var p = document.getElementById('circle_positions').value;
+            var z = document.getElementById('circle_z').value;
+            var c = document.getElementById('circle_c').value;
             
             // Convert to numbers and create JSON payload
             var scanData = {
                 center_x: parseFloat(x),
                 center_y: parseFloat(y),
                 radius: parseFloat(r),
-                positions: parseInt(p)
+                positions: parseInt(p),
+                z: parseFloat(z),
+                c: parseFloat(c)
             };
             
-            console.log('Starting circular scan:', scanData);
+            console.log('Starting 4DOF circular scan:', scanData);
             
-            fetch('/start_circular_scan', {
+            fetch('/start_circular_scan_4dof', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1219,11 +1552,137 @@ CONTROL_INTERFACE_HTML = """
                 })
                 .then(function(data) {
                     console.log('Circular scan response data:', data);
-                    alert(data.message || data.error);
+                    if (data.success) {
+                        alert('✅ 4DOF Circular scan started!');
+                    } else {
+                        alert('❌ Circular scan failed: ' + (data.error || 'Unknown error'));
+                    }
                 })
                 .catch(function(error) {
                     console.error('Circular scan error:', error);
-                    alert('Failed to start circular scan: ' + error.message);
+                    alert('❌ Failed to start circular scan: ' + error.message);
+                });
+        }
+        
+        function startRotationalScan() {
+            if (!isHomed) {
+                alert('⚠️ Please home the system first before scanning!');
+                return;
+            }
+            
+            var x = document.getElementById('move_x').value;
+            var y = document.getElementById('move_y').value;
+            var c = document.getElementById('scan_c').value;
+            
+            var scanData = {
+                x: parseFloat(x),
+                y: parseFloat(y),
+                c: parseFloat(c),
+                z_angles: [0, 45, 90, 135, 180, 225, 270, 315] // 8 positions
+            };
+            
+            console.log('Starting rotational scan:', scanData);
+            
+            fetch('/start_rotational_scan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(scanData)
+            })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (data.success) {
+                        alert('✅ Rotational scan started!');
+                    } else {
+                        alert('❌ Rotational scan failed: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(function(error) {
+                    alert('❌ Failed to start rotational scan: ' + error.message);
+                });
+        }
+        
+        function startTiltScan() {
+            if (!isHomed) {
+                alert('⚠️ Please home the system first before scanning!');
+                return;
+            }
+            
+            var x = document.getElementById('move_x').value;
+            var y = document.getElementById('move_y').value;
+            var z = document.getElementById('scan_z').value;
+            
+            var scanData = {
+                x: parseFloat(x),
+                y: parseFloat(y),
+                z: parseFloat(z),
+                c_angles: [-30, -15, 0, 15, 30] // 5 tilt positions
+            };
+            
+            console.log('Starting tilt scan:', scanData);
+            
+            fetch('/start_tilt_scan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(scanData)
+            })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (data.success) {
+                        alert('✅ Tilt scan started!');
+                    } else {
+                        alert('❌ Tilt scan failed: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(function(error) {
+                    alert('❌ Failed to start tilt scan: ' + error.message);
+                });
+        }
+        
+        function startSphericalScan() {
+            if (!isHomed) {
+                alert('⚠️ Please home the system first before scanning!');
+                return;
+            }
+            
+            var x = document.getElementById('move_x').value;
+            var y = document.getElementById('move_y').value;
+            
+            var scanData = {
+                center_x: parseFloat(x),
+                center_y: parseFloat(y),
+                z_angles: [0, 60, 120, 180, 240, 300], // 6 rotational positions
+                c_angles: [-20, 0, 20] // 3 tilt positions
+            };
+            
+            console.log('Starting spherical scan:', scanData);
+            
+            fetch('/start_spherical_scan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(scanData)
+            })
+                .then(function(response) {
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (data.success) {
+                        alert('✅ Spherical scan started! (18 total positions)');
+                    } else {
+                        alert('❌ Spherical scan failed: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(function(error) {
+                    alert('❌ Failed to start spherical scan: ' + error.message);
                 });
         }
         
@@ -1279,27 +1738,111 @@ CONTROL_INTERFACE_HTML = """
                 });
         }
         
-        function moveToPosition() {
-            var x = document.getElementById('move_x').value;
-            var y = document.getElementById('move_y').value;
-            var z = document.getElementById('move_z').value;
+        // Global homing state
+        var isHomed = false;
+        
+        function updateButtonStates() {
+            var buttons = ['moveBtn', 'gridScanBtn', 'circScanBtn', 'rotScanBtn', 'tiltScanBtn', 'spherScanBtn'];
+            buttons.forEach(function(id) {
+                var btn = document.getElementById(id);
+                if (btn) {
+                    btn.disabled = !isHomed;
+                    btn.textContent = isHomed ? btn.textContent.replace(' (Home First)', '') : btn.textContent + (btn.textContent.includes('(Home First)') ? '' : ' (Home First)');
+                }
+            });
             
-            // Validate inputs
-            if (!x || !y || !z) {
-                alert('Please enter all coordinates (X, Y, Z)');
+            var homeStatus = document.getElementById('homeStatus');
+            if (homeStatus) {
+                homeStatus.textContent = isHomed ? '✅ SYSTEM HOMED' : '⚠️ SYSTEM NOT HOMED';
+                homeStatus.style.color = isHomed ? 'green' : 'red';
+            }
+        }
+        
+        function homeSystem() {
+            if (!confirm('This will home all axes. Make sure the system is clear of obstructions. Continue?')) {
                 return;
             }
             
-            // Convert to numbers
+            console.log('Homing system...');
+            document.getElementById('homeBtn').disabled = true;
+            document.getElementById('homeBtn').textContent = '🏠 Homing...';
+            
+            fetch('/home_system', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+                .then(function(response) {
+                    console.log('Home response status: ' + response.status);
+                    return response.json();
+                })
+                .then(function(data) {
+                    console.log('Home response data:', data);
+                    if (data.success) {
+                        isHomed = true;
+                        alert('✅ System homed successfully!');
+                    } else {
+                        alert('❌ Homing failed: ' + (data.error || 'Unknown error'));
+                    }
+                    updateButtonStates();
+                })
+                .catch(function(error) {
+                    console.error('Home error:', error);
+                    alert('❌ Homing failed: ' + error.message);
+                })
+                .finally(function() {
+                    document.getElementById('homeBtn').disabled = false;
+                    document.getElementById('homeBtn').textContent = '🏠 Home System';
+                });
+        }
+        
+        function moveToPosition() {
+            if (!isHomed) {
+                alert('⚠️ Please home the system first before moving!');
+                return;
+            }
+            
+            var x = document.getElementById('move_x').value;
+            var y = document.getElementById('move_y').value;
+            var z = document.getElementById('move_z').value;
+            var c = document.getElementById('move_c').value;
+            
+            // Validate inputs
+            if (x === '' || y === '' || z === '' || c === '') {
+                alert('Please enter all coordinates (X, Y, Z, C)');
+                return;
+            }
+            
+            // Convert to numbers and validate ranges
             var coords = {
                 x: parseFloat(x),
                 y: parseFloat(y),
-                z: parseFloat(z)
+                z: parseFloat(z),
+                c: parseFloat(c)
             };
             
-            console.log('Moving to position:', coords);
+            // Validate ranges
+            if (coords.x < 0 || coords.x > 200) {
+                alert('X coordinate must be between 0-200mm');
+                return;
+            }
+            if (coords.y < 0 || coords.y > 200) {
+                alert('Y coordinate must be between 0-200mm');
+                return;
+            }
+            if (coords.z < 0 || coords.z > 360) {
+                alert('Z rotation must be between 0-360°');
+                return;
+            }
+            if (coords.c < -90 || coords.c > 90) {
+                alert('C tilt must be between -90° to +90°');
+                return;
+            }
             
-            fetch('/move_to', {
+            console.log('Moving to 4DOF position:', coords);
+            
+            fetch('/move_to_4dof', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1308,18 +1851,20 @@ CONTROL_INTERFACE_HTML = """
             })
                 .then(function(response) {
                     console.log('Move response status: ' + response.status);
-                    if (!response.ok) {
-                        throw new Error('HTTP ' + response.status + ': ' + response.statusText);
-                    }
                     return response.json();
                 })
                 .then(function(data) {
                     console.log('Move response data:', data);
-                    alert(data.message || data.error);
+                    if (data.success) {
+                        alert('✅ Moved to position successfully!');
+                        updateCurrentPosition();
+                    } else {
+                        alert('❌ Move failed: ' + (data.error || 'Unknown error'));
+                    }
                 })
                 .catch(function(error) {
                     console.error('Move error:', error);
-                    alert('Failed to move: ' + error.message);
+                    alert('❌ Failed to move: ' + error.message);
                 });
         }
         
