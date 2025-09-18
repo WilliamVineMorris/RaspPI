@@ -37,13 +37,16 @@ def test_fluidnc_communication():
         status = controller.get_status()
         print(f"Status: {status}")
         
-        print("\n3. Testing unlock command...")
+        print("\n3. Testing homing status check before homing...")
+        initial_homed = controller.check_homing_status()
+        print(f"Initially homed: {'✅ Yes' if initial_homed else '❌ No'}")
+        
+        print("\n4. Testing unlock command...")
         unlock_success = controller.unlock_controller()
         print(f"Unlock result: {'✅ Success' if unlock_success else '❌ Failed'}")
         
-        print("\n4. Testing homing (this may take up to 60 seconds)...")
-        print("⏳ Homing in progress - please wait...")
-        print("   (Watch for detailed logging messages...)")
+        print("\n5. Testing homing with verification (this may take up to 60 seconds)...")
+        print("⏳ Homing in progress - watch for progress updates...")
         start_time = time.time()
         
         home_success = controller.home_axes()
@@ -52,7 +55,13 @@ def test_fluidnc_communication():
         print(f"Homing result: {'✅ Success' if home_success else '❌ Failed'}")
         print(f"Homing took: {elapsed:.1f} seconds")
         
-        print("\n5. Testing position reporting after homing...")
+        print("\n6. Verifying homing status after completion...")
+        final_homed = controller.check_homing_status()
+        is_homed_check = controller.is_homed()
+        print(f"Homing verification: {'✅ Verified' if final_homed else '❌ Not verified'}")
+        print(f"Is homed (legacy): {'✅ Yes' if is_homed_check else '❌ No'}")
+        
+        print("\n7. Testing position reporting after homing...")
         machine_pos = controller.get_machine_position()
         work_pos = controller.get_work_position()
         
@@ -65,14 +74,11 @@ def test_fluidnc_communication():
         else:
             print(f"⚠️ Y-axis position unexpected: {machine_pos.y:.1f}mm (expected ~200mm)")
         
-        print("\n6. Testing final status...")
+        print("\n8. Testing final status...")
         final_status = controller.get_status()
         print(f"Final status: {final_status}")
         
-        is_homed_result = controller.is_homed()
-        print(f"Is homed: {'✅ Yes' if is_homed_result else '❌ No'}")
-        
-        print("\n7. Testing small movement...")
+        print("\n9. Testing small movement...")
         test_point = Point(5, 195, 0, 90)  # Small movement from home
         move_success = controller.move_to_point(test_point, feedrate=100)
         print(f"Movement result: {'✅ Success' if move_success else '❌ Failed'}")
@@ -89,7 +95,7 @@ def test_fluidnc_communication():
         return False
         
     finally:
-        print("\n8. Disconnecting...")
+        print("\n10. Disconnecting...")
         controller.disconnect()
         print("✅ Disconnected")
 
@@ -111,6 +117,38 @@ def test_timeout_values():
     for gcode, description in test_commands:
         timeout = controller._get_command_timeout(gcode)
         print(f"{description:<20}: {gcode:<15} -> {timeout:>5.1f}s timeout")
+
+def test_homing_verification():
+    """Test the homing verification logic"""
+    print("\n🔧 Testing Homing Verification Logic")
+    print("=" * 40)
+    
+    controller = FluidNCController()
+    
+    # Test different status scenarios
+    test_cases = [
+        # (status, expected_homed, description)
+        ("<Idle|MPos:0.000,200.000,0.000,90.000|FS:0,0|WCO:0.000,0.000,0.000,0.000>", True, "Properly homed at Y=200"),
+        ("<Idle|MPos:5.000,195.000,45.000,95.000|FS:0,0|WCO:0.000,0.000,0.000,0.000>", True, "Homed and moved slightly"),
+        ("<Idle|MPos:0.000,0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000,0.000>", False, "At origin, not homed position"),
+        ("<Alarm|MPos:0.000,200.000,0.000,90.000>", False, "Alarm state, not homed"),
+        ("<Idle|MPos:0.000,100.000,0.000,90.000|FS:0,0>", False, "No WCO, questionable homing"),
+        ("<Idle|MPos:0.000,200.000,0.000,90.000|FS:0,0>", False, "No WCO present"),
+    ]
+    
+    for status, expected, description in test_cases:
+        # Temporarily replace get_status method
+        original_get_status = controller.get_status
+        controller.get_status = lambda: status
+        
+        # Test homing check
+        result = controller.check_homing_status()
+        status_icon = "✅" if result == expected else "❌"
+        
+        print(f"{status_icon} {description}: {result} (expected {expected})")
+        
+        # Restore original method
+        controller.get_status = original_get_status
 
 def test_message_parsing():
     """Test FluidNC message parsing capabilities"""
@@ -152,6 +190,9 @@ if __name__ == "__main__":
     
     # Test timeout calculation
     test_timeout_values()
+    
+    # Test homing verification logic
+    test_homing_verification()
     
     # Test message parsing
     test_message_parsing()

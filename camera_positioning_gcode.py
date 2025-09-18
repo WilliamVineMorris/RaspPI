@@ -289,6 +289,28 @@ class ArduinoGCodeController:
                 logger.error(f"Error checking movement status: {e}")
                 return False
     
+    def move_to_point_and_wait(self, point: Point, feedrate: float = 500) -> bool:
+        """Move to specified point and wait for completion (GRBL version)"""
+        # Send movement command
+        gcode = f"G1 X{point.x:.3f} Y{point.y:.3f} Z{point.z:.3f} F{feedrate}"
+        
+        command_success = self._send_raw_gcode(gcode)
+        if not command_success:
+            logger.error("GRBL movement command was not accepted")
+            return False
+        
+        logger.debug("GRBL movement command accepted, waiting for completion...")
+        
+        # Wait for movement to complete
+        movement_complete = self.wait_for_movement_complete()
+        if movement_complete:
+            self.current_position = Point(point.x, point.y, point.z, 0)  # GRBL is 3DOF
+            logger.info(f"GRBL moved to X:{point.x:.1f} Y:{point.y:.1f} Z:{point.z:.1f}")
+        else:
+            logger.error("GRBL movement did not complete successfully")
+            
+        return movement_complete
+    
     def set_relative_mode(self):
         """Set to relative positioning mode"""
         return self._send_raw_gcode("G91")
@@ -609,7 +631,7 @@ class FluidNCController:
         return True
     
     def move_to_point(self, point: Point, feedrate: float = 500) -> bool:
-        """Move to specified 4DOF point with validation"""
+        """Move to specified 4DOF point with validation (command only - use move_to_point_and_wait for scanning)"""
         if not self.validate_position(point):
             return False
             
@@ -618,43 +640,63 @@ class FluidNCController:
         
         success = self._send_raw_gcode(gcode)
         if success:
+            # Note: This updates position immediately but movement may still be in progress
+            # Use move_to_point_and_wait() for operations requiring movement completion
             self.current_position = Point(point.x, point.y, point.z, point.c)
-            logger.info(f"Moved to X:{point.x:.1f} Y:{point.y:.1f} Z:{point.z:.1f} C:{point.c:.1f}")
+            logger.info(f"Movement command sent to X:{point.x:.1f} Y:{point.y:.1f} Z:{point.z:.1f} C:{point.c:.1f}")
         
         return success
     
     def home_axes(self) -> bool:
-        """Home configured axes with proper timeout handling"""
+        """Home configured axes with proper verification"""
         logger.info("Starting FluidNC homing sequence...")
         
+        # First check if already homed
+        if self.check_homing_status():
+            logger.info("System is already homed")
+            return True
+        
         # Clear any alarm state first
+        logger.info("Clearing any alarm state...")
         self._send_raw_gcode("$X")
-        time.sleep(0.5)
+        time.sleep(1.0)
         
-        # Start homing - this can take up to 60 seconds
-        logger.info("Homing in progress - this may take up to 60 seconds...")
-        success = self._send_raw_gcode("$H")
+        # Start homing command
+        logger.info("Sending homing command - this may take up to 60 seconds...")
         
-        if success:
-            logger.info("Homing completed successfully")
+        # Send the homing command but don't rely on its return value
+        self._send_raw_gcode("$H")
+        
+        # Now wait for actual homing completion by polling status
+        start_time = time.time()
+        timeout = 60.0  # 60 second timeout for homing
+        check_interval = 2.0  # Check every 2 seconds
+        
+        logger.info("Monitoring homing progress...")
+        
+        while time.time() - start_time < timeout:
+            time.sleep(check_interval)
             
-            # Get actual machine position after homing
-            time.sleep(1)  # Give system time to settle
-            machine_pos = self.get_machine_position()
-            self.current_position = machine_pos
-            
-            logger.info(f"Post-homing machine position: X:{machine_pos.x:.1f} Y:{machine_pos.y:.1f} Z:{machine_pos.z:.1f} C:{machine_pos.c:.1f}")
-            
-            # Verify homing by checking if Y is at expected maximum (200mm for our config)
-            if abs(machine_pos.y - 200.0) < 5.0:  # Allow small tolerance
-                logger.info("Y-axis homed to expected position (200mm)")
-            else:
-                logger.warning(f"Y-axis position unexpected: {machine_pos.y:.1f}mm (expected ~200mm)")
+            # Check if homing is complete
+            if self.check_homing_status():
+                elapsed = time.time() - start_time
+                logger.info(f"Homing completed successfully in {elapsed:.1f} seconds")
                 
-        else:
-            logger.error("Homing failed or timed out")
+                # Get actual machine position after homing
+                time.sleep(1)  # Give system time to settle
+                machine_pos = self.get_machine_position()
+                self.current_position = machine_pos
+                
+                logger.info(f"Post-homing machine position: X:{machine_pos.x:.1f} Y:{machine_pos.y:.1f} Z:{machine_pos.z:.1f} C:{machine_pos.c:.1f}")
+                return True
             
-        return success
+            # Show progress
+            elapsed = time.time() - start_time
+            logger.info(f"Homing in progress... ({elapsed:.0f}s elapsed)")
+        
+        # Timeout occurred
+        logger.error(f"Homing timeout after {timeout} seconds")
+        return False
     
     def get_status(self) -> str:
         """Get current FluidNC status"""
@@ -701,30 +743,8 @@ class FluidNCController:
             return f"Error: {e}"
     
     def is_homed(self) -> bool:
-        """Check if system is homed by analyzing status"""
-        status = self.get_status()
-        
-        if status.startswith('<') and status.endswith('>'):
-            # Parse FluidNC status: <Idle|MPos:0.000,0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000,0.000>
-            parts = status[1:-1].split('|')  # Remove < > and split by |
-            
-            for part in parts:
-                # Check for alarm state
-                if part.startswith('Alarm'):
-                    return False
-                # Check for explicit homing state
-                if part == 'Home':
-                    return True
-                # If we have WCO (Work Coordinate Offset), system is likely homed
-                if part.startswith('WCO:'):
-                    return True
-            
-            # If status shows Idle/Run/Hold without alarm, and we have position data, consider it homed
-            state = parts[0] if parts else ""
-            has_position = any(part.startswith('MPos:') or part.startswith('WPos:') for part in parts)
-            return state in ['Idle', 'Run', 'Hold', 'Jog'] and has_position
-        
-        return False
+        """Check if system is homed using dedicated homing verification"""
+        return self.check_homing_status()
     
     def get_machine_position(self) -> Point:
         """Get current machine position from FluidNC status"""
@@ -775,6 +795,129 @@ class FluidNCController:
         
         logger.warning("Could not get work position from status")
         return self.current_position
+    
+    def check_homing_status(self) -> bool:
+        """Query FluidNC to check if system is actually homed"""
+        try:
+            # Get fresh status
+            status = self.get_status()
+            
+            if not status.startswith('<') or not status.endswith('>'):
+                logger.warning("Invalid status format for homing check")
+                return False
+            
+            # Parse status: <State|MPos:X,Y,Z,C|FS:0,0|WCO:X,Y,Z,C>
+            parts = status[1:-1].split('|')
+            state = parts[0] if parts else ""
+            
+            # Check for alarm state (definitely not homed)
+            if 'Alarm' in state:
+                logger.debug("System in alarm state - not homed")
+                return False
+            
+            # Look for machine position and work coordinate offset
+            has_mpos = False
+            has_wco = False
+            mpos_values = None
+            
+            for part in parts:
+                if part.startswith('MPos:'):
+                    has_mpos = True
+                    coords = part[5:].split(',')
+                    if len(coords) >= 2:
+                        try:
+                            # For our config, Y should be ~200mm when homed
+                            y_pos = float(coords[1])
+                            mpos_values = coords
+                            logger.debug(f"Machine Y position: {y_pos}")
+                        except ValueError:
+                            logger.warning("Could not parse machine position")
+                            
+                elif part.startswith('WCO:'):
+                    has_wco = True
+                    logger.debug("Work coordinate offset present")
+            
+            # System is homed if:
+            # 1. Not in alarm state
+            # 2. Has machine position data  
+            # 3. Has work coordinate offset (indicates coordinate system is established)
+            # 4. Y position is near expected home value (200mm for our config)
+            
+            if has_mpos and has_wco and mpos_values:
+                try:
+                    y_pos = float(mpos_values[1])
+                    # Check if Y is near home position (200mm ± 5mm tolerance)
+                    y_homed = abs(y_pos - 200.0) < 5.0
+                    
+                    logger.debug(f"Homing check: MPos={has_mpos}, WCO={has_wco}, Y={y_pos:.1f}, Y_homed={y_homed}")
+                    return y_homed
+                    
+                except (ValueError, IndexError):
+                    logger.warning("Could not validate Y position for homing")
+                    return False
+            
+            logger.debug(f"Homing check failed: MPos={has_mpos}, WCO={has_wco}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking homing status: {e}")
+            return False
+    
+    def wait_for_movement_complete(self, timeout: float = 30.0) -> bool:
+        """Wait for FluidNC to complete all movements by monitoring status"""
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            status = self.get_status()
+            
+            if status.startswith('<') and status.endswith('>'):
+                # Parse status: <State|MPos:X,Y,Z,C|FS:feedrate,spindle>
+                parts = status[1:-1].split('|')
+                state = parts[0] if parts else ""
+                
+                # Check if system is idle (movement complete)
+                if state == 'Idle':
+                    logger.debug("Movement completed - system idle")
+                    return True
+                elif state in ['Run', 'Jog']:
+                    # Still moving
+                    logger.debug(f"Movement in progress - state: {state}")
+                elif state.startswith('Alarm'):
+                    logger.error("Movement stopped due to alarm")
+                    return False
+                else:
+                    logger.debug(f"Unknown state during movement: {state}")
+            
+            time.sleep(0.1)  # Check every 100ms
+        
+        logger.warning(f"Movement completion timeout after {timeout}s")
+        return False
+    
+    def move_to_point_and_wait(self, point: Point, feedrate: float = 500) -> bool:
+        """Move to specified point and wait for completion"""
+        if not self.validate_position(point):
+            return False
+            
+        # Build G-code command for 4DOF movement
+        gcode = f"G1 X{point.x:.3f} Y{point.y:.3f} Z{point.z:.3f} C{point.c:.3f} F{feedrate}"
+        
+        # Send movement command
+        command_accepted = self._send_raw_gcode(gcode)
+        if not command_accepted:
+            logger.error("Movement command was not accepted")
+            return False
+        
+        logger.debug("Movement command accepted, waiting for completion...")
+        
+        # Wait for movement to complete
+        movement_complete = self.wait_for_movement_complete()
+        if movement_complete:
+            self.current_position = Point(point.x, point.y, point.z, point.c)
+            logger.info(f"Moved to X:{point.x:.1f} Y:{point.y:.1f} Z:{point.z:.1f} C:{point.c:.1f}")
+        else:
+            logger.error("Movement did not complete successfully")
+            
+        return movement_complete
     
     def unlock_controller(self) -> bool:
         """Unlock FluidNC controller (clear alarm state)"""
@@ -918,26 +1061,30 @@ class PathPlanner:
         return path
     
     def execute_path(self, path: List[Point], feedrate: float = 1000, 
-                    pause_between_points: float = 0.1) -> bool:
-        """Execute a planned path"""
+                    pause_between_points: float = 0.5) -> bool:
+        """Execute a planned path with proper movement completion waiting"""
         if not self.controller.is_connected:
             logger.error("Controller not connected")
             return False
         
-        logger.info(f"Executing path with {len(path)} points")
+        logger.info(f"Executing path with {len(path)} points (waiting for movement completion)")
         
         for i, point in enumerate(path):
-            success = self.controller.move_to_point(point, feedrate)
+            # Use movement completion waiting for all scanning operations
+            success = self.controller.move_to_point_and_wait(point, feedrate)
+            
             if not success:
                 logger.error(f"Failed to move to point {i}: {point}")
                 return False
             
+            # Additional pause for settling/photo capture if specified
             if pause_between_points > 0:
+                logger.debug(f"Settling pause: {pause_between_points}s")
                 time.sleep(pause_between_points)
             
-            logger.debug(f"Moved to point {i}: X{point.x:.3f} Y{point.y:.3f} Z{point.z:.3f}")
+            logger.debug(f"Completed move to point {i+1}/{len(path)}: X{point.x:.3f} Y{point.y:.3f} Z{point.z:.3f}")
         
-        logger.info("Path execution completed")
+        logger.info("Path execution completed successfully")
         return True
 
 class CameraPositionController:
@@ -998,7 +1145,8 @@ class CameraPositionController:
         target = Point(x, y, z, c_position)
         logger.info(f"Moving to 4DOF capture position: X{x} Y{y} Z{z}° C{c}° (pos:{c_position})")
         
-        return self.controller.move_to_point(target, feedrate)
+        # Use movement completion waiting for capture positioning
+        return self.controller.move_to_point_and_wait(target, feedrate)
     
     def scan_area(self, corner1: Point, corner2: Point, grid_size: Tuple[int, int] = (5, 5),
                   capture_height: float = None, c_angle: float = None, 
