@@ -493,9 +493,13 @@ class FluidNCController:
             command_timeout = self._get_command_timeout(gcode)
             logger.debug(f"Using timeout: {command_timeout}s for command: {gcode}")
             
+            # Special handling for homing command
+            is_homing = gcode.upper().strip() == "$H"
+            
             # Wait for response - FluidNC sends "ok" when movement is complete
             start_time = time.time()
             response_buffer = ""
+            homing_in_progress = False
             
             while True:
                 if self.serial_connection.in_waiting > 0:
@@ -509,36 +513,70 @@ class FluidNCController:
                     
                     # Handle different FluidNC response types
                     if response == "ok":
-                        logger.debug(f"Command completed: {gcode}")
-                        return True
+                        if is_homing and homing_in_progress:
+                            # For homing, "ok" just means command was accepted, not that homing finished
+                            logger.debug("Homing command accepted, waiting for completion...")
+                            homing_in_progress = True
+                            continue
+                        else:
+                            logger.debug(f"Command completed: {gcode}")
+                            return True
+                            
                     elif response.startswith("[MSG:"):
-                        # FluidNC info message - continue waiting for "ok"
-                        logger.info(f"FluidNC message: {response}")
+                        # FluidNC info message
+                        message = response[5:-1] if response.endswith(']') else response[5:]
+                        logger.info(f"FluidNC message: {message}")
+                        
+                        if is_homing:
+                            if "Homing" in message or "homing" in message:
+                                homing_in_progress = True
+                                logger.info("Homing sequence started...")
+                            elif "Home" in message and "complete" in message.lower():
+                                logger.info("Homing completed!")
+                                return True
                         continue
+                        
                     elif response.startswith("[GC:"):
                         # FluidNC G-code parser state - continue waiting for "ok"
                         logger.debug(f"FluidNC parser state: {response}")
                         continue
+                        
                     elif response.startswith("[PRB:"):
                         # FluidNC probe result - continue waiting for "ok"
                         logger.debug(f"FluidNC probe result: {response}")
                         continue
+                        
                     elif response.startswith("error:"):
                         logger.error(f"FluidNC error: {response}")
                         return False
+                        
                     elif response.startswith("ALARM:"):
                         logger.error(f"FluidNC alarm: {response}")
                         return False
+                        
                     elif response.startswith("$"):
                         # FluidNC settings response
                         logger.debug(f"FluidNC setting: {response}")
                         return True
+                        
                     elif response.startswith("<") and response.endswith(">"):
                         # FluidNC status response (for ? command)
                         logger.debug(f"FluidNC status: {response}")
-                        return True
+                        
+                        if is_homing:
+                            # Check if homing is complete by looking at status
+                            if "|Home" in response or "Home|" in response:
+                                logger.info("Homing completed (detected from status)")
+                                return True
+                            elif "|Idle" in response and homing_in_progress:
+                                # System went from homing to idle - homing complete
+                                logger.info("Homing completed (system idle)")
+                                return True
+                        else:
+                            return True
+                            
                     else:
-                        # Other responses - log but continue waiting for "ok"
+                        # Other responses - log but continue waiting
                         logger.debug(f"FluidNC other response: {response}")
                         continue
                 
@@ -599,8 +637,20 @@ class FluidNCController:
         
         if success:
             logger.info("Homing completed successfully")
-            # Reset current position after homing
-            self.current_position = Point(0, 0, 0, 0)
+            
+            # Get actual machine position after homing
+            time.sleep(1)  # Give system time to settle
+            machine_pos = self.get_machine_position()
+            self.current_position = machine_pos
+            
+            logger.info(f"Post-homing machine position: X:{machine_pos.x:.1f} Y:{machine_pos.y:.1f} Z:{machine_pos.z:.1f} C:{machine_pos.c:.1f}")
+            
+            # Verify homing by checking if Y is at expected maximum (200mm for our config)
+            if abs(machine_pos.y - 200.0) < 5.0:  # Allow small tolerance
+                logger.info("Y-axis homed to expected position (200mm)")
+            else:
+                logger.warning(f"Y-axis position unexpected: {machine_pos.y:.1f}mm (expected ~200mm)")
+                
         else:
             logger.error("Homing failed or timed out")
             
@@ -662,18 +712,69 @@ class FluidNCController:
                 # Check for alarm state
                 if part.startswith('Alarm'):
                     return False
-                # Check for homing state
+                # Check for explicit homing state
                 if part == 'Home':
                     return True
                 # If we have WCO (Work Coordinate Offset), system is likely homed
                 if part.startswith('WCO:'):
                     return True
             
-            # If status shows Idle/Run/Hold without alarm, consider it homed
+            # If status shows Idle/Run/Hold without alarm, and we have position data, consider it homed
             state = parts[0] if parts else ""
-            return state in ['Idle', 'Run', 'Hold', 'Jog']
+            has_position = any(part.startswith('MPos:') or part.startswith('WPos:') for part in parts)
+            return state in ['Idle', 'Run', 'Hold', 'Jog'] and has_position
         
         return False
+    
+    def get_machine_position(self) -> Point:
+        """Get current machine position from FluidNC status"""
+        status = self.get_status()
+        
+        if status.startswith('<') and status.endswith('>'):
+            parts = status[1:-1].split('|')
+            
+            for part in parts:
+                if part.startswith('MPos:'):
+                    # Parse machine position: MPos:X,Y,Z,C
+                    coords = part[5:].split(',')
+                    if len(coords) >= 4:
+                        try:
+                            x = float(coords[0])
+                            y = float(coords[1])
+                            z = float(coords[2])
+                            c = float(coords[3])
+                            return Point(x, y, z, c)
+                        except ValueError:
+                            logger.error(f"Failed to parse machine position: {part}")
+                            break
+        
+        logger.warning("Could not get machine position from status")
+        return self.current_position
+    
+    def get_work_position(self) -> Point:
+        """Get current work position from FluidNC status"""
+        status = self.get_status()
+        
+        if status.startswith('<') and status.endswith('>'):
+            parts = status[1:-1].split('|')
+            
+            for part in parts:
+                if part.startswith('WPos:'):
+                    # Parse work position: WPos:X,Y,Z,C
+                    coords = part[5:].split(',')
+                    if len(coords) >= 4:
+                        try:
+                            x = float(coords[0])
+                            y = float(coords[1])
+                            z = float(coords[2])
+                            c = float(coords[3])
+                            return Point(x, y, z, c)
+                        except ValueError:
+                            logger.error(f"Failed to parse work position: {part}")
+                            break
+        
+        logger.warning("Could not get work position from status")
+        return self.current_position
     
     def unlock_controller(self) -> bool:
         """Unlock FluidNC controller (clear alarm state)"""
