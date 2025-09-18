@@ -166,7 +166,7 @@ class ArduinoGCodeController:
             logger.error(f"Error sending G-code: {e}")
             return False
     
-    def move_to_point(self, target: Point, feedrate: float = 1000, movement_type: MovementType = MovementType.LINEAR) -> bool:
+    def move_to_point(self, target: Point, feedrate: float = 800, movement_type: MovementType = MovementType.LINEAR) -> bool:
         """Move to a specific point and wait for completion"""
         gcode = f"{movement_type.value} X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} F{feedrate}"
         
@@ -439,6 +439,13 @@ class FluidNCController:
             'c': {'min': 0, 'max': 180}       # C-axis: 0-180mm (0-180°, center=90mm=0° tilt)
         }
         
+        # Safe feedrate limits (from FluidNC config)
+        self.max_feedrates = {
+            'xy_linear': 900,   # X,Y axes: keep under 1000 (config: 1000)
+            'z_rotation': 400,  # Z axis: keep under 500 (config: 500) 
+            'c_servo': 5000     # C axis: servo can handle higher speeds (config: 5000)
+        }
+        
     def connect(self) -> bool:
         """Establish serial connection to FluidNC controller"""
         try:
@@ -657,6 +664,16 @@ class FluidNCController:
         
         return Point(clamped_x, clamped_y, point.z, point.c)
     
+    def validate_feedrate(self, feedrate: float) -> float:
+        """Validate and clamp feedrate to safe limits for linear axes"""
+        # For combined XYZ movements, use the most restrictive limit
+        safe_feedrate = min(feedrate, self.max_feedrates['xy_linear'])
+        
+        if safe_feedrate != feedrate:
+            logger.info(f"Feedrate limited for safety: {feedrate} → {safe_feedrate} mm/min")
+            
+        return safe_feedrate
+    
     def get_safe_test_area(self) -> dict:
         """Get safe area boundaries for testing (with margins)"""
         safety_margin = 10.0  # 10mm safety margin for testing
@@ -692,16 +709,19 @@ class FluidNCController:
             
         return Point(safe_x, safe_y, safe_z, safe_c)
     
-    def move_to_point(self, point: Point, feedrate: float = 1200) -> bool:
+    def move_to_point(self, point: Point, feedrate: float = 800) -> bool:
         """Move to specified 4DOF point with validation (command only - use move_to_point_and_wait for scanning)"""
         # Clamp coordinates to prevent negative X/Y values
         clamped_point = self.clamp_coordinates(point)
+        
+        # Validate feedrate for safety
+        safe_feedrate = self.validate_feedrate(feedrate)
         
         if not self.validate_position(clamped_point):
             return False
             
         # Build G-code command for 4DOF movement
-        gcode = f"G1 X{clamped_point.x:.3f} Y{clamped_point.y:.3f} Z{clamped_point.z:.3f} C{clamped_point.c:.3f} F{feedrate}"
+        gcode = f"G1 X{clamped_point.x:.3f} Y{clamped_point.y:.3f} Z{clamped_point.z:.3f} C{clamped_point.c:.3f} F{safe_feedrate}"
         
         success = self._send_raw_gcode(gcode)
         if success:
@@ -991,16 +1011,19 @@ class FluidNCController:
         logger.warning(f"Movement completion timeout after {timeout}s")
         return False
     
-    def move_to_point_and_wait(self, point: Point, feedrate: float = 1200) -> bool:
+    def move_to_point_and_wait(self, point: Point, feedrate: float = 800) -> bool:
         """Move to specified point and wait for completion"""
         # Clamp coordinates to prevent negative X/Y values
         clamped_point = self.clamp_coordinates(point)
+        
+        # Validate feedrate for safety
+        safe_feedrate = self.validate_feedrate(feedrate)
         
         if not self.validate_position(clamped_point):
             return False
             
         # Build G-code command for 4DOF movement
-        gcode = f"G1 X{clamped_point.x:.3f} Y{clamped_point.y:.3f} Z{clamped_point.z:.3f} C{clamped_point.c:.3f} F{feedrate}"
+        gcode = f"G1 X{clamped_point.x:.3f} Y{clamped_point.y:.3f} Z{clamped_point.z:.3f} C{clamped_point.c:.3f} F{safe_feedrate}"
         
         # Send movement command
         command_accepted = self._send_raw_gcode(gcode)
@@ -1161,7 +1184,7 @@ class PathPlanner:
         
         return path
     
-    def execute_path(self, path: List[Point], feedrate: float = 1500, 
+    def execute_path(self, path: List[Point], feedrate: float = 900, 
                     pause_between_points: float = 0.2) -> bool:
         """Execute a planned path with proper movement completion waiting"""
         if not self.controller.is_connected:
@@ -1232,7 +1255,7 @@ class CameraPositionController:
         return True
     
     def move_to_capture_position(self, x: float, y: float, z: float = None, 
-                                c: float = None, feedrate: float = 1000) -> bool:
+                                c: float = None, feedrate: float = 800) -> bool:
         """Move camera to specific 4DOF capture position
         
         Args:
@@ -1256,7 +1279,7 @@ class CameraPositionController:
     
     def scan_area(self, corner1: Point, corner2: Point, grid_size: Tuple[int, int] = (5, 5),
                   capture_height: float = None, c_angle: float = None, 
-                  feedrate: float = 1200) -> bool:
+                  feedrate: float = 800) -> bool:
         """Perform systematic scan of rectangular area (4DOF)
         
         Args:
