@@ -173,25 +173,23 @@ class IntegratedCameraSystem:
             logger.error("Failed to connect to controller")
             return False
         
-        # Check controller status
-        if hasattr(self.controller, 'get_grbl_status'):
-            status = self.controller.get_grbl_status()
-            logger.info(f"GRBL Status: {status}")
-        elif hasattr(self.controller, 'get_status'):
-            status = self.controller.get_status()
-            logger.info(f"FluidNC Status: {status}")
-        
-        # Try to unlock controller if needed
-        self.controller._send_raw_gcode("$X")
-        
-        # Set current position as home (don't call camera_controller.initialize_system again)
+        # Check controller status without unlocking
         try:
-            self.controller.home_axes()
-            logger.info("Positioning system initialized successfully")
-            return True
+            if self.use_fluidnc:
+                # FluidNC status check
+                response = self.controller._send_raw_gcode("?")
+                logger.info(f"FluidNC Status: {response}")
+            else:
+                # GRBL status check
+                response = self.controller._send_raw_gcode("?")
+                logger.info(f"GRBL Status: {response}")
         except Exception as e:
-            logger.warning(f"Homing failed: {e}. System still usable.")
-            return True  # Continue even if homing fails
+            logger.warning(f"Could not get controller status: {e}")
+        
+        # Initialize without unlocking - let user decide between homing or unlocking
+        logger.info("Controller connected successfully.")
+        logger.info("⚠️ System may be in alarm state - use Home System or Unlock Controller as needed")
+        return True
     
     def test_step_movements(self) -> bool:
         """Test step-by-step movements with detailed logging"""
@@ -893,6 +891,34 @@ class IntegratedCameraSystem:
                 logger.error(f"Error during homing: {e}")
                 return jsonify({"success": False, "error": f"Homing failed: {str(e)}"}), 500
         
+        @self.app.route('/unlock_controller', methods=['POST'])
+        def unlock_controller():
+            """Unlock controller from alarm state without homing"""
+            try:
+                if not self.controller.is_connected:
+                    return jsonify({"success": False, "error": "Controller not connected"}), 500
+                
+                logger.info("Unlocking controller...")
+                # Send unlock command ($X)
+                response = self.controller._send_raw_gcode("$X")
+                
+                # Check if unlock was successful
+                time.sleep(0.5)  # Brief delay for command processing
+                status_response = self.controller._send_raw_gcode("?")
+                
+                logger.info(f"Unlock response: {response}")
+                logger.info(f"Status after unlock: {status_response}")
+                
+                return jsonify({
+                    "success": True, 
+                    "message": "Controller unlocked successfully",
+                    "status": status_response
+                })
+                    
+            except Exception as e:
+                logger.error(f"Error during unlock: {e}")
+                return jsonify({"success": False, "error": f"Unlock failed: {str(e)}"}), 500
+        
         @self.app.route('/move_to_4dof', methods=['POST'])
         def move_to_4dof():
             """Move to specific 4DOF position"""
@@ -1139,13 +1165,13 @@ class IntegratedCameraSystem:
         self.app.run(host='0.0.0.0', port=self.video_server_port, threaded=True, debug=False)
     
     def shutdown(self):
-        """Safely shutdown the system"""
-        logger.info("Shutting down integrated camera system")
+        """Safely shutdown the system without moving"""
+        logger.info("Shutting down integrated camera system - leaving position as-is")
         
         # Stop any active scan
         self.current_scan_data["active"] = False
         
-        # Return to home and disconnect GRBL
+        # Disconnect controller without moving
         try:
             self.camera_controller.shutdown()
         except:
@@ -1176,6 +1202,7 @@ CONTROL_INTERFACE_HTML = """
         .btn-primary:disabled { background-color: #6c757d; cursor: not-allowed; }
         .btn-danger { background-color: #dc3545; color: white; }
         .btn-success { background-color: #28a745; color: white; }
+        .btn-warning { background-color: #ffc107; color: black; }
         .btn-test { background-color: #ff9800; color: white; }
         input { padding: 5px; margin: 2px 5px 5px 2px; border: 1px solid #ccc; border-radius: 3px; width: 80px; }
         label { display: inline-block; min-width: 120px; font-weight: bold; color: #333; margin-right: 5px; }
@@ -1265,7 +1292,13 @@ CONTROL_INTERFACE_HTML = """
                     <h4>System Control</h4>
                     <div class="input-group">
                         <button class="btn-success" onclick="homeSystem()" id="homeBtn">🏠 Home System</button>
-                        <span id="homeStatus" style="margin-left: 10px; font-weight: bold; color: red;">⚠️ SYSTEM NOT HOMED</span>
+                        <button class="btn-warning" onclick="unlockController()" id="unlockBtn">🔓 Unlock Controller</button>
+                    </div>
+                    <div class="input-group">
+                        <span id="systemStatus" style="font-weight: bold; color: red;">⚠️ SYSTEM NOT READY</span>
+                        <small style="display: block; color: #666; margin-top: 5px;">
+                            FluidNC/GRBL may be in alarm state. Choose Home System (recommended) or Unlock Controller.
+                        </small>
                     </div>
                 </div>
                 
@@ -1461,8 +1494,8 @@ CONTROL_INTERFACE_HTML = """
         });
         
         function startGridScan() {
-            if (!isHomed) {
-                alert('⚠️ Please home the system first before scanning!');
+            if (!isSystemReady) {
+                alert('⚠️ Please home the system or unlock the controller first before scanning!');
                 return;
             }
             
@@ -1515,8 +1548,8 @@ CONTROL_INTERFACE_HTML = """
         }
         
         function startCircularScan() {
-            if (!isHomed) {
-                alert('⚠️ Please home the system first before scanning!');
+            if (!isSystemReady) {
+                alert('⚠️ Please home the system or unlock the controller first before scanning!');
                 return;
             }
             
@@ -1565,8 +1598,8 @@ CONTROL_INTERFACE_HTML = """
         }
         
         function startRotationalScan() {
-            if (!isHomed) {
-                alert('⚠️ Please home the system first before scanning!');
+            if (!isSystemReady) {
+                alert('⚠️ Please home the system or unlock the controller first before scanning!');
                 return;
             }
             
@@ -1606,8 +1639,8 @@ CONTROL_INTERFACE_HTML = """
         }
         
         function startTiltScan() {
-            if (!isHomed) {
-                alert('⚠️ Please home the system first before scanning!');
+            if (!isSystemReady) {
+                alert('⚠️ Please home the system or unlock the controller first before scanning!');
                 return;
             }
             
@@ -1647,8 +1680,8 @@ CONTROL_INTERFACE_HTML = """
         }
         
         function startSphericalScan() {
-            if (!isHomed) {
-                alert('⚠️ Please home the system first before scanning!');
+            if (!isSystemReady) {
+                alert('⚠️ Please home the system or unlock the controller first before scanning!');
                 return;
             }
             
@@ -1738,23 +1771,33 @@ CONTROL_INTERFACE_HTML = """
                 });
         }
         
-        // Global homing state
-        var isHomed = false;
+        // Global system state
+        var isSystemReady = false; // Either homed or unlocked
+        var isHomed = false; // Specifically homed
         
         function updateButtonStates() {
             var buttons = ['moveBtn', 'gridScanBtn', 'circScanBtn', 'rotScanBtn', 'tiltScanBtn', 'spherScanBtn'];
             buttons.forEach(function(id) {
                 var btn = document.getElementById(id);
                 if (btn) {
-                    btn.disabled = !isHomed;
-                    btn.textContent = isHomed ? btn.textContent.replace(' (Home First)', '') : btn.textContent + (btn.textContent.includes('(Home First)') ? '' : ' (Home First)');
+                    btn.disabled = !isSystemReady;
+                    var originalText = btn.textContent.replace(' (Home or Unlock First)', '').replace(' (Home First)', '');
+                    btn.textContent = isSystemReady ? originalText : originalText + ' (Home or Unlock First)';
                 }
             });
             
-            var homeStatus = document.getElementById('homeStatus');
-            if (homeStatus) {
-                homeStatus.textContent = isHomed ? '✅ SYSTEM HOMED' : '⚠️ SYSTEM NOT HOMED';
-                homeStatus.style.color = isHomed ? 'green' : 'red';
+            var systemStatus = document.getElementById('systemStatus');
+            if (systemStatus) {
+                if (isHomed) {
+                    systemStatus.textContent = '✅ SYSTEM HOMED';
+                    systemStatus.style.color = 'green';
+                } else if (isSystemReady) {
+                    systemStatus.textContent = '🔓 SYSTEM UNLOCKED';
+                    systemStatus.style.color = 'orange';
+                } else {
+                    systemStatus.textContent = '⚠️ SYSTEM NOT READY';
+                    systemStatus.style.color = 'red';
+                }
             }
         }
         
@@ -1781,6 +1824,7 @@ CONTROL_INTERFACE_HTML = """
                     console.log('Home response data:', data);
                     if (data.success) {
                         isHomed = true;
+                        isSystemReady = true;
                         alert('✅ System homed successfully!');
                     } else {
                         alert('❌ Homing failed: ' + (data.error || 'Unknown error'));
@@ -1797,9 +1841,49 @@ CONTROL_INTERFACE_HTML = """
                 });
         }
         
+        function unlockController() {
+            if (!confirm('This will unlock the controller without homing. Use only if you know the current position is safe. Continue?')) {
+                return;
+            }
+            
+            console.log('Unlocking controller...');
+            document.getElementById('unlockBtn').disabled = true;
+            document.getElementById('unlockBtn').textContent = '🔓 Unlocking...';
+            
+            fetch('/unlock_controller', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+                .then(function(response) {
+                    console.log('Unlock response status: ' + response.status);
+                    return response.json();
+                })
+                .then(function(data) {
+                    console.log('Unlock response data:', data);
+                    if (data.success) {
+                        isHomed = false; // Unlocked but not homed
+                        isSystemReady = true;
+                        alert('✅ Controller unlocked successfully!\\nStatus: ' + (data.status || 'Unknown'));
+                    } else {
+                        alert('❌ Unlock failed: ' + (data.error || 'Unknown error'));
+                    }
+                    updateButtonStates();
+                })
+                .catch(function(error) {
+                    console.error('Unlock error:', error);
+                    alert('❌ Unlock failed: ' + error.message);
+                })
+                .finally(function() {
+                    document.getElementById('unlockBtn').disabled = false;
+                    document.getElementById('unlockBtn').textContent = '🔓 Unlock Controller';
+                });
+        }
+        
         function moveToPosition() {
-            if (!isHomed) {
-                alert('⚠️ Please home the system first before moving!');
+            if (!isSystemReady) {
+                alert('⚠️ Please home the system or unlock the controller first before moving!');
                 return;
             }
             
@@ -2000,13 +2084,18 @@ CONTROL_INTERFACE_HTML = """
         
         // Update status every 2 seconds
         setInterval(updateStatus, 2000);
+        setInterval(updateCurrentPosition, 5000);
         updateStatus();
+        updateCurrentPosition();
         
         // Page initialization - moved to end to ensure all functions are defined
         document.addEventListener('DOMContentLoaded', function() {
             console.log('=== PAGE LOADED ===');
             console.log('Current URL:', window.location.href);
             console.log('Starting status updates...');
+            
+            // Initialize button states (system starts unhomed)
+            updateButtonStates();
             
             // Verify test functions are available
             console.log('=== FUNCTION VERIFICATION ===');
@@ -2053,8 +2142,9 @@ def main():
         
         controller_type = "FluidNC 4DOF" if system.use_fluidnc else "GRBL 3DOF"
         print(f"System initialized successfully with {controller_type}!")
+        print(f"⚠️ Controller may be in alarm state - use web interface to Home or Unlock")
         print("\nAvailable operations:")
-        print("1. Start web interface")
+        print("1. Start web interface (FluidNC 4DOF with Home/Unlock options)")
         print("2. Test controller connection and movement") 
         print("3. Test step-by-step movements (5mm steps)")
         print("4. Run test grid scan (with 4DOF if FluidNC)")
@@ -2070,6 +2160,7 @@ def main():
         
         if choice == "1":
             print(f"Starting web interface on http://localhost:{system.video_server_port}")
+            print("💡 Use Home to initialize coordinate system or Unlock for manual control")
             print("Press Ctrl+C to stop...")
             system.start_web_interface()
             

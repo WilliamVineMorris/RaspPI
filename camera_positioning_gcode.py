@@ -903,9 +903,9 @@ class CameraPositionController:
         return self.controller._send_raw_gcode("$X")
     
     def shutdown(self):
-        """Safely shutdown the positioning system"""
-        logger.info("Shutting down camera positioning system")
-        self.return_to_home()
+        """Safely shutdown the positioning system without moving"""
+        logger.info("Shutting down camera positioning system - leaving position as-is")
+        # Do not return to home - leave system at current position
         self.controller.disconnect()
 
 # Example usage and test functions
