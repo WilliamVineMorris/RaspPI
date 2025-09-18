@@ -85,8 +85,9 @@ class IntegratedCameraSystem:
         """
         # Initialize controller based on type
         if use_fluidnc:
-            self.controller = FluidNCController(controller_port)
-            logger.info("Initialized FluidNC controller for 4DOF system")
+            # Use longer timeout for FluidNC to handle homing operations
+            self.controller = FluidNCController(controller_port, timeout=10.0)
+            logger.info("Initialized FluidNC controller for 4DOF system with extended timeout")
         else:
             self.controller = ArduinoGCodeController(controller_port)
             logger.info("Initialized GRBL controller for 3DOF system")

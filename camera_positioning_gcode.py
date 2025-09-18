@@ -248,6 +248,10 @@ class ArduinoGCodeController:
             logger.error(f"Error getting GRBL status: {e}")
             return f"Error: {e}"
     
+    def get_status(self) -> str:
+        """Get status - alias for get_grbl_status for compatibility"""
+        return self.get_grbl_status()
+    
     def wait_for_movement_complete(self, timeout: float = 30.0) -> bool:
         """Wait for GRBL to complete all movements"""
         start_time = time.time()
@@ -458,6 +462,21 @@ class FluidNCController:
             self.is_connected = False
             logger.info("Disconnected from FluidNC")
     
+    def _get_command_timeout(self, gcode: str) -> float:
+        """Get appropriate timeout for different command types"""
+        gcode_upper = gcode.upper().strip()
+        
+        if gcode_upper == "$H":  # Homing command
+            return 60.0  # Homing can take up to 60 seconds
+        elif gcode_upper.startswith("G1") or gcode_upper.startswith("G0"):  # Movement commands
+            return 30.0  # Movement commands can take longer
+        elif gcode_upper.startswith("?"):  # Status query
+            return 2.0   # Status should be quick
+        elif gcode_upper.startswith("$X"):  # Unlock command
+            return 10.0  # Unlock might take a moment
+        else:
+            return self.timeout  # Default timeout for other commands
+    
     def _send_raw_gcode(self, gcode: str) -> bool:
         """Send raw G-code command and wait for FluidNC response"""
         if not self.is_connected or not self.serial_connection:
@@ -470,19 +489,39 @@ class FluidNCController:
             self.serial_connection.write(command.encode())
             logger.debug(f"Sent: {gcode}")
             
+            # Get appropriate timeout for this command
+            command_timeout = self._get_command_timeout(gcode)
+            logger.debug(f"Using timeout: {command_timeout}s for command: {gcode}")
+            
             # Wait for response - FluidNC sends "ok" when movement is complete
             start_time = time.time()
+            response_buffer = ""
+            
             while True:
                 if self.serial_connection.in_waiting > 0:
                     response = self.serial_connection.readline().decode().strip()
+                    
+                    # Skip empty responses
+                    if not response:
+                        continue
+                        
+                    logger.debug(f"FluidNC response: {response}")
                     
                     # Handle different FluidNC response types
                     if response == "ok":
                         logger.debug(f"Command completed: {gcode}")
                         return True
                     elif response.startswith("[MSG:"):
-                        # FluidNC info message
+                        # FluidNC info message - continue waiting for "ok"
                         logger.info(f"FluidNC message: {response}")
+                        continue
+                    elif response.startswith("[GC:"):
+                        # FluidNC G-code parser state - continue waiting for "ok"
+                        logger.debug(f"FluidNC parser state: {response}")
+                        continue
+                    elif response.startswith("[PRB:"):
+                        # FluidNC probe result - continue waiting for "ok"
+                        logger.debug(f"FluidNC probe result: {response}")
                         continue
                     elif response.startswith("error:"):
                         logger.error(f"FluidNC error: {response}")
@@ -494,18 +533,22 @@ class FluidNCController:
                         # FluidNC settings response
                         logger.debug(f"FluidNC setting: {response}")
                         return True
-                    elif response == "":
-                        # Empty response - continue waiting
-                        continue
+                    elif response.startswith("<") and response.endswith(">"):
+                        # FluidNC status response (for ? command)
+                        logger.debug(f"FluidNC status: {response}")
+                        return True
                     else:
-                        logger.debug(f"FluidNC response: {response}")
+                        # Other responses - log but continue waiting for "ok"
+                        logger.debug(f"FluidNC other response: {response}")
+                        continue
                 
                 # Timeout check
-                if time.time() - start_time > self.timeout:
-                    logger.error(f"Command timeout: {gcode}")
+                elapsed = time.time() - start_time
+                if elapsed > command_timeout:
+                    logger.error(f"Command timeout after {elapsed:.1f}s (limit: {command_timeout}s): {gcode}")
                     return False
                     
-                time.sleep(0.1)
+                time.sleep(0.05)  # Reduced sleep for better responsiveness
                 
         except Exception as e:
             logger.error(f"Error sending G-code '{gcode}': {e}")
@@ -543,32 +586,110 @@ class FluidNCController:
         return success
     
     def home_axes(self) -> bool:
-        """Home configured axes"""
-        logger.info("Homing FluidNC axes...")
-        return self._send_raw_gcode("$H")
+        """Home configured axes with proper timeout handling"""
+        logger.info("Starting FluidNC homing sequence...")
+        
+        # Clear any alarm state first
+        self._send_raw_gcode("$X")
+        time.sleep(0.5)
+        
+        # Start homing - this can take up to 60 seconds
+        logger.info("Homing in progress - this may take up to 60 seconds...")
+        success = self._send_raw_gcode("$H")
+        
+        if success:
+            logger.info("Homing completed successfully")
+            # Reset current position after homing
+            self.current_position = Point(0, 0, 0, 0)
+        else:
+            logger.error("Homing failed or timed out")
+            
+        return success
     
     def get_status(self) -> str:
         """Get current FluidNC status"""
-        if not self.is_connected:
+        if not self.is_connected or not self.serial_connection:
             return "Not connected"
         
         try:
+            # Clear any pending input
             self.serial_connection.reset_input_buffer()
-            self.serial_connection.write(b"?")
+            
+            # Send status query
+            self.serial_connection.write(b"?\n")
             
             start_time = time.time()
-            while time.time() - start_time < 2:
+            status_timeout = 3.0  # Status queries should be quick
+            
+            while time.time() - start_time < status_timeout:
                 if self.serial_connection.in_waiting > 0:
                     status = self.serial_connection.readline().decode().strip()
+                    
+                    # Skip empty responses
+                    if not status:
+                        continue
+                    
+                    # FluidNC status format: <Idle|MPos:0.000,0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000,0.000>
                     if status.startswith('<') and status.endswith('>'):
+                        logger.debug(f"Status received: {status}")
                         return status
-                time.sleep(0.1)
+                    elif status.startswith("[MSG:"):
+                        # Info message - continue waiting
+                        logger.debug(f"Status query message: {status}")
+                        continue
+                    else:
+                        logger.debug(f"Unexpected status response: {status}")
+                        continue
+                        
+                time.sleep(0.05)
             
-            return "No status response"
+            logger.warning("Status query timeout")
+            return "Status timeout"
             
         except Exception as e:
             logger.error(f"Error getting status: {e}")
             return f"Error: {e}"
+    
+    def is_homed(self) -> bool:
+        """Check if system is homed by analyzing status"""
+        status = self.get_status()
+        
+        if status.startswith('<') and status.endswith('>'):
+            # Parse FluidNC status: <Idle|MPos:0.000,0.000,0.000,0.000|FS:0,0|WCO:0.000,0.000,0.000,0.000>
+            parts = status[1:-1].split('|')  # Remove < > and split by |
+            
+            for part in parts:
+                # Check for alarm state
+                if part.startswith('Alarm'):
+                    return False
+                # Check for homing state
+                if part == 'Home':
+                    return True
+                # If we have WCO (Work Coordinate Offset), system is likely homed
+                if part.startswith('WCO:'):
+                    return True
+            
+            # If status shows Idle/Run/Hold without alarm, consider it homed
+            state = parts[0] if parts else ""
+            return state in ['Idle', 'Run', 'Hold', 'Jog']
+        
+        return False
+    
+    def unlock_controller(self) -> bool:
+        """Unlock FluidNC controller (clear alarm state)"""
+        logger.info("Unlocking FluidNC controller...")
+        success = self._send_raw_gcode("$X")
+        
+        if success:
+            logger.info("Controller unlocked successfully")
+        else:
+            logger.error("Failed to unlock controller")
+            
+        return success
+    
+    def get_grbl_status(self) -> str:
+        """Get status in GRBL-compatible format for interface compatibility"""
+        return self.get_status()
 
 
 class PathPlanner:
