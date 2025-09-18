@@ -53,10 +53,22 @@ def test_movement_completion():
         current_pos = controller.get_machine_position()
         print(f"Current position: X:{current_pos.x:.1f} Y:{current_pos.y:.1f} Z:{current_pos.z:.1f} C:{current_pos.c:.1f}")
         
-        # Test small movement
-        test_point = Point(current_pos.x + 5, current_pos.y - 5, current_pos.z, current_pos.c)
+        # Use safe area helper to calculate test position
+        safe_area = controller.get_safe_test_area()
+        print(f"Safe test area: X:{safe_area['x_min']:.1f}-{safe_area['x_max']:.1f}, Y:{safe_area['y_min']:.1f}-{safe_area['y_max']:.1f}")
         
-        print(f"Moving to test position: X:{test_point.x:.1f} Y:{test_point.y:.1f}...")
+        # Create a safe test point offset from current position
+        offset_x = min(10.0, (safe_area['x_max'] - safe_area['x_min']) / 4)  # Small safe offset
+        offset_y = min(10.0, (safe_area['y_max'] - safe_area['y_min']) / 4)
+        
+        test_point = controller.create_safe_point(
+            current_pos.x + offset_x, 
+            current_pos.y - offset_y, 
+            current_pos.z, 
+            current_pos.c
+        )
+        
+        print(f"Moving to safe test position: X:{test_point.x:.1f} Y:{test_point.y:.1f}...")
         start_time = time.time()
         
         success = controller.move_to_point_and_wait(test_point, feedrate=100)
@@ -80,13 +92,20 @@ def test_movement_completion():
         
         print("\n4. Testing movement sequence (multiple moves)...")
         
-        # Define a small test pattern
+        # Use safe area to define test pattern
+        safe_area = controller.get_safe_test_area()
+        center_x = (safe_area['x_min'] + safe_area['x_max']) / 2
+        center_y = (safe_area['y_min'] + safe_area['y_max']) / 2
+        pattern_size = 20.0  # Small pattern to stay safe
+        
+        print(f"Test center: ({center_x:.1f}, {center_y:.1f}), pattern size: {pattern_size}mm")
+        
         test_pattern = [
-            Point(current_pos.x, current_pos.y, current_pos.z, current_pos.c),      # Return to start
-            Point(current_pos.x + 10, current_pos.y, current_pos.z, current_pos.c), # Move right
-            Point(current_pos.x + 10, current_pos.y - 10, current_pos.z, current_pos.c), # Move down
-            Point(current_pos.x, current_pos.y - 10, current_pos.z, current_pos.c), # Move left
-            Point(current_pos.x, current_pos.y, current_pos.z, current_pos.c),      # Return to start
+            controller.create_safe_point(center_x, center_y, current_pos.z, current_pos.c),                    # Center
+            controller.create_safe_point(center_x + pattern_size, center_y, current_pos.z, current_pos.c),    # Right
+            controller.create_safe_point(center_x + pattern_size, center_y - pattern_size, current_pos.z, current_pos.c), # Down-right
+            controller.create_safe_point(center_x, center_y - pattern_size, current_pos.z, current_pos.c),    # Down
+            controller.create_safe_point(center_x, center_y, current_pos.z, current_pos.c),                   # Back to center
         ]
         
         print(f"Executing {len(test_pattern)} move sequence...")

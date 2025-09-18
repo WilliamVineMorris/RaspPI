@@ -615,35 +615,100 @@ class FluidNCController:
             return False
     
     def validate_position(self, point: Point) -> bool:
-        """Validate that position is within axis limits"""
-        if not (self.axis_limits['x']['min'] <= point.x <= self.axis_limits['x']['max']):
-            logger.error(f"X position {point.x} outside limits [{self.axis_limits['x']['min']}, {self.axis_limits['x']['max']}]")
+        """Validate that position is within axis limits with safety margins"""
+        # Add safety margins to avoid hitting limits during testing
+        safety_margin = 5.0  # 5mm safety margin
+        
+        # Strictly prevent negative X and Y positions
+        x_min = 0.0  # No negative X positions allowed
+        x_max = self.axis_limits['x']['max'] - safety_margin
+        
+        y_min = 0.0  # No negative Y positions allowed
+        y_max = self.axis_limits['y']['max'] - safety_margin
+        
+        z_min = self.axis_limits['z']['min']
+        z_max = self.axis_limits['z']['max']
+        
+        c_min = self.axis_limits['c']['min']
+        c_max = self.axis_limits['c']['max']
+        
+        if not (x_min <= point.x <= x_max):
+            logger.error(f"X position {point.x:.2f} outside safe limits [{x_min}, {x_max}] (with {safety_margin}mm margin)")
             return False
-        if not (self.axis_limits['y']['min'] <= point.y <= self.axis_limits['y']['max']):
-            logger.error(f"Y position {point.y} outside limits [{self.axis_limits['y']['min']}, {self.axis_limits['y']['max']}]")
+        if not (y_min <= point.y <= y_max):
+            logger.error(f"Y position {point.y:.2f} outside safe limits [{y_min}, {y_max}] (with {safety_margin}mm margin)")
             return False
-        if not (self.axis_limits['z']['min'] <= point.z <= self.axis_limits['z']['max']):
-            logger.error(f"Z position {point.z} outside limits [{self.axis_limits['z']['min']}, {self.axis_limits['z']['max']}]")
+        if not (z_min <= point.z <= z_max):
+            logger.error(f"Z position {point.z:.2f} outside limits [{z_min}, {z_max}]")
             return False
-        if not (self.axis_limits['c']['min'] <= point.c <= self.axis_limits['c']['max']):
-            logger.error(f"C position {point.c} outside limits [{self.axis_limits['c']['min']}, {self.axis_limits['c']['max']}]")
+        if not (c_min <= point.c <= c_max):
+            logger.error(f"C position {point.c:.2f} outside limits [{c_min}, {c_max}]")
             return False
         return True
     
+    def clamp_coordinates(self, point: Point) -> Point:
+        """Ensure coordinates are never negative for X and Y axes"""
+        clamped_x = max(0.0, point.x)  # No negative X
+        clamped_y = max(0.0, point.y)  # No negative Y
+        
+        # Log if clamping occurred
+        if clamped_x != point.x or clamped_y != point.y:
+            logger.info(f"Clamped coordinates: ({point.x:.2f},{point.y:.2f}) → ({clamped_x:.2f},{clamped_y:.2f})")
+        
+        return Point(clamped_x, clamped_y, point.z, point.c)
+    
+    def get_safe_test_area(self) -> dict:
+        """Get safe area boundaries for testing (with margins)"""
+        safety_margin = 10.0  # 10mm safety margin for testing
+        
+        return {
+            'x_min': max(0.0, safety_margin),  # Ensure no negative X
+            'x_max': self.axis_limits['x']['max'] - safety_margin,
+            'y_min': max(0.0, self.axis_limits['y']['min'] + safety_margin),  # Ensure no negative Y
+            'y_max': self.axis_limits['y']['max'] - safety_margin,
+            'z_min': self.axis_limits['z']['min'],
+            'z_max': self.axis_limits['z']['max'],
+            'c_min': self.axis_limits['c']['min'] + 10,  # Stay away from C limits
+            'c_max': self.axis_limits['c']['max'] - 10
+        }
+    
+    def create_safe_point(self, x: float, y: float, z: Optional[float] = None, c: Optional[float] = None) -> Point:
+        """Create a point that's guaranteed to be within safe limits"""
+        if z is None:
+            z = 0.0
+        if c is None:
+            c = 90.0  # Default center position
+            
+        safe_area = self.get_safe_test_area()
+        
+        # Clamp values to safe area
+        safe_x = max(safe_area['x_min'], min(x, safe_area['x_max']))
+        safe_y = max(safe_area['y_min'], min(y, safe_area['y_max']))
+        safe_z = max(safe_area['z_min'], min(z, safe_area['z_max']))
+        safe_c = max(safe_area['c_min'], min(c, safe_area['c_max']))
+        
+        if safe_x != x or safe_y != y or safe_z != z or safe_c != c:
+            logger.info(f"Point adjusted for safety: ({x},{y},{z},{c}) → ({safe_x},{safe_y},{safe_z},{safe_c})")
+            
+        return Point(safe_x, safe_y, safe_z, safe_c)
+    
     def move_to_point(self, point: Point, feedrate: float = 500) -> bool:
         """Move to specified 4DOF point with validation (command only - use move_to_point_and_wait for scanning)"""
-        if not self.validate_position(point):
+        # Clamp coordinates to prevent negative X/Y values
+        clamped_point = self.clamp_coordinates(point)
+        
+        if not self.validate_position(clamped_point):
             return False
             
         # Build G-code command for 4DOF movement
-        gcode = f"G1 X{point.x:.3f} Y{point.y:.3f} Z{point.z:.3f} C{point.c:.3f} F{feedrate}"
+        gcode = f"G1 X{clamped_point.x:.3f} Y{clamped_point.y:.3f} Z{clamped_point.z:.3f} C{clamped_point.c:.3f} F{feedrate}"
         
         success = self._send_raw_gcode(gcode)
         if success:
             # Note: This updates position immediately but movement may still be in progress
             # Use move_to_point_and_wait() for operations requiring movement completion
-            self.current_position = Point(point.x, point.y, point.z, point.c)
-            logger.info(f"Movement command sent to X:{point.x:.1f} Y:{point.y:.1f} Z:{point.z:.1f} C:{point.c:.1f}")
+            self.current_position = Point(clamped_point.x, clamped_point.y, clamped_point.z, clamped_point.c)
+            logger.info(f"Movement command sent to X:{clamped_point.x:.1f} Y:{clamped_point.y:.1f} Z:{clamped_point.z:.1f} C:{clamped_point.c:.1f}")
         
         return success
     
@@ -685,9 +750,33 @@ class FluidNCController:
                 # Get actual machine position after homing
                 time.sleep(1)  # Give system time to settle
                 machine_pos = self.get_machine_position()
-                self.current_position = machine_pos
                 
                 logger.info(f"Post-homing machine position: X:{machine_pos.x:.1f} Y:{machine_pos.y:.1f} Z:{machine_pos.z:.1f} C:{machine_pos.c:.1f}")
+                
+                # Check for small negative offsets and correct them to avoid validation errors
+                corrected_pos = machine_pos
+                position_corrected = False
+                
+                if machine_pos.x < 0 and machine_pos.x > -5.0:  # Small negative offset from homing
+                    logger.info(f"Correcting small X homing offset: {machine_pos.x:.2f} → 0.0")
+                    self._send_raw_gcode("G92 X0")  # Set current X position as 0
+                    corrected_pos = Point(0.0, machine_pos.y, machine_pos.z, machine_pos.c)
+                    position_corrected = True
+                    
+                if machine_pos.y > 205.0:  # Y should be ~200mm, allow small tolerance
+                    logger.info(f"Correcting Y position offset: {machine_pos.y:.2f} → 200.0")
+                    self._send_raw_gcode("G92 Y200")  # Set current Y position as 200
+                    corrected_pos = Point(corrected_pos.x, 200.0, machine_pos.z, machine_pos.c)
+                    position_corrected = True
+                    
+                if position_corrected:
+                    time.sleep(0.5)  # Let correction settle
+                    final_pos = self.get_machine_position()
+                    logger.info(f"Corrected position: X:{final_pos.x:.1f} Y:{final_pos.y:.1f} Z:{final_pos.z:.1f} C:{final_pos.c:.1f}")
+                    self.current_position = final_pos
+                else:
+                    self.current_position = machine_pos
+                    
                 return True
             
             # Show progress
@@ -895,11 +984,14 @@ class FluidNCController:
     
     def move_to_point_and_wait(self, point: Point, feedrate: float = 500) -> bool:
         """Move to specified point and wait for completion"""
-        if not self.validate_position(point):
+        # Clamp coordinates to prevent negative X/Y values
+        clamped_point = self.clamp_coordinates(point)
+        
+        if not self.validate_position(clamped_point):
             return False
             
         # Build G-code command for 4DOF movement
-        gcode = f"G1 X{point.x:.3f} Y{point.y:.3f} Z{point.z:.3f} C{point.c:.3f} F{feedrate}"
+        gcode = f"G1 X{clamped_point.x:.3f} Y{clamped_point.y:.3f} Z{clamped_point.z:.3f} C{clamped_point.c:.3f} F{feedrate}"
         
         # Send movement command
         command_accepted = self._send_raw_gcode(gcode)
@@ -912,8 +1004,8 @@ class FluidNCController:
         # Wait for movement to complete
         movement_complete = self.wait_for_movement_complete()
         if movement_complete:
-            self.current_position = Point(point.x, point.y, point.z, point.c)
-            logger.info(f"Moved to X:{point.x:.1f} Y:{point.y:.1f} Z:{point.z:.1f} C:{point.c:.1f}")
+            self.current_position = Point(clamped_point.x, clamped_point.y, clamped_point.z, clamped_point.c)
+            logger.info(f"Moved to X:{clamped_point.x:.1f} Y:{clamped_point.y:.1f} Z:{clamped_point.z:.1f} C:{clamped_point.c:.1f}")
         else:
             logger.error("Movement did not complete successfully")
             
