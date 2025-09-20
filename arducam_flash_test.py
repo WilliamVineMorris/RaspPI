@@ -663,6 +663,39 @@ while True:
         print(json.dumps({"status": "error", "message": f"Error: {str(e)}"}))
 '''
 
+def detect_available_cameras(max_cameras=10):
+    """Detect available camera devices"""
+    available_cameras = []
+    
+    print("\n🔍 Scanning for available cameras...")
+    
+    for i in range(max_cameras):
+        try:
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                # Try to read a frame to verify it's working
+                ret, frame = cap.read()
+                if ret:
+                    width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+                    height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                    print(f"  ✅ Camera {i}: {int(width)}x{int(height)} - Working")
+                    available_cameras.append(i)
+                else:
+                    print(f"  ❌ Camera {i}: Device exists but cannot capture")
+                cap.release()
+            else:
+                # Skip printing for non-existent cameras to reduce noise
+                pass
+        except Exception as e:
+            print(f"  ❌ Camera {i}: Error - {e}")
+    
+    if available_cameras:
+        print(f"\n📋 Found {len(available_cameras)} working camera(s): {available_cameras}")
+    else:
+        print("\n❌ No working cameras found!")
+    
+    return available_cameras
+
 def main():
     """Main test function for Arducam 64MP dual camera flash system"""
     print("=== Arducam 64MP Camera Flash Test ===")
@@ -670,19 +703,42 @@ def main():
     print("Note: This script supports both single and dual camera setups")
     print()
     
+    # First, scan for available cameras
+    available_cameras = detect_available_cameras()
+    
+    if not available_cameras:
+        print("No cameras detected. Please check connections and try again.")
+        return
+    
     # Configuration
     flash_port = input("Enter flash controller serial port (e.g., /dev/ttyACM0 or COM3): ").strip()
     if not flash_port:
         flash_port = "/dev/ttyACM0"
     
-    camera1_id = int(input("Enter Camera 1 device ID (default 0): ") or "0")
-    
-    # Ask about second camera
-    use_dual = input("Do you have a second camera? (y/N): ").strip().lower() == 'y'
-    if use_dual:
-        camera2_id = int(input("Enter Camera 2 device ID (default 1): ") or "1")
+    # Smart camera selection
+    if len(available_cameras) >= 2:
+        print(f"\n🎥 Multiple cameras detected: {available_cameras}")
+        print(f"Recommended setup:")
+        print(f"  Camera 1: {available_cameras[0]}")
+        print(f"  Camera 2: {available_cameras[1]}")
+        
+        camera1_id = int(input(f"Enter Camera 1 device ID (default {available_cameras[0]}): ") or str(available_cameras[0]))
+        camera2_id = int(input(f"Enter Camera 2 device ID (default {available_cameras[1]}): ") or str(available_cameras[1]))
+        
+    elif len(available_cameras) == 1:
+        print(f"\n🎥 Single camera detected: {available_cameras[0]}")
+        camera1_id = available_cameras[0]
+        
+        # Ask if they want to try a different ID for camera 2
+        use_dual = input("Try to use a second camera anyway? (y/N): ").strip().lower() == 'y'
+        if use_dual:
+            camera2_id = int(input("Enter Camera 2 device ID: "))
+        else:
+            camera2_id = 999  # Use non-existent ID to force single camera mode
     else:
-        camera2_id = 999  # Use non-existent ID to force single camera mode
+        # Manual entry as fallback
+        camera1_id = int(input("Enter Camera 1 device ID (default 0): ") or "0")
+        camera2_id = int(input("Enter Camera 2 device ID (default 1): ") or "1")
     
     # Create Arducam capture system
     capture_system = ArducamFlashCapture(
