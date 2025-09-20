@@ -162,20 +162,34 @@ class ArducamFlashCapture:
         self.preview_active = False
         
     def initialize_cameras(self) -> bool:
-        """Initialize both Arducam cameras with optimizations"""
-        logger.info("Initializing Arducam 64MP cameras...")
+        """Initialize Arducam cameras with smart detection"""
+        logger.info("Detecting and initializing Arducam cameras...")
         
         try:
-            # Initialize cameras
+            # Try to initialize first camera
             self.camera1 = cv2.VideoCapture(self.camera1_id)
-            self.camera2 = cv2.VideoCapture(self.camera2_id)
+            camera1_ok = self.camera1.isOpened()
             
-            if not (self.camera1.isOpened() and self.camera2.isOpened()):
-                logger.error("Failed to open cameras")
+            if not camera1_ok:
+                logger.error(f"Failed to open camera {self.camera1_id}")
                 return False
             
+            # Try to initialize second camera
+            self.camera2 = cv2.VideoCapture(self.camera2_id)
+            camera2_ok = self.camera2.isOpened()
+            
+            if not camera2_ok:
+                logger.warning(f"Camera {self.camera2_id} not available - running in single camera mode")
+                self.camera2.release()
+                self.camera2 = None
+            
+            # Configure available cameras
+            cameras_to_configure = [self.camera1]
+            if self.camera2:
+                cameras_to_configure.append(self.camera2)
+            
             # Arducam 64MP specific optimizations
-            for camera in [self.camera1, self.camera2]:
+            for camera in cameras_to_configure:
                 # Use MJPEG codec for better performance
                 try:
                     camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc(*'MJPG'))
@@ -198,7 +212,12 @@ class ArducamFlashCapture:
             # Verify settings
             w, h = self.camera1.get(cv2.CAP_PROP_FRAME_WIDTH), self.camera1.get(cv2.CAP_PROP_FRAME_HEIGHT)
             fps = self.camera1.get(cv2.CAP_PROP_FPS)
-            logger.info(f"Arducam cameras initialized: {w}x{h} @ {fps}fps")
+            
+            camera_count = len(cameras_to_configure)
+            logger.info(f"Arducam cameras initialized: {camera_count} camera(s) @ {w}x{h} @ {fps}fps")
+            
+            if not self.camera2:
+                logger.info("Note: Running in single camera mode - only Camera 1 will be used")
             
             return True
             
@@ -215,14 +234,21 @@ class ArducamFlashCapture:
         resolution = self.resolutions[mode]
         fps = self.preview_fps if mode == "preview" else self.photo_fps
         
-        for camera in [self.camera1, self.camera2]:
-            if camera is not None:
-                camera.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
-                camera.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
-                camera.set(cv2.CAP_PROP_FPS, fps)
+        # Configure camera 1
+        if self.camera1 is not None:
+            self.camera1.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+            self.camera1.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+            self.camera1.set(cv2.CAP_PROP_FPS, fps)
+        
+        # Configure camera 2 if available
+        if self.camera2 is not None:
+            self.camera2.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+            self.camera2.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+            self.camera2.set(cv2.CAP_PROP_FPS, fps)
         
         self.current_resolution = mode
-        logger.info(f"Camera mode: {mode} ({resolution[0]}x{resolution[1]} @ {fps}fps)")
+        camera_count = "dual" if self.camera2 else "single"
+        logger.info(f"Camera mode ({camera_count}): {mode} ({resolution[0]}x{resolution[1]} @ {fps}fps)")
     
     def set_resolution_mode(self, mode: str) -> bool:
         """Change camera resolution mode"""
@@ -244,10 +270,10 @@ class ArducamFlashCapture:
             high_resolution: Whether to capture at full 64MP resolution
             
         Returns:
-            (success, camera1_frame, camera2_frame)
+            (success, camera1_frame, camera2_frame) - camera2_frame will be None in single camera mode
         """
-        if not self.camera1 or not self.camera2:
-            logger.error("Cameras not initialized")
+        if not self.camera1:
+            logger.error("Camera 1 not initialized")
             return False, None, None
         
         if not self.flash_controller.is_connected:
@@ -274,11 +300,13 @@ class ArducamFlashCapture:
             
             # Prepare for capture - clear buffers
             for _ in range(5):  # More buffer clears for high-res
-                if self.camera1 and self.camera2:
+                if self.camera1:
                     self.camera1.read()
+                if self.camera2:
                     self.camera2.read()
             
-            logger.info(f"Capturing flash photo at {self.current_resolution} resolution...")
+            camera_mode = "dual" if self.camera2 else "single"
+            logger.info(f"Capturing flash photo at {self.current_resolution} resolution ({camera_mode} camera)")
             
             # Trigger main flash
             flash_thread = threading.Thread(
@@ -292,11 +320,14 @@ class ArducamFlashCapture:
             # Capture with timing
             start_time = time.time()
             
-            if self.camera1 and self.camera2:
-                ret1, frame1 = self.camera1.read()
+            # Capture from camera 1 (always available)
+            ret1, frame1 = self.camera1.read()
+            
+            # Capture from camera 2 if available
+            if self.camera2:
                 ret2, frame2 = self.camera2.read()
             else:
-                ret1, ret2, frame1, frame2 = False, False, None, None
+                ret2, frame2 = True, None  # Single camera mode
             
             flash_thread.join()
             capture_time = time.time() - start_time
@@ -305,35 +336,38 @@ class ArducamFlashCapture:
             if high_resolution and original_mode != "photo":
                 self.set_resolution_mode(original_mode)
             
-            if ret1 and ret2 and frame1 is not None and frame2 is not None:
-                logger.info(f"64MP flash capture completed in {capture_time:.3f}s")
+            if ret1 and ret2 and frame1 is not None:
+                logger.info(f"64MP flash capture completed in {capture_time:.3f}s ({camera_mode} camera)")
                 return True, frame1, frame2
             else:
-                logger.error("Failed to capture from cameras")
+                logger.error("Failed to capture from camera(s)")
                 return False, None, None
                 
         except Exception as e:
             logger.error(f"Flash capture error: {e}")
             return False, None, None
     
-    def save_flash_photos(self, frame1: np.ndarray, frame2: np.ndarray, 
+    def save_flash_photos(self, frame1: np.ndarray, frame2: Optional[np.ndarray], 
                          filename_prefix: str = "arducam_flash") -> bool:
         """Save captured flash photos with high quality"""
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
             
+            # Always save camera 1
             filename1 = self.save_dir / f"{filename_prefix}_cam1_{timestamp}.jpg"
-            filename2 = self.save_dir / f"{filename_prefix}_cam2_{timestamp}.jpg"
-            
-            # Save with maximum quality for 64MP images
             cv2.imwrite(str(filename1), frame1, [cv2.IMWRITE_JPEG_QUALITY, 98])
-            cv2.imwrite(str(filename2), frame2, [cv2.IMWRITE_JPEG_QUALITY, 98])
-            
-            # Log file sizes for verification
             size1 = filename1.stat().st_size / (1024*1024)  # MB
-            size2 = filename2.stat().st_size / (1024*1024)  # MB
-            logger.info(f"64MP photos saved: {filename1.name} ({size1:.1f}MB), {filename2.name} ({size2:.1f}MB)")
             
+            saved_files = [f"{filename1.name} ({size1:.1f}MB)"]
+            
+            # Save camera 2 if available
+            if frame2 is not None:
+                filename2 = self.save_dir / f"{filename_prefix}_cam2_{timestamp}.jpg"
+                cv2.imwrite(str(filename2), frame2, [cv2.IMWRITE_JPEG_QUALITY, 98])
+                size2 = filename2.stat().st_size / (1024*1024)  # MB
+                saved_files.append(f"{filename2.name} ({size2:.1f}MB)")
+            
+            logger.info(f"Photos saved: {', '.join(saved_files)}")
             return True
             
         except Exception as e:
@@ -342,41 +376,56 @@ class ArducamFlashCapture:
     
     def start_live_preview(self):
         """Start live preview optimized for Arducam"""
-        if not self.camera1 or not self.camera2:
-            logger.error("Cameras not initialized")
+        if not self.camera1:
+            logger.error("Camera 1 not initialized")
             return
         
         # Ensure preview mode
         self.set_resolution_mode("preview")
         
         self.preview_active = True
-        logger.info("Arducam live preview started")
+        camera_mode = "dual" if self.camera2 else "single"
+        logger.info(f"Arducam live preview started ({camera_mode} camera)")
         logger.info("Controls: 'q'=quit, 'f'=flash photo, 'F'=64MP photo, 'r'=resolution, 's'=settings")
         
         while self.preview_active:
             ret1, frame1 = self.camera1.read()
-            ret2, frame2 = self.camera2.read()
+            
+            # Get frame2 if camera2 is available
+            if self.camera2:
+                ret2, frame2 = self.camera2.read()
+            else:
+                ret2, frame2 = True, None
             
             if ret1 and ret2:
-                # Resize for display
+                # Create display
                 display_size = (640, 360)
                 frame1_small = cv2.resize(frame1, display_size)
-                frame2_small = cv2.resize(frame2, display_size)
                 
-                # Side-by-side display
-                combined = np.hstack((frame1_small, frame2_small))
+                if frame2 is not None:
+                    # Dual camera display
+                    frame2_small = cv2.resize(frame2, display_size)
+                    combined = np.hstack((frame1_small, frame2_small))
+                    
+                    # Add overlay information
+                    cv2.putText(combined, "Arducam Camera 1", (10, 30), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    cv2.putText(combined, "Arducam Camera 2", (650, 30), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                else:
+                    # Single camera display
+                    combined = frame1_small
+                    cv2.putText(combined, "Arducam Camera (Single Mode)", (10, 30), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 
-                # Add overlay information
-                cv2.putText(combined, "Arducam Camera 1", (10, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                cv2.putText(combined, "Arducam Camera 2", (650, 30), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                # Common overlay
                 cv2.putText(combined, f"Flash: {self.flash_config.duty_cycle:.0f}%", 
                            (10, 340), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 cv2.putText(combined, f"Mode: {self.current_resolution}", 
                            (10, 360), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                 
-                cv2.imshow("Arducam 64MP Flash Preview", combined)
+                window_title = f"Arducam 64MP Preview ({camera_mode.title()} Camera)"
+                cv2.imshow(window_title, combined)
                 
                 key = cv2.waitKey(1) & 0xFF
                 if key == ord('q'):
@@ -384,7 +433,7 @@ class ArducamFlashCapture:
                 elif key == ord('f'):
                     # Standard flash photo
                     success, f1, f2 = self.capture_flash_photo(high_resolution=False)
-                    if success and f1 is not None and f2 is not None:
+                    if success and f1 is not None:
                         self.save_flash_photos(f1, f2)
                         print("📸 Flash photo captured!")
                     else:
@@ -393,7 +442,7 @@ class ArducamFlashCapture:
                     # Full 64MP flash photo
                     print("📸 Capturing full 64MP flash photo (this may take a moment)...")
                     success, f1, f2 = self.capture_flash_photo(high_resolution=True)
-                    if success and f1 is not None and f2 is not None:
+                    if success and f1 is not None:
                         self.save_flash_photos(f1, f2, "64MP_flash")
                         print("✅ 64MP flash photo captured!")
                     else:
@@ -616,8 +665,9 @@ while True:
 
 def main():
     """Main test function for Arducam 64MP dual camera flash system"""
-    print("=== Arducam 64MP Dual Camera Flash Test ===")
+    print("=== Arducam 64MP Camera Flash Test ===")
     print("Optimized for high-resolution photography with LED flash")
+    print("Note: This script supports both single and dual camera setups")
     print()
     
     # Configuration
@@ -626,7 +676,13 @@ def main():
         flash_port = "/dev/ttyACM0"
     
     camera1_id = int(input("Enter Camera 1 device ID (default 0): ") or "0")
-    camera2_id = int(input("Enter Camera 2 device ID (default 1): ") or "1")
+    
+    # Ask about second camera
+    use_dual = input("Do you have a second camera? (y/N): ").strip().lower() == 'y'
+    if use_dual:
+        camera2_id = int(input("Enter Camera 2 device ID (default 1): ") or "1")
+    else:
+        camera2_id = 999  # Use non-existent ID to force single camera mode
     
     # Create Arducam capture system
     capture_system = ArducamFlashCapture(
@@ -637,24 +693,33 @@ def main():
     
     try:
         # Initialize systems
-        print("\nInitializing Arducam 64MP cameras...")
+        print("\nInitializing Arducam cameras...")
         if not capture_system.initialize_cameras():
             print("❌ Failed to initialize cameras")
-            print("Make sure Arducam cameras are connected properly")
+            print("Troubleshooting:")
+            print("1. Check camera connections")
+            print("2. Try different camera IDs (0, 1, 2...)")
+            print("3. Check permissions: sudo usermod -a -G video $USER")
+            print("4. For Arducam: check libcamera installation")
             return
         
         print("Initializing flash controller...")
         if not capture_system.initialize_flash():
             print("❌ Failed to initialize flash controller")
             print("Make sure CircuitPython board is connected and programmed")
-            return
+            
+            # Ask if user wants to continue without flash
+            continue_without_flash = input("Continue without flash controller? (y/N): ").strip().lower() == 'y'
+            if not continue_without_flash:
+                return
         
-        print("✅ Arducam 64MP system ready!")
+        camera_count = "dual" if capture_system.camera2 else "single"
+        print(f"✅ Arducam 64MP system ready ({camera_count} camera)!")
         
         # Main menu
         while True:
             print("\n" + "="*60)
-            print("ARDUCAM 64MP DUAL CAMERA FLASH TEST")
+            print(f"ARDUCAM 64MP CAMERA FLASH TEST ({camera_count.upper()} CAMERA)")
             print("="*60)
             print("1. Live preview (f=flash, F=64MP flash, r=resolution)")
             print("2. Standard flash capture")
@@ -673,7 +738,7 @@ def main():
             elif choice == '2':
                 print("Capturing standard resolution flash photo...")
                 success, frame1, frame2 = capture_system.capture_flash_photo(high_resolution=False)
-                if success and frame1 is not None and frame2 is not None:
+                if success and frame1 is not None:
                     capture_system.save_flash_photos(frame1, frame2)
                     print("✅ Flash photo captured!")
                 else:
@@ -682,7 +747,7 @@ def main():
             elif choice == '3':
                 print("Capturing full 64MP flash photo (this may take 10+ seconds)...")
                 success, frame1, frame2 = capture_system.capture_flash_photo(high_resolution=True)
-                if success and frame1 is not None and frame2 is not None:
+                if success and frame1 is not None:
                     capture_system.save_flash_photos(frame1, frame2, "64MP_flash")
                     print("✅ 64MP flash photo captured!")
                 else:
@@ -699,7 +764,7 @@ def main():
                     for i in range(count):
                         print(f"Capturing photo {i+1}/{count}...")
                         success, frame1, frame2 = capture_system.capture_flash_photo(high_resolution=high_res)
-                        if success and frame1 is not None and frame2 is not None:
+                        if success and frame1 is not None:
                             prefix = "64MP_burst" if high_res else "burst"
                             capture_system.save_flash_photos(frame1, frame2, f"{prefix}_{i+1:03d}")
                             print(f"✅ Photo {i+1} captured")
