@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 import time
 import os
+import subprocess
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -261,6 +262,89 @@ class ArducamFlashCapture:
         """Initialize flash controller"""
         return self.flash_controller.connect()
     
+    def capture_flash_photo_rpicam(self, camera_id: int, use_pre_flash=True, high_resolution=False) -> Tuple[bool, str]:
+        """
+        Capture photo using rpicam-still with flash (for Pi cameras)
+        
+        Args:
+            camera_id: Camera index (0 or 1)
+            use_pre_flash: Whether to use pre-flash for focus/exposure
+            high_resolution: Whether to capture at full 64MP resolution
+            
+        Returns:
+            (success, filename) - returns filename if successful
+        """
+        import subprocess
+        
+        if not self.flash_controller.is_connected:
+            logger.warning("Flash controller not connected - proceeding without flash")
+        
+        try:
+            # Set resolution based on mode
+            if high_resolution:
+                width, height = 9152, 6944  # Full 64MP
+                logger.info("Capturing at full 64MP resolution...")
+            else:
+                width, height = 4608, 2592  # Half resolution for faster capture
+                logger.info("Capturing at high resolution...")
+            
+            # Pre-flash for autofocus/autoexposure
+            if use_pre_flash and self.flash_controller.is_connected:
+                logger.debug("Triggering pre-flash for AF/AE...")
+                pre_config = FlashConfig(
+                    duty_cycle=20.0,  # Lower intensity pre-flash
+                    main_flash_ms=self.flash_config.pre_flash_ms
+                )
+                self.flash_controller.trigger_flash(pre_config)
+                time.sleep(0.5)  # Allow time for Arducam AF/AE
+            
+            # Generate filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            filename = self.save_dir / f"arducam_64mp_cam{camera_id}_{timestamp}.jpg"
+            
+            # Trigger main flash in separate thread
+            flash_thread = None
+            if self.flash_controller.is_connected:
+                flash_thread = threading.Thread(
+                    target=lambda: self.flash_controller.trigger_flash(self.flash_config)
+                )
+                flash_thread.start()
+                # Small delay for flash timing
+                time.sleep(self.flash_config.flash_delay_ms / 1000.0)
+            
+            # Capture with rpicam-still
+            cmd = [
+                'rpicam-still',
+                '--camera', str(camera_id),
+                '--output', str(filename),
+                '--width', str(width),
+                '--height', str(height),
+                '--timeout', '3000',  # 3 second timeout
+                '--nopreview',
+                '--immediate',  # Capture immediately
+                '--quality', '98'  # High quality JPEG
+            ]
+            
+            start_time = time.time()
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            capture_time = time.time() - start_time
+            
+            # Wait for flash to complete
+            if flash_thread:
+                flash_thread.join()
+            
+            if result.returncode == 0 and filename.exists():
+                size_mb = filename.stat().st_size / (1024*1024)
+                logger.info(f"Capture completed in {capture_time:.3f}s - {filename.name} ({size_mb:.1f}MB)")
+                return True, str(filename)
+            else:
+                logger.error(f"rpicam-still failed: {result.stderr}")
+                return False, ""
+                
+        except Exception as e:
+            logger.error(f"Flash capture error: {e}")
+            return False, ""
+
     def capture_flash_photo(self, use_pre_flash=True, high_resolution=False) -> Tuple[bool, Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Capture synchronized photo with flash optimized for Arducam 64MP
@@ -663,36 +747,43 @@ while True:
         print(json.dumps({"status": "error", "message": f"Error: {str(e)}"}))
 '''
 
-def detect_available_cameras(max_cameras=10):
-    """Detect available camera devices"""
+def detect_available_cameras(max_cameras=2):
+    """Detect available camera devices using rpicam-still"""
+    import subprocess
     available_cameras = []
     
     print("\n🔍 Scanning for available cameras...")
     
+    # Test rpicam-still with cameras 0 and 1 (most common setup)
     for i in range(max_cameras):
         try:
-            cap = cv2.VideoCapture(i)
-            if cap.isOpened():
-                # Try to read a frame to verify it's working
-                ret, frame = cap.read()
-                if ret:
-                    width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-                    height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-                    print(f"  ✅ Camera {i}: {int(width)}x{int(height)} - Working")
-                    available_cameras.append(i)
-                else:
-                    print(f"  ❌ Camera {i}: Device exists but cannot capture")
-                cap.release()
+            print(f"  Testing Camera {i} with rpicam-still...")
+            result = subprocess.run([
+                'rpicam-still', '--camera', str(i), 
+                '--timeout', '1', '--nopreview', '-o', '/tmp/test_cam.jpg'
+            ], capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                print(f"  ✅ Camera {i}: Working with rpicam-still")
+                available_cameras.append(i)
+                # Clean up test file
+                if os.path.exists('/tmp/test_cam.jpg'):
+                    os.remove('/tmp/test_cam.jpg')
             else:
-                # Skip printing for non-existent cameras to reduce noise
-                pass
+                print(f"  ❌ Camera {i}: Failed - {result.stderr.strip()}")
+                
         except Exception as e:
             print(f"  ❌ Camera {i}: Error - {e}")
     
     if available_cameras:
         print(f"\n📋 Found {len(available_cameras)} working camera(s): {available_cameras}")
+        print("Note: Using rpicam-still for camera access (recommended for Pi cameras)")
     else:
         print("\n❌ No working cameras found!")
+        print("Troubleshooting:")
+        print("1. Check camera ribbon cable connections")
+        print("2. Ensure cameras are enabled: sudo raspi-config")
+        print("3. Try: rpicam-still --camera 0 -o test.jpg")
     
     return available_cameras
 
@@ -711,56 +802,22 @@ def main():
         return
     
     # Configuration
-    flash_port = input("Enter flash controller serial port (e.g., /dev/ttyACM0 or COM3): ").strip()
+    flash_port = input("Enter flash controller serial port (default /dev/ttyACM0): ").strip()
     if not flash_port:
         flash_port = "/dev/ttyACM0"
     
-    # Smart camera selection
-    if len(available_cameras) >= 2:
-        print(f"\n🎥 Multiple cameras detected: {available_cameras}")
-        print(f"Recommended setup:")
-        print(f"  Camera 1: {available_cameras[0]}")
-        print(f"  Camera 2: {available_cameras[1]}")
-        
-        camera1_id = int(input(f"Enter Camera 1 device ID (default {available_cameras[0]}): ") or str(available_cameras[0]))
-        camera2_id = int(input(f"Enter Camera 2 device ID (default {available_cameras[1]}): ") or str(available_cameras[1]))
-        
-    elif len(available_cameras) == 1:
-        print(f"\n🎥 Single camera detected: {available_cameras[0]}")
-        camera1_id = available_cameras[0]
-        
-        # Ask if they want to try a different ID for camera 2
-        use_dual = input("Try to use a second camera anyway? (y/N): ").strip().lower() == 'y'
-        if use_dual:
-            camera2_id = int(input("Enter Camera 2 device ID: "))
-        else:
-            camera2_id = 999  # Use non-existent ID to force single camera mode
-    else:
-        # Manual entry as fallback
-        camera1_id = int(input("Enter Camera 1 device ID (default 0): ") or "0")
-        camera2_id = int(input("Enter Camera 2 device ID (default 1): ") or "1")
-    
-    # Create Arducam capture system
+    # Create simplified capture system (no OpenCV camera initialization needed)
     capture_system = ArducamFlashCapture(
-        camera1_id=camera1_id,
-        camera2_id=camera2_id,
+        camera1_id=0,  # We'll use camera IDs directly in rpicam calls
+        camera2_id=1,
         flash_port=flash_port
     )
     
     try:
-        # Initialize systems
-        print("\nInitializing Arducam cameras...")
-        if not capture_system.initialize_cameras():
-            print("❌ Failed to initialize cameras")
-            print("Troubleshooting:")
-            print("1. Check camera connections")
-            print("2. Try different camera IDs (0, 1, 2...)")
-            print("3. Check permissions: sudo usermod -a -G video $USER")
-            print("4. For Arducam: check libcamera installation")
-            return
-        
+        # Initialize only flash controller
         print("Initializing flash controller...")
-        if not capture_system.initialize_flash():
+        flash_available = capture_system.initialize_flash()
+        if not flash_available:
             print("❌ Failed to initialize flash controller")
             print("Make sure CircuitPython board is connected and programmed")
             
@@ -769,8 +826,9 @@ def main():
             if not continue_without_flash:
                 return
         
-        camera_count = "dual" if capture_system.camera2 else "single"
-        print(f"✅ Arducam 64MP system ready ({camera_count} camera)!")
+        camera_count = "dual" if len(available_cameras) >= 2 else "single"
+        print(f"✅ Arducam 64MP system ready ({camera_count} camera) using rpicam-still!")
+        print(f"Available cameras: {available_cameras}")
         
         # Main menu
         while True:
@@ -793,21 +851,37 @@ def main():
                 
             elif choice == '2':
                 print("Capturing standard resolution flash photo...")
-                success, frame1, frame2 = capture_system.capture_flash_photo(high_resolution=False)
-                if success and frame1 is not None:
-                    capture_system.save_flash_photos(frame1, frame2)
-                    print("✅ Flash photo captured!")
+                # Capture from available cameras using rpicam-still
+                captured_files = []
+                for camera_id in available_cameras:
+                    success, filename = capture_system.capture_flash_photo_rpicam(camera_id, high_resolution=False)
+                    if success:
+                        captured_files.append(filename)
+                        print(f"✅ Camera {camera_id} captured: {os.path.basename(filename)}")
+                    else:
+                        print(f"❌ Camera {camera_id} capture failed!")
+                        
+                if captured_files:
+                    print(f"✅ Flash photo captured! {len(captured_files)} file(s) saved.")
                 else:
-                    print("❌ Flash capture failed!")
+                    print("❌ All captures failed!")
                     
             elif choice == '3':
                 print("Capturing full 64MP flash photo (this may take 10+ seconds)...")
-                success, frame1, frame2 = capture_system.capture_flash_photo(high_resolution=True)
-                if success and frame1 is not None:
-                    capture_system.save_flash_photos(frame1, frame2, "64MP_flash")
-                    print("✅ 64MP flash photo captured!")
+                # Capture from available cameras using rpicam-still
+                captured_files = []
+                for camera_id in available_cameras:
+                    success, filename = capture_system.capture_flash_photo_rpicam(camera_id, high_resolution=True)
+                    if success:
+                        captured_files.append(filename)
+                        print(f"✅ Camera {camera_id} captured: {os.path.basename(filename)}")
+                    else:
+                        print(f"❌ Camera {camera_id} capture failed!")
+                        
+                if captured_files:
+                    print(f"✅ 64MP flash photo captured! {len(captured_files)} file(s) saved.")
                 else:
-                    print("❌ 64MP flash capture failed!")
+                    print("❌ All captures failed!")
                     
             elif choice == '4':
                 try:
@@ -819,13 +893,13 @@ def main():
                     
                     for i in range(count):
                         print(f"Capturing photo {i+1}/{count}...")
-                        success, frame1, frame2 = capture_system.capture_flash_photo(high_resolution=high_res)
-                        if success and frame1 is not None:
-                            prefix = "64MP_burst" if high_res else "burst"
-                            capture_system.save_flash_photos(frame1, frame2, f"{prefix}_{i+1:03d}")
-                            print(f"✅ Photo {i+1} captured")
-                        else:
-                            print(f"❌ Photo {i+1} failed")
+                        # Capture from all available cameras
+                        for camera_id in available_cameras:
+                            success, filename = capture_system.capture_flash_photo_rpicam(camera_id, high_resolution=high_res)
+                            if success:
+                                print(f"✅ Camera {camera_id} photo {i+1} captured: {os.path.basename(filename)}")
+                            else:
+                                print(f"❌ Camera {camera_id} photo {i+1} failed")
                         
                         if i < count - 1:
                             time.sleep(interval)
