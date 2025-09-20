@@ -459,87 +459,30 @@ class ArducamFlashCapture:
             return False
     
     def start_live_preview(self):
-        """Start live preview optimized for Arducam"""
-        if not self.camera1:
-            logger.error("Camera 1 not initialized")
-            return
+        """Start rpicam-hello preview (since OpenCV cameras not initialized)"""
+        print("\n🎥 Starting camera preview with rpicam-hello...")
+        print("Note: Live preview uses rpicam-hello instead of OpenCV")
+        print("Controls:")
+        print("  - Press Ctrl+C to exit preview")
+        print("  - Use menu options for capturing photos")
         
-        # Ensure preview mode
-        self.set_resolution_mode("preview")
+        try:
+            # Start rpicam-hello for camera 0 (primary camera preview)
+            subprocess.run([
+                'rpicam-hello', 
+                '--camera', '0',
+                '--timeout', '30000',  # 30 second preview
+                '--info-text', 'Camera 0 Preview - Press Ctrl+C to exit'
+            ], timeout=35)
+        except subprocess.TimeoutExpired:
+            print("Preview timeout reached")
+        except KeyboardInterrupt:
+            print("Preview stopped by user")
+        except Exception as e:
+            print(f"Preview error: {e}")
+            print("Alternative: Run 'rpicam-hello --camera 0' manually for preview")
         
-        self.preview_active = True
-        camera_mode = "dual" if self.camera2 else "single"
-        logger.info(f"Arducam live preview started ({camera_mode} camera)")
-        logger.info("Controls: 'q'=quit, 'f'=flash photo, 'F'=64MP photo, 'r'=resolution, 's'=settings")
-        
-        while self.preview_active:
-            ret1, frame1 = self.camera1.read()
-            
-            # Get frame2 if camera2 is available
-            if self.camera2:
-                ret2, frame2 = self.camera2.read()
-            else:
-                ret2, frame2 = True, None
-            
-            if ret1 and ret2:
-                # Create display
-                display_size = (640, 360)
-                frame1_small = cv2.resize(frame1, display_size)
-                
-                if frame2 is not None:
-                    # Dual camera display
-                    frame2_small = cv2.resize(frame2, display_size)
-                    combined = np.hstack((frame1_small, frame2_small))
-                    
-                    # Add overlay information
-                    cv2.putText(combined, "Arducam Camera 1", (10, 30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                    cv2.putText(combined, "Arducam Camera 2", (650, 30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                else:
-                    # Single camera display
-                    combined = frame1_small
-                    cv2.putText(combined, "Arducam Camera (Single Mode)", (10, 30), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                
-                # Common overlay
-                cv2.putText(combined, f"Flash: {self.flash_config.duty_cycle:.0f}%", 
-                           (10, 340), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                cv2.putText(combined, f"Mode: {self.current_resolution}", 
-                           (10, 360), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                
-                window_title = f"Arducam 64MP Preview ({camera_mode.title()} Camera)"
-                cv2.imshow(window_title, combined)
-                
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    break
-                elif key == ord('f'):
-                    # Standard flash photo
-                    success, f1, f2 = self.capture_flash_photo(high_resolution=False)
-                    if success and f1 is not None:
-                        self.save_flash_photos(f1, f2)
-                        print("📸 Flash photo captured!")
-                    else:
-                        print("❌ Flash photo failed!")
-                elif key == ord('F'):
-                    # Full 64MP flash photo
-                    print("📸 Capturing full 64MP flash photo (this may take a moment)...")
-                    success, f1, f2 = self.capture_flash_photo(high_resolution=True)
-                    if success and f1 is not None:
-                        self.save_flash_photos(f1, f2, "64MP_flash")
-                        print("✅ 64MP flash photo captured!")
-                    else:
-                        print("❌ 64MP flash photo failed!")
-                elif key == ord('r'):
-                    self._show_resolution_menu()
-                elif key == ord('s'):
-                    self._show_settings_menu()
-            
-            time.sleep(0.067)  # ~15 FPS preview
-        
-        cv2.destroyAllWindows()
-        self.preview_active = False
+        print("Preview ended. Returning to menu...")
     
     def _show_resolution_menu(self):
         """Display resolution settings menu"""
