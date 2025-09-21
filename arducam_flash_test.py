@@ -18,6 +18,9 @@ import json
 import serial
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
+import tempfile
+import signal
+import sys
 
 # Configure logging
 logging.basicConfig(
@@ -49,1208 +52,617 @@ class PWMFlashController:
         self.timeout = timeout
         self.serial_connection = None
         self.is_connected = False
-        
+    
     def connect(self) -> bool:
-        """Connect to CircuitPython board"""
+        """Connect to the CircuitPython board"""
         try:
-            logger.info(f"Connecting to flash controller on {self.port}...")
-            
             self.serial_connection = serial.Serial(
                 port=self.port,
                 baudrate=self.baudrate,
-                timeout=self.timeout,
-                write_timeout=self.timeout
+                timeout=self.timeout
             )
             
-            time.sleep(1)  # Wait for connection
-            self.serial_connection.reset_input_buffer()
-            self.serial_connection.reset_output_buffer()
+            # Test connection with a simple command
+            time.sleep(2)  # Allow CircuitPython to initialize
+            self.serial_connection.write(b'ping\n')
+            response = self.serial_connection.readline().decode().strip()
             
-            # Test connection
-            if self._send_command({"action": "ping"}).get("status") == "ok":
+            if 'pong' in response.lower():
                 self.is_connected = True
-                logger.info("Flash controller connected successfully")
+                logger.info(f"Flash controller connected on {self.port}")
                 return True
             else:
-                logger.error("Failed to communicate with flash controller")
+                logger.warning(f"Unexpected response from flash controller: {response}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Flash controller connection error: {e}")
+            logger.error(f"Failed to connect to flash controller: {e}")
             return False
     
     def disconnect(self):
-        """Disconnect from flash controller"""
-        if self.serial_connection and self.serial_connection.is_open:
-            self.serial_connection.close()
-            self.is_connected = False
-    
-    def _send_command(self, command: Dict[str, Any]) -> Dict[str, Any]:
-        """Send command to flash controller"""
-        if not self.is_connected or not self.serial_connection:
-            return {"status": "error", "message": "Not connected"}
-        
-        try:
-            command_json = json.dumps(command) + '\n'
-            self.serial_connection.write(command_json.encode())
-            
-            response_line = self.serial_connection.readline().decode().strip()
-            if response_line:
-                return json.loads(response_line)
-            else:
-                return {"status": "error", "message": "No response"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
+        """Disconnect from the CircuitPython board"""
+        if self.serial_connection:
+            try:
+                self.serial_connection.close()
+                self.is_connected = False
+                logger.info("Flash controller disconnected")
+            except:
+                pass
     
     def trigger_flash(self, config: FlashConfig) -> bool:
-        """Trigger a synchronized camera flash"""
-        command = {
-            "action": "camera_flash",
-            "pins": config.gpio_pins,
-            "frequency": config.frequency,
-            "duty_cycle": config.duty_cycle,
-            "pre_flash_ms": config.pre_flash_ms,
-            "main_flash_ms": config.main_flash_ms,
-            "flash_delay_ms": config.flash_delay_ms
-        }
-        
-        response = self._send_command(command)
-        return response.get("status") == "ok"
-
-class ArducamFlashCapture:
-    """Dual camera capture system optimized for Arducam 64MP cameras with LED flash"""
-    
-    def __init__(self, camera1_id=0, camera2_id=1, save_dir="arducam_captures", 
-                 flash_port="/dev/ttyACM0"):
-        """
-        Initialize dual Arducam capture system with LED flash
-        
-        Args:
-            camera1_id: First camera device ID
-            camera2_id: Second camera device ID  
-            save_dir: Directory to save captured images
-            flash_port: Serial port for flash controller
-        """
-        self.camera1_id = camera1_id
-        self.camera2_id = camera2_id
-        self.save_dir = Path(save_dir)
-        self.save_dir.mkdir(exist_ok=True)
-        
-        # Camera objects
-        self.camera1 = None
-        self.camera2 = None
-        
-        # Flash controller
-        self.flash_controller = PWMFlashController(flash_port)
-        self.flash_config = FlashConfig()
-        
-        # Arducam 64MP optimized resolutions
-        self.resolutions = {
-            "preview": (1920, 1080),      # Full HD for live preview
-            "photo": (9152, 6944),        # Full 64MP resolution (9152x6944)
-            "high": (4576, 3472),         # Quarter resolution for speed
-            "medium": (3840, 2160),       # 4K resolution
-            "fast": (2592, 1944),         # Fast capture mode
-        }
-        self.current_resolution = "high"  # Default balanced mode
-        
-        # Camera settings
-        self.preview_fps = 15      # Lower FPS for high-res preview
-        self.photo_fps = 3         # Very low FPS for 64MP capture
-        self.buffer_size = 3       # Larger buffer for high-res
-        
-        # Capture state
-        self.preview_active = False
-        
-    def initialize_cameras(self) -> bool:
-        """Initialize Arducam cameras with smart detection"""
-        logger.info("Detecting and initializing Arducam cameras...")
+        """Trigger flash with specified configuration"""
+        if not self.is_connected:
+            logger.warning("Flash controller not connected")
+            return False
         
         try:
-            # Try to initialize first camera
-            self.camera1 = cv2.VideoCapture(self.camera1_id)
-            camera1_ok = self.camera1.isOpened()
+            # Send flash command
+            command = f"flash,{config.frequency},{config.duty_cycle},{config.main_flash_ms}\n"
+            self.serial_connection.write(command.encode())
             
-            if not camera1_ok:
-                logger.error(f"Failed to open camera {self.camera1_id}")
+            # Wait for confirmation
+            response = self.serial_connection.readline().decode().strip()
+            
+            if 'flash_complete' in response.lower():
+                logger.info("Flash triggered successfully")
+                return True
+            else:
+                logger.warning(f"Flash trigger failed: {response}")
                 return False
-            
-            # Try to initialize second camera
-            self.camera2 = cv2.VideoCapture(self.camera2_id)
-            camera2_ok = self.camera2.isOpened()
-            
-            if not camera2_ok:
-                logger.warning(f"Camera {self.camera2_id} not available - running in single camera mode")
-                self.camera2.release()
-                self.camera2 = None
-            
-            # Configure available cameras
-            cameras_to_configure = [self.camera1]
-            if self.camera2:
-                cameras_to_configure.append(self.camera2)
-            
-            # Arducam 64MP specific optimizations
-            for camera in cameras_to_configure:
-                # Use MJPEG codec for better performance
-                try:
-                    camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter.fourcc(*'MJPG'))
-                except:
-                    logger.warning("Could not set MJPEG codec")
                 
-                # Optimize buffer and settings
-                camera.set(cv2.CAP_PROP_BUFFERSIZE, self.buffer_size)
-                
-                # Try to enable autofocus for Arducam
-                try:
-                    camera.set(cv2.CAP_PROP_AUTOFOCUS, 1)
-                    camera.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # Partial auto exposure
-                except:
-                    logger.warning("Could not set autofocus/exposure settings")
-            
-            # Set initial resolution to preview mode
-            self._set_camera_mode("preview")
-            
-            # Verify settings
-            w, h = self.camera1.get(cv2.CAP_PROP_FRAME_WIDTH), self.camera1.get(cv2.CAP_PROP_FRAME_HEIGHT)
-            fps = self.camera1.get(cv2.CAP_PROP_FPS)
-            
-            camera_count = len(cameras_to_configure)
-            logger.info(f"Arducam cameras initialized: {camera_count} camera(s) @ {w}x{h} @ {fps}fps")
-            
-            if not self.camera2:
-                logger.info("Note: Running in single camera mode - only Camera 1 will be used")
-            
-            return True
-            
         except Exception as e:
-            logger.error(f"Camera initialization error: {e}")
+            logger.error(f"Flash trigger error: {e}")
             return False
-    
-    def _set_camera_mode(self, mode: str):
-        """Set camera resolution based on mode"""
-        if mode not in self.resolutions:
-            logger.warning(f"Unknown mode: {mode}, using 'high'")
-            mode = "high"
-        
-        resolution = self.resolutions[mode]
-        fps = self.preview_fps if mode == "preview" else self.photo_fps
-        
-        # Configure camera 1
-        if self.camera1 is not None:
-            self.camera1.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
-            self.camera1.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
-            self.camera1.set(cv2.CAP_PROP_FPS, fps)
-        
-        # Configure camera 2 if available
-        if self.camera2 is not None:
-            self.camera2.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
-            self.camera2.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
-            self.camera2.set(cv2.CAP_PROP_FPS, fps)
-        
-        self.current_resolution = mode
-        camera_count = "dual" if self.camera2 else "single"
-        logger.info(f"Camera mode ({camera_count}): {mode} ({resolution[0]}x{resolution[1]} @ {fps}fps)")
-    
-    def set_resolution_mode(self, mode: str) -> bool:
-        """Change camera resolution mode"""
-        if mode in self.resolutions:
-            self._set_camera_mode(mode)
-            return True
-        return False
-    
-    def initialize_flash(self) -> bool:
-        """Initialize flash controller"""
-        return self.flash_controller.connect()
-    
-    def capture_flash_photo_rpicam(self, camera_id: int, use_pre_flash=True, high_resolution=False) -> Tuple[bool, str]:
-        """
-        Capture photo using rpicam-still with flash (for Pi cameras)
-        
-        Args:
-            camera_id: Camera index (0 or 1)
-            use_pre_flash: Whether to use pre-flash for focus/exposure
-            high_resolution: Whether to capture at full 64MP resolution
-            
-        Returns:
-            (success, filename) - returns filename if successful
-        """
-        import subprocess
-        
-        if not self.flash_controller.is_connected:
-            logger.warning("Flash controller not connected - proceeding without flash")
-        
-        try:
-            # Set resolution based on mode
-            if high_resolution:
-                width, height = 9152, 6944  # Full 64MP
-                logger.info("Capturing at full 64MP resolution...")
-            else:
-                width, height = 4608, 2592  # Half resolution for faster capture
-                logger.info("Capturing at high resolution...")
-            
-            # Pre-flash for autofocus/autoexposure
-            if use_pre_flash and self.flash_controller.is_connected:
-                logger.debug("Triggering pre-flash for AF/AE...")
-                pre_config = FlashConfig(
-                    duty_cycle=20.0,  # Lower intensity pre-flash
-                    main_flash_ms=self.flash_config.pre_flash_ms
-                )
-                self.flash_controller.trigger_flash(pre_config)
-                time.sleep(0.5)  # Allow time for Arducam AF/AE
-            
-            # Generate filename
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-            filename = self.save_dir / f"arducam_64mp_cam{camera_id}_{timestamp}.jpg"
-            
-            # Trigger main flash in separate thread
-            flash_thread = None
-            if self.flash_controller.is_connected:
-                flash_thread = threading.Thread(
-                    target=lambda: self.flash_controller.trigger_flash(self.flash_config)
-                )
-                flash_thread.start()
-                # Small delay for flash timing
-                time.sleep(self.flash_config.flash_delay_ms / 1000.0)
-            
-            # Capture with rpicam-still
-            cmd = [
-                'rpicam-still',
-                '--camera', str(camera_id),
-                '--output', str(filename),
-                '--width', str(width),
-                '--height', str(height),
-                '--timeout', '3000',  # 3 second timeout
-                '--nopreview',
-                '--immediate',  # Capture immediately
-                '--quality', '98'  # High quality JPEG
-            ]
-            
-            start_time = time.time()
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-            capture_time = time.time() - start_time
-            
-            # Wait for flash to complete
-            if flash_thread:
-                flash_thread.join()
-            
-            if result.returncode == 0 and filename.exists():
-                size_mb = filename.stat().st_size / (1024*1024)
-                logger.info(f"Capture completed in {capture_time:.3f}s - {filename.name} ({size_mb:.1f}MB)")
-                return True, str(filename)
-            else:
-                logger.error(f"rpicam-still failed: {result.stderr}")
-                return False, ""
-                
-        except Exception as e:
-            logger.error(f"Flash capture error: {e}")
-            return False, ""
 
-    def capture_flash_photo(self, use_pre_flash=True, high_resolution=False) -> Tuple[bool, Optional[np.ndarray], Optional[np.ndarray]]:
-        """
-        Capture synchronized photo with flash optimized for Arducam 64MP
+class ArducamFlashTest:
+    """Main test class for dual camera flash capture"""
+    
+    def __init__(self):
+        self.flash_controller = PWMFlashController()
+        self.output_dir = Path('./camera_captures')
+        self.output_dir.mkdir(exist_ok=True)
         
-        Args:
-            use_pre_flash: Whether to use pre-flash for focus/exposure
-            high_resolution: Whether to capture at full 64MP resolution
-            
-        Returns:
-            (success, camera1_frame, camera2_frame) - camera2_frame will be None in single camera mode
-        """
-        if not self.camera1:
-            logger.error("Camera 1 not initialized")
-            return False, None, None
+        # Set up signal handler for graceful shutdown
+        signal.signal(signal.SIGINT, self.signal_handler)
         
-        if not self.flash_controller.is_connected:
-            logger.error("Flash controller not connected")
-            return False, None, None
+    def signal_handler(self, signum, frame):
+        """Handle CTRL+C gracefully"""
+        print("\n🛑 Received interrupt signal. Shutting down...")
+        self.flash_controller.disconnect()
+        cv2.destroyAllWindows()
+        sys.exit(0)
+    
+    def check_cameras(self) -> list:
+        """Check available cameras using rpicam-hello"""
+        print("🔍 Scanning for available cameras...")
+        available_cameras = []
         
         try:
-            # Switch to photo resolution if requested
-            original_mode = self.current_resolution
-            if high_resolution:
-                logger.info("Switching to full 64MP resolution...")
-                self.set_resolution_mode("photo")
-                time.sleep(2)  # Allow cameras to adjust to 64MP mode
+            result = subprocess.run(['rpicam-hello', '--list-cameras'], 
+                                  capture_output=True, text=True, timeout=10)
             
-            # Pre-flash for autofocus/autoexposure
-            if use_pre_flash:
-                logger.debug("Triggering pre-flash for AF/AE...")
-                pre_config = FlashConfig(
-                    duty_cycle=20.0,  # Lower intensity pre-flash
-                    main_flash_ms=self.flash_config.pre_flash_ms
-                )
-                self.flash_controller.trigger_flash(pre_config)
-                time.sleep(0.5)  # Allow more time for Arducam AF/AE
+            if result.returncode == 0:
+                lines = result.stdout.split('\n')
+                for line in lines:
+                    if 'Available cameras:' in line:
+                        continue
+                    if ':' in line and ('arducam' in line.lower() or 'camera' in line.lower()):
+                        try:
+                            camera_id = int(line.split(':')[0])
+                            available_cameras.append(camera_id)
+                            print(f"  📷 Camera {camera_id}: {line.split(':', 1)[1].strip()}")
+                        except:
+                            continue
             
-            # Prepare for capture - clear buffers
-            for _ in range(5):  # More buffer clears for high-res
-                if self.camera1:
-                    self.camera1.read()
-                if self.camera2:
-                    self.camera2.read()
-            
-            camera_mode = "dual" if self.camera2 else "single"
-            logger.info(f"Capturing flash photo at {self.current_resolution} resolution ({camera_mode} camera)")
-            
-            # Trigger main flash
-            flash_thread = threading.Thread(
-                target=lambda: self.flash_controller.trigger_flash(self.flash_config)
-            )
-            flash_thread.start()
-            
-            # Sync timing for flash
-            time.sleep(self.flash_config.flash_delay_ms / 1000.0)
-            
-            # Capture with timing
-            start_time = time.time()
-            
-            # Capture from camera 1 (always available)
-            ret1, frame1 = self.camera1.read()
-            
-            # Capture from camera 2 if available
-            if self.camera2:
-                ret2, frame2 = self.camera2.read()
+            if not available_cameras:
+                print("❌ No cameras detected")
             else:
-                ret2, frame2 = True, None  # Single camera mode
-            
-            flash_thread.join()
-            capture_time = time.time() - start_time
-            
-            # Switch back to original resolution
-            if high_resolution and original_mode != "photo":
-                self.set_resolution_mode(original_mode)
-            
-            if ret1 and ret2 and frame1 is not None:
-                logger.info(f"64MP flash capture completed in {capture_time:.3f}s ({camera_mode} camera)")
-                return True, frame1, frame2
-            else:
-                logger.error("Failed to capture from camera(s)")
-                return False, None, None
+                print(f"✅ Found {len(available_cameras)} camera(s)")
                 
         except Exception as e:
-            logger.error(f"Flash capture error: {e}")
-            return False, None, None
+            print(f"❌ Camera detection failed: {e}")
+            
+        return available_cameras
     
-    def save_flash_photos(self, frame1: np.ndarray, frame2: Optional[np.ndarray], 
-                         filename_prefix: str = "arducam_flash") -> bool:
-        """Save captured flash photos with high quality"""
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-            
-            # Always save camera 1
-            filename1 = self.save_dir / f"{filename_prefix}_cam1_{timestamp}.jpg"
-            cv2.imwrite(str(filename1), frame1, [cv2.IMWRITE_JPEG_QUALITY, 98])
-            size1 = filename1.stat().st_size / (1024*1024)  # MB
-            
-            saved_files = [f"{filename1.name} ({size1:.1f}MB)"]
-            
-            # Save camera 2 if available
-            if frame2 is not None:
-                filename2 = self.save_dir / f"{filename_prefix}_cam2_{timestamp}.jpg"
-                cv2.imwrite(str(filename2), frame2, [cv2.IMWRITE_JPEG_QUALITY, 98])
-                size2 = filename2.stat().st_size / (1024*1024)  # MB
-                saved_files.append(f"{filename2.name} ({size2:.1f}MB)")
-            
-            logger.info(f"Photos saved: {', '.join(saved_files)}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error saving photos: {e}")
-            return False
-    
-    def start_live_preview(self):
-        """Start rpicam-hello preview with dual camera support"""
-        available_cameras = detect_available_cameras()
-        
-        if not available_cameras:
-            print("\n❌ No cameras detected! Cannot start preview.")
+    def dual_camera_preview_menu(self, available_cameras: list):
+        """Enhanced dual camera preview with multiple options"""
+        if len(available_cameras) < 2:
+            print("❌ Need at least 2 cameras for dual preview")
             return
         
-        # Show camera selection menu
-        while True:
-            print("\n" + "="*50)
-            print("CAMERA PREVIEW SELECTION")
-            print("="*50)
-            for camera_id in available_cameras:
-                print(f"{camera_id + 1}. Camera {camera_id} preview")
-            
-            if len(available_cameras) >= 2:
-                print(f"{len(available_cameras) + 1}. Sequential preview (both cameras)")
-                print(f"{len(available_cameras) + 2}. Side-by-side preview (experimental)")
-                print(f"{len(available_cameras) + 3}. Combined overlay preview (single window)")
-            
-            print("0. Return to main menu")
-            
-            try:
-                choice = input("Select camera for preview: ").strip()
-                
-                if choice == '0':
-                    return
-                
-                choice_num = int(choice)
-                
-                # Single camera preview
-                if 1 <= choice_num <= len(available_cameras):
-                    camera_id = available_cameras[choice_num - 1]
-                    self._run_single_camera_preview(camera_id)
-                
-                # Sequential preview (both cameras)
-                elif len(available_cameras) >= 2 and choice_num == len(available_cameras) + 1:
-                    self._run_sequential_preview(available_cameras)
-                
-                # Side-by-side preview (experimental)
-                elif len(available_cameras) >= 2 and choice_num == len(available_cameras) + 2:
-                    self._run_side_by_side_preview(available_cameras)
-                
-                # Combined overlay preview (single window)
-                elif len(available_cameras) >= 2 and choice_num == len(available_cameras) + 3:
-                    self._run_combined_overlay_preview(available_cameras)
-                
-                else:
-                    print("Invalid choice! Please try again.")
-                    
-            except ValueError:
-                print("Invalid input! Please enter a number.")
-            except KeyboardInterrupt:
-                print("\nReturning to main menu...")
-                return
-    
-    def _run_single_camera_preview(self, camera_id: int):
-        """Run preview for a single camera"""
-        print(f"\n🎥 Starting Camera {camera_id} preview...")
-        print("Controls:")
-        print("  - Press Ctrl+C to return to preview menu")
-        print("  - Preview duration: 30 seconds (auto-timeout)")
+        print("\n🎬 Dual Camera Preview Options:")
+        print("1. Fast switching (3-second intervals)")
+        print("2. Side-by-side windows")
+        print("3. FFmpeg side-by-side (experimental)")
+        print("4. Custom OpenCV viewer")
         
         try:
-            subprocess.run([
-                'rpicam-hello', 
-                '--camera', str(camera_id),
-                '--timeout', '30000',  # 30 second preview
-                '--info-text', f'Camera {camera_id} Preview - Press Ctrl+C to exit'
-            ], timeout=35)
-        except subprocess.TimeoutExpired:
-            print("Preview timeout reached")
-        except KeyboardInterrupt:
-            print("Preview stopped by user")
-        except Exception as e:
-            print(f"Preview error: {e}")
-            print(f"Alternative: Run 'rpicam-hello --camera {camera_id}' manually")
-    
-    def _run_sequential_preview(self, available_cameras: list):
-        """Run preview for cameras sequentially"""
-        print(f"\n🎥 Starting sequential preview for {len(available_cameras)} cameras...")
-        print("Controls:")
-        print("  - Each camera shows for 15 seconds")
-        print("  - Press Ctrl+C during any preview to stop")
-        
-        for camera_id in available_cameras:
-            print(f"\n📷 Now showing Camera {camera_id}...")
-            try:
-                subprocess.run([
-                    'rpicam-hello', 
-                    '--camera', str(camera_id),
-                    '--timeout', '15000',  # 15 seconds per camera
-                    '--info-text', f'Sequential Preview - Camera {camera_id} ({available_cameras.index(camera_id)+1}/{len(available_cameras)})'
-                ], timeout=20)
-            except subprocess.TimeoutExpired:
-                print(f"Camera {camera_id} preview completed")
-            except KeyboardInterrupt:
-                print("Sequential preview stopped by user")
-                return
-            except Exception as e:
-                print(f"Camera {camera_id} preview error: {e}")
-        
-        print("Sequential preview completed!")
-    
-    def _run_side_by_side_preview(self, available_cameras: list):
-        """Experimental side-by-side preview using dual rpicam-hello processes"""
-        print(f"\n🎥 Starting experimental side-by-side preview...")
-        print("Note: This starts two separate preview windows")
-        print("Controls:")
-        print("  - Two preview windows will open simultaneously")
-        print("  - Press Ctrl+C in terminal to stop both")
-        print("  - Each preview runs for 20 seconds")
-        print("  - Windows may overlap - manually arrange them if needed")
-        
-        processes = []
-        try:
-            # Start both cameras simultaneously (without geometry positioning)
-            for i, camera_id in enumerate(available_cameras[:2]):  # Limit to 2 cameras
-                process = subprocess.Popen([
-                    'rpicam-hello', 
-                    '--camera', str(camera_id),
-                    '--timeout', '20000',  # 20 seconds
-                    '--info-text', f'Camera {camera_id} - Side-by-Side Preview',
-                    '--width', '640',      # Smaller window size
-                    '--height', '480'
-                ])
-                processes.append(process)
-                print(f"Started Camera {camera_id} preview process")
-                
-                # Small delay between starting processes to help with window management
-                time.sleep(0.5)
+            choice = input("Select preview mode (1-4): ").strip()
             
-            print("\n💡 Tip: If windows overlap, manually drag them to arrange side-by-side")
-            
-            # Wait for all processes to complete
-            for process in processes:
-                process.wait()
-            
-            print("Side-by-side preview completed!")
-            
-        except KeyboardInterrupt:
-            print("\nStopping all preview processes...")
-            for process in processes:
-                if process.poll() is None:  # Process still running
-                    process.terminate()
-            # Wait a moment for processes to terminate
-            time.sleep(1)
-            for process in processes:
-                if process.poll() is None:
-                    process.kill()  # Force kill if still running
-        except Exception as e:
-            print(f"Side-by-side preview error: {e}")
-            print("Note: Side-by-side preview is experimental and may not work on all systems")
-    
-    def _run_combined_overlay_preview(self, available_cameras: list):
-        """Combined preview with multiple approaches for best compatibility"""
-        print(f"\n🎥 Starting combined overlay preview...")
-        
-        # Try different methods in order of preference
-        methods = [
-            ("Fast switching (recommended)", self._fast_switching_preview),
-            ("FFmpeg side-by-side (experimental)", self._try_ffmpeg_combined_preview),
-        ]
-        
-        print("Available preview methods:")
-        for i, (name, method) in enumerate(methods, 1):
-            print(f"  {i}. {name}")
-        
-        try:
-            choice = input("Select method (1-2, default=1): ").strip()
-            if not choice:
-                choice = "1"
-            
-            method_index = int(choice) - 1
-            if 0 <= method_index < len(methods):
-                method_name, method_func = methods[method_index]
-                print(f"\nUsing: {method_name}")
-                
-                if method_index == 0:  # Fast switching
-                    method_func(available_cameras)
-                else:  # FFmpeg
-                    success = method_func(available_cameras)
-                    if not success:
-                        print("\n" + "="*50)
-                        print("FFmpeg method failed - using fast switching instead")
-                        print("="*50)
-                        time.sleep(1)
-                        self._fast_switching_preview(available_cameras)
-            else:
-                print("Invalid choice, using fast switching...")
+            if choice == '1':
                 self._fast_switching_preview(available_cameras)
+            elif choice == '2':
+                self._simultaneous_windows_preview(available_cameras)
+            elif choice == '3':
+                self._ffmpeg_side_by_side_preview(available_cameras)
+            elif choice == '4':
+                self._custom_opencv_viewer(available_cameras)
+            else:
+                print("Invalid choice")
                 
-        except (ValueError, KeyboardInterrupt):
-            print("Using default fast switching method...")
-            self._fast_switching_preview(available_cameras)
+        except KeyboardInterrupt:
+            print("\nPreview cancelled")
     
     def _fast_switching_preview(self, available_cameras: list):
-        """Fast switching preview - reliable and smooth"""
-        print("🎬 Fast switching preview:")
+        """Fast switching between cameras every 3 seconds"""
+        print("🔄 Fast switching preview:")
         print("  - Switches between cameras every 3 seconds")
-        print("  - Smooth transitions with camera identification")
-        print("  - Press Ctrl+C to exit")
-        print("  - Total duration: 30 seconds")
+        print("  - Press CTRL+C to stop")
+        print("  - Clear camera identification")
         
         try:
-            switch_duration = 3  # 3 seconds per camera
-            total_duration = 30
-            switches = total_duration // switch_duration
-            
-            for i in range(switches):
-                camera_id = available_cameras[i % len(available_cameras)]
-                switch_num = i + 1
-                remaining_switches = switches - i
-                
-                print(f"\n📷 Camera {camera_id} view ({switch_num}/{switches}) - {remaining_switches * switch_duration}s remaining")
-                
-                try:
-                    subprocess.run([
+            while True:
+                for camera_id in available_cameras:
+                    print(f"📷 Showing Camera {camera_id}")
+                    
+                    process = subprocess.Popen([
                         'rpicam-hello',
                         '--camera', str(camera_id),
-                        '--timeout', str(switch_duration * 1000),
-                        '--info-text', f'Combined Preview - Camera {camera_id} ({switch_num}/{switches})',
-                        '--width', '1024',
-                        '--height', '768'
-                    ], timeout=switch_duration + 2)
-                except subprocess.TimeoutExpired:
-                    continue
-                except KeyboardInterrupt:
-                    print("\nFast switching preview stopped by user")
-                    return
-            
-            print("\n✅ Fast switching preview completed!")
-            
-        except KeyboardInterrupt:
-            print("\nFast switching preview stopped by user")
-    
-    def _try_ffmpeg_combined_preview(self, available_cameras: list) -> bool:
-        """Create side-by-side preview using FFmpeg with live camera feeds"""
-        try:
-            # Check if ffmpeg is available
-            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
-            
-            print("✅ FFmpeg detected - attempting live streaming approach")
-            print("Controls:")
-            print("  - Both cameras in one window, side-by-side")
-            print("  - Press 'q' in video window to exit")
-            print("  - Duration: 30 seconds")
-            
-            if len(available_cameras) < 2:
-                print("❌ Need at least 2 cameras for side-by-side view")
-                return False
-            
-            # Use a completely different approach - let FFmpeg handle the camera inputs directly
-            print("🎬 Starting live dual camera preview...")
-            
-            # Start both cameras streaming to stdout, then pipe to FFmpeg
-            camera_procs = []
-            
-            # Create the FFmpeg process first
-            ffmpeg_cmd = [
-                'ffmpeg',
-                # Input 1: Camera 0
-                '-f', 'video4linux2',
-                '-input_format', 'h264',
-                '-video_size', '640x480',
-                '-framerate', '15',
-                '-i', '/dev/video0',  # Try direct V4L2 access
-                # Input 2: Camera 1  
-                '-f', 'video4linux2',
-                '-input_format', 'h264', 
-                '-video_size', '640x480',
-                '-framerate', '15',
-                '-i', '/dev/video2',  # Second camera typically on video2
-                # Combine side by side
-                '-filter_complex', '[0:v][1:v]hstack=inputs=2',
-                '-f', 'sdl',
-                '-window_title', 'Live Dual Camera - Press Q to exit',
-                '-t', '30',
-                '-'
-            ]
-            
-            try:
-                print("Attempting direct V4L2 camera access...")
-                result = subprocess.run(ffmpeg_cmd, timeout=35)
-                
-                if result.returncode == 0:
-                    print("✅ Direct camera access successful!")
-                    return True
-                else:
-                    print("❌ Direct camera access failed, trying rpicam method...")
-                    return self._try_rpicam_ffmpeg_method(available_cameras)
+                        '--timeout', '3000',
+                        '--info-text', f'"Camera {camera_id} - %fps fps"'
+                    ])
                     
-            except subprocess.TimeoutExpired:
-                print("✅ Live preview completed (timeout)")
-                return True
-            except KeyboardInterrupt:
-                print("Live preview stopped by user")
-                return True
-                
-        except Exception as e:
-            print(f"❌ V4L2 method failed: {e}")
-            print("Trying rpicam streaming method...")
-            return self._try_rpicam_ffmpeg_method(available_cameras)
+                    process.wait()
+                    
+        except KeyboardInterrupt:
+            print("\nFast switching preview stopped")
     
-    def _try_rpicam_ffmpeg_method(self, available_cameras: list) -> bool:
-        """Fallback method using rpicam streaming"""
-        try:
-            print("🔄 Using rpicam streaming to FFmpeg...")
-            
-            # Start cameras streaming to named pipes with continuous output
-            import tempfile
-            temp_dir = tempfile.gettempdir()
-            
-            # Create named pipes (if supported) or use UDP streaming
-            try:
-                # Try UDP streaming approach
-                return self._try_udp_streaming(available_cameras)
-            except:
-                # Final fallback to file-based with better handling
-                return self._try_file_based_streaming(available_cameras)
-                
-        except Exception as e:
-            print(f"❌ rpicam FFmpeg method failed: {e}")
-            return False
-    
-    def _try_udp_streaming(self, available_cameras: list) -> bool:
-        """Try UDP streaming approach for real-time processing"""
-        print("🌐 Attempting UDP streaming...")
+    def _simultaneous_windows_preview(self, available_cameras: list):
+        """Show both cameras in separate windows simultaneously"""
+        print("🪟 Simultaneous windows preview:")
+        print("  - Opens separate preview window for each camera")
+        print("  - Shows both cameras at the same time")
+        print("  - Press CTRL+C to stop")
         
-        camera_procs = []
-        base_port = 5000
+        processes = []
         
         try:
-            # Start cameras streaming to UDP
             for i, camera_id in enumerate(available_cameras[:2]):
-                port = base_port + i
+                x_offset = i * 650  # Position windows side by side
                 
-                proc = subprocess.Popen([
+                process = subprocess.Popen([
+                    'rpicam-hello',
+                    '--camera', str(camera_id),
+                    '--timeout', '0',
+                    '--info-text', f'"Camera {camera_id} - %fps fps"',
+                    '--preview', f'0,0,640,480'
+                ])
+                
+                processes.append(process)
+                time.sleep(1)  # Small delay between camera starts
+            
+            print("✅ Both camera previews started")
+            print("Press CTRL+C to stop...")
+            
+            # Wait for user interrupt
+            while all(p.poll() is None for p in processes):
+                time.sleep(1)
+                
+        except KeyboardInterrupt:
+            print("\nStopping simultaneous previews...")
+        finally:
+            for process in processes:
+                try:
+                    process.terminate()
+                    process.wait(timeout=3)
+                except:
+                    process.kill()
+    
+    def _ffmpeg_side_by_side_preview(self, available_cameras: list):
+        """FFmpeg-based side-by-side preview (experimental)"""
+        print("🎞️ FFmpeg side-by-side preview:")
+        print("  - Combines both camera feeds into one window")
+        print("  - Experimental - may not work on all systems")
+        print("  - Press 'q' in FFmpeg window to quit")
+        
+        if len(available_cameras) < 2:
+            print("❌ Need at least 2 cameras")
+            return
+        
+        try:
+            # Method 1: UDP streaming approach
+            print("🔄 Trying UDP streaming method...")
+            
+            cam_processes = []
+            
+            # Start camera streams
+            for i, camera_id in enumerate(available_cameras[:2]):
+                port = 5000 + i
+                process = subprocess.Popen([
                     'rpicam-vid',
                     '--camera', str(camera_id),
-                    '--timeout', '35000',
+                    '--timeout', '0',
                     '--width', '640',
                     '--height', '480',
                     '--framerate', '15',
-                    '--bitrate', '1000000',
-                    '--profile', 'baseline',
-                    '--inline',  # Inline headers
-                    '--listen',  # Listen mode for streaming
+                    '--codec', 'h264',
                     '--output', f'udp://127.0.0.1:{port}',
                     '--nopreview'
-                ], stderr=subprocess.PIPE)
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 
-                camera_procs.append(proc)
-                print(f"Camera {camera_id} streaming to UDP port {port}")
-                time.sleep(1)
+                cam_processes.append(process)
+                time.sleep(2)
             
-            # Wait for streams to establish
+            # Give cameras time to start
             time.sleep(3)
             
-            # FFmpeg to combine UDP streams
+            # FFmpeg to combine streams
             ffmpeg_cmd = [
                 'ffmpeg',
-                '-fflags', '+genpts',
-                '-f', 'mpegts',
-                '-i', f'udp://127.0.0.1:{base_port}',
-                '-fflags', '+genpts', 
-                '-f', 'mpegts',
-                '-i', f'udp://127.0.0.1:{base_port + 1}',
-                '-filter_complex', '[0:v]scale=640:480[left];[1:v]scale=640:480[right];[left][right]hstack=inputs=2',
+                '-f', 'h264',
+                '-i', 'udp://127.0.0.1:5000',
+                '-f', 'h264', 
+                '-i', 'udp://127.0.0.1:5001',
+                '-filter_complex', '[0:v]scale=640:480[left];[1:v]scale=640:480[right];[left][right]hstack=inputs=2[out]',
+                '-map', '[out]',
                 '-f', 'sdl',
-                '-window_title', 'UDP Dual Camera - Press Q to exit',
-                '-t', '25',
-                '-'
+                'Dual Camera View'
             ]
             
-            result = subprocess.run(ffmpeg_cmd, timeout=30)
-            print("✅ UDP streaming completed!")
-            return True
+            print("🎬 Starting FFmpeg viewer...")
+            ffmpeg_process = subprocess.Popen(ffmpeg_cmd)
+            ffmpeg_process.wait()
             
         except Exception as e:
-            print(f"❌ UDP streaming failed: {e}")
-            return False
+            print(f"❌ FFmpeg method failed: {e}")
+            print("💡 Tip: Install FFmpeg or try other preview methods")
         finally:
-            for proc in camera_procs:
+            # Clean up camera processes
+            for process in cam_processes:
                 try:
-                    if proc.poll() is None:
-                        proc.terminate()
+                    process.terminate()
+                    process.wait(timeout=3)
                 except:
-                    pass
+                    process.kill()
     
-    def _try_file_based_streaming(self, available_cameras: list) -> bool:
-        """Final fallback using file-based streaming with better timing"""
-        print("📁 Using improved file-based streaming...")
+    def _custom_opencv_viewer(self, available_cameras: list):
+        """Custom OpenCV-based dual camera viewer"""
+        print("🎨 Custom OpenCV dual camera viewer:")
+        print("  - Captures frames from both cameras")
+        print("  - Shows side-by-side comparison")
+        print("  - Press 'q' to quit, 's' to save screenshot")
+        print("  - Press 'c' to capture both cameras")
         
-        # This is a simplified version that should work reliably
-        print("Note: For best results, use the fast switching method")
-        print("File-based streaming has inherent timing limitations")
-        return False  # Let it fall back to fast switching
-    
-    def _show_resolution_menu(self):
-        """Display resolution settings menu"""
-        print("\n" + "="*50)
-        print("ARDUCAM RESOLUTION MODES")
-        print("="*50)
-        for i, (mode, resolution) in enumerate(self.resolutions.items(), 1):
-            marker = "★" if mode == self.current_resolution else " "
-            megapixels = (resolution[0] * resolution[1]) / 1000000
-            print(f"{marker} {i}. {mode.title()}: {resolution[0]}x{resolution[1]} ({megapixels:.1f}MP)")
-        print("0. Return to preview")
+        if len(available_cameras) < 2:
+            print("❌ Need at least 2 cameras for custom viewer")
+            return
         
         try:
-            choice = input("Enter choice: ").strip()
-            if choice == '0':
-                return
+            print("🎬 Starting custom dual camera capture...")
             
-            mode_list = list(self.resolutions.keys())
-            if choice.isdigit() and 1 <= int(choice) <= len(mode_list):
-                selected_mode = mode_list[int(choice) - 1]
-                if self.set_resolution_mode(selected_mode):
-                    print(f"✅ Resolution changed to {selected_mode}")
-                else:
-                    print("❌ Failed to change resolution")
-            else:
-                print("❌ Invalid choice!")
-                
-        except (ValueError, KeyboardInterrupt):
-            pass
-    
-    def _show_settings_menu(self):
-        """Display flash settings menu"""
-        print("\n" + "="*50)
-        print("ARDUCAM FLASH SETTINGS")
-        print("="*50)
-        print(f"1. Flash Intensity: {self.flash_config.duty_cycle:.0f}%")
-        print(f"2. Pre-flash Duration: {self.flash_config.pre_flash_ms}ms")
-        print(f"3. Main Flash Duration: {self.flash_config.main_flash_ms}ms")
-        print(f"4. Flash Delay: {self.flash_config.flash_delay_ms}ms")
-        print(f"5. PWM Frequency: {self.flash_config.frequency}Hz")
-        print("6. Test Flash")
-        print("0. Return to preview")
-        
-        try:
-            choice = input("Enter choice (0-6): ").strip()
+            capture_count = 0
+            start_time = time.time()
             
-            if choice == '1':
-                intensity = float(input(f"Enter flash intensity (10-90%): ") or str(self.flash_config.duty_cycle))
-                self.flash_config.duty_cycle = max(10.0, min(90.0, intensity))
-                print(f"✅ Flash intensity set to {self.flash_config.duty_cycle:.0f}%")
+            while True:
+                frames = []
+                timestamp = datetime.now().strftime("%H:%M:%S")
                 
-            elif choice == '2':
-                duration = int(input(f"Enter pre-flash duration (ms): ") or str(self.flash_config.pre_flash_ms))
-                self.flash_config.pre_flash_ms = max(10, min(500, duration))
-                print(f"✅ Pre-flash duration set to {self.flash_config.pre_flash_ms}ms")
+                # Capture from both cameras sequentially
+                for camera_id in available_cameras[:2]:
+                    frame = self._capture_opencv_frame(camera_id)
+                    if frame is not None:
+                        # Resize and add labels
+                        frame = cv2.resize(frame, (640, 480))
+                        cv2.putText(frame, f'Camera {camera_id} - {timestamp}', 
+                                  (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                        frames.append(frame)
+                    else:
+                        # Create placeholder frame
+                        black_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                        cv2.putText(black_frame, f'Camera {camera_id} - No Signal', 
+                                  (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                        frames.append(black_frame)
                 
-            elif choice == '3':
-                duration = int(input(f"Enter main flash duration (ms): ") or str(self.flash_config.main_flash_ms))
-                self.flash_config.main_flash_ms = max(50, min(1000, duration))
-                print(f"✅ Main flash duration set to {self.flash_config.main_flash_ms}ms")
-                
-            elif choice == '4':
-                delay = int(input(f"Enter flash delay (ms): ") or str(self.flash_config.flash_delay_ms))
-                self.flash_config.flash_delay_ms = max(0, min(100, delay))
-                print(f"✅ Flash delay set to {self.flash_config.flash_delay_ms}ms")
-                
-            elif choice == '5':
-                freq = int(input(f"Enter PWM frequency (Hz): ") or str(self.flash_config.frequency))
-                self.flash_config.frequency = max(100, min(1000, freq))
-                print(f"✅ PWM frequency set to {self.flash_config.frequency}Hz")
-                
-            elif choice == '6':
-                print("Testing flash...")
-                if self.flash_controller.trigger_flash(self.flash_config):
-                    print("✅ Flash test successful!")
-                else:
-                    print("❌ Flash test failed!")
+                # Combine frames side by side
+                if len(frames) >= 2:
+                    combined_frame = np.hstack((frames[0], frames[1]))
                     
-        except ValueError:
-            print("❌ Invalid input!")
+                    # Add frame counter and timing info
+                    cv2.putText(combined_frame, f'Frame: {capture_count} | Runtime: {int(time.time() - start_time)}s', 
+                              (10, combined_frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                    
+                    # Display the combined frame
+                    cv2.imshow('Custom Dual Camera Viewer - Press Q to quit', combined_frame)
+                    
+                    capture_count += 1
+                
+                # Handle key presses
+                key = cv2.waitKey(100) & 0xFF  # 100ms delay for ~10fps
+                if key == ord('q') or key == 27:  # 'q' or ESC
+                    print("Exiting custom camera viewer...")
+                    break
+                elif key == ord('s'):  # Save screenshot
+                    timestamp_file = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"dual_camera_capture_{timestamp_file}.jpg"
+                    cv2.imwrite(filename, combined_frame)
+                    print(f"Screenshot saved: {filename}")
+                elif key == ord('c'):  # Capture individual frames
+                    timestamp_file = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    for i, frame in enumerate(frames):
+                        filename = f"camera_{available_cameras[i]}_capture_{timestamp_file}.jpg"
+                        cv2.imwrite(filename, frame)
+                        print(f"Saved: {filename}")
+                
+                # Optional: Add a small delay to prevent excessive CPU usage
+                time.sleep(0.1)
+            
         except KeyboardInterrupt:
-            pass
+            print("\nCustom viewer interrupted by user")
+        except Exception as e:
+            print(f"❌ Custom viewer error: {e}")
+            print("Falling back to fast switching...")
+            self._fast_switching_preview(available_cameras)
+        finally:
+            cv2.destroyAllWindows()
     
-    def cleanup(self):
-        """Clean up resources"""
-        logger.info("Cleaning up Arducam resources...")
+    def _capture_opencv_frame(self, camera_id: int):
+        """Capture a single frame using rpicam-still for OpenCV processing"""
+        try:
+            temp_file = f"/tmp/opencv_frame_{camera_id}_{int(time.time())}.jpg"
+            
+            # Capture frame with rpicam-still
+            result = subprocess.run([
+                'rpicam-still',
+                '--camera', str(camera_id),
+                '--timeout', '1',
+                '--width', '640',
+                '--height', '480',
+                '--nopreview',
+                '-o', temp_file
+            ], capture_output=True, timeout=3)
+            
+            if result.returncode == 0 and os.path.exists(temp_file):
+                # Read the image with OpenCV
+                frame = cv2.imread(temp_file)
+                # Clean up temp file
+                os.remove(temp_file)
+                return frame
+            
+            return None
+            
+        except Exception as e:
+            return None
+    
+    def capture_dual_with_flash(self, available_cameras: list):
+        """Capture from both cameras with synchronized flash"""
+        if len(available_cameras) < 2:
+            print("❌ Need at least 2 cameras for dual capture")
+            return
         
-        self.preview_active = False
+        # Get flash configuration
+        flash_config = self.get_flash_config()
         
-        if self.camera1:
-            self.camera1.release()
-        if self.camera2:
-            self.camera2.release()
+        print(f"\n📸 Dual camera flash capture:")
+        print(f"  - Cameras: {available_cameras[:2]}")
+        print(f"  - Flash: {flash_config.duty_cycle}% intensity, {flash_config.main_flash_ms}ms")
         
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Prepare capture commands for both cameras
+        capture_processes = []
+        output_files = []
+        
+        for camera_id in available_cameras[:2]:
+            output_file = self.output_dir / f"dual_camera_{camera_id}_{timestamp}.jpg"
+            output_files.append(output_file)
+            
+            # Prepare capture command
+            cmd = [
+                'rpicam-still',
+                '--camera', str(camera_id),
+                '--timeout', '100',
+                '--width', '4096',
+                '--height', '3072',
+                '--quality', '95',
+                '--immediate',
+                '--nopreview',
+                '-o', str(output_file)
+            ]
+            
+            capture_processes.append(cmd)
+        
+        try:
+            print("🔄 Starting synchronized capture...")
+            
+            # Start both cameras simultaneously
+            procs = []
+            for cmd in capture_processes:
+                proc = subprocess.Popen(cmd)
+                procs.append(proc)
+                time.sleep(0.1)  # Small stagger to avoid resource conflicts
+            
+            # Trigger flash after a short delay
+            time.sleep(0.2)
+            flash_success = self.flash_controller.trigger_flash(flash_config)
+            
+            # Wait for captures to complete
+            for proc in procs:
+                proc.wait()
+            
+            # Verify captures
+            successful_captures = []
+            for i, output_file in enumerate(output_files):
+                if output_file.exists() and output_file.stat().st_size > 100000:  # At least 100KB
+                    successful_captures.append((available_cameras[i], output_file))
+                    print(f"✅ Camera {available_cameras[i]}: {output_file}")
+                else:
+                    print(f"❌ Camera {available_cameras[i]}: Capture failed")
+            
+            if successful_captures:
+                print(f"\n🎉 Dual capture complete! {len(successful_captures)}/2 cameras successful")
+                if flash_success:
+                    print("⚡ Flash fired successfully")
+                else:
+                    print("⚠️ Flash may not have fired properly")
+            else:
+                print("❌ All captures failed")
+                
+        except Exception as e:
+            print(f"❌ Dual capture error: {e}")
+    
+    def get_flash_config(self) -> FlashConfig:
+        """Get flash configuration from user or use defaults"""
+        try:
+            print("\n⚡ Flash Configuration:")
+            print("Press Enter for defaults")
+            
+            duty_input = input(f"Flash intensity (10-90%, default 50): ").strip()
+            duty_cycle = float(duty_input) if duty_input else 50.0
+            duty_cycle = max(10.0, min(90.0, duty_cycle))
+            
+            duration_input = input(f"Flash duration (ms, default 100): ").strip()
+            main_flash_ms = int(duration_input) if duration_input else 100
+            main_flash_ms = max(10, min(500, main_flash_ms))
+            
+            return FlashConfig(
+                duty_cycle=duty_cycle,
+                main_flash_ms=main_flash_ms
+            )
+            
+        except ValueError:
+            print("Using default flash settings")
+            return FlashConfig()
+    
+    def run_main_menu(self):
+        """Main interactive menu"""
+        print("🎯 Arducam Dual Camera Flash Test System")
+        print("=" * 50)
+        
+        # Check for cameras
+        available_cameras = self.check_cameras()
+        if not available_cameras:
+            print("❌ No cameras found. Exiting.")
+            return
+        
+        # Try to connect flash controller
+        if self.flash_controller.connect():
+            print("⚡ Flash controller ready")
+        else:
+            print("⚠️ Flash controller not connected - capture only mode")
+        
+        while True:
+            print("\n📋 Main Menu:")
+            print("1. Dual camera preview")
+            print("2. Single camera test")
+            print("3. Dual camera flash capture")
+            print("4. Flash controller test")
+            print("5. Camera information")
+            print("6. Exit")
+            
+            try:
+                choice = input("\nSelect option (1-6): ").strip()
+                
+                if choice == '1':
+                    self.dual_camera_preview_menu(available_cameras)
+                elif choice == '2':
+                    self.single_camera_test(available_cameras)
+                elif choice == '3':
+                    self.capture_dual_with_flash(available_cameras)
+                elif choice == '4':
+                    self.test_flash_controller()
+                elif choice == '5':
+                    self.show_camera_info(available_cameras)
+                elif choice == '6':
+                    print("👋 Exiting...")
+                    break
+                else:
+                    print("❌ Invalid choice. Please select 1-6.")
+                    
+            except KeyboardInterrupt:
+                print("\n👋 Exiting...")
+                break
+            except Exception as e:
+                print(f"❌ Error: {e}")
+        
+        # Cleanup
         self.flash_controller.disconnect()
         cv2.destroyAllWindows()
-
-def get_circuitpython_flash_code() -> str:
-    """Generate CircuitPython code for Arducam camera flash control"""
-    return '''
-import json
-import time
-import board
-import pwmio
-import asyncio
-
-# PWM objects for flash control
-flash_pwm = {}
-
-def setup_flash_pwm(pin_num, frequency):
-    """Setup PWM for LED flash control"""
-    try:
-        pin_obj = getattr(board, f"GP{pin_num}")
-        pwm = pwmio.PWMOut(pin_obj, frequency=frequency, duty_cycle=0)
-        flash_pwm[pin_num] = pwm
-        return True
-    except Exception as e:
-        print(f"Error setting up flash PWM on pin {pin_num}: {e}")
-        return False
-
-def set_flash_intensity(pin_num, duty_percent):
-    """Set flash intensity as percentage"""
-    if pin_num in flash_pwm:
-        duty_value = int((duty_percent / 100.0) * 65535)
-        flash_pwm[pin_num].duty_cycle = duty_value
-        return True
-    return False
-
-async def camera_flash_sequence(pins, frequency, duty_cycle, pre_flash_ms, main_flash_ms, flash_delay_ms):
-    """Execute optimized camera flash sequence for Arducam 64MP"""
-    try:
-        # Setup PWM for all pins
-        for pin_num in pins:
-            if not setup_flash_pwm(pin_num, frequency):
-                return False
-        
-        # Flash delay for camera sync
-        if flash_delay_ms > 0:
-            await asyncio.sleep(flash_delay_ms / 1000.0)
-        
-        # Main flash with precise timing
-        for pin_num in pins:
-            set_flash_intensity(pin_num, duty_cycle)
-        
-        # Flash duration
-        await asyncio.sleep(main_flash_ms / 1000.0)
-        
-        # Turn off flash
-        for pin_num in pins:
-            set_flash_intensity(pin_num, 0)
-        
-        return True
-        
-    except Exception as e:
-        print(f"Flash sequence error: {e}")
-        return False
-
-def process_flash_command(command):
-    """Process Arducam camera flash commands"""
-    try:
-        action = command.get("action")
-        
-        if action == "ping":
-            return {"status": "ok", "message": "Arducam flash controller ready"}
-        
-        elif action == "camera_flash":
-            pins = command.get("pins", [4, 5])
-            frequency = command.get("frequency", 300)
-            duty_cycle = command.get("duty_cycle", 50.0)
-            pre_flash_ms = command.get("pre_flash_ms", 50)
-            main_flash_ms = command.get("main_flash_ms", 100)
-            flash_delay_ms = command.get("flash_delay_ms", 10)
-            
-            # Execute flash sequence
-            success = asyncio.run(camera_flash_sequence(
-                pins, frequency, duty_cycle, pre_flash_ms, main_flash_ms, flash_delay_ms
-            ))
-            
-            if success:
-                return {"status": "ok", "message": f"Arducam flash executed on pins {pins}"}
-            else:
-                return {"status": "error", "message": "Flash sequence failed"}
-        
-        else:
-            return {"status": "error", "message": f"Unknown action: {action}"}
     
-    except Exception as e:
-        return {"status": "error", "message": f"Command error: {str(e)}"}
-
-# Arducam Flash Controller Main Loop
-print("Arducam 64MP Flash Controller Ready")
-print("Optimized for high-resolution photography")
-
-while True:
-    try:
-        line = input().strip()
-        if line:
-            command = json.loads(line)
-            response = process_flash_command(command)
-            print(json.dumps(response))
-    
-    except json.JSONDecodeError:
-        print(json.dumps({"status": "error", "message": "Invalid JSON"}))
-    except Exception as e:
-        print(json.dumps({"status": "error", "message": f"Error: {str(e)}"}))
-'''
-
-def detect_available_cameras(max_cameras=2):
-    """Detect available camera devices using rpicam-still"""
-    import subprocess
-    available_cameras = []
-    
-    print("\n🔍 Scanning for available cameras...")
-    
-    # Test rpicam-still with cameras 0 and 1 (most common setup)
-    for i in range(max_cameras):
+    def single_camera_test(self, available_cameras: list):
+        """Test individual cameras"""
+        print("\n📷 Single Camera Test")
+        
+        for i, camera_id in enumerate(available_cameras):
+            print(f"{i+1}. Camera {camera_id}")
+        
         try:
-            print(f"  Testing Camera {i} with rpicam-still...")
-            result = subprocess.run([
-                'rpicam-still', '--camera', str(i), 
-                '--timeout', '1', '--nopreview', '-o', '/tmp/test_cam.jpg'
-            ], capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0:
-                print(f"  ✅ Camera {i}: Working with rpicam-still")
-                available_cameras.append(i)
-                # Clean up test file
-                if os.path.exists('/tmp/test_cam.jpg'):
-                    os.remove('/tmp/test_cam.jpg')
-            else:
-                print(f"  ❌ Camera {i}: Failed - {result.stderr.strip()}")
+            choice = int(input("Select camera to test: ")) - 1
+            if 0 <= choice < len(available_cameras):
+                camera_id = available_cameras[choice]
+                print(f"Testing Camera {camera_id}...")
                 
-        except Exception as e:
-            print(f"  ❌ Camera {i}: Error - {e}")
+                subprocess.run([
+                    'rpicam-hello',
+                    '--camera', str(camera_id),
+                    '--timeout', '5000'
+                ])
+            else:
+                print("Invalid camera selection")
+        except ValueError:
+            print("Invalid input")
     
-    if available_cameras:
-        print(f"\n📋 Found {len(available_cameras)} working camera(s): {available_cameras}")
-        print("Note: Using rpicam-still for camera access (recommended for Pi cameras)")
-    else:
-        print("\n❌ No working cameras found!")
-        print("Troubleshooting:")
-        print("1. Check camera ribbon cable connections")
-        print("2. Ensure cameras are enabled: sudo raspi-config")
-        print("3. Try: rpicam-still --camera 0 -o test.jpg")
+    def test_flash_controller(self):
+        """Test flash controller functionality"""
+        if not self.flash_controller.is_connected:
+            print("❌ Flash controller not connected")
+            return
+        
+        print("\n⚡ Flash Controller Test")
+        config = FlashConfig(duty_cycle=30.0, main_flash_ms=200)
+        
+        print("Testing flash in 3 seconds...")
+        for i in range(3, 0, -1):
+            print(f"{i}...")
+            time.sleep(1)
+        
+        success = self.flash_controller.trigger_flash(config)
+        if success:
+            print("✅ Flash test successful")
+        else:
+            print("❌ Flash test failed")
     
-    return available_cameras
+    def show_camera_info(self, available_cameras: list):
+        """Show detailed camera information"""
+        print("\n📋 Camera Information:")
+        
+        for camera_id in available_cameras:
+            print(f"\n📷 Camera {camera_id}:")
+            try:
+                # Get camera info
+                result = subprocess.run([
+                    'rpicam-hello',
+                    '--camera', str(camera_id),
+                    '--timeout', '1',
+                    '--info-text', f'"Camera {camera_id} Info"'
+                ], capture_output=True, text=True)
+                
+                if result.returncode == 0:
+                    print("  ✅ Camera operational")
+                else:
+                    print("  ❌ Camera error")
+                    
+            except Exception as e:
+                print(f"  ❌ Error: {e}")
 
 def main():
-    """Main test function for Arducam 64MP dual camera flash system"""
-    print("=== Arducam 64MP Camera Flash Test ===")
-    print("Optimized for high-resolution photography with LED flash")
-    print("Note: This script supports both single and dual camera setups")
-    print()
-    
-    # First, scan for available cameras
-    available_cameras = detect_available_cameras()
-    
-    if not available_cameras:
-        print("No cameras detected. Please check connections and try again.")
-        return
-    
-    # Configuration
-    flash_port = input("Enter flash controller serial port (default /dev/ttyACM0): ").strip()
-    if not flash_port:
-        flash_port = "/dev/ttyACM0"
-    
-    # Create simplified capture system (no OpenCV camera initialization needed)
-    capture_system = ArducamFlashCapture(
-        camera1_id=0,  # We'll use camera IDs directly in rpicam calls
-        camera2_id=1,
-        flash_port=flash_port
-    )
-    
+    """Main entry point"""
     try:
-        # Initialize only flash controller
-        print("Initializing flash controller...")
-        flash_available = capture_system.initialize_flash()
-        if not flash_available:
-            print("❌ Failed to initialize flash controller")
-            print("Make sure CircuitPython board is connected and programmed")
-            
-            # Ask if user wants to continue without flash
-            continue_without_flash = input("Continue without flash controller? (y/N): ").strip().lower() == 'y'
-            if not continue_without_flash:
-                return
-        
-        camera_count = "dual" if len(available_cameras) >= 2 else "single"
-        print(f"✅ Arducam 64MP system ready ({camera_count} camera) using rpicam-still!")
-        print(f"Available cameras: {available_cameras}")
-        
-        # Main menu
-        while True:
-            print("\n" + "="*60)
-            print(f"ARDUCAM 64MP CAMERA FLASH TEST ({camera_count.upper()} CAMERA)")
-            print("="*60)
-            print("1. Camera preview (dual camera support)")
-            print("2. Standard flash capture")
-            print("3. Full 64MP flash capture")
-            print("4. Burst capture mode")
-            print("5. Resolution settings")
-            print("6. Flash settings")
-            print("7. Generate CircuitPython flash code")
-            print("8. Exit")
-            
-            choice = input("Enter choice (1-8): ").strip()
-            
-            if choice == '1':
-                capture_system.start_live_preview()
-                
-            elif choice == '2':
-                print("Capturing standard resolution flash photo...")
-                # Capture from available cameras using rpicam-still
-                captured_files = []
-                for camera_id in available_cameras:
-                    success, filename = capture_system.capture_flash_photo_rpicam(camera_id, high_resolution=False)
-                    if success:
-                        captured_files.append(filename)
-                        print(f"✅ Camera {camera_id} captured: {os.path.basename(filename)}")
-                    else:
-                        print(f"❌ Camera {camera_id} capture failed!")
-                        
-                if captured_files:
-                    print(f"✅ Flash photo captured! {len(captured_files)} file(s) saved.")
-                else:
-                    print("❌ All captures failed!")
-                    
-            elif choice == '3':
-                print("Capturing full 64MP flash photo (this may take 10+ seconds)...")
-                # Capture from available cameras using rpicam-still
-                captured_files = []
-                for camera_id in available_cameras:
-                    success, filename = capture_system.capture_flash_photo_rpicam(camera_id, high_resolution=True)
-                    if success:
-                        captured_files.append(filename)
-                        print(f"✅ Camera {camera_id} captured: {os.path.basename(filename)}")
-                    else:
-                        print(f"❌ Camera {camera_id} capture failed!")
-                        
-                if captured_files:
-                    print(f"✅ 64MP flash photo captured! {len(captured_files)} file(s) saved.")
-                else:
-                    print("❌ All captures failed!")
-                    
-            elif choice == '4':
-                try:
-                    count = int(input("Enter number of photos to capture: ") or "3")
-                    interval = float(input("Enter interval between captures (seconds): ") or "3.0")
-                    high_res = input("Use 64MP resolution? (y/N): ").strip().lower() == 'y'
-                    
-                    print(f"Burst capture: {count} photos, {interval}s interval, {'64MP' if high_res else 'standard'} resolution")
-                    
-                    for i in range(count):
-                        print(f"Capturing photo {i+1}/{count}...")
-                        # Capture from all available cameras
-                        for camera_id in available_cameras:
-                            success, filename = capture_system.capture_flash_photo_rpicam(camera_id, high_resolution=high_res)
-                            if success:
-                                print(f"✅ Camera {camera_id} photo {i+1} captured: {os.path.basename(filename)}")
-                            else:
-                                print(f"❌ Camera {camera_id} photo {i+1} failed")
-                        
-                        if i < count - 1:
-                            time.sleep(interval)
-                    
-                    print(f"✅ Burst capture completed!")
-                    
-                except ValueError:
-                    print("❌ Invalid input!")
-                    
-            elif choice == '5':
-                capture_system._show_resolution_menu()
-                
-            elif choice == '6':
-                capture_system._show_settings_menu()
-                
-            elif choice == '7':
-                print("\n" + "="*70)
-                print("CircuitPython Arducam Flash Code (save as code.py):")
-                print("="*70)
-                print(get_circuitpython_flash_code())
-                print("="*70)
-                
-            elif choice == '8':
-                break
-                
-            else:
-                print("Invalid choice. Please try again.")
-    
+        test = ArducamFlashTest()
+        test.run_main_menu()
     except KeyboardInterrupt:
-        print("\nTest interrupted by user")
+        print("\n👋 Program interrupted by user")
     except Exception as e:
-        logger.error(f"Error during test: {e}")
-    finally:
-        capture_system.cleanup()
+        print(f"❌ Unexpected error: {e}")
 
 if __name__ == "__main__":
     main()
