@@ -477,6 +477,7 @@ class ArducamFlashCapture:
             if len(available_cameras) >= 2:
                 print(f"{len(available_cameras) + 1}. Sequential preview (both cameras)")
                 print(f"{len(available_cameras) + 2}. Side-by-side preview (experimental)")
+                print(f"{len(available_cameras) + 3}. Combined overlay preview (single window)")
             
             print("0. Return to main menu")
             
@@ -500,6 +501,10 @@ class ArducamFlashCapture:
                 # Side-by-side preview (experimental)
                 elif len(available_cameras) >= 2 and choice_num == len(available_cameras) + 2:
                     self._run_side_by_side_preview(available_cameras)
+                
+                # Combined overlay preview (single window)
+                elif len(available_cameras) >= 2 and choice_num == len(available_cameras) + 3:
+                    self._run_combined_overlay_preview(available_cameras)
                 
                 else:
                     print("Invalid choice! Please try again.")
@@ -607,6 +612,138 @@ class ArducamFlashCapture:
         except Exception as e:
             print(f"Side-by-side preview error: {e}")
             print("Note: Side-by-side preview is experimental and may not work on all systems")
+    
+    def _run_combined_overlay_preview(self, available_cameras: list):
+        """Combined preview showing both cameras in a single window"""
+        print(f"\n🎥 Starting combined overlay preview...")
+        print("Attempting to create true side-by-side view using ffmpeg...")
+        
+        # First try advanced ffmpeg method for true side-by-side
+        if self._try_ffmpeg_combined_preview(available_cameras):
+            return
+        
+        # Fallback to rapid switching method
+        print("FFmpeg method not available, using rapid camera switching...")
+        print("Controls:")
+        print("  - Shows alternating views from both cameras")
+        print("  - Camera switches every 2 seconds")
+        print("  - Press Ctrl+C to exit preview")
+        print("  - Total duration: 30 seconds")
+        
+        try:
+            switch_duration = 2  # Switch cameras every 2 seconds
+            total_duration = 30  # Total preview time
+            switches = total_duration // switch_duration
+            
+            print(f"\n🔄 Alternating between {len(available_cameras)} cameras every {switch_duration} seconds...")
+            
+            for i in range(switches):
+                camera_id = available_cameras[i % len(available_cameras)]
+                switch_num = i + 1
+                
+                print(f"📷 Showing Camera {camera_id} (switch {switch_num}/{switches})")
+                
+                try:
+                    subprocess.run([
+                        'rpicam-hello', 
+                        '--camera', str(camera_id),
+                        '--timeout', str(switch_duration * 1000),  # Convert to milliseconds
+                        '--info-text', f'Combined Preview - Camera {camera_id} ({switch_num}/{switches})',
+                        '--width', '800',      # Larger window for combined view
+                        '--height', '600'
+                    ], timeout=switch_duration + 2)
+                except subprocess.TimeoutExpired:
+                    continue  # Move to next camera
+                except KeyboardInterrupt:
+                    print("\nCombined preview stopped by user")
+                    return
+            
+            print("Combined overlay preview completed!")
+            
+        except KeyboardInterrupt:
+            print("\nCombined preview stopped by user")
+        except Exception as e:
+            print(f"Combined overlay preview error: {e}")
+            print("Alternative: Use sequential preview for similar functionality")
+    
+    def _try_ffmpeg_combined_preview(self, available_cameras: list) -> bool:
+        """Attempt to create true side-by-side preview using ffmpeg and rpicam-vid"""
+        try:
+            # Check if ffmpeg is available
+            subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
+            
+            print("✅ FFmpeg detected - attempting true side-by-side preview")
+            print("Controls:")
+            print("  - Both cameras in one window, side-by-side")
+            print("  - Press 'q' in ffplay window to exit")
+            print("  - Duration: 30 seconds")
+            
+            # Create named pipes for camera streams
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            
+            # Start both cameras as video streams
+            camera_processes = []
+            pipe_files = []
+            
+            for camera_id in available_cameras[:2]:  # Limit to 2 cameras
+                pipe_file = f"{temp_dir}/camera_{camera_id}_stream.h264"
+                pipe_files.append(pipe_file)
+                
+                # Start rpicam-vid for this camera
+                process = subprocess.Popen([
+                    'rpicam-vid',
+                    '--camera', str(camera_id),
+                    '--timeout', '30000',  # 30 seconds
+                    '--width', '640',
+                    '--height', '480',
+                    '--framerate', '15',
+                    '--output', pipe_file,
+                    '--nopreview'
+                ])
+                camera_processes.append(process)
+                print(f"Started video stream for Camera {camera_id}")
+            
+            # Give cameras time to start
+            time.sleep(2)
+            
+            # Use ffmpeg to combine streams side-by-side
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-f', 'h264', '-i', pipe_files[0],
+                '-f', 'h264', '-i', pipe_files[1] if len(pipe_files) > 1 else pipe_files[0],
+                '-filter_complex', '[0:v]scale=640:480[left];[1:v]scale=640:480[right];[left][right]hstack=inputs=2',
+                '-f', 'sdl', '-window_title', 'Dual Camera Preview - Press Q to exit',
+                '-'
+            ]
+            
+            print("🎬 Starting combined preview - press 'q' in video window to exit")
+            
+            # Start ffmpeg display
+            ffmpeg_process = subprocess.Popen(ffmpeg_cmd)
+            
+            # Wait for completion or user termination
+            ffmpeg_process.wait()
+            
+            # Cleanup camera processes
+            for process in camera_processes:
+                if process.poll() is None:
+                    process.terminate()
+            
+            # Cleanup pipe files
+            for pipe_file in pipe_files:
+                if os.path.exists(pipe_file):
+                    os.remove(pipe_file)
+            
+            print("✅ True side-by-side preview completed!")
+            return True
+            
+        except subprocess.CalledProcessError:
+            print("❌ FFmpeg not available - falling back to switching method")
+            return False
+        except Exception as e:
+            print(f"❌ FFmpeg method failed: {e} - falling back to switching method")
+            return False
     
     def _show_resolution_menu(self):
         """Display resolution settings menu"""
