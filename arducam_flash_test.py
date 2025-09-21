@@ -259,23 +259,276 @@ class ArducamFlashTest:
                     process.kill()
     
     def _ffmpeg_side_by_side_preview(self, available_cameras: list):
-        """FFmpeg-based side-by-side preview (experimental)"""
+        """FFmpeg-based side-by-side preview with multiple fallback methods"""
         print("🎞️ FFmpeg side-by-side preview:")
         print("  - Combines both camera feeds into one window")
-        print("  - Experimental - may not work on all systems")
+        print("  - Multiple methods will be tried")
         print("  - Press 'q' in FFmpeg window to quit")
         
         if len(available_cameras) < 2:
             print("❌ Need at least 2 cameras")
             return
         
+        # Try multiple FFmpeg methods in order of reliability
+        methods = [
+            self._try_mjpeg_ffmpeg_method,
+            self._try_raw_ffmpeg_method,
+            self._try_file_based_ffmpeg_method,
+            self._try_udp_ffmpeg_method
+        ]
+        
+        for i, method in enumerate(methods, 1):
+            try:
+                print(f"🔄 Trying method {i}/4...")
+                if method(available_cameras):
+                    return  # Success, exit
+            except Exception as e:
+                print(f"Method {i} failed: {e}")
+                continue
+        
+        print("❌ All FFmpeg methods failed")
+        print("💡 Recommendation: Use option 4 (Custom OpenCV viewer) instead")
+        print("💡 The custom viewer provides reliable dual camera display")
+    
+    def _try_mjpeg_ffmpeg_method(self, available_cameras: list) -> bool:
+        """Try MJPEG streaming - most reliable method"""
+        print("� Trying MJPEG streaming method...")
+        
+        cam_processes = []
+        temp_files = []
+        
         try:
-            # Method 1: UDP streaming approach
-            print("🔄 Trying UDP streaming method...")
+            # Start MJPEG streams to files
+            for i, camera_id in enumerate(available_cameras[:2]):
+                temp_file = f"/tmp/camera_{camera_id}_stream.mjpeg"
+                temp_files.append(temp_file)
+                
+                # Remove existing file
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                
+                process = subprocess.Popen([
+                    'rpicam-vid',
+                    '--camera', str(camera_id),
+                    '--timeout', '0',
+                    '--width', '640',
+                    '--height', '480',
+                    '--framerate', '15',
+                    '--codec', 'mjpeg',
+                    '--output', temp_file,
+                    '--nopreview',
+                    '--flush'
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                cam_processes.append(process)
+                time.sleep(1)
             
-            cam_processes = []
+            # Wait for files to be created
+            print("Waiting for camera streams to start...")
+            time.sleep(3)
             
-            # Start camera streams
+            # Check if streams are working
+            for temp_file in temp_files:
+                if not os.path.exists(temp_file) or os.path.getsize(temp_file) < 1000:
+                    raise Exception(f"Stream file {temp_file} not ready")
+            
+            # FFmpeg command for MJPEG
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-re',  # Real-time reading
+                '-f', 'mjpeg',
+                '-i', temp_files[0],
+                '-re',
+                '-f', 'mjpeg',
+                '-i', temp_files[1],
+                '-filter_complex', '[0:v]scale=640:480[left];[1:v]scale=640:480[right];[left][right]hstack=inputs=2[out]',
+                '-map', '[out]',
+                '-f', 'sdl',
+                '-window_title', 'Dual Camera MJPEG View',
+                'display'
+            ]
+            
+            print("🎬 Starting MJPEG FFmpeg viewer...")
+            print("Press 'q' in the video window to quit")
+            
+            ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stderr=subprocess.PIPE)
+            ffmpeg_process.wait()
+            
+            return True
+            
+        except Exception as e:
+            print(f"MJPEG method failed: {e}")
+            return False
+        finally:
+            # Clean up
+            for process in cam_processes:
+                try:
+                    process.terminate()
+                    process.wait(timeout=2)
+                except:
+                    process.kill()
+            
+            # Clean up temp files
+            for temp_file in temp_files:
+                try:
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                except:
+                    pass
+    
+    def _try_raw_ffmpeg_method(self, available_cameras: list) -> bool:
+        """Try raw YUV streaming method"""
+        print("🎥 Trying raw YUV method...")
+        
+        cam_processes = []
+        
+        try:
+            # Start YUV streams
+            for i, camera_id in enumerate(available_cameras[:2]):
+                port = 5010 + i
+                process = subprocess.Popen([
+                    'rpicam-vid',
+                    '--camera', str(camera_id),
+                    '--timeout', '0',
+                    '--width', '640',
+                    '--height', '480',
+                    '--framerate', '10',
+                    '--codec', 'yuv420',
+                    '--output', f'udp://127.0.0.1:{port}',
+                    '--nopreview'
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                cam_processes.append(process)
+                time.sleep(1)
+            
+            time.sleep(2)
+            
+            # FFmpeg command for raw YUV
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-f', 'rawvideo',
+                '-pixel_format', 'yuv420p',
+                '-video_size', '640x480',
+                '-framerate', '10',
+                '-i', 'udp://127.0.0.1:5010',
+                '-f', 'rawvideo',
+                '-pixel_format', 'yuv420p',
+                '-video_size', '640x480',
+                '-framerate', '10',
+                '-i', 'udp://127.0.0.1:5011',
+                '-filter_complex', '[0:v][1:v]hstack=inputs=2[out]',
+                '-map', '[out]',
+                '-f', 'sdl',
+                'Dual Camera Raw View'
+            ]
+            
+            print("🎬 Starting raw YUV FFmpeg viewer...")
+            ffmpeg_process = subprocess.Popen(ffmpeg_cmd)
+            ffmpeg_process.wait()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Raw YUV method failed: {e}")
+            return False
+        finally:
+            for process in cam_processes:
+                try:
+                    process.terminate()
+                    process.wait(timeout=2)
+                except:
+                    process.kill()
+    
+    def _try_file_based_ffmpeg_method(self, available_cameras: list) -> bool:
+        """Try file-based streaming with better timing"""
+        print("📁 Trying file-based streaming method...")
+        
+        cam_processes = []
+        stream_files = []
+        
+        try:
+            # Create temporary stream files
+            for i, camera_id in enumerate(available_cameras[:2]):
+                stream_file = f"/tmp/camera_{camera_id}_h264.stream"
+                stream_files.append(stream_file)
+                
+                if os.path.exists(stream_file):
+                    os.remove(stream_file)
+                
+                process = subprocess.Popen([
+                    'rpicam-vid',
+                    '--camera', str(camera_id),
+                    '--timeout', '0',
+                    '--width', '640',
+                    '--height', '480',
+                    '--framerate', '10',
+                    '--codec', 'h264',
+                    '--profile', 'baseline',  # Use baseline profile for better compatibility
+                    '--level', '3.1',
+                    '--bitrate', '1000000',
+                    '--intra', '30',  # Force keyframes every 30 frames
+                    '--output', stream_file,
+                    '--nopreview',
+                    '--flush'
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                cam_processes.append(process)
+                time.sleep(1)
+            
+            print("Waiting for H.264 streams...")
+            time.sleep(4)
+            
+            # FFmpeg with better H.264 handling
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-analyzeduration', '1000000',
+                '-probesize', '1000000',
+                '-fflags', '+genpts',
+                '-re',
+                '-i', stream_files[0],
+                '-analyzeduration', '1000000', 
+                '-probesize', '1000000',
+                '-fflags', '+genpts',
+                '-re',
+                '-i', stream_files[1],
+                '-filter_complex', '[0:v]scale=640:480[left];[1:v]scale=640:480[right];[left][right]hstack=inputs=2[out]',
+                '-map', '[out]',
+                '-f', 'sdl',
+                'Dual Camera File Stream'
+            ]
+            
+            print("🎬 Starting file-based FFmpeg viewer...")
+            ffmpeg_process = subprocess.Popen(ffmpeg_cmd)
+            ffmpeg_process.wait()
+            
+            return True
+            
+        except Exception as e:
+            print(f"File-based method failed: {e}")
+            return False
+        finally:
+            for process in cam_processes:
+                try:
+                    process.terminate()
+                    process.wait(timeout=2)
+                except:
+                    process.kill()
+            
+            for stream_file in stream_files:
+                try:
+                    if os.path.exists(stream_file):
+                        os.remove(stream_file)
+                except:
+                    pass
+    
+    def _try_udp_ffmpeg_method(self, available_cameras: list) -> bool:
+        """Try original UDP method with better error handling"""
+        print("🌐 Trying UDP streaming method (original)...")
+        
+        cam_processes = []
+        
+        try:
+            # Start camera streams with better H.264 settings
             for i, camera_id in enumerate(available_cameras[:2]):
                 port = 5000 + i
                 process = subprocess.Popen([
@@ -286,6 +539,10 @@ class ArducamFlashTest:
                     '--height', '480',
                     '--framerate', '15',
                     '--codec', 'h264',
+                    '--profile', 'baseline',
+                    '--level', '3.1',
+                    '--bitrate', '1000000',
+                    '--intra', '15',  # More frequent keyframes
                     '--output', f'udp://127.0.0.1:{port}',
                     '--nopreview'
                 ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -293,31 +550,37 @@ class ArducamFlashTest:
                 cam_processes.append(process)
                 time.sleep(2)
             
-            # Give cameras time to start
             time.sleep(3)
             
-            # FFmpeg to combine streams
+            # FFmpeg with improved H.264 handling
             ffmpeg_cmd = [
                 'ffmpeg',
+                '-analyzeduration', '2000000',
+                '-probesize', '2000000',
+                '-fflags', '+genpts+discardcorrupt',
                 '-f', 'h264',
                 '-i', 'udp://127.0.0.1:5000',
-                '-f', 'h264', 
+                '-analyzeduration', '2000000',
+                '-probesize', '2000000', 
+                '-fflags', '+genpts+discardcorrupt',
+                '-f', 'h264',
                 '-i', 'udp://127.0.0.1:5001',
                 '-filter_complex', '[0:v]scale=640:480[left];[1:v]scale=640:480[right];[left][right]hstack=inputs=2[out]',
                 '-map', '[out]',
                 '-f', 'sdl',
-                'Dual Camera View'
+                'Dual Camera UDP View'
             ]
             
-            print("🎬 Starting FFmpeg viewer...")
+            print("🎬 Starting UDP FFmpeg viewer...")
             ffmpeg_process = subprocess.Popen(ffmpeg_cmd)
             ffmpeg_process.wait()
             
+            return True
+            
         except Exception as e:
-            print(f"❌ FFmpeg method failed: {e}")
-            print("💡 Tip: Install FFmpeg or try other preview methods")
+            print(f"UDP method failed: {e}")
+            return False
         finally:
-            # Clean up camera processes
             for process in cam_processes:
                 try:
                     process.terminate()
