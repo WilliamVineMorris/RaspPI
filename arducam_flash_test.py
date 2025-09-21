@@ -292,6 +292,7 @@ class ArducamFlashTest:
         # Interactive method selection
         methods = [
             ("Real-time Video Stream", self._try_video_stream_method, "🎥 Live MJPEG video streams with web interface"),
+            ("Pipe-based Streaming", self._try_pipe_streaming_method, "🔧 Direct stdout pipe streaming"),
             ("MJPEG Video Stream", self._try_mjpeg_video_stream, "📺 VLC-compatible HTTP streams"),
             ("Alternating Camera Stream", self._try_alternating_stream_method, "🔄 Alternating dual camera display"),
             ("Web Image Stream", self._try_web_stream_method, "🌐 Web-based still image updates"),
@@ -826,6 +827,254 @@ class ArducamFlashTest:
         except Exception as e:
             print(f"❌ Alternating stream failed: {e}")
             return False
+
+    def _try_pipe_streaming_method(self, available_cameras: list) -> bool:
+        """Direct pipe-based streaming - avoids TCP connection limits"""
+        print("🔧 Trying pipe-based streaming...")
+        print("This captures camera output directly via pipes - should avoid TCP issues")
+        
+        if len(available_cameras) < 2:
+            print("❌ Need at least 2 cameras")
+            return False
+        
+        try:
+            import threading
+            import http.server
+            import queue
+            
+            camera1_id, camera2_id = available_cameras[0], available_cameras[1]
+            
+            # Queues to hold latest frames from each camera
+            camera_frames = {camera1_id: queue.Queue(maxsize=2), camera2_id: queue.Queue(maxsize=2)}
+            camera_processes = {}
+            
+            class PipeStreamHandler(http.server.BaseHTTPRequestHandler):
+                def do_GET(self):
+                    if self.path == '/':
+                        self.send_dual_camera_page()
+                    elif self.path == '/camera1.mjpg':
+                        self.stream_camera_pipe(camera1_id)
+                    elif self.path == '/camera2.mjpg':
+                        self.stream_camera_pipe(camera2_id)
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                
+                def send_dual_camera_page(self):
+                    html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pipe-based Dual Camera Stream</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; margin: 0; padding: 20px; }}
+        .container {{ max-width: 1400px; margin: 0 auto; }}
+        .camera-container {{ display: inline-block; margin: 15px; vertical-align: top; }}
+        .camera-stream {{ border: 3px solid #17a2b8; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }}
+        h1 {{ color: #333; margin-bottom: 10px; }}
+        h3 {{ color: #666; margin: 10px 0; }}
+        .status {{ color: #17a2b8; margin: 10px; font-size: 16px; font-weight: bold; }}
+        .info {{ background: #e9ecef; padding: 15px; border-radius: 8px; margin: 20px 0; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Pipe-based Dual Camera Stream</h1>
+        <div class="status">✅ Direct pipe streaming - no TCP connections</div>
+        
+        <div>
+            <div class="camera-container">
+                <h3>📷 Camera {camera1_id}</h3>
+                <img class="camera-stream" src="/camera1.mjpg" width="640" height="480" alt="Camera {camera1_id} Stream" />
+            </div>
+            
+            <div class="camera-container">
+                <h3>📷 Camera {camera2_id}</h3>
+                <img class="camera-stream" src="/camera2.mjpg" width="640" height="480" alt="Camera {camera2_id} Stream" />
+            </div>
+        </div>
+        
+        <div class="info">
+            <strong>🎯 Pipe-based Architecture</strong><br>
+            Each camera streams directly via stdout pipes to avoid TCP limits.<br>
+            Camera {camera1_id} and Camera {camera2_id} run independently.<br>
+            Press Ctrl+C in the terminal to stop streaming.
+        </div>
+    </div>
+</body>
+</html>
+"""
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html')
+                    self.end_headers()
+                    self.wfile.write(html_content.encode())
+                
+                def stream_camera_pipe(self, camera_id):
+                    """Stream from camera pipe queue"""
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
+                    self.send_header('Cache-Control', 'no-cache')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    
+                    try:
+                        frame_count = 0
+                        while True:
+                            try:
+                                # Get latest frame from queue (timeout to avoid blocking)
+                                frame_data = camera_frames[camera_id].get(timeout=2)
+                                
+                                if frame_data:
+                                    # Send frame to browser
+                                    self.wfile.write(b'\r\n--frame\r\n')
+                                    self.wfile.write(b'Content-Type: image/jpeg\r\n')
+                                    self.wfile.write(f'Content-Length: {len(frame_data)}\r\n\r\n'.encode())
+                                    self.wfile.write(frame_data)
+                                    
+                                    frame_count += 1
+                                    if frame_count % 30 == 0:
+                                        print(f"📺 Camera {camera_id}: {frame_count} frames served")
+                                
+                            except queue.Empty:
+                                print(f"⚠️ No frames available for camera {camera_id}")
+                                break
+                            except Exception as e:
+                                print(f"Frame error for camera {camera_id}: {e}")
+                                break
+                                
+                    except Exception as e:
+                        print(f"Pipe streaming error for camera {camera_id}: {e}")
+                
+                def log_message(self, format, *args):
+                    pass
+            
+            def camera_pipe_reader(camera_id):
+                """Read frames from camera process and put in queue"""
+                try:
+                    print(f"Starting pipe reader for camera {camera_id}")
+                    
+                    # Start camera process with stdout output
+                    process = subprocess.Popen([
+                        'rpicam-vid',
+                        '--camera', str(camera_id),
+                        '--timeout', '0',
+                        '--width', '640',
+                        '--height', '480',
+                        '--framerate', '10',
+                        '--codec', 'mjpeg',
+                        '--output', '-',  # stdout
+                        '--nopreview',
+                        '--flush'
+                    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    
+                    camera_processes[camera_id] = process
+                    
+                    buffer = b''
+                    frame_count = 0
+                    
+                    while True:
+                        chunk = process.stdout.read(8192)
+                        if not chunk:
+                            print(f"Camera {camera_id} pipe ended")
+                            break
+                        
+                        buffer += chunk
+                        
+                        # Extract JPEG frames
+                        while True:
+                            start = buffer.find(b'\xff\xd8')  # JPEG start
+                            if start == -1:
+                                break
+                            
+                            end = buffer.find(b'\xff\xd9', start)  # JPEG end
+                            if end == -1:
+                                break
+                            
+                            # Extract frame
+                            frame = buffer[start:end + 2]
+                            buffer = buffer[end + 2:]
+                            
+                            # Add to queue (drop old frames if queue full)
+                            try:
+                                camera_frames[camera_id].put_nowait(frame)
+                                frame_count += 1
+                                
+                                if frame_count % 50 == 0:
+                                    print(f"📹 Camera {camera_id}: {frame_count} frames captured")
+                                    
+                            except queue.Full:
+                                # Remove old frame and add new one
+                                try:
+                                    camera_frames[camera_id].get_nowait()
+                                    camera_frames[camera_id].put_nowait(frame)
+                                except queue.Empty:
+                                    pass
+                
+                except Exception as e:
+                    print(f"❌ Camera {camera_id} pipe reader error: {e}")
+            
+            # Start camera pipe readers
+            for camera_id in [camera1_id, camera2_id]:
+                thread = threading.Thread(target=camera_pipe_reader, args=(camera_id,), daemon=True)
+                thread.start()
+                time.sleep(2)  # Stagger camera starts
+            
+            # Wait for cameras to start producing frames
+            print("Waiting for camera pipes to start...")
+            time.sleep(5)
+            
+            # Check if we have frames
+            frames_ready = 0
+            for camera_id in [camera1_id, camera2_id]:
+                if not camera_frames[camera_id].empty():
+                    print(f"✅ Camera {camera_id} frames ready")
+                    frames_ready += 1
+                else:
+                    print(f"⚠️ Camera {camera_id} no frames yet")
+            
+            if frames_ready == 0:
+                raise Exception("No camera frames available")
+            
+            # Start HTTP server
+            http_port = 8080
+            server = http.server.HTTPServer(('localhost', http_port), PipeStreamHandler)
+            server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+            server_thread.start()
+            
+            print(f"✅ Pipe-based dual camera streaming ready!")
+            print(f"🎥 Open your browser: http://localhost:{http_port}")
+            print(f"📱 Or from another device: http://{self._get_local_ip()}:{http_port}")
+            print(f"\n🔧 Using direct pipe streaming (no TCP)")
+            print(f"📹 Cameras: {camera1_id} and {camera2_id}")
+            print("Press Ctrl+C to stop streaming")
+            
+            # Keep running
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\nStopping pipe streaming...")
+            
+            server.shutdown()
+            return True
+            
+        except Exception as e:
+            print(f"❌ Pipe streaming failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+        finally:
+            # Cleanup
+            print("Cleaning up camera processes...")
+            for camera_id, process in camera_processes.items():
+                try:
+                    process.terminate()
+                    process.wait(timeout=3)
+                except:
+                    try:
+                        process.kill()
+                    except:
+                        pass
 
     def _try_mjpeg_video_stream(self, available_cameras: list) -> bool:
         """Alternative MJPEG streaming method using VLC-compatible streams"""
