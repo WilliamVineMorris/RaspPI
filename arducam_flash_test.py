@@ -678,72 +678,122 @@ class ArducamFlashCapture:
             print("  - Press 'q' in ffplay window to exit")
             print("  - Duration: 30 seconds")
             
-            # Create named pipes for camera streams
+            # Use a more robust approach with proper file handling
             import tempfile
             temp_dir = tempfile.gettempdir()
             
-            # Start both cameras as video streams
-            camera_processes = []
-            pipe_files = []
-            
-            for camera_id in available_cameras[:2]:  # Limit to 2 cameras
-                pipe_file = f"{temp_dir}/camera_{camera_id}_stream.h264"
-                pipe_files.append(pipe_file)
+            # Create output files for camera streams
+            stream_files = []
+            for camera_id in available_cameras[:2]:
+                stream_path = f"{temp_dir}/camera_{camera_id}_stream.h264"
                 
-                # Start rpicam-vid for this camera
+                # Remove existing file if it exists
+                if os.path.exists(stream_path):
+                    os.remove(stream_path)
+                
+                stream_files.append(stream_path)
+                print(f"Stream file for Camera {camera_id}: {stream_path}")
+            
+            # Start camera processes with better buffering and error handling
+            camera_processes = []
+            
+            for i, camera_id in enumerate(available_cameras[:2]):
+                # Add delay between camera starts to avoid conflicts
+                if i > 0:
+                    time.sleep(1)
+                
                 process = subprocess.Popen([
                     'rpicam-vid',
                     '--camera', str(camera_id),
-                    '--timeout', '30000',  # 30 seconds
+                    '--timeout', '35000',  # Slightly longer than ffmpeg
                     '--width', '640',
                     '--height', '480',
-                    '--framerate', '15',
-                    '--output', pipe_file,
+                    '--framerate', '10',  # Lower framerate for stability
+                    '--bitrate', '1000000',  # 1Mbps for better quality
+                    '--intra', '10',  # Keyframe every 10 frames
+                    '--flush',  # Flush buffers immediately
+                    '--output', stream_files[i],
                     '--nopreview'
-                ])
+                ], stderr=subprocess.PIPE)
+                
                 camera_processes.append(process)
-                print(f"Started video stream for Camera {camera_id}")
+                print(f"Started Camera {camera_id} video stream (PID: {process.pid})")
             
-            # Give cameras time to start
-            time.sleep(2)
+            # Wait for cameras to initialize
+            print("Waiting for camera streams to stabilize...")
+            time.sleep(3)
             
-            # Use ffmpeg to combine streams side-by-side
+            # Check if camera processes are still running
+            for i, process in enumerate(camera_processes):
+                if process.poll() is not None:
+                    stderr_output = process.stderr.read().decode() if process.stderr else "No error output"
+                    print(f"❌ Camera {available_cameras[i]} process exited early: {stderr_output}")
+                    raise Exception(f"Camera {available_cameras[i]} failed to start")
+            
+            # Use more robust ffmpeg command with proper error handling
             ffmpeg_cmd = [
                 'ffmpeg',
-                '-f', 'h264', '-i', pipe_files[0],
-                '-f', 'h264', '-i', pipe_files[1] if len(pipe_files) > 1 else pipe_files[0],
-                '-filter_complex', '[0:v]scale=640:480[left];[1:v]scale=640:480[right];[left][right]hstack=inputs=2',
-                '-f', 'sdl', '-window_title', 'Dual Camera Preview - Press Q to exit',
+                '-f', 'h264',
+                '-fflags', '+genpts',  # Generate presentation timestamps
+                '-r', '10',  # Input framerate
+                '-i', stream_files[0],
+                '-f', 'h264',
+                '-fflags', '+genpts',
+                '-r', '10',
+                '-i', stream_files[1] if len(stream_files) > 1 else stream_files[0],
+                '-filter_complex', 
+                '[0:v]scale=640:480,setpts=PTS-STARTPTS[left];[1:v]scale=640:480,setpts=PTS-STARTPTS[right];[left][right]hstack=inputs=2',
+                '-f', 'sdl',
+                '-window_title', 'Dual Camera Preview - Press Q to exit',
+                '-t', '30',  # 30 second duration
                 '-'
             ]
             
             print("🎬 Starting combined preview - press 'q' in video window to exit")
+            print("Note: It may take a few seconds for video to appear...")
             
-            # Start ffmpeg display
-            ffmpeg_process = subprocess.Popen(ffmpeg_cmd)
+            # Start ffmpeg with better error handling
+            try:
+                ffmpeg_process = subprocess.run(ffmpeg_cmd, timeout=35, 
+                                              capture_output=True, text=True)
+                
+                if ffmpeg_process.returncode != 0:
+                    print(f"FFmpeg error: {ffmpeg_process.stderr}")
+                    raise subprocess.CalledProcessError(ffmpeg_process.returncode, ffmpeg_cmd)
+                    
+            except subprocess.TimeoutExpired:
+                print("Preview completed (timeout reached)")
+            except KeyboardInterrupt:
+                print("Preview stopped by user")
             
-            # Wait for completion or user termination
-            ffmpeg_process.wait()
-            
-            # Cleanup camera processes
-            for process in camera_processes:
-                if process.poll() is None:
-                    process.terminate()
-            
-            # Cleanup pipe files
-            for pipe_file in pipe_files:
-                if os.path.exists(pipe_file):
-                    os.remove(pipe_file)
-            
-            print("✅ True side-by-side preview completed!")
+            print("✅ Combined preview completed!")
             return True
             
-        except subprocess.CalledProcessError:
-            print("❌ FFmpeg not available - falling back to switching method")
+        except subprocess.CalledProcessError as e:
+            print(f"❌ FFmpeg error: {e}")
             return False
         except Exception as e:
-            print(f"❌ FFmpeg method failed: {e} - falling back to switching method")
+            print(f"❌ FFmpeg method failed: {e}")
             return False
+        finally:
+            # Cleanup processes
+            try:
+                for process in camera_processes:
+                    if process.poll() is None:
+                        process.terminate()
+                        time.sleep(1)
+                        if process.poll() is None:
+                            process.kill()
+            except:
+                pass
+            
+            # Cleanup stream files
+            try:
+                for stream_file in stream_files:
+                    if os.path.exists(stream_file):
+                        os.remove(stream_file)
+            except:
+                pass
     
     def _show_resolution_menu(self):
         """Display resolution settings menu"""
