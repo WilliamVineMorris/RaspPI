@@ -292,6 +292,8 @@ class ArducamFlashTest:
         
         # Try methods in order of reliability
         methods = [
+            ("Real-time Video Stream", self._try_video_stream_method),
+            ("MJPEG Video Stream", self._try_mjpeg_video_stream),
             ("Web Stream Method", self._try_web_stream_method),
             ("Simple MJPEG Test", self._try_simple_mjpeg_test),
             ("MJPEG Streaming", self._try_mjpeg_ffmpeg_method),
@@ -326,6 +328,311 @@ class ArducamFlashTest:
                 self._custom_opencv_viewer(available_cameras)
         except:
             pass
+    
+    def _try_video_stream_method(self, available_cameras: list) -> bool:
+        """Real-time video streaming using HTTP MJPEG streams"""
+        print("🎥 Trying real-time video streaming...")
+        print("This creates live MJPEG video streams accessible via web browser")
+        
+        try:
+            import threading
+            import http.server
+            import socketserver
+            from urllib.parse import urlparse
+            
+            # Create a custom HTTP handler for MJPEG streaming
+            class MJPEGStreamHandler(http.server.BaseHTTPRequestHandler):
+                def __init__(self, *args, camera_streams=None, **kwargs):
+                    self.camera_streams = camera_streams or {}
+                    super().__init__(*args, **kwargs)
+                
+                def do_GET(self):
+                    if self.path == '/':
+                        self.send_dual_camera_page()
+                    elif self.path == '/camera0.mjpg':
+                        self.stream_camera(0)
+                    elif self.path == '/camera1.mjpg':
+                        self.stream_camera(1)
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                
+                def send_dual_camera_page(self):
+                    html_content = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Real-time Dual Camera Stream</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; margin: 0; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .camera-container { display: inline-block; margin: 10px; vertical-align: top; }
+        .camera-stream { border: 3px solid #333; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }
+        h1 { color: #333; margin-bottom: 10px; }
+        h3 { color: #666; margin: 10px 0; }
+        .status { color: #666; margin: 10px; font-size: 14px; }
+        .controls { margin: 20px 0; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; background: #007bff; color: white; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .info { background: #e9ecef; padding: 15px; border-radius: 8px; margin: 20px 0; }
+    </style>
+    <script>
+        function reloadStreams() {
+            var cam1 = document.getElementById('cam1');
+            var cam2 = document.getElementById('cam2');
+            var timestamp = new Date().getTime();
+            cam1.src = '/camera0.mjpg?' + timestamp;
+            cam2.src = '/camera1.mjpg?' + timestamp;
+        }
+        
+        window.onload = function() {
+            console.log('Dual camera streaming page loaded');
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>🎥 Real-time Dual Camera Stream</h1>
+        <div class="status">Live MJPEG video streams • Real-time updates</div>
+        
+        <div>
+            <div class="camera-container">
+                <h3>📷 Camera 0</h3>
+                <img id="cam1" class="camera-stream" src="/camera0.mjpg" width="640" height="480" alt="Camera 0 Stream" />
+            </div>
+            
+            <div class="camera-container">
+                <h3>📷 Camera 1</h3>
+                <img id="cam2" class="camera-stream" src="/camera1.mjpg" width="640" height="480" alt="Camera 1 Stream" />
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button onclick="reloadStreams()">🔄 Reload Streams</button>
+            <button onclick="window.location.reload()">♻️ Refresh Page</button>
+        </div>
+        
+        <div class="info">
+            <strong>🎯 Real-time Video Streaming Active</strong><br>
+            These are live MJPEG video streams updating continuously.<br>
+            Press Ctrl+C in the terminal to stop streaming.
+        </div>
+    </div>
+</body>
+</html>
+"""
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html')
+                    self.end_headers()
+                    self.wfile.write(html_content.encode())
+                
+                def stream_camera(self, camera_id):
+                    if camera_id not in self.camera_streams:
+                        self.send_response(404)
+                        self.end_headers()
+                        return
+                    
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
+                    self.send_header('Cache-Control', 'no-cache')
+                    self.end_headers()
+                    
+                    try:
+                        # Read from the camera's MJPEG stream file
+                        stream_file = self.camera_streams[camera_id]
+                        
+                        while True:
+                            if os.path.exists(stream_file) and os.path.getsize(stream_file) > 0:
+                                try:
+                                    # Read the latest MJPEG data
+                                    with open(stream_file, 'rb') as f:
+                                        # Read all data
+                                        data = f.read()
+                                        
+                                        # Find the last complete JPEG frame
+                                        jpeg_start = data.rfind(b'\xff\xd8')  # JPEG start
+                                        if jpeg_start != -1:
+                                            jpeg_end = data.find(b'\xff\xd9', jpeg_start)  # JPEG end
+                                            if jpeg_end != -1:
+                                                frame_data = data[jpeg_start:jpeg_end + 2]
+                                                
+                                                # Send the frame
+                                                self.wfile.write(b'\r\n--frame\r\n')
+                                                self.wfile.write(b'Content-Type: image/jpeg\r\n')
+                                                self.wfile.write(f'Content-Length: {len(frame_data)}\r\n\r\n'.encode())
+                                                self.wfile.write(frame_data)
+                                                self.wfile.write(b'\r\n')
+                                                
+                                except Exception as e:
+                                    pass
+                            
+                            time.sleep(0.033)  # ~30 FPS
+                            
+                    except Exception as e:
+                        pass
+                
+                def log_message(self, format, *args):
+                    pass  # Suppress HTTP log messages
+            
+            # Start camera processes with continuous MJPEG streams
+            cam_processes = []
+            camera_streams = {}
+            
+            for camera_id in available_cameras[:2]:
+                stream_file = f"/tmp/camera_{camera_id}_live_stream.mjpg"
+                camera_streams[camera_id] = stream_file
+                
+                # Remove existing file
+                if os.path.exists(stream_file):
+                    os.remove(stream_file)
+                
+                print(f"Starting real-time stream for camera {camera_id}...")
+                process = subprocess.Popen([
+                    'rpicam-vid',
+                    '--camera', str(camera_id),
+                    '--timeout', '0',  # Infinite
+                    '--width', '640',
+                    '--height', '480',
+                    '--framerate', '30',  # Higher framerate for smooth video
+                    '--codec', 'mjpeg',
+                    '--quality', '85',
+                    '--output', stream_file,
+                    '--nopreview',
+                    '--flush'
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                cam_processes.append(process)
+                time.sleep(1)
+            
+            # Wait for streams to start
+            print("Waiting for video streams to initialize...")
+            time.sleep(3)
+            
+            # Check if streams are ready
+            for camera_id, stream_file in camera_streams.items():
+                if not os.path.exists(stream_file) or os.path.getsize(stream_file) < 1000:
+                    raise Exception(f"Camera {camera_id} video stream not ready")
+                print(f"✅ Camera {camera_id} video stream ready: {os.path.getsize(stream_file)} bytes")
+            
+            # Create HTTP server with camera streams
+            def create_handler(*args, **kwargs):
+                return MJPEGStreamHandler(*args, camera_streams=camera_streams, **kwargs)
+            
+            port = 8080
+            
+            def start_server():
+                with socketserver.TCPServer(("", port), create_handler) as httpd:
+                    httpd.serve_forever()
+            
+            server_thread = threading.Thread(target=start_server, daemon=True)
+            server_thread.start()
+            
+            print(f"✅ Real-time video streaming server started!")
+            print(f"🎥 Open your browser and go to: http://localhost:{port}")
+            print(f"📱 Or from another device: http://{self._get_local_ip()}:{port}")
+            print("\n🎯 You'll see LIVE VIDEO STREAMS from both cameras side by side!")
+            print("📊 Streaming at 30 FPS with real-time MJPEG video")
+            print("Press Ctrl+C to stop video streaming")
+            
+            # Keep running until interrupted
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\nStopping video streams...")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Real-time video streaming failed: {e}")
+            return False
+        finally:
+            # Cleanup
+            print("Cleaning up video streams...")
+            for process in cam_processes:
+                try:
+                    process.terminate()
+                    process.wait(timeout=2)
+                except:
+                    process.kill()
+            
+            # Clean up stream files
+            for camera_id in available_cameras[:2]:
+                stream_file = f"/tmp/camera_{camera_id}_live_stream.mjpg"
+                try:
+                    if os.path.exists(stream_file):
+                        os.remove(stream_file)
+                except:
+                    pass
+    
+    def _try_mjpeg_video_stream(self, available_cameras: list) -> bool:
+        """Alternative MJPEG streaming method using VLC-compatible streams"""
+        print("📺 Trying VLC-compatible MJPEG streaming...")
+        print("This creates streams that can be opened in VLC Media Player")
+        
+        try:
+            # Start MJPEG streams on different ports
+            cam_processes = []
+            stream_ports = []
+            
+            for i, camera_id in enumerate(available_cameras[:2]):
+                port = 8090 + i
+                stream_ports.append(port)
+                
+                print(f"Starting MJPEG HTTP stream for camera {camera_id} on port {port}...")
+                process = subprocess.Popen([
+                    'rpicam-vid',
+                    '--camera', str(camera_id),
+                    '--timeout', '0',
+                    '--width', '640',
+                    '--height', '480',
+                    '--framerate', '25',
+                    '--codec', 'mjpeg',
+                    '--listen',  # HTTP server mode
+                    '--output', f'tcp://0.0.0.0:{port}'
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                cam_processes.append(process)
+                time.sleep(2)
+            
+            # Wait for streams to start
+            time.sleep(3)
+            
+            print("✅ MJPEG HTTP streams started!")
+            print(f"🎥 Camera 0 stream: http://localhost:{stream_ports[0]}")
+            if len(stream_ports) > 1:
+                print(f"🎥 Camera 1 stream: http://localhost:{stream_ports[1]}")
+            
+            print("\n📺 You can open these URLs in:")
+            print("  • VLC Media Player (Media → Open Network Stream)")
+            print("  • Any web browser")
+            print("  • Video streaming applications")
+            
+            print("\n💡 For side-by-side viewing:")
+            print("  • Open VLC twice with different stream URLs")
+            print("  • Or use a multi-stream video player")
+            
+            print("\nPress Ctrl+C to stop streams")
+            
+            # Keep running
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\nStopping MJPEG streams...")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ MJPEG video streaming failed: {e}")
+            return False
+        finally:
+            for process in cam_processes:
+                try:
+                    process.terminate()
+                    process.wait(timeout=2)
+                except:
+                    process.kill()
     
     def _try_web_stream_method(self, available_cameras: list) -> bool:
         """Try web-based streaming that works without SDL/display"""
