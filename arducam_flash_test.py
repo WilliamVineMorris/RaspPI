@@ -269,26 +269,146 @@ class ArducamFlashTest:
             print("❌ Need at least 2 cameras")
             return
         
-        # Try multiple FFmpeg methods in order of reliability
+        # First, let's test if we can create simple camera streams
+        print("🔍 Testing basic camera functionality...")
+        for camera_id in available_cameras[:2]:
+            try:
+                test_result = subprocess.run([
+                    'rpicam-vid', '--camera', str(camera_id), '--timeout', '1000', '--nopreview',
+                    '--codec', 'mjpeg', '--output', f'/tmp/test_cam_{camera_id}.mjpeg'
+                ], capture_output=True, timeout=10)
+                
+                if test_result.returncode == 0:
+                    print(f"✅ Camera {camera_id} test successful")
+                    # Clean up test file
+                    test_file = f'/tmp/test_cam_{camera_id}.mjpeg'
+                    if os.path.exists(test_file):
+                        os.remove(test_file)
+                else:
+                    print(f"❌ Camera {camera_id} test failed: {test_result.stderr.decode()}")
+                    
+            except Exception as e:
+                print(f"❌ Camera {camera_id} test error: {e}")
+        
+        # Try methods in order of reliability
         methods = [
-            self._try_mjpeg_ffmpeg_method,
-            self._try_raw_ffmpeg_method,
-            self._try_file_based_ffmpeg_method,
-            self._try_udp_ffmpeg_method
+            ("Simple MJPEG Test", self._try_simple_mjpeg_test),
+            ("MJPEG Streaming", self._try_mjpeg_ffmpeg_method),
+            ("Raw YUV Method", self._try_raw_ffmpeg_method),
+            ("File-based H.264", self._try_file_based_ffmpeg_method),
+            ("UDP Streaming", self._try_udp_ffmpeg_method)
         ]
         
-        for i, method in enumerate(methods, 1):
+        for i, (name, method) in enumerate(methods, 1):
             try:
-                print(f"🔄 Trying method {i}/4...")
+                print(f"\n🔄 Trying method {i}/{len(methods)}: {name}")
                 if method(available_cameras):
+                    print(f"✅ {name} completed successfully")
                     return  # Success, exit
+                else:
+                    print(f"❌ {name} failed")
             except Exception as e:
-                print(f"Method {i} failed: {e}")
+                print(f"❌ {name} error: {e}")
                 continue
         
-        print("❌ All FFmpeg methods failed")
-        print("💡 Recommendation: Use option 4 (Custom OpenCV viewer) instead")
-        print("💡 The custom viewer provides reliable dual camera display")
+        print("\n❌ All FFmpeg methods failed")
+        print("💡 If FFmpeg issues persist, here are alternatives:")
+        print("  1. Option 4 (Custom OpenCV viewer) - Most reliable")
+        print("  2. Option 2 (Side-by-side windows) - Uses native rpicam-hello") 
+        print("  3. Option 1 (Fast switching) - Simple and reliable")
+        
+        # Offer to try the reliable custom viewer
+        try:
+            choice = input("\nWould you like to try the Custom OpenCV viewer instead? (y/n): ").strip().lower()
+            if choice in ['y', 'yes']:
+                print("\n🎨 Launching Custom OpenCV viewer...")
+                self._custom_opencv_viewer(available_cameras)
+        except:
+            pass
+    
+    def _try_simple_mjpeg_test(self, available_cameras: list) -> bool:
+        """Simple test to see if we can display one camera with FFmpeg"""
+        print("📹 Testing simple single camera FFmpeg display...")
+        
+        try:
+            camera_id = available_cameras[0]
+            temp_file = f"/tmp/simple_test_cam_{camera_id}.mjpeg"
+            
+            # Remove existing file
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+            
+            print(f"Starting camera {camera_id} MJPEG stream...")
+            cam_process = subprocess.Popen([
+                'rpicam-vid',
+                '--camera', str(camera_id),
+                '--timeout', '0',
+                '--width', '640',
+                '--height', '480',
+                '--framerate', '10',
+                '--codec', 'mjpeg',
+                '--output', temp_file,
+                '--nopreview',
+                '--flush'
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            
+            # Wait for file to be created
+            print("Waiting for stream file...")
+            for i in range(10):
+                time.sleep(1)
+                if os.path.exists(temp_file) and os.path.getsize(temp_file) > 1000:
+                    print(f"✅ Stream file ready: {os.path.getsize(temp_file)} bytes")
+                    break
+                print(f"Waiting... {i+1}/10")
+            else:
+                # Check what went wrong
+                if cam_process.poll() is not None:
+                    stdout, stderr = cam_process.communicate()
+                    print(f"Camera process failed:")
+                    print(f"stdout: {stdout.decode()}")
+                    print(f"stderr: {stderr.decode()}")
+                raise Exception("Stream file not ready")
+            
+            # Try to display with FFmpeg
+            print("Testing FFmpeg display...")
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-re', '-f', 'mjpeg', '-i', temp_file,
+                '-f', 'sdl', '-window_title', 'Single Camera Test', 'display'
+            ]
+            
+            print("FFmpeg command:", ' '.join(ffmpeg_cmd))
+            ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            
+            # Wait for FFmpeg to start
+            print("Starting FFmpeg (will run for 10 seconds)...")
+            try:
+                ffmpeg_process.wait(timeout=10)
+                print("FFmpeg completed")
+            except subprocess.TimeoutExpired:
+                print("FFmpeg timeout - terminating")
+                ffmpeg_process.terminate()
+                
+            # Get FFmpeg output
+            stdout, stderr = ffmpeg_process.communicate(timeout=5)
+            if stderr:
+                print(f"FFmpeg stderr: {stderr.decode()}")
+                
+            return True
+            
+        except Exception as e:
+            print(f"Simple test failed: {e}")
+            return False
+        finally:
+            # Cleanup
+            try:
+                cam_process.terminate()
+                cam_process.wait(timeout=2)
+            except:
+                cam_process.kill()
+            
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
     
     def _try_mjpeg_ffmpeg_method(self, available_cameras: list) -> bool:
         """Try MJPEG streaming - most reliable method"""
