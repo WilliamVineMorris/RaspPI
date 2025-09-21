@@ -293,6 +293,7 @@ class ArducamFlashTest:
         methods = [
             ("Real-time Video Stream", self._try_video_stream_method, "🎥 Live MJPEG video streams with web interface"),
             ("MJPEG Video Stream", self._try_mjpeg_video_stream, "📺 VLC-compatible HTTP streams"),
+            ("Alternating Camera Stream", self._try_alternating_stream_method, "🔄 Alternating dual camera display"),
             ("Web Image Stream", self._try_web_stream_method, "🌐 Web-based still image updates"),
             ("Simple MJPEG Test", self._try_simple_mjpeg_test, "📹 Single camera FFmpeg test"),
             ("MJPEG File Streaming", self._try_mjpeg_ffmpeg_method, "📁 File-based dual MJPEG"),
@@ -429,53 +430,93 @@ class ArducamFlashTest:
                     self.wfile.write(html_content.encode())
                 
                 def stream_tcp_camera(self, tcp_port):
-                    """Stream from TCP port where camera is outputting MJPEG"""
+                    """Stream from TCP port where camera is outputting MJPEG with retries"""
                     self.send_response(200)
                     self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
                     self.send_header('Cache-Control', 'no-cache')
+                    self.send_header('Access-Control-Allow-Origin', '*')
                     self.end_headers()
                     
-                    try:
-                        # Connect to camera's TCP stream
-                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                        sock.settimeout(5)
-                        sock.connect(('localhost', tcp_port))
-                        
-                        buffer = b''
-                        while True:
-                            data = sock.recv(8192)
-                            if not data:
-                                break
-                            
-                            buffer += data
-                            
-                            # Look for JPEG frames in buffer
-                            while True:
-                                start = buffer.find(b'\xff\xd8')  # JPEG start
-                                if start == -1:
-                                    break
-                                
-                                end = buffer.find(b'\xff\xd9', start)  # JPEG end
-                                if end == -1:
-                                    break
-                                
-                                # Extract complete JPEG frame
-                                frame = buffer[start:end + 2]
-                                buffer = buffer[end + 2:]
-                                
-                                # Send frame to browser
-                                self.wfile.write(b'\r\n--frame\r\n')
-                                self.wfile.write(b'Content-Type: image/jpeg\r\n')
-                                self.wfile.write(f'Content-Length: {len(frame)}\r\n\r\n'.encode())
-                                self.wfile.write(frame)
-                                
-                    except Exception as e:
-                        print(f"TCP streaming error: {e}")
-                    finally:
+                    max_retries = 10
+                    retry_delay = 1
+                    
+                    for attempt in range(max_retries):
                         try:
+                            print(f"Attempting to connect to camera TCP port {tcp_port} (attempt {attempt + 1})")
+                            
+                            # Connect to camera's TCP stream
+                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            sock.settimeout(10)
+                            sock.connect(('localhost', tcp_port))
+                            
+                            print(f"✅ Connected to camera TCP port {tcp_port}")
+                            
+                            buffer = b''
+                            frame_count = 0
+                            
+                            while True:
+                                try:
+                                    data = sock.recv(8192)
+                                    if not data:
+                                        print(f"No more data from port {tcp_port}")
+                                        break
+                                    
+                                    buffer += data
+                                    
+                                    # Look for JPEG frames in buffer
+                                    while True:
+                                        start = buffer.find(b'\xff\xd8')  # JPEG start
+                                        if start == -1:
+                                            break
+                                        
+                                        end = buffer.find(b'\xff\xd9', start)  # JPEG end
+                                        if end == -1:
+                                            break
+                                        
+                                        # Extract complete JPEG frame
+                                        frame = buffer[start:end + 2]
+                                        buffer = buffer[end + 2:]
+                                        
+                                        # Send frame to browser
+                                        self.wfile.write(b'\r\n--frame\r\n')
+                                        self.wfile.write(b'Content-Type: image/jpeg\r\n')
+                                        self.wfile.write(f'Content-Length: {len(frame)}\r\n\r\n'.encode())
+                                        self.wfile.write(frame)
+                                        
+                                        frame_count += 1
+                                        if frame_count % 30 == 0:  # Log every 30 frames
+                                            print(f"📺 Port {tcp_port}: {frame_count} frames streamed")
+                                        
+                                except socket.timeout:
+                                    print(f"Timeout reading from port {tcp_port}")
+                                    break
+                                except Exception as e:
+                                    print(f"Error reading frame from port {tcp_port}: {e}")
+                                    break
+                            
                             sock.close()
-                        except:
-                            pass
+                            return  # Successfully streamed
+                            
+                        except ConnectionRefusedError:
+                            print(f"❌ Connection refused to port {tcp_port} (attempt {attempt + 1})")
+                            if attempt < max_retries - 1:
+                                print(f"Retrying in {retry_delay} seconds...")
+                                time.sleep(retry_delay)
+                                continue
+                            else:
+                                print(f"❌ Failed to connect to port {tcp_port} after {max_retries} attempts")
+                                break
+                        except Exception as e:
+                            print(f"TCP streaming error on port {tcp_port}: {e}")
+                            if attempt < max_retries - 1:
+                                time.sleep(retry_delay)
+                                continue
+                            else:
+                                break
+                    
+                    # If we get here, all attempts failed
+                    error_msg = f"Failed to connect to camera stream on port {tcp_port}"
+                    self.wfile.write(f"--frame\r\nContent-Type: text/plain\r\n\r\n{error_msg}\r\n".encode())
                 
                 def log_message(self, format, *args):
                     pass  # Suppress HTTP log messages
@@ -488,37 +529,86 @@ class ArducamFlashTest:
                 tcp_port = tcp_ports[i]
                 
                 print(f"Starting camera {camera_id} on TCP port {tcp_port}...")
+                
+                # First check if camera is available
+                test_cmd = ['rpicam-hello', '--camera', str(camera_id), '--timeout', '1000']
+                test_result = subprocess.run(test_cmd, capture_output=True, timeout=10)
+                
+                if test_result.returncode != 0:
+                    print(f"❌ Camera {camera_id} not available or busy")
+                    continue
+                
+                # Start the camera stream
                 process = subprocess.Popen([
                     'rpicam-vid',
                     '--camera', str(camera_id),
                     '--timeout', '0',  # Infinite
                     '--width', '640',
                     '--height', '480',
-                    '--framerate', '30',
+                    '--framerate', '15',  # Reduced framerate for stability
                     '--codec', 'mjpeg',
-                    '--quality', '85',
+                    '--quality', '80',
                     '--listen',  # TCP server mode
                     '--output', f'tcp://0.0.0.0:{tcp_port}',
-                    '--nopreview'
+                    '--nopreview',
+                    '--flush'  # Ensure immediate output
                 ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 
                 cam_processes.append(process)
-                time.sleep(2)  # Let each camera start before starting the next
+                
+                # Give this camera time to fully start
+                print(f"Waiting for camera {camera_id} to initialize...")
+                time.sleep(4)
+                
+                # Check if process is still running
+                if process.poll() is not None:
+                    stdout, stderr = process.communicate()
+                    print(f"❌ Camera {camera_id} process failed:")
+                    print(f"   stdout: {stdout.decode()}")
+                    print(f"   stderr: {stderr.decode()}")
+                    continue
+                
+                print(f"✅ Camera {camera_id} process started successfully")
+            
+            if not cam_processes:
+                raise Exception("No camera processes started successfully")
             
             # Wait for TCP streams to be ready
             print("Waiting for TCP streams to initialize...")
-            time.sleep(5)
+            time.sleep(8)  # Give more time for streams to be ready
             
-            # Test TCP connections
-            for i, tcp_port in enumerate(tcp_ports):
-                try:
-                    test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    test_sock.settimeout(2)
-                    test_sock.connect(('localhost', tcp_port))
-                    test_sock.close()
-                    print(f"✅ Camera {[camera1_id, camera2_id][i]} TCP stream ready on port {tcp_port}")
-                except Exception as e:
-                    print(f"❌ Camera {[camera1_id, camera2_id][i]} TCP stream not ready: {e}")
+            # Test TCP connections with retries
+            ready_cameras = []
+            for i, tcp_port in enumerate(tcp_ports[:len(cam_processes)]):
+                camera_id = [camera1_id, camera2_id][i]
+                
+                for attempt in range(5):
+                    try:
+                        test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        test_sock.settimeout(3)
+                        test_sock.connect(('localhost', tcp_port))
+                        
+                        # Try to read a small amount of data to verify stream
+                        test_sock.settimeout(2)
+                        test_data = test_sock.recv(100)
+                        test_sock.close()
+                        
+                        if test_data:
+                            print(f"✅ Camera {camera_id} TCP stream ready on port {tcp_port} - {len(test_data)} bytes received")
+                            ready_cameras.append(camera_id)
+                            break
+                        else:
+                            print(f"⚠️ Camera {camera_id} TCP connected but no data (attempt {attempt + 1}/5)")
+                    except Exception as e:
+                        print(f"⚠️ Camera {camera_id} TCP test failed (attempt {attempt + 1}/5): {e}")
+                        if attempt < 4:
+                            time.sleep(2)
+                
+                if camera_id not in ready_cameras:
+                    print(f"❌ Camera {camera_id} TCP stream not ready after 5 attempts")
+            
+            if not ready_cameras:
+                raise Exception("No TCP streams are ready")
             
             # Start HTTP server
             http_port = 8080
@@ -565,6 +655,178 @@ class ArducamFlashTest:
                     except:
                         pass
     
+    def _try_alternating_stream_method(self, available_cameras: list) -> bool:
+        """Alternating camera display - shows cameras one at a time to avoid conflicts"""
+        print("🔄 Trying alternating camera stream...")
+        print("This switches between cameras every few seconds to avoid conflicts")
+        
+        if len(available_cameras) < 2:
+            print("❌ Need at least 2 cameras")
+            return False
+        
+        try:
+            import threading
+            import http.server
+            
+            camera1_id, camera2_id = available_cameras[0], available_cameras[1]
+            current_camera = 0
+            switch_interval = 3  # Switch every 3 seconds
+            
+            class AlternatingHandler(http.server.BaseHTTPRequestHandler):
+                def do_GET(self):
+                    if self.path == '/' or self.path == '/index.html':
+                        self.send_main_page()
+                    elif self.path == '/current_camera.jpg':
+                        self.send_current_camera_image()
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                
+                def send_main_page(self):
+                    html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Alternating Dual Camera</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; margin: 0; padding: 20px; }}
+        .container {{ max-width: 800px; margin: 0 auto; }}
+        .camera-display {{ border: 3px solid #28a745; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }}
+        h1 {{ color: #333; margin-bottom: 10px; }}
+        .status {{ color: #28a745; margin: 10px; font-size: 16px; font-weight: bold; }}
+        .info {{ background: #e9ecef; padding: 15px; border-radius: 8px; margin: 20px 0; }}
+        #cameraLabel {{ color: #666; margin: 10px 0; font-size: 18px; }}
+    </style>
+    <script>
+        function updateImage() {{
+            var img = document.getElementById('cameraImg');
+            var label = document.getElementById('cameraLabel');
+            var timestamp = new Date().getTime();
+            img.src = '/current_camera.jpg?' + timestamp;
+            
+            // Update every second
+            setTimeout(updateImage, 1000);
+        }}
+        
+        window.onload = function() {{
+            updateImage();
+        }}
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Alternating Dual Camera Stream</h1>
+        <div class="status">✅ Switching between cameras every {switch_interval} seconds</div>
+        
+        <div id="cameraLabel">📷 Current Camera: Loading...</div>
+        <img id="cameraImg" class="camera-display" width="640" height="480" alt="Camera Stream" />
+        
+        <div class="info">
+            <strong>🎯 Alternating Camera Display</strong><br>
+            Camera {camera1_id} and Camera {camera2_id} alternate to prevent conflicts.<br>
+            Images update every second, cameras switch every {switch_interval} seconds.<br>
+            Press Ctrl+C in the terminal to stop streaming.
+        </div>
+    </div>
+</body>
+</html>
+"""
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html')
+                    self.end_headers()
+                    self.wfile.write(html_content.encode())
+                
+                def send_current_camera_image(self):
+                    """Capture and send image from current camera"""
+                    try:
+                        current_cam_id = [camera1_id, camera2_id][current_camera]
+                        temp_file = f'/tmp/current_camera_{current_cam_id}.jpg'
+                        
+                        # Capture image
+                        capture_cmd = [
+                            'rpicam-still',
+                            '--camera', str(current_cam_id),
+                            '--width', '640',
+                            '--height', '480',
+                            '--quality', '85',
+                            '--timeout', '500',
+                            '--output', temp_file,
+                            '--nopreview'
+                        ]
+                        
+                        result = subprocess.run(capture_cmd, capture_output=True, timeout=3)
+                        
+                        if result.returncode == 0 and os.path.exists(temp_file):
+                            # Send the image
+                            with open(temp_file, 'rb') as f:
+                                image_data = f.read()
+                            
+                            self.send_response(200)
+                            self.send_header('Content-Type', 'image/jpeg')
+                            self.send_header('Content-Length', str(len(image_data)))
+                            self.send_header('Cache-Control', 'no-cache')
+                            self.end_headers()
+                            self.wfile.write(image_data)
+                            
+                            # Cleanup
+                            os.remove(temp_file)
+                        else:
+                            # Send error image
+                            self.send_error_image(f"Camera {current_cam_id} capture failed")
+                    
+                    except Exception as e:
+                        self.send_error_image(f"Error: {e}")
+                
+                def send_error_image(self, message):
+                    """Send a simple error message as text"""
+                    self.send_response(500)
+                    self.send_header('Content-Type', 'text/plain')
+                    self.end_headers()
+                    self.wfile.write(f"Error: {message}".encode())
+                
+                def log_message(self, format, *args):
+                    pass  # Suppress HTTP log messages
+            
+            # Camera switching function
+            def switch_cameras():
+                nonlocal current_camera
+                while True:
+                    time.sleep(switch_interval)
+                    current_camera = 1 - current_camera  # Switch between 0 and 1
+                    cam_name = [camera1_id, camera2_id][current_camera]
+                    print(f"🔄 Switched to Camera {cam_name}")
+            
+            # Start camera switching thread
+            switch_thread = threading.Thread(target=switch_cameras, daemon=True)
+            switch_thread.start()
+            
+            # Start HTTP server
+            http_port = 8080
+            server = http.server.HTTPServer(('localhost', http_port), AlternatingHandler)
+            server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+            server_thread.start()
+            
+            print(f"✅ Alternating camera streaming ready!")
+            print(f"🎥 Open your browser: http://localhost:{http_port}")
+            print(f"📱 Or from another device: http://{self._get_local_ip()}:{http_port}")
+            print(f"\n🔄 Cameras will alternate every {switch_interval} seconds")
+            print(f"📷 Camera {camera1_id} ↔️ Camera {camera2_id}")
+            print("Press Ctrl+C to stop streaming")
+            
+            # Keep running until interrupted
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\nStopping alternating stream...")
+            
+            server.shutdown()
+            return True
+            
+        except Exception as e:
+            print(f"❌ Alternating stream failed: {e}")
+            return False
+
     def _try_mjpeg_video_stream(self, available_cameras: list) -> bool:
         """Alternative MJPEG streaming method using VLC-compatible streams"""
         print("📺 Trying VLC-compatible MJPEG streaming...")
