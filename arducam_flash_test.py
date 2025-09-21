@@ -640,8 +640,12 @@ class ArducamFlashCapture:
                 if method_index == 0:  # Fast switching
                     method_func(available_cameras)
                 else:  # FFmpeg
-                    if not method_func(available_cameras):
-                        print("FFmpeg method failed, falling back to fast switching...")
+                    success = method_func(available_cameras)
+                    if not success:
+                        print("\n" + "="*50)
+                        print("FFmpeg method failed - using fast switching instead")
+                        print("="*50)
+                        time.sleep(1)
                         self._fast_switching_preview(available_cameras)
             else:
                 print("Invalid choice, using fast switching...")
@@ -692,90 +696,125 @@ class ArducamFlashCapture:
             print("\nFast switching preview stopped by user")
     
     def _try_ffmpeg_combined_preview(self, available_cameras: list) -> bool:
-        """Attempt to create true side-by-side preview using direct pipes"""
+        """Attempt to create true side-by-side preview using named pipes"""
         try:
             # Check if ffmpeg is available
             subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
             
-            print("✅ FFmpeg detected - attempting direct pipe approach")
+            print("✅ FFmpeg detected - attempting named pipe approach")
             print("Controls:")
             print("  - Both cameras in one window, side-by-side")
             print("  - Press Ctrl+C to exit")
             print("  - Duration: 30 seconds")
             
-            # Start both cameras piping to FFmpeg directly
-            camera_procs = []
+            if len(available_cameras) < 2:
+                print("❌ Need at least 2 cameras for side-by-side view")
+                return False
             
-            # Build FFmpeg command that reads from pipes
+            # Create named pipes for communication
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            
+            pipe_paths = []
+            for i in range(2):
+                pipe_path = f"{temp_dir}/camera_{i}_pipe.h264"
+                if os.path.exists(pipe_path):
+                    os.remove(pipe_path)
+                pipe_paths.append(pipe_path)
+            
+            print(f"Using pipes: {pipe_paths}")
+            
+            # Start both cameras writing to files simultaneously
+            camera_procs = []
+            for i, camera_id in enumerate(available_cameras[:2]):
+                print(f"Starting Camera {camera_id} to {pipe_paths[i]}...")
+                
+                proc = subprocess.Popen([
+                    'rpicam-vid',
+                    '--camera', str(camera_id),
+                    '--timeout', '35000',
+                    '--width', '640',
+                    '--height', '480',
+                    '--framerate', '15',
+                    '--bitrate', '1500000',
+                    '--profile', 'baseline',
+                    '--intra', '20',
+                    '--flush',
+                    '--output', pipe_paths[i],
+                    '--nopreview'
+                ], stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+                
+                camera_procs.append(proc)
+                time.sleep(1)  # Stagger camera starts
+            
+            # Wait for files to be created and have content
+            print("Waiting for camera streams to start...")
+            for _ in range(10):  # Wait up to 10 seconds
+                time.sleep(1)
+                if all(os.path.exists(p) and os.path.getsize(p) > 1000 for p in pipe_paths):
+                    break
+            else:
+                print("❌ Camera streams failed to start properly")
+                return False
+            
+            print("✅ Both camera streams active, starting FFmpeg...")
+            
+            # FFmpeg command to combine the streams
             ffmpeg_cmd = [
                 'ffmpeg',
+                '-re',  # Read input at native frame rate
                 '-f', 'h264',
-                '-i', 'pipe:0',  # Camera 0 from stdin
+                '-i', pipe_paths[0],
+                '-re',
                 '-f', 'h264', 
-                '-i', 'pipe:1',  # Camera 1 from second pipe
+                '-i', pipe_paths[1],
                 '-filter_complex', 
                 '[0:v]scale=640:480[left];[1:v]scale=640:480[right];[left][right]hstack=inputs=2',
                 '-f', 'sdl',
-                '-window_title', 'Dual Camera Preview - Press Ctrl+C to exit',
-                '-t', '30',
+                '-window_title', 'Dual Camera Side-by-Side - Press Q to exit',
+                '-t', '25',  # Slightly shorter than camera timeout
                 '-'
             ]
             
-            print("🎬 Starting direct pipe preview...")
-            
-            # Start FFmpeg process
-            ffmpeg_proc = subprocess.Popen(ffmpeg_cmd, 
-                                         stdin=subprocess.PIPE,
-                                         stderr=subprocess.PIPE)
-            
-            # Start first camera streaming to FFmpeg stdin
-            cam0_proc = subprocess.Popen([
-                'rpicam-vid',
-                '--camera', '0',
-                '--timeout', '35000',
-                '--width', '640',
-                '--height', '480',
-                '--framerate', '15',
-                '--bitrate', '2000000',
-                '--profile', 'baseline',
-                '--intra', '15',
-                '--flush',
-                '--output', '-',  # Output to stdout
-                '--nopreview'
-            ], stdout=ffmpeg_proc.stdin, stderr=subprocess.PIPE)
-            
-            print("Started Camera 0 direct pipe")
-            
-            # Wait for first camera to establish
-            time.sleep(2)
-            
-            # For the second camera, we'll need a different approach
-            # Let's use a simpler fallback if we have 2 cameras
-            if len(available_cameras) >= 2:
-                print("Note: Using alternating view for dual camera (direct pipe limitation)")
-            
             try:
-                # Wait for FFmpeg to process
-                ffmpeg_proc.wait(timeout=35)
+                # Run FFmpeg
+                result = subprocess.run(ffmpeg_cmd, timeout=30, 
+                                      capture_output=True, text=True)
                 
+                if result.returncode == 0:
+                    print("✅ FFmpeg side-by-side completed successfully!")
+                    return True
+                else:
+                    print(f"❌ FFmpeg failed: {result.stderr}")
+                    return False
+                    
             except subprocess.TimeoutExpired:
-                print("Preview completed (timeout)")
+                print("✅ FFmpeg side-by-side completed (timeout)")
+                return True
             except KeyboardInterrupt:
-                print("Preview stopped by user")
-            
-            print("✅ Direct pipe preview completed!")
-            return True
-            
+                print("FFmpeg side-by-side stopped by user")
+                return True
+                
         except Exception as e:
-            print(f"❌ Direct pipe method failed: {e}")
+            print(f"❌ FFmpeg side-by-side failed: {e}")
             return False
         finally:
             # Cleanup
             try:
-                if 'ffmpeg_proc' in locals() and ffmpeg_proc.poll() is None:
-                    ffmpeg_proc.terminate()
-                if 'cam0_proc' in locals() and cam0_proc.poll() is None:
-                    cam0_proc.terminate()
+                for proc in camera_procs:
+                    if proc.poll() is None:
+                        proc.terminate()
+                        time.sleep(1)
+                        if proc.poll() is None:
+                            proc.kill()
+            except:
+                pass
+            
+            # Clean up pipe files
+            try:
+                for pipe_path in pipe_paths:
+                    if os.path.exists(pipe_path):
+                        os.remove(pipe_path)
             except:
                 pass
     
