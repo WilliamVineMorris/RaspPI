@@ -872,6 +872,8 @@ class ArducamFlashTest:
             
             class PipeStreamHandler(http.server.BaseHTTPRequestHandler):
                 def do_GET(self):
+                    print(f"🌐 HTTP Request: {self.path} from {self.client_address[0]}")
+                    
                     if self.path == '/':
                         self.send_dual_camera_page()
                     elif self.path == '/camera1.mjpg':
@@ -881,10 +883,12 @@ class ArducamFlashTest:
                         print(f"📺 Browser requesting Camera {camera2_id} stream")
                         self.stream_camera_pipe(camera2_id)
                     else:
+                        print(f"❌ Unknown path requested: {self.path}")
                         self.send_response(404)
                         self.end_headers()
                 
                 def send_dual_camera_page(self):
+                    print(f"📄 Sending HTML page with camera streams: {camera1_id} and {camera2_id}")
                     html_content = f"""
 <!DOCTYPE html>
 <html>
