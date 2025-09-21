@@ -293,6 +293,7 @@ class ArducamFlashTest:
         methods = [
             ("Real-time Video Stream", self._try_video_stream_method, "🎥 Live MJPEG video streams with web interface"),
             ("Pipe-based Streaming", self._try_pipe_streaming_method, "🔧 Direct stdout pipe streaming"),
+            ("Simple Dual Images", self._try_simple_dual_images, "📸 Static image refresh method"),
             ("MJPEG Video Stream", self._try_mjpeg_video_stream, "📺 VLC-compatible HTTP streams"),
             ("Alternating Camera Stream", self._try_alternating_stream_method, "🔄 Alternating dual camera display"),
             ("Web Image Stream", self._try_web_stream_method, "🌐 Web-based still image updates"),
@@ -977,41 +978,53 @@ class ArducamFlashTest:
                     self.wfile.write(html_content.encode())
                 
                 def stream_camera_pipe(self, camera_id):
-                    """Stream from camera pipe queue"""
+                    """Stream from camera pipe queue with proper MJPEG format"""
                     print(f"🎬 Starting stream for camera {camera_id}")
                     
+                    # Send proper MJPEG streaming headers
                     self.send_response(200)
-                    self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
-                    self.send_header('Cache-Control', 'no-cache')
+                    self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=--boundary123')
+                    self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                    self.send_header('Pragma', 'no-cache') 
+                    self.send_header('Expires', '0')
                     self.send_header('Access-Control-Allow-Origin', '*')
+                    self.send_header('Connection', 'close')
                     self.end_headers()
                     
                     try:
                         frame_count = 0
                         consecutive_timeouts = 0
-                        max_timeouts = 5
+                        max_timeouts = 10  # Increased tolerance
                         
                         while True:
                             try:
-                                # Get latest frame from queue (timeout to avoid blocking)
-                                frame_data = camera_frames[camera_id].get(timeout=2)
+                                # Get latest frame from queue
+                                frame_data = camera_frames[camera_id].get(timeout=1)
                                 consecutive_timeouts = 0  # Reset timeout counter
                                 
-                                if frame_data:
-                                    # Send frame to browser
-                                    self.wfile.write(b'\r\n--frame\r\n')
-                                    self.wfile.write(b'Content-Type: image/jpeg\r\n')
-                                    self.wfile.write(f'Content-Length: {len(frame_data)}\r\n\r\n'.encode())
+                                if frame_data and len(frame_data) > 100:  # Ensure frame is valid
+                                    # Send MJPEG frame with proper boundary
+                                    boundary_header = b'\\r\\n--boundary123\\r\\n'
+                                    content_header = b'Content-Type: image/jpeg\\r\\n'
+                                    length_header = f'Content-Length: {len(frame_data)}\\r\\n\\r\\n'.encode()
+                                    
+                                    self.wfile.write(boundary_header)
+                                    self.wfile.write(content_header)
+                                    self.wfile.write(length_header)
                                     self.wfile.write(frame_data)
+                                    self.wfile.flush()  # Force send
                                     
                                     frame_count += 1
                                     if frame_count % 30 == 0:
                                         queue_size = camera_frames[camera_id].qsize()
                                         print(f"📺 Camera {camera_id}: {frame_count} frames served, queue: {queue_size}")
+                                else:
+                                    print(f"⚠️ Camera {camera_id}: Invalid frame data (size: {len(frame_data) if frame_data else 0})")
                                 
                             except queue.Empty:
                                 consecutive_timeouts += 1
-                                print(f"⚠️ No frames available for camera {camera_id} (timeout {consecutive_timeouts}/{max_timeouts})")
+                                if consecutive_timeouts <= 3:  # Only log first few timeouts
+                                    print(f"⚠️ No frames available for camera {camera_id} (timeout {consecutive_timeouts}/{max_timeouts})")
                                 
                                 if consecutive_timeouts >= max_timeouts:
                                     print(f"❌ Too many timeouts for camera {camera_id}, ending stream")
@@ -1203,6 +1216,202 @@ class ArducamFlashTest:
                         process.kill()
                     except:
                         pass
+
+    def _try_simple_dual_images(self, available_cameras: list) -> bool:
+        """Simple dual image display - takes photos from both cameras and refreshes"""
+        print("📸 Trying simple dual image method...")
+        print("This takes still photos from both cameras and refreshes them regularly")
+        
+        if len(available_cameras) < 2:
+            print("❌ Need at least 2 cameras")
+            return False
+        
+        try:
+            import threading
+            import http.server
+            
+            camera1_id, camera2_id = available_cameras[0], available_cameras[1]
+            
+            class DualImageHandler(http.server.BaseHTTPRequestHandler):
+                def do_GET(self):
+                    if self.path == '/':
+                        self.send_main_page()
+                    elif self.path == '/camera1.jpg':
+                        self.send_camera_image(camera1_id)
+                    elif self.path == '/camera2.jpg':
+                        self.send_camera_image(camera2_id)
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                
+                def send_main_page(self):
+                    html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Dual Camera Images</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; margin: 0; padding: 20px; }}
+        .container {{ max-width: 1400px; margin: 0 auto; }}
+        .camera-container {{ display: inline-block; margin: 15px; vertical-align: top; }}
+        .camera-image {{ border: 3px solid #28a745; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }}
+        h1 {{ color: #333; margin-bottom: 10px; }}
+        h3 {{ color: #666; margin: 10px 0; }}
+        .status {{ color: #28a745; margin: 10px; font-size: 16px; font-weight: bold; }}
+        .info {{ background: #e9ecef; padding: 15px; border-radius: 8px; margin: 20px 0; }}
+        .controls {{ margin: 20px 0; }}
+        button {{ padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; background: #007bff; color: white; cursor: pointer; }}
+        button:hover {{ background: #0056b3; }}
+    </style>
+    <script>
+        var refreshInterval;
+        var isRunning = false;
+        
+        function updateImages() {{
+            var timestamp = new Date().getTime();
+            document.getElementById('camera1').src = '/camera1.jpg?' + timestamp;
+            document.getElementById('camera2').src = '/camera2.jpg?' + timestamp;
+            console.log('📸 Updated both camera images');
+        }}
+        
+        function startAutoRefresh() {{
+            if (!isRunning) {{
+                refreshInterval = setInterval(updateImages, 2000); // Every 2 seconds
+                isRunning = true;
+                document.getElementById('startBtn').textContent = '⏹️ Stop Auto Refresh';
+                console.log('🔄 Started auto refresh');
+            }} else {{
+                clearInterval(refreshInterval);
+                isRunning = false;
+                document.getElementById('startBtn').textContent = '▶️ Start Auto Refresh';
+                console.log('⏹️ Stopped auto refresh');
+            }}
+        }}
+        
+        window.onload = function() {{
+            updateImages(); // Initial load
+            startAutoRefresh(); // Start automatically
+        }};
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>📸 Simple Dual Camera Images</h1>
+        <div class="status">✅ Static image method - highly reliable</div>
+        
+        <div class="controls">
+            <button onclick="updateImages()">📷 Take New Photos</button>
+            <button id="startBtn" onclick="startAutoRefresh()">⏹️ Stop Auto Refresh</button>
+        </div>
+        
+        <div>
+            <div class="camera-container">
+                <h3>📷 Camera {camera1_id}</h3>
+                <img id="camera1" class="camera-image" width="640" height="480" alt="Camera {camera1_id}" />
+            </div>
+            
+            <div class="camera-container">
+                <h3>📷 Camera {camera2_id}</h3>
+                <img id="camera2" class="camera-image" width="640" height="480" alt="Camera {camera2_id}" />
+            </div>
+        </div>
+        
+        <div class="info">
+            <strong>📸 Simple Image Method</strong><br>
+            Takes individual photos from each camera and refreshes every 2 seconds.<br>
+            No streaming conflicts - each camera is used independently.<br>
+            Use controls above to manually update or toggle auto-refresh.
+        </div>
+    </div>
+</body>
+</html>
+"""
+                    self.send_response(200)
+                    self.send_header('Content-type', 'text/html')
+                    self.end_headers()
+                    self.wfile.write(html_content.encode())
+                
+                def send_camera_image(self, camera_id):
+                    """Capture and send fresh image from specified camera"""
+                    try:
+                        temp_file = f'/tmp/dual_camera_{camera_id}.jpg'
+                        
+                        # Clean up existing file
+                        if os.path.exists(temp_file):
+                            os.remove(temp_file)
+                        
+                        # Capture fresh image
+                        capture_cmd = [
+                            'rpicam-still',
+                            '--camera', str(camera_id),
+                            '--width', '640',
+                            '--height', '480',
+                            '--quality', '90',
+                            '--timeout', '1000',
+                            '--output', temp_file,
+                            '--nopreview',
+                            '--immediate'
+                        ]
+                        
+                        result = subprocess.run(capture_cmd, capture_output=True, timeout=5)
+                        
+                        if result.returncode == 0 and os.path.exists(temp_file):
+                            with open(temp_file, 'rb') as f:
+                                image_data = f.read()
+                            
+                            self.send_response(200)
+                            self.send_header('Content-Type', 'image/jpeg')
+                            self.send_header('Content-Length', str(len(image_data)))
+                            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                            self.send_header('Pragma', 'no-cache')
+                            self.send_header('Expires', '0')
+                            self.end_headers()
+                            self.wfile.write(image_data)
+                            
+                            # Cleanup
+                            os.remove(temp_file)
+                            print(f"📸 Served fresh image from camera {camera_id}")
+                        else:
+                            self.send_error_response(f"Camera {camera_id} capture failed")
+                    
+                    except Exception as e:
+                        self.send_error_response(f"Camera {camera_id} error: {e}")
+                
+                def send_error_response(self, message):
+                    self.send_response(500)
+                    self.send_header('Content-Type', 'text/plain')
+                    self.end_headers()
+                    self.wfile.write(f"Error: {message}".encode())
+                
+                def log_message(self, format, *args):
+                    pass
+            
+            # Start HTTP server
+            http_port = 8080
+            server = http.server.HTTPServer(('localhost', http_port), DualImageHandler)
+            server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+            server_thread.start()
+            
+            print(f"✅ Simple dual camera images ready!")
+            print(f"📸 Open your browser: http://localhost:{http_port}")
+            print(f"📱 Or from another device: http://{self._get_local_ip()}:{http_port}")
+            print(f"\n📷 Cameras: {camera1_id} and {camera2_id}")
+            print("🔄 Images refresh automatically every 2 seconds")
+            print("Press Ctrl+C to stop")
+            
+            # Keep running
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\nStopping simple dual images...")
+            
+            server.shutdown()
+            return True
+            
+        except Exception as e:
+            print(f"❌ Simple dual images failed: {e}")
+            return False
 
     def _try_mjpeg_video_stream(self, available_cameras: list) -> bool:
         """Alternative MJPEG streaming method using VLC-compatible streams"""
