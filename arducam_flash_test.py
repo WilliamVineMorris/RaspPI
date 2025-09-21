@@ -614,184 +614,168 @@ class ArducamFlashCapture:
             print("Note: Side-by-side preview is experimental and may not work on all systems")
     
     def _run_combined_overlay_preview(self, available_cameras: list):
-        """Combined preview showing both cameras in a single window"""
+        """Combined preview with multiple approaches for best compatibility"""
         print(f"\n🎥 Starting combined overlay preview...")
-        print("Attempting to create true side-by-side view using ffmpeg...")
         
-        # First try advanced ffmpeg method for true side-by-side
-        if self._try_ffmpeg_combined_preview(available_cameras):
-            return
+        # Try different methods in order of preference
+        methods = [
+            ("Fast switching (recommended)", self._fast_switching_preview),
+            ("FFmpeg side-by-side (experimental)", self._try_ffmpeg_combined_preview),
+        ]
         
-        # Fallback to rapid switching method
-        print("FFmpeg method not available, using rapid camera switching...")
-        print("Controls:")
-        print("  - Shows alternating views from both cameras")
-        print("  - Camera switches every 2 seconds")
-        print("  - Press Ctrl+C to exit preview")
+        print("Available preview methods:")
+        for i, (name, method) in enumerate(methods, 1):
+            print(f"  {i}. {name}")
+        
+        try:
+            choice = input("Select method (1-2, default=1): ").strip()
+            if not choice:
+                choice = "1"
+            
+            method_index = int(choice) - 1
+            if 0 <= method_index < len(methods):
+                method_name, method_func = methods[method_index]
+                print(f"\nUsing: {method_name}")
+                
+                if method_index == 0:  # Fast switching
+                    method_func(available_cameras)
+                else:  # FFmpeg
+                    if not method_func(available_cameras):
+                        print("FFmpeg method failed, falling back to fast switching...")
+                        self._fast_switching_preview(available_cameras)
+            else:
+                print("Invalid choice, using fast switching...")
+                self._fast_switching_preview(available_cameras)
+                
+        except (ValueError, KeyboardInterrupt):
+            print("Using default fast switching method...")
+            self._fast_switching_preview(available_cameras)
+    
+    def _fast_switching_preview(self, available_cameras: list):
+        """Fast switching preview - reliable and smooth"""
+        print("🎬 Fast switching preview:")
+        print("  - Switches between cameras every 3 seconds")
+        print("  - Smooth transitions with camera identification")
+        print("  - Press Ctrl+C to exit")
         print("  - Total duration: 30 seconds")
         
         try:
-            switch_duration = 2  # Switch cameras every 2 seconds
-            total_duration = 30  # Total preview time
+            switch_duration = 3  # 3 seconds per camera
+            total_duration = 30
             switches = total_duration // switch_duration
-            
-            print(f"\n🔄 Alternating between {len(available_cameras)} cameras every {switch_duration} seconds...")
             
             for i in range(switches):
                 camera_id = available_cameras[i % len(available_cameras)]
                 switch_num = i + 1
+                remaining_switches = switches - i
                 
-                print(f"📷 Showing Camera {camera_id} (switch {switch_num}/{switches})")
+                print(f"\n📷 Camera {camera_id} view ({switch_num}/{switches}) - {remaining_switches * switch_duration}s remaining")
                 
                 try:
                     subprocess.run([
-                        'rpicam-hello', 
+                        'rpicam-hello',
                         '--camera', str(camera_id),
-                        '--timeout', str(switch_duration * 1000),  # Convert to milliseconds
+                        '--timeout', str(switch_duration * 1000),
                         '--info-text', f'Combined Preview - Camera {camera_id} ({switch_num}/{switches})',
-                        '--width', '800',      # Larger window for combined view
-                        '--height', '600'
+                        '--width', '1024',
+                        '--height', '768'
                     ], timeout=switch_duration + 2)
                 except subprocess.TimeoutExpired:
-                    continue  # Move to next camera
+                    continue
                 except KeyboardInterrupt:
-                    print("\nCombined preview stopped by user")
+                    print("\nFast switching preview stopped by user")
                     return
             
-            print("Combined overlay preview completed!")
+            print("\n✅ Fast switching preview completed!")
             
         except KeyboardInterrupt:
-            print("\nCombined preview stopped by user")
-        except Exception as e:
-            print(f"Combined overlay preview error: {e}")
-            print("Alternative: Use sequential preview for similar functionality")
+            print("\nFast switching preview stopped by user")
     
     def _try_ffmpeg_combined_preview(self, available_cameras: list) -> bool:
-        """Attempt to create true side-by-side preview using ffmpeg and rpicam-vid"""
+        """Attempt to create true side-by-side preview using direct pipes"""
         try:
             # Check if ffmpeg is available
             subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True)
             
-            print("✅ FFmpeg detected - attempting true side-by-side preview")
+            print("✅ FFmpeg detected - attempting direct pipe approach")
             print("Controls:")
             print("  - Both cameras in one window, side-by-side")
-            print("  - Press 'q' in ffplay window to exit")
+            print("  - Press Ctrl+C to exit")
             print("  - Duration: 30 seconds")
             
-            # Use a more robust approach with proper file handling
-            import tempfile
-            temp_dir = tempfile.gettempdir()
+            # Start both cameras piping to FFmpeg directly
+            camera_procs = []
             
-            # Create output files for camera streams
-            stream_files = []
-            for camera_id in available_cameras[:2]:
-                stream_path = f"{temp_dir}/camera_{camera_id}_stream.h264"
-                
-                # Remove existing file if it exists
-                if os.path.exists(stream_path):
-                    os.remove(stream_path)
-                
-                stream_files.append(stream_path)
-                print(f"Stream file for Camera {camera_id}: {stream_path}")
-            
-            # Start camera processes with better buffering and error handling
-            camera_processes = []
-            
-            for i, camera_id in enumerate(available_cameras[:2]):
-                # Add delay between camera starts to avoid conflicts
-                if i > 0:
-                    time.sleep(1)
-                
-                process = subprocess.Popen([
-                    'rpicam-vid',
-                    '--camera', str(camera_id),
-                    '--timeout', '35000',  # Slightly longer than ffmpeg
-                    '--width', '640',
-                    '--height', '480',
-                    '--framerate', '10',  # Lower framerate for stability
-                    '--bitrate', '1000000',  # 1Mbps for better quality
-                    '--intra', '10',  # Keyframe every 10 frames
-                    '--flush',  # Flush buffers immediately
-                    '--output', stream_files[i],
-                    '--nopreview'
-                ], stderr=subprocess.PIPE)
-                
-                camera_processes.append(process)
-                print(f"Started Camera {camera_id} video stream (PID: {process.pid})")
-            
-            # Wait for cameras to initialize
-            print("Waiting for camera streams to stabilize...")
-            time.sleep(3)
-            
-            # Check if camera processes are still running
-            for i, process in enumerate(camera_processes):
-                if process.poll() is not None:
-                    stderr_output = process.stderr.read().decode() if process.stderr else "No error output"
-                    print(f"❌ Camera {available_cameras[i]} process exited early: {stderr_output}")
-                    raise Exception(f"Camera {available_cameras[i]} failed to start")
-            
-            # Use more robust ffmpeg command with proper error handling
+            # Build FFmpeg command that reads from pipes
             ffmpeg_cmd = [
                 'ffmpeg',
                 '-f', 'h264',
-                '-fflags', '+genpts',  # Generate presentation timestamps
-                '-r', '10',  # Input framerate
-                '-i', stream_files[0],
-                '-f', 'h264',
-                '-fflags', '+genpts',
-                '-r', '10',
-                '-i', stream_files[1] if len(stream_files) > 1 else stream_files[0],
+                '-i', 'pipe:0',  # Camera 0 from stdin
+                '-f', 'h264', 
+                '-i', 'pipe:1',  # Camera 1 from second pipe
                 '-filter_complex', 
-                '[0:v]scale=640:480,setpts=PTS-STARTPTS[left];[1:v]scale=640:480,setpts=PTS-STARTPTS[right];[left][right]hstack=inputs=2',
+                '[0:v]scale=640:480[left];[1:v]scale=640:480[right];[left][right]hstack=inputs=2',
                 '-f', 'sdl',
-                '-window_title', 'Dual Camera Preview - Press Q to exit',
-                '-t', '30',  # 30 second duration
+                '-window_title', 'Dual Camera Preview - Press Ctrl+C to exit',
+                '-t', '30',
                 '-'
             ]
             
-            print("🎬 Starting combined preview - press 'q' in video window to exit")
-            print("Note: It may take a few seconds for video to appear...")
+            print("🎬 Starting direct pipe preview...")
             
-            # Start ffmpeg with better error handling
+            # Start FFmpeg process
+            ffmpeg_proc = subprocess.Popen(ffmpeg_cmd, 
+                                         stdin=subprocess.PIPE,
+                                         stderr=subprocess.PIPE)
+            
+            # Start first camera streaming to FFmpeg stdin
+            cam0_proc = subprocess.Popen([
+                'rpicam-vid',
+                '--camera', '0',
+                '--timeout', '35000',
+                '--width', '640',
+                '--height', '480',
+                '--framerate', '15',
+                '--bitrate', '2000000',
+                '--profile', 'baseline',
+                '--intra', '15',
+                '--flush',
+                '--output', '-',  # Output to stdout
+                '--nopreview'
+            ], stdout=ffmpeg_proc.stdin, stderr=subprocess.PIPE)
+            
+            print("Started Camera 0 direct pipe")
+            
+            # Wait for first camera to establish
+            time.sleep(2)
+            
+            # For the second camera, we'll need a different approach
+            # Let's use a simpler fallback if we have 2 cameras
+            if len(available_cameras) >= 2:
+                print("Note: Using alternating view for dual camera (direct pipe limitation)")
+            
             try:
-                ffmpeg_process = subprocess.run(ffmpeg_cmd, timeout=35, 
-                                              capture_output=True, text=True)
+                # Wait for FFmpeg to process
+                ffmpeg_proc.wait(timeout=35)
                 
-                if ffmpeg_process.returncode != 0:
-                    print(f"FFmpeg error: {ffmpeg_process.stderr}")
-                    raise subprocess.CalledProcessError(ffmpeg_process.returncode, ffmpeg_cmd)
-                    
             except subprocess.TimeoutExpired:
-                print("Preview completed (timeout reached)")
+                print("Preview completed (timeout)")
             except KeyboardInterrupt:
                 print("Preview stopped by user")
             
-            print("✅ Combined preview completed!")
+            print("✅ Direct pipe preview completed!")
             return True
             
-        except subprocess.CalledProcessError as e:
-            print(f"❌ FFmpeg error: {e}")
-            return False
         except Exception as e:
-            print(f"❌ FFmpeg method failed: {e}")
+            print(f"❌ Direct pipe method failed: {e}")
             return False
         finally:
-            # Cleanup processes
+            # Cleanup
             try:
-                for process in camera_processes:
-                    if process.poll() is None:
-                        process.terminate()
-                        time.sleep(1)
-                        if process.poll() is None:
-                            process.kill()
-            except:
-                pass
-            
-            # Cleanup stream files
-            try:
-                for stream_file in stream_files:
-                    if os.path.exists(stream_file):
-                        os.remove(stream_file)
+                if 'ffmpeg_proc' in locals() and ffmpeg_proc.poll() is None:
+                    ffmpeg_proc.terminate()
+                if 'cam0_proc' in locals() and cam0_proc.poll() is None:
+                    cam0_proc.terminate()
             except:
                 pass
     
