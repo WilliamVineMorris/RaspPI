@@ -985,145 +985,160 @@ class ArducamFlashTest:
                     pass
             
             def camera_pipe_reader(camera_id):
-                """Read frames from camera using separate file outputs to avoid conflicts"""
+                """Direct memory streaming - proper simultaneous camera handling"""
                 try:
-                    print(f"Starting file-based reader for camera {camera_id}")
+                    print(f"Starting direct memory stream for camera {camera_id}")
                     
-                    # Use separate output files to avoid stdout conflicts
-                    output_file = f"/tmp/camera_{camera_id}_continuous.mjpeg"
+                    # Start camera process with different ports to avoid conflicts
+                    port = 9000 + camera_id
                     
-                    # Remove existing file
-                    if os.path.exists(output_file):
-                        os.remove(output_file)
-                    
-                    # Start camera process writing to separate file with segment rotation
                     process = subprocess.Popen([
                         'rpicam-vid',
                         '--camera', str(camera_id),
                         '--timeout', '0',
                         '--width', '640',
                         '--height', '480',
-                        '--framerate', '10',  # Reduced framerate for stability
+                        '--framerate', '15',
                         '--codec', 'mjpeg',
-                        '--output', output_file,
-                        '--nopreview',
-                        '--flush',
-                        '--segment', '1000'  # 1 second segments to keep file fresh
+                        '--inline',  # Put stream headers inline
+                        '--listen',  # Listen mode
+                        '--output', f'tcp://0.0.0.0:{port}',
+                        '--nopreview'
                     ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     
                     camera_processes[camera_id] = process
                     
-                    # Give camera time to start and create initial file
-                    time.sleep(4)
+                    # Give camera time to start listening
+                    time.sleep(3)
                     
                     # Check if process started successfully
                     if process.poll() is not None:
                         stdout, stderr = process.communicate()
-                        print(f"❌ Camera {camera_id} process failed:")
+                        print(f"❌ Camera {camera_id} TCP server failed:")
                         if stderr:
                             print(f"   stderr: {stderr.decode()}")
                         return
                     
-                    print(f"✅ Camera {camera_id} writing to {output_file}")
+                    print(f"✅ Camera {camera_id} TCP server listening on port {port}")
                     
-                    # File reader function
-                    def file_reader():
+                    # TCP client to read from camera's stream
+                    def tcp_frame_reader():
                         frame_count = 0
-                        last_size = 0
+                        max_retries = 5
                         
-                        while True:
+                        for attempt in range(max_retries):
                             try:
-                                if os.path.exists(output_file):
-                                    current_size = os.path.getsize(output_file)
-                                    
-                                    # Only read if file has grown
-                                    if current_size > last_size:
-                                        with open(output_file, 'rb') as f:
-                                            # Seek to where we left off
-                                            f.seek(max(0, last_size - 1000))  # Overlap slightly
-                                            data = f.read()
-                                            
-                                            # Extract JPEG frames from new data
-                                            start_pos = 0
-                                            while True:
-                                                start = data.find(b'\xff\xd8', start_pos)
-                                                if start == -1:
-                                                    break
-                                                
-                                                end = data.find(b'\xff\xd9', start + 2)
-                                                if end == -1:
-                                                    break
-                                                
-                                                frame = data[start:end + 2]
-                                                start_pos = end + 2
-                                                
-                                                if len(frame) > 2000:  # Good frame size
-                                                    # Manage queue
-                                                    while camera_frames[camera_id].qsize() > 2:
-                                                        try:
-                                                            camera_frames[camera_id].get_nowait()
-                                                        except:
-                                                            break
-                                                    
-                                                    try:
-                                                        camera_frames[camera_id].put_nowait(frame)
-                                                        frame_count += 1
-                                                        
-                                                        if frame_count % 50 == 0:
-                                                            print(f"📹 Camera {camera_id}: {frame_count} frames from file")
-                                                    except queue.Full:
-                                                        pass
+                                import socket
+                                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                                sock.settimeout(5)
+                                sock.connect(('localhost', port))
+                                print(f"📡 Connected to camera {camera_id} TCP stream")
+                                
+                                buffer = b''
+                                
+                                while True:
+                                    try:
+                                        data = sock.recv(8192)
+                                        if not data:
+                                            print(f"Camera {camera_id} TCP stream ended")
+                                            break
                                         
-                                        last_size = current_size
+                                        buffer += data
+                                        
+                                        # Extract JPEG frames
+                                        while True:
+                                            start = buffer.find(b'\xff\xd8')
+                                            if start == -1:
+                                                break
+                                            
+                                            end = buffer.find(b'\xff\xd9', start + 2)
+                                            if end == -1:
+                                                break
+                                            
+                                            frame = buffer[start:end + 2]
+                                            buffer = buffer[end + 2:]
+                                            
+                                            if len(frame) > 2000:
+                                                # Keep queue small and fresh
+                                                while camera_frames[camera_id].qsize() > 1:
+                                                    try:
+                                                        camera_frames[camera_id].get_nowait()
+                                                    except:
+                                                        break
+                                                
+                                                try:
+                                                    camera_frames[camera_id].put_nowait(frame)
+                                                    frame_count += 1
+                                                    
+                                                    if frame_count % 100 == 0:
+                                                        print(f"📹 Camera {camera_id}: {frame_count} frames via TCP")
+                                                except queue.Full:
+                                                    pass
+                                    
+                                    except socket.timeout:
+                                        print(f"⚠️ Camera {camera_id} TCP timeout")
+                                        continue
+                                    except Exception as e:
+                                        print(f"TCP read error for camera {camera_id}: {e}")
+                                        break
                                 
-                                time.sleep(0.1)  # Check file every 100ms
+                                sock.close()
+                                break  # Success, exit retry loop
                                 
+                            except ConnectionRefusedError:
+                                print(f"❌ Camera {camera_id} TCP connection refused (attempt {attempt + 1}/{max_retries})")
+                                if attempt < max_retries - 1:
+                                    time.sleep(2)
+                                    continue
+                                else:
+                                    print(f"❌ Failed to connect to camera {camera_id} after {max_retries} attempts")
+                                    break
                             except Exception as e:
-                                print(f"File reader error for camera {camera_id}: {e}")
-                                time.sleep(0.5)
+                                print(f"TCP connection error for camera {camera_id}: {e}")
+                                if attempt < max_retries - 1:
+                                    time.sleep(2)
+                                    continue
+                                else:
+                                    break
                     
-                    # Start file reader thread
-                    reader_thread = threading.Thread(target=file_reader, daemon=True)
+                    # Start TCP reader thread
+                    reader_thread = threading.Thread(target=tcp_frame_reader, daemon=True)
                     reader_thread.start()
                     
                     # Monitor process
                     while process.poll() is None:
                         time.sleep(1)
                     
-                    print(f"Camera {camera_id} process ended")
+                    print(f"Camera {camera_id} TCP process ended")
                     
                 except Exception as e:
-                    print(f"❌ Camera {camera_id} file-based setup error: {e}")
+                    print(f"❌ Camera {camera_id} direct streaming error: {e}")
                     import traceback
                     traceback.print_exc()
-                finally:
-                    # Cleanup output file
-                    output_file = f"/tmp/camera_{camera_id}_continuous.mjpeg"
-                    if os.path.exists(output_file):
-                        os.remove(output_file)
             
             # Start camera pipe readers
+            # Start camera processes with TCP servers on different ports
             for camera_id in [camera1_id, camera2_id]:
                 thread = threading.Thread(target=camera_pipe_reader, args=(camera_id,), daemon=True)
                 thread.start()
                 time.sleep(2)  # Stagger camera starts
             
             # Wait for cameras to start producing frames
-            print("Waiting for camera pipes to start...")
-            time.sleep(5)
+            print("Waiting for TCP camera streams to start...")
+            time.sleep(8)  # Extra time for TCP servers
             
             # Check if we have frames
             frames_ready = 0
             for camera_id in [camera1_id, camera2_id]:
                 if not camera_frames[camera_id].empty():
                     queue_size = camera_frames[camera_id].qsize()
-                    print(f"✅ Camera {camera_id} frames ready - {queue_size} frames in queue")
+                    print(f"✅ Camera {camera_id} TCP stream ready - {queue_size} frames in queue")
                     frames_ready += 1
                 else:
-                    print(f"⚠️ Camera {camera_id} no frames yet")
+                    print(f"⚠️ Camera {camera_id} TCP stream not ready yet")
             
             if frames_ready == 0:
-                raise Exception("No camera frames available")
+                raise Exception("No camera TCP streams available")
             elif frames_ready < 2:
                 print(f"⚠️ Only {frames_ready}/2 cameras producing frames, but continuing...")
             
@@ -1133,10 +1148,10 @@ class ArducamFlashTest:
             server_thread = threading.Thread(target=server.serve_forever, daemon=True)
             server_thread.start()
             
-            print(f"✅ Pipe-based dual camera streaming ready!")
+            print(f"✅ TCP-based dual camera streaming ready!")
             print(f"🎥 Open your browser: http://localhost:{http_port}")
             print(f"📱 Or from another device: http://{self._get_local_ip()}:{http_port}")
-            print(f"\n🔧 Using direct pipe streaming (no TCP)")
+            print(f"\n🔧 Using direct TCP streaming (no file operations)")
             print(f"📹 Active cameras: {[cam_id for cam_id in [camera1_id, camera2_id] if not camera_frames[cam_id].empty()]}")
             print("Press Ctrl+C to stop streaming")
             
