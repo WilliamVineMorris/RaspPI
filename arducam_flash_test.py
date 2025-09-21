@@ -292,6 +292,7 @@ class ArducamFlashTest:
         
         # Try methods in order of reliability
         methods = [
+            ("Web Stream Method", self._try_web_stream_method),
             ("Simple MJPEG Test", self._try_simple_mjpeg_test),
             ("MJPEG Streaming", self._try_mjpeg_ffmpeg_method),
             ("Raw YUV Method", self._try_raw_ffmpeg_method),
@@ -325,6 +326,174 @@ class ArducamFlashTest:
                 self._custom_opencv_viewer(available_cameras)
         except:
             pass
+    
+    def _try_web_stream_method(self, available_cameras: list) -> bool:
+        """Try web-based streaming that works without SDL/display"""
+        print("🌐 Trying web streaming method...")
+        print("This method creates a local web server to view the cameras")
+        
+        try:
+            import http.server
+            import socketserver
+            import threading
+            import urllib.parse
+            
+            # Create a simple HTML file for dual camera viewing
+            html_content = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dual Camera Stream</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; }
+        .camera-container { display: inline-block; margin: 10px; }
+        .camera-frame { border: 2px solid #333; border-radius: 8px; }
+        h1 { color: #333; }
+        .refresh-info { color: #666; margin: 10px; }
+    </style>
+    <script>
+        function refreshImages() {
+            var img1 = document.getElementById('cam1');
+            var img2 = document.getElementById('cam2');
+            var timestamp = new Date().getTime();
+            img1.src = 'camera_0_latest.jpg?' + timestamp;
+            img2.src = 'camera_1_latest.jpg?' + timestamp;
+        }
+        
+        setInterval(refreshImages, 1000); // Refresh every second
+        
+        window.onload = function() {
+            refreshImages();
+        }
+    </script>
+</head>
+<body>
+    <h1>🎥 Dual Camera Stream</h1>
+    <div class="refresh-info">Images refresh every second</div>
+    
+    <div class="camera-container">
+        <h3>Camera 0</h3>
+        <img id="cam1" class="camera-frame" width="640" height="480" alt="Camera 0" />
+    </div>
+    
+    <div class="camera-container">
+        <h3>Camera 1</h3>
+        <img id="cam2" class="camera-frame" width="640" height="480" alt="Camera 1" />
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <button onclick="refreshImages()">🔄 Manual Refresh</button>
+        <p>Press Ctrl+C in terminal to stop streaming</p>
+    </div>
+</body>
+</html>
+"""
+            
+            # Create web directory
+            web_dir = "/tmp/dual_camera_web"
+            os.makedirs(web_dir, exist_ok=True)
+            
+            # Write HTML file
+            with open(f"{web_dir}/index.html", "w") as f:
+                f.write(html_content)
+            
+            # Start camera capture processes
+            cam_processes = []
+            for camera_id in available_cameras[:2]:
+                output_file = f"{web_dir}/camera_{camera_id}_latest.jpg"
+                
+                # Remove existing file
+                if os.path.exists(output_file):
+                    os.remove(output_file)
+                
+                print(f"Starting web capture for camera {camera_id}...")
+                
+                # Use rpicam-still in a loop to continuously capture images
+                process = subprocess.Popen([
+                    'bash', '-c', f'''
+                    while true; do
+                        rpicam-still --camera {camera_id} --timeout 100 --width 640 --height 480 --nopreview -o {output_file} 2>/dev/null
+                        sleep 0.5
+                    done
+                    '''
+                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                cam_processes.append(process)
+                time.sleep(1)
+            
+            # Wait for initial images
+            print("Waiting for initial camera captures...")
+            time.sleep(3)
+            
+            # Check if images are being created
+            for camera_id in available_cameras[:2]:
+                output_file = f"{web_dir}/camera_{camera_id}_latest.jpg"
+                if not os.path.exists(output_file):
+                    raise Exception(f"Camera {camera_id} image not created")
+                print(f"✅ Camera {camera_id} image ready: {os.path.getsize(output_file)} bytes")
+            
+            # Start web server
+            class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, directory=web_dir, **kwargs)
+                
+                def log_message(self, format, *args):
+                    pass  # Suppress HTTP log messages
+            
+            port = 8080
+            
+            def start_server():
+                with socketserver.TCPServer(("", port), CustomHTTPRequestHandler) as httpd:
+                    httpd.serve_forever()
+            
+            server_thread = threading.Thread(target=start_server, daemon=True)
+            server_thread.start()
+            
+            print(f"✅ Web server started!")
+            print(f"🌐 Open your browser and go to: http://localhost:{port}")
+            print(f"📱 Or from another device: http://{self._get_local_ip()}:{port}")
+            print("\nThe page will show both cameras side by side, refreshing every second")
+            print("Press Ctrl+C to stop the web stream")
+            
+            # Keep running until interrupted
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\nStopping web stream...")
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Web stream method failed: {e}")
+            return False
+        finally:
+            # Cleanup
+            print("Cleaning up web stream...")
+            for process in cam_processes:
+                try:
+                    process.terminate()
+                    process.wait(timeout=2)
+                except:
+                    process.kill()
+            
+            # Clean up web directory
+            try:
+                import shutil
+                if os.path.exists(web_dir):
+                    shutil.rmtree(web_dir)
+            except:
+                pass
+    
+    def _get_local_ip(self):
+        """Get local IP address"""
+        try:
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                return s.getsockname()[0]
+        except:
+            return "127.0.0.1"
     
     def _try_simple_mjpeg_test(self, available_cameras: list) -> bool:
         """Simple test to see if we can display one camera with FFmpeg"""
@@ -374,6 +543,7 @@ class ArducamFlashTest:
             ffmpeg_cmd = [
                 'ffmpeg',
                 '-re', '-f', 'mjpeg', '-i', temp_file,
+                '-vf', 'format=yuv420p',  # Convert pixel format for SDL compatibility
                 '-f', 'sdl', '-window_title', 'Single Camera Test', 'display'
             ]
             
@@ -392,8 +562,20 @@ class ArducamFlashTest:
             # Get FFmpeg output
             stdout, stderr = ffmpeg_process.communicate(timeout=5)
             if stderr:
-                print(f"FFmpeg stderr: {stderr.decode()}")
+                stderr_text = stderr.decode()
+                print(f"FFmpeg stderr: {stderr_text}")
                 
+                # Check for specific errors
+                if "Unsupported pixel format" in stderr_text:
+                    print("❌ FFmpeg SDL has pixel format issues")
+                    return False
+                elif "Operation not permitted" in stderr_text:
+                    print("❌ FFmpeg SDL permission denied")
+                    return False
+                elif "No such file or directory" in stderr_text and "display" in stderr_text:
+                    print("❌ FFmpeg SDL display not available (likely headless system)")
+                    return False
+                    
             return True
             
         except Exception as e:
@@ -452,7 +634,7 @@ class ArducamFlashTest:
                 if not os.path.exists(temp_file) or os.path.getsize(temp_file) < 1000:
                     raise Exception(f"Stream file {temp_file} not ready")
             
-            # FFmpeg command for MJPEG
+            # FFmpeg command for MJPEG with pixel format conversion
             ffmpeg_cmd = [
                 'ffmpeg',
                 '-re',  # Real-time reading
@@ -461,7 +643,7 @@ class ArducamFlashTest:
                 '-re',
                 '-f', 'mjpeg',
                 '-i', temp_files[1],
-                '-filter_complex', '[0:v]scale=640:480[left];[1:v]scale=640:480[right];[left][right]hstack=inputs=2[out]',
+                '-filter_complex', '[0:v]scale=640:480,format=yuv420p[left];[1:v]scale=640:480,format=yuv420p[right];[left][right]hstack=inputs=2[out]',
                 '-map', '[out]',
                 '-f', 'sdl',
                 '-window_title', 'Dual Camera MJPEG View',
