@@ -941,47 +941,76 @@ class ArducamFlashTest:
                     """Stream from camera pipe queue with corrected MJPEG format"""
                     print(f"🎬 Starting MJPEG stream for camera {camera_id}")
                     
-                    # Send proper MJPEG streaming headers
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=myboundary')
-                    self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
-                    self.send_header('Pragma', 'no-cache') 
-                    self.send_header('Expires', '0')
-                    self.send_header('Connection', 'keep-alive')
-                    self.end_headers()
+                    # Check queue status before starting
+                    queue_size = camera_frames[camera_id].qsize()
+                    print(f"📊 Camera {camera_id} queue status: {queue_size} frames available")
                     
                     try:
-                        frame_count = 0
+                        # Send proper MJPEG streaming headers immediately
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
+                        self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                        self.send_header('Pragma', 'no-cache') 
+                        self.send_header('Expires', '0')
+                        self.send_header('Connection', 'close')  # Changed from keep-alive
+                        self.end_headers()
                         
-                        # Send initial boundary
-                        self.wfile.write(b'--myboundary\r\n')
+                        # Send initial boundary immediately
+                        self.wfile.write(b'--frame\r\n')
+                        self.wfile.flush()
+                        
+                        # Get first frame immediately if available
+                        try:
+                            if not camera_frames[camera_id].empty():
+                                first_frame = camera_frames[camera_id].get_nowait()
+                                if first_frame and len(first_frame) > 100:
+                                    print(f"🚀 Camera {camera_id}: Sending first frame immediately")
+                                    self.wfile.write(b'Content-Type: image/jpeg\r\n')
+                                    self.wfile.write(f'Content-Length: {len(first_frame)}\r\n\r\n'.encode())
+                                    self.wfile.write(first_frame)
+                                    self.wfile.write(b'\r\n--frame\r\n')
+                                    self.wfile.flush()
+                        except:
+                            pass
+                        
+                        frame_count = 1  # Already sent first frame
+                        consecutive_failures = 0
                         
                         while True:
                             try:
-                                # Get frame from queue
-                                frame_data = camera_frames[camera_id].get(timeout=1)
+                                # Get frame from queue with shorter timeout
+                                frame_data = camera_frames[camera_id].get(timeout=0.5)
+                                consecutive_failures = 0  # Reset failure counter
                                 
                                 if frame_data and len(frame_data) > 100:
-                                    # Send MJPEG frame with correct format
+                                    # Send MJPEG frame with simpler format
                                     self.wfile.write(b'Content-Type: image/jpeg\r\n')
                                     self.wfile.write(f'Content-Length: {len(frame_data)}\r\n\r\n'.encode())
                                     self.wfile.write(frame_data)
-                                    self.wfile.write(b'\r\n--myboundary\r\n')
+                                    self.wfile.write(b'\r\n--frame\r\n')
                                     self.wfile.flush()
                                     
                                     frame_count += 1
                                     if frame_count % 30 == 0:
-                                        print(f"📺 Camera {camera_id}: {frame_count} frames streamed")
+                                        print(f"📺 Camera {camera_id}: {frame_count} frames streamed (queue: {camera_frames[camera_id].qsize()})")
                                         
                             except queue.Empty:
-                                # Send keep-alive
+                                consecutive_failures += 1
+                                if consecutive_failures > 5:
+                                    print(f"⏳ Camera {camera_id}: No frames available, ending stream")
+                                    break
                                 continue
+                            except (ConnectionResetError, BrokenPipeError) as e:
+                                print(f"🔌 Camera {camera_id}: Client disconnected - {e}")
+                                break
                             except Exception as e:
-                                print(f"Stream error for camera {camera_id}: {e}")
+                                print(f"📡 Camera {camera_id}: Stream error - {e}")
                                 break
                                 
+                    except (ConnectionResetError, BrokenPipeError) as e:
+                        print(f"🔌 Camera {camera_id}: Connection broken during setup - {e}")
                     except Exception as e:
-                        print(f"MJPEG streaming error for camera {camera_id}: {e}")
+                        print(f"❌ Camera {camera_id}: MJPEG streaming error - {e}")
                     
                     print(f"🛑 MJPEG stream ended for camera {camera_id}")
                 
@@ -1075,9 +1104,9 @@ class ArducamFlashTest:
                                                     frame_count += 1
                                                     
                                                     if frame_count % 100 == 0:
-                                                        print(f"📹 Camera {camera_id}: {frame_count} frames via TCP")
+                                                        print(f"📹 Camera {camera_id}: {frame_count} frames via TCP -> Queue size: {camera_frames[camera_id].qsize()}")
                                                 except queue.Full:
-                                                    pass
+                                                    print(f"⚠️ Camera {camera_id}: Queue full, dropping frame")
                                     
                                     except socket.timeout:
                                         print(f"⚠️ Camera {camera_id} TCP timeout")
