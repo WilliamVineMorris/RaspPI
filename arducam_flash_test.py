@@ -743,19 +743,24 @@ class ArducamFlashTest:
                         current_cam_id = [camera1_id, camera2_id][current_camera]
                         temp_file = f'/tmp/current_camera_{current_cam_id}.jpg'
                         
-                        # Capture image
+                        # Clean up any existing file
+                        if os.path.exists(temp_file):
+                            os.remove(temp_file)
+                        
+                        # Capture image with improved settings
                         capture_cmd = [
                             'rpicam-still',
                             '--camera', str(current_cam_id),
                             '--width', '640',
                             '--height', '480',
                             '--quality', '85',
-                            '--timeout', '500',
+                            '--timeout', '1000',  # 1 second timeout
                             '--output', temp_file,
-                            '--nopreview'
+                            '--nopreview',
+                            '--immediate'  # Take photo immediately
                         ]
                         
-                        result = subprocess.run(capture_cmd, capture_output=True, timeout=3)
+                        result = subprocess.run(capture_cmd, capture_output=True, timeout=5)
                         
                         if result.returncode == 0 and os.path.exists(temp_file):
                             # Send the image
@@ -766,15 +771,31 @@ class ArducamFlashTest:
                             self.send_header('Content-Type', 'image/jpeg')
                             self.send_header('Content-Length', str(len(image_data)))
                             self.send_header('Cache-Control', 'no-cache')
+                            self.send_header('X-Camera-ID', str(current_cam_id))  # Add camera ID header
                             self.end_headers()
                             self.wfile.write(image_data)
                             
                             # Cleanup
                             os.remove(temp_file)
+                            
+                            # Log success occasionally
+                            if hasattr(self, '_image_count'):
+                                self._image_count += 1
+                            else:
+                                self._image_count = 1
+                            
+                            if self._image_count % 10 == 0:
+                                print(f"📸 Served {self._image_count} images from camera {current_cam_id}")
+                                
                         else:
                             # Send error image
-                            self.send_error_image(f"Camera {current_cam_id} capture failed")
+                            error_msg = f"Camera {current_cam_id} capture failed"
+                            if result.stderr:
+                                error_msg += f": {result.stderr.decode()}"
+                            self.send_error_image(error_msg)
                     
+                    except subprocess.TimeoutExpired:
+                        self.send_error_image(f"Camera {current_cam_id} timeout")
                     except Exception as e:
                         self.send_error_image(f"Error: {e}")
                 
@@ -969,13 +990,41 @@ class ArducamFlashTest:
                     
                     camera_processes[camera_id] = process
                     
+                    # Check if process started successfully
+                    time.sleep(1)
+                    if process.poll() is not None:
+                        stdout, stderr = process.communicate()
+                        print(f"❌ Camera {camera_id} process failed to start:")
+                        print(f"   Return code: {process.returncode}")
+                        print(f"   stderr: {stderr.decode()}")
+                        return
+                    
+                    print(f"✅ Camera {camera_id} process started successfully")
+                    
+                    # Verify stdout is available
+                    if not process.stdout:
+                        print(f"❌ Camera {camera_id} stdout not available")
+                        return
+                    
                     buffer = b''
                     frame_count = 0
                     
                     while True:
-                        chunk = process.stdout.read(8192)
-                        if not chunk:
-                            print(f"Camera {camera_id} pipe ended")
+                        # Check if process is still alive
+                        if process.poll() is not None:
+                            print(f"❌ Camera {camera_id} process terminated unexpectedly")
+                            stdout, stderr = process.communicate()
+                            if stderr:
+                                print(f"   stderr: {stderr.decode()}")
+                            break
+                        
+                        try:
+                            chunk = process.stdout.read(8192)
+                            if not chunk:
+                                print(f"Camera {camera_id} pipe ended (no more data)")
+                                break
+                        except Exception as e:
+                            print(f"❌ Error reading from camera {camera_id} stdout: {e}")
                             break
                         
                         buffer += chunk
@@ -1012,6 +1061,8 @@ class ArducamFlashTest:
                 
                 except Exception as e:
                     print(f"❌ Camera {camera_id} pipe reader error: {e}")
+                    import traceback
+                    traceback.print_exc()
             
             # Start camera pipe readers
             for camera_id in [camera1_id, camera2_id]:
@@ -1027,13 +1078,16 @@ class ArducamFlashTest:
             frames_ready = 0
             for camera_id in [camera1_id, camera2_id]:
                 if not camera_frames[camera_id].empty():
-                    print(f"✅ Camera {camera_id} frames ready")
+                    queue_size = camera_frames[camera_id].qsize()
+                    print(f"✅ Camera {camera_id} frames ready - {queue_size} frames in queue")
                     frames_ready += 1
                 else:
                     print(f"⚠️ Camera {camera_id} no frames yet")
             
             if frames_ready == 0:
                 raise Exception("No camera frames available")
+            elif frames_ready < 2:
+                print(f"⚠️ Only {frames_ready}/2 cameras producing frames, but continuing...")
             
             # Start HTTP server
             http_port = 8080
@@ -1045,8 +1099,19 @@ class ArducamFlashTest:
             print(f"🎥 Open your browser: http://localhost:{http_port}")
             print(f"📱 Or from another device: http://{self._get_local_ip()}:{http_port}")
             print(f"\n🔧 Using direct pipe streaming (no TCP)")
-            print(f"📹 Cameras: {camera1_id} and {camera2_id}")
+            print(f"📹 Active cameras: {[cam_id for cam_id in [camera1_id, camera2_id] if not camera_frames[cam_id].empty()]}")
             print("Press Ctrl+C to stop streaming")
+            
+            # Monitor frame production
+            def monitor_frames():
+                while True:
+                    time.sleep(10)
+                    for camera_id in [camera1_id, camera2_id]:
+                        queue_size = camera_frames[camera_id].qsize()
+                        print(f"📊 Camera {camera_id} queue: {queue_size} frames")
+            
+            monitor_thread = threading.Thread(target=monitor_frames, daemon=True)
+            monitor_thread.start()
             
             # Keep running
             try:
