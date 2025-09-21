@@ -459,20 +459,70 @@ class ArducamFlashCapture:
             return False
     
     def start_live_preview(self):
-        """Start rpicam-hello preview (since OpenCV cameras not initialized)"""
-        print("\n🎥 Starting camera preview with rpicam-hello...")
-        print("Note: Live preview uses rpicam-hello instead of OpenCV")
+        """Start rpicam-hello preview with dual camera support"""
+        available_cameras = detect_available_cameras()
+        
+        if not available_cameras:
+            print("\n❌ No cameras detected! Cannot start preview.")
+            return
+        
+        # Show camera selection menu
+        while True:
+            print("\n" + "="*50)
+            print("CAMERA PREVIEW SELECTION")
+            print("="*50)
+            for camera_id in available_cameras:
+                print(f"{camera_id + 1}. Camera {camera_id} preview")
+            
+            if len(available_cameras) >= 2:
+                print(f"{len(available_cameras) + 1}. Sequential preview (both cameras)")
+                print(f"{len(available_cameras) + 2}. Side-by-side preview (experimental)")
+            
+            print("0. Return to main menu")
+            
+            try:
+                choice = input("Select camera for preview: ").strip()
+                
+                if choice == '0':
+                    return
+                
+                choice_num = int(choice)
+                
+                # Single camera preview
+                if 1 <= choice_num <= len(available_cameras):
+                    camera_id = available_cameras[choice_num - 1]
+                    self._run_single_camera_preview(camera_id)
+                
+                # Sequential preview (both cameras)
+                elif len(available_cameras) >= 2 and choice_num == len(available_cameras) + 1:
+                    self._run_sequential_preview(available_cameras)
+                
+                # Side-by-side preview (experimental)
+                elif len(available_cameras) >= 2 and choice_num == len(available_cameras) + 2:
+                    self._run_side_by_side_preview(available_cameras)
+                
+                else:
+                    print("Invalid choice! Please try again.")
+                    
+            except ValueError:
+                print("Invalid input! Please enter a number.")
+            except KeyboardInterrupt:
+                print("\nReturning to main menu...")
+                return
+    
+    def _run_single_camera_preview(self, camera_id: int):
+        """Run preview for a single camera"""
+        print(f"\n🎥 Starting Camera {camera_id} preview...")
         print("Controls:")
-        print("  - Press Ctrl+C to exit preview")
-        print("  - Use menu options for capturing photos")
+        print("  - Press Ctrl+C to return to preview menu")
+        print("  - Preview duration: 30 seconds (auto-timeout)")
         
         try:
-            # Start rpicam-hello for camera 0 (primary camera preview)
             subprocess.run([
                 'rpicam-hello', 
-                '--camera', '0',
+                '--camera', str(camera_id),
                 '--timeout', '30000',  # 30 second preview
-                '--info-text', 'Camera 0 Preview - Press Ctrl+C to exit'
+                '--info-text', f'Camera {camera_id} Preview - Press Ctrl+C to exit'
             ], timeout=35)
         except subprocess.TimeoutExpired:
             print("Preview timeout reached")
@@ -480,9 +530,73 @@ class ArducamFlashCapture:
             print("Preview stopped by user")
         except Exception as e:
             print(f"Preview error: {e}")
-            print("Alternative: Run 'rpicam-hello --camera 0' manually for preview")
+            print(f"Alternative: Run 'rpicam-hello --camera {camera_id}' manually")
+    
+    def _run_sequential_preview(self, available_cameras: list):
+        """Run preview for cameras sequentially"""
+        print(f"\n🎥 Starting sequential preview for {len(available_cameras)} cameras...")
+        print("Controls:")
+        print("  - Each camera shows for 15 seconds")
+        print("  - Press Ctrl+C during any preview to stop")
         
-        print("Preview ended. Returning to menu...")
+        for camera_id in available_cameras:
+            print(f"\n📷 Now showing Camera {camera_id}...")
+            try:
+                subprocess.run([
+                    'rpicam-hello', 
+                    '--camera', str(camera_id),
+                    '--timeout', '15000',  # 15 seconds per camera
+                    '--info-text', f'Sequential Preview - Camera {camera_id} ({available_cameras.index(camera_id)+1}/{len(available_cameras)})'
+                ], timeout=20)
+            except subprocess.TimeoutExpired:
+                print(f"Camera {camera_id} preview completed")
+            except KeyboardInterrupt:
+                print("Sequential preview stopped by user")
+                return
+            except Exception as e:
+                print(f"Camera {camera_id} preview error: {e}")
+        
+        print("Sequential preview completed!")
+    
+    def _run_side_by_side_preview(self, available_cameras: list):
+        """Experimental side-by-side preview using dual rpicam-hello processes"""
+        print(f"\n🎥 Starting experimental side-by-side preview...")
+        print("Note: This starts two separate preview windows")
+        print("Controls:")
+        print("  - Two preview windows will open")
+        print("  - Press Ctrl+C in terminal to stop both")
+        print("  - Each preview runs for 20 seconds")
+        
+        processes = []
+        try:
+            # Start both cameras with different window positions
+            for i, camera_id in enumerate(available_cameras[:2]):  # Limit to 2 cameras
+                x_offset = i * 320  # Offset windows horizontally
+                process = subprocess.Popen([
+                    'rpicam-hello', 
+                    '--camera', str(camera_id),
+                    '--timeout', '20000',  # 20 seconds
+                    '--info-text', f'Camera {camera_id} Side-by-Side',
+                    # Add window positioning if supported
+                    '--geometry', f'640x480+{x_offset}+100'
+                ])
+                processes.append(process)
+                print(f"Started Camera {camera_id} preview process")
+            
+            # Wait for all processes to complete
+            for process in processes:
+                process.wait()
+            
+            print("Side-by-side preview completed!")
+            
+        except KeyboardInterrupt:
+            print("\nStopping all preview processes...")
+            for process in processes:
+                if process.poll() is None:  # Process still running
+                    process.terminate()
+        except Exception as e:
+            print(f"Side-by-side preview error: {e}")
+            print("Note: Side-by-side preview is experimental and may not work on all systems")
     
     def _show_resolution_menu(self):
         """Display resolution settings menu"""
@@ -778,7 +892,7 @@ def main():
             print("\n" + "="*60)
             print(f"ARDUCAM 64MP CAMERA FLASH TEST ({camera_count.upper()} CAMERA)")
             print("="*60)
-            print("1. Live preview (f=flash, F=64MP flash, r=resolution)")
+            print("1. Camera preview (dual camera support)")
             print("2. Standard flash capture")
             print("3. Full 64MP flash capture")
             print("4. Burst capture mode")
