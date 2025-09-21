@@ -874,8 +874,10 @@ class ArducamFlashTest:
                     if self.path == '/':
                         self.send_dual_camera_page()
                     elif self.path == '/camera1.mjpg':
+                        print(f"📺 Browser requesting Camera {camera1_id} stream")
                         self.stream_camera_pipe(camera1_id)
                     elif self.path == '/camera2.mjpg':
+                        print(f"📺 Browser requesting Camera {camera2_id} stream")
                         self.stream_camera_pipe(camera2_id)
                     else:
                         self.send_response(404)
@@ -932,6 +934,8 @@ class ArducamFlashTest:
                 
                 def stream_camera_pipe(self, camera_id):
                     """Stream from camera pipe queue"""
+                    print(f"🎬 Starting stream for camera {camera_id}")
+                    
                     self.send_response(200)
                     self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
                     self.send_header('Cache-Control', 'no-cache')
@@ -940,10 +944,14 @@ class ArducamFlashTest:
                     
                     try:
                         frame_count = 0
+                        consecutive_timeouts = 0
+                        max_timeouts = 5
+                        
                         while True:
                             try:
                                 # Get latest frame from queue (timeout to avoid blocking)
                                 frame_data = camera_frames[camera_id].get(timeout=2)
+                                consecutive_timeouts = 0  # Reset timeout counter
                                 
                                 if frame_data:
                                     # Send frame to browser
@@ -954,17 +962,25 @@ class ArducamFlashTest:
                                     
                                     frame_count += 1
                                     if frame_count % 30 == 0:
-                                        print(f"📺 Camera {camera_id}: {frame_count} frames served")
+                                        queue_size = camera_frames[camera_id].qsize()
+                                        print(f"📺 Camera {camera_id}: {frame_count} frames served, queue: {queue_size}")
                                 
                             except queue.Empty:
-                                print(f"⚠️ No frames available for camera {camera_id}")
-                                break
+                                consecutive_timeouts += 1
+                                print(f"⚠️ No frames available for camera {camera_id} (timeout {consecutive_timeouts}/{max_timeouts})")
+                                
+                                if consecutive_timeouts >= max_timeouts:
+                                    print(f"❌ Too many timeouts for camera {camera_id}, ending stream")
+                                    break
+                                    
                             except Exception as e:
                                 print(f"Frame error for camera {camera_id}: {e}")
                                 break
                                 
                     except Exception as e:
                         print(f"Pipe streaming error for camera {camera_id}: {e}")
+                    
+                    print(f"🛑 Stream ended for camera {camera_id}")
                 
                 def log_message(self, format, *args):
                     pass
@@ -1106,9 +1122,12 @@ class ArducamFlashTest:
             def monitor_frames():
                 while True:
                     time.sleep(10)
+                    print(f"📊 Frame Monitor:")
                     for camera_id in [camera1_id, camera2_id]:
                         queue_size = camera_frames[camera_id].qsize()
-                        print(f"📊 Camera {camera_id} queue: {queue_size} frames")
+                        process = camera_processes.get(camera_id)
+                        process_status = "running" if process and process.poll() is None else "stopped"
+                        print(f"   � Camera {camera_id}: {queue_size} frames queued, process {process_status}")
             
             monitor_thread = threading.Thread(target=monitor_frames, daemon=True)
             monitor_thread.start()
