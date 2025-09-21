@@ -985,106 +985,122 @@ class ArducamFlashTest:
                     pass
             
             def camera_pipe_reader(camera_id):
-                """Read frames from camera process and put in queue"""
+                """Read frames from camera using separate file outputs to avoid conflicts"""
                 try:
-                    print(f"Starting pipe reader for camera {camera_id}")
+                    print(f"Starting file-based reader for camera {camera_id}")
                     
-                    # Start camera process with stdout output
+                    # Use separate output files to avoid stdout conflicts
+                    output_file = f"/tmp/camera_{camera_id}_continuous.mjpeg"
+                    
+                    # Remove existing file
+                    if os.path.exists(output_file):
+                        os.remove(output_file)
+                    
+                    # Start camera process writing to separate file with segment rotation
                     process = subprocess.Popen([
                         'rpicam-vid',
                         '--camera', str(camera_id),
                         '--timeout', '0',
                         '--width', '640',
                         '--height', '480',
-                        '--framerate', '10',
+                        '--framerate', '10',  # Reduced framerate for stability
                         '--codec', 'mjpeg',
-                        '--output', '-',  # stdout
+                        '--output', output_file,
                         '--nopreview',
-                        '--flush'
+                        '--flush',
+                        '--segment', '1000'  # 1 second segments to keep file fresh
                     ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     
                     camera_processes[camera_id] = process
                     
+                    # Give camera time to start and create initial file
+                    time.sleep(4)
+                    
                     # Check if process started successfully
-                    time.sleep(1)
                     if process.poll() is not None:
                         stdout, stderr = process.communicate()
-                        print(f"❌ Camera {camera_id} process failed to start:")
-                        print(f"   Return code: {process.returncode}")
-                        print(f"   stderr: {stderr.decode()}")
+                        print(f"❌ Camera {camera_id} process failed:")
+                        if stderr:
+                            print(f"   stderr: {stderr.decode()}")
                         return
                     
-                    print(f"✅ Camera {camera_id} process started successfully")
+                    print(f"✅ Camera {camera_id} writing to {output_file}")
                     
-                    # Verify stdout is available
-                    if not process.stdout:
-                        print(f"❌ Camera {camera_id} stdout not available")
-                        return
-                    
-                    buffer = b''
-                    frame_count = 0
-                    
-                    while True:
-                        # Check if process is still alive
-                        if process.poll() is not None:
-                            print(f"❌ Camera {camera_id} process terminated unexpectedly")
-                            stdout, stderr = process.communicate()
-                            if stderr:
-                                print(f"   stderr: {stderr.decode()}")
-                            break
+                    # File reader function
+                    def file_reader():
+                        frame_count = 0
+                        last_size = 0
                         
-                        try:
-                            chunk = process.stdout.read(8192)
-                            if not chunk:
-                                print(f"Camera {camera_id} pipe ended (no more data)")
-                                break
-                        except Exception as e:
-                            print(f"❌ Error reading from camera {camera_id} stdout: {e}")
-                            break
-                        
-                        buffer += chunk
-                        
-                        # Extract JPEG frames
                         while True:
-                            start = buffer.find(b'\xff\xd8')  # JPEG start
-                            if start == -1:
-                                break
-                            
-                            end = buffer.find(b'\xff\xd9', start + 2)  # JPEG end (search after start)
-                            if end == -1:
-                                # Incomplete frame, wait for more data
-                                break
-                            
-                            # Extract complete frame
-                            frame = buffer[start:end + 2]
-                            buffer = buffer[end + 2:]
-                            
-                            # Validate frame size
-                            if len(frame) > 1000:  # Ensure meaningful frame size
-                                # Add to queue (replace old frames to prevent backup)
-                                try:
-                                    # Clear queue if it's backing up
-                                    while camera_frames[camera_id].qsize() > 3:
-                                        camera_frames[camera_id].get_nowait()
+                            try:
+                                if os.path.exists(output_file):
+                                    current_size = os.path.getsize(output_file)
                                     
-                                    camera_frames[camera_id].put_nowait(frame)
-                                    frame_count += 1
-                                    
-                                    if frame_count % 100 == 0:
-                                        print(f"📹 Camera {camera_id}: {frame_count} frames captured, frame size: {len(frame)} bytes")
+                                    # Only read if file has grown
+                                    if current_size > last_size:
+                                        with open(output_file, 'rb') as f:
+                                            # Seek to where we left off
+                                            f.seek(max(0, last_size - 1000))  # Overlap slightly
+                                            data = f.read()
+                                            
+                                            # Extract JPEG frames from new data
+                                            start_pos = 0
+                                            while True:
+                                                start = data.find(b'\xff\xd8', start_pos)
+                                                if start == -1:
+                                                    break
+                                                
+                                                end = data.find(b'\xff\xd9', start + 2)
+                                                if end == -1:
+                                                    break
+                                                
+                                                frame = data[start:end + 2]
+                                                start_pos = end + 2
+                                                
+                                                if len(frame) > 2000:  # Good frame size
+                                                    # Manage queue
+                                                    while camera_frames[camera_id].qsize() > 2:
+                                                        try:
+                                                            camera_frames[camera_id].get_nowait()
+                                                        except:
+                                                            break
+                                                    
+                                                    try:
+                                                        camera_frames[camera_id].put_nowait(frame)
+                                                        frame_count += 1
+                                                        
+                                                        if frame_count % 50 == 0:
+                                                            print(f"📹 Camera {camera_id}: {frame_count} frames from file")
+                                                    except queue.Full:
+                                                        pass
                                         
-                                except queue.Full:
-                                    # Replace oldest frame
-                                    try:
-                                        camera_frames[camera_id].get_nowait()
-                                        camera_frames[camera_id].put_nowait(frame)
-                                    except queue.Empty:
-                                        camera_frames[camera_id].put_nowait(frame)
-                
+                                        last_size = current_size
+                                
+                                time.sleep(0.1)  # Check file every 100ms
+                                
+                            except Exception as e:
+                                print(f"File reader error for camera {camera_id}: {e}")
+                                time.sleep(0.5)
+                    
+                    # Start file reader thread
+                    reader_thread = threading.Thread(target=file_reader, daemon=True)
+                    reader_thread.start()
+                    
+                    # Monitor process
+                    while process.poll() is None:
+                        time.sleep(1)
+                    
+                    print(f"Camera {camera_id} process ended")
+                    
                 except Exception as e:
-                    print(f"❌ Camera {camera_id} pipe reader error: {e}")
+                    print(f"❌ Camera {camera_id} file-based setup error: {e}")
                     import traceback
                     traceback.print_exc()
+                finally:
+                    # Cleanup output file
+                    output_file = f"/tmp/camera_{camera_id}_continuous.mjpeg"
+                    if os.path.exists(output_file):
+                        os.remove(output_file)
             
             # Start camera pipe readers
             for camera_id in [camera1_id, camera2_id]:
