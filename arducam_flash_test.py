@@ -563,25 +563,30 @@ class ArducamFlashCapture:
         print(f"\n🎥 Starting experimental side-by-side preview...")
         print("Note: This starts two separate preview windows")
         print("Controls:")
-        print("  - Two preview windows will open")
+        print("  - Two preview windows will open simultaneously")
         print("  - Press Ctrl+C in terminal to stop both")
         print("  - Each preview runs for 20 seconds")
+        print("  - Windows may overlap - manually arrange them if needed")
         
         processes = []
         try:
-            # Start both cameras with different window positions
+            # Start both cameras simultaneously (without geometry positioning)
             for i, camera_id in enumerate(available_cameras[:2]):  # Limit to 2 cameras
-                x_offset = i * 320  # Offset windows horizontally
                 process = subprocess.Popen([
                     'rpicam-hello', 
                     '--camera', str(camera_id),
                     '--timeout', '20000',  # 20 seconds
-                    '--info-text', f'Camera {camera_id} Side-by-Side',
-                    # Add window positioning if supported
-                    '--geometry', f'640x480+{x_offset}+100'
+                    '--info-text', f'Camera {camera_id} - Side-by-Side Preview',
+                    '--width', '640',      # Smaller window size
+                    '--height', '480'
                 ])
                 processes.append(process)
                 print(f"Started Camera {camera_id} preview process")
+                
+                # Small delay between starting processes to help with window management
+                time.sleep(0.5)
+            
+            print("\n💡 Tip: If windows overlap, manually drag them to arrange side-by-side")
             
             # Wait for all processes to complete
             for process in processes:
@@ -594,6 +599,11 @@ class ArducamFlashCapture:
             for process in processes:
                 if process.poll() is None:  # Process still running
                     process.terminate()
+            # Wait a moment for processes to terminate
+            time.sleep(1)
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()  # Force kill if still running
         except Exception as e:
             print(f"Side-by-side preview error: {e}")
             print("Note: Side-by-side preview is experimental and may not work on all systems")
