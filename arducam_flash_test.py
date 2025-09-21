@@ -903,29 +903,90 @@ class ArducamFlashTest:
         h3 {{ color: #666; margin: 10px 0; }}
         .status {{ color: #007bff; margin: 10px; font-size: 16px; font-weight: bold; }}
         .info {{ background: #e9ecef; padding: 15px; border-radius: 8px; margin: 20px 0; }}
+        .controls {{ margin: 20px 0; }}
+        .btn {{ background: #007bff; color: white; padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }}
+        .btn:hover {{ background: #0056b3; }}
+        .warning {{ background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0; color: #856404; }}
     </style>
+    <script>
+        let currentCamera = 0;
+        
+        function switchCamera() {{
+            const img = document.getElementById('cameraStream');
+            const label = document.getElementById('cameraLabel');
+            const btn = document.getElementById('switchBtn');
+            
+            if (currentCamera === 0) {{
+                img.src = '/camera2.mjpg?t=' + Date.now();
+                label.textContent = 'Camera {camera2_id}';
+                btn.textContent = 'Switch to Camera {camera1_id}';
+                currentCamera = 1;
+            }} else {{
+                img.src = '/camera1.mjpg?t=' + Date.now();
+                label.textContent = 'Camera {camera1_id}';
+                btn.textContent = 'Switch to Camera {camera2_id}';
+                currentCamera = 0;
+            }}
+        }}
+        
+        function showBothCameras() {{
+            document.getElementById('singleView').style.display = 'none';
+            document.getElementById('dualView').style.display = 'block';
+        }}
+        
+        function showSingleView() {{
+            document.getElementById('singleView').style.display = 'block';
+            document.getElementById('dualView').style.display = 'none';
+        }}
+    </script>
 </head>
 <body>
     <div class="container">
         <h1>🎥 Dual Camera MJPEG Streams</h1>
-        <div class="status">✅ Live video streams from both cameras</div>
         
-        <div>
+        <div class="warning">
+            ⚠️ <strong>Browser MJPEG Limitation:</strong> Many browsers can only display one MJPEG stream at a time.
+            Use the controls below to test individual cameras or attempt simultaneous viewing.
+        </div>
+        
+        <div class="controls">
+            <button class="btn" onclick="showSingleView()">📹 Single Camera View</button>
+            <button class="btn" onclick="showBothCameras()">🎥 Dual Camera View (May Not Work)</button>
+        </div>
+        
+        <!-- Single Camera View -->
+        <div id="singleView">
+            <div class="status">✅ Single camera streaming (recommended)</div>
             <div class="camera-container">
-                <h3>📷 Camera {camera1_id}</h3>
-                <img class="camera-stream" src="/camera1.mjpg" width="640" height="480" alt="Camera {camera1_id} Stream" />
+                <h3 id="cameraLabel">📷 Camera {camera1_id}</h3>
+                <img id="cameraStream" class="camera-stream" src="/camera1.mjpg" width="640" height="480" alt="Camera Stream" />
             </div>
-            
-            <div class="camera-container">
-                <h3>📷 Camera {camera2_id}</h3>
-                <img class="camera-stream" src="/camera2.mjpg" width="640" height="480" alt="Camera {camera2_id} Stream" />
+            <div class="controls">
+                <button id="switchBtn" class="btn" onclick="switchCamera()">Switch to Camera {camera2_id}</button>
+            </div>
+        </div>
+        
+        <!-- Dual Camera View -->
+        <div id="dualView" style="display: none;">
+            <div class="status">⚠️ Attempting dual camera streaming (browser dependent)</div>
+            <div>
+                <div class="camera-container">
+                    <h3>📷 Camera {camera1_id}</h3>
+                    <img class="camera-stream" src="/camera1.mjpg" width="640" height="480" alt="Camera {camera1_id} Stream" />
+                </div>
+                
+                <div class="camera-container">
+                    <h3>📷 Camera {camera2_id}</h3>
+                    <img class="camera-stream" src="/camera2.mjpg" width="640" height="480" alt="Camera {camera2_id} Stream" />
+                </div>
             </div>
         </div>
         
         <div class="info">
-            <strong>🎯 MJPEG Video Streaming</strong><br>
-            Both cameras streaming live video via MJPEG protocol.<br>
-            Direct streams: <a href="/camera1.mjpg">Camera {camera1_id}</a> | <a href="/camera2.mjpg">Camera {camera2_id}</a><br>
+            <strong>🎯 Testing Instructions:</strong><br>
+            1. <strong>Single View:</strong> Use switch button to test both cameras individually<br>
+            2. <strong>Dual View:</strong> Attempt to show both cameras (may fail due to browser MJPEG limits)<br>
+            3. <strong>Direct Links:</strong> <a href="/camera1.mjpg" target="_blank">Camera {camera1_id}</a> | <a href="/camera2.mjpg" target="_blank">Camera {camera2_id}</a><br>
             Press Ctrl+C in terminal to stop.
         </div>
     </div>
