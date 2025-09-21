@@ -888,7 +888,7 @@ class ArducamFlashTest:
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Pipe-based Dual Camera Stream</title>
+    <title>Fixed Pipe-based Dual Camera Stream</title>
     <style>
         body {{ font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; margin: 0; padding: 20px; }}
         .container {{ max-width: 1400px; margin: 0 auto; }}
@@ -898,30 +898,74 @@ class ArducamFlashTest:
         h3 {{ color: #666; margin: 10px 0; }}
         .status {{ color: #17a2b8; margin: 10px; font-size: 16px; font-weight: bold; }}
         .info {{ background: #e9ecef; padding: 15px; border-radius: 8px; margin: 20px 0; }}
+        .debug {{ background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0; font-family: monospace; font-size: 12px; }}
     </style>
+    <script>
+        function logMessage(msg) {{
+            console.log('🎥 Dual Camera Debug: ' + msg);
+            var debugDiv = document.getElementById('debug');
+            if (debugDiv) {{
+                debugDiv.innerHTML += new Date().toLocaleTimeString() + ': ' + msg + '<br>';
+                debugDiv.scrollTop = debugDiv.scrollHeight;
+            }}
+        }}
+        
+        function setupCamera(imgId, streamUrl, cameraName) {{
+            var img = document.getElementById(imgId);
+            if (!img) {{
+                logMessage('❌ Image element ' + imgId + ' not found');
+                return;
+            }}
+            
+            img.onload = function() {{
+                logMessage('✅ ' + cameraName + ' image loaded successfully');
+            }};
+            
+            img.onerror = function() {{
+                logMessage('❌ ' + cameraName + ' image failed to load');
+                // Try to reload after a delay
+                setTimeout(function() {{
+                    logMessage('🔄 Retrying ' + cameraName + '...');
+                    img.src = streamUrl + '?t=' + Date.now();
+                }}, 2000);
+            }};
+            
+            // Set initial source
+            img.src = streamUrl + '?t=' + Date.now();
+            logMessage('🚀 Started loading ' + cameraName + ' from ' + streamUrl);
+        }}
+        
+        window.onload = function() {{
+            logMessage('📱 Page loaded, setting up dual camera streams...');
+            setupCamera('camera1', '/camera1.mjpg', 'Camera {camera1_id}');
+            setupCamera('camera2', '/camera2.mjpg', 'Camera {camera2_id}');
+        }};
+    </script>
 </head>
 <body>
     <div class="container">
-        <h1>🔧 Pipe-based Dual Camera Stream</h1>
-        <div class="status">✅ Direct pipe streaming - no TCP connections</div>
+        <h1>🔧 Fixed Pipe-based Dual Camera Stream</h1>
+        <div class="status">✅ Both cameras should load independently</div>
         
         <div>
             <div class="camera-container">
                 <h3>📷 Camera {camera1_id}</h3>
-                <img class="camera-stream" src="/camera1.mjpg" width="640" height="480" alt="Camera {camera1_id} Stream" />
+                <img id="camera1" class="camera-stream" width="640" height="480" alt="Camera {camera1_id} Stream" />
             </div>
             
             <div class="camera-container">
                 <h3>📷 Camera {camera2_id}</h3>
-                <img class="camera-stream" src="/camera2.mjpg" width="640" height="480" alt="Camera {camera2_id} Stream" />
+                <img id="camera2" class="camera-stream" width="640" height="480" alt="Camera {camera2_id} Stream" />
             </div>
         </div>
         
         <div class="info">
-            <strong>🎯 Pipe-based Architecture</strong><br>
-            Each camera streams directly via stdout pipes to avoid TCP limits.<br>
-            Camera {camera1_id} and Camera {camera2_id} run independently.<br>
-            Press Ctrl+C in the terminal to stop streaming.
+            <strong>🎯 Debug Information</strong><br>
+            Watch the debug log below to see what's happening with each camera stream.
+        </div>
+        
+        <div id="debug" class="debug" style="height: 150px; overflow-y: auto; text-align: left;">
+            <strong>Debug Log:</strong><br>
         </div>
     </div>
 </body>
