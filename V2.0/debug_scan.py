@@ -93,10 +93,10 @@ web_interface:
             print("Initializing orchestrator...")
             await orchestrator.initialize()
             
-            print("Creating simple pattern (single point)...")
+            print("Creating simple pattern (2 points)...")
             pattern = orchestrator.create_grid_pattern(
-                x_range=(0.0, 0.0),
-                y_range=(0.0, 0.0),
+                x_range=(0.0, 10.0),
+                y_range=(0.0, 10.0),
                 spacing=10.0,
                 z_height=5.0
             )

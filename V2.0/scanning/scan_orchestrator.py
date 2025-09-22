@@ -394,10 +394,17 @@ class ScanOrchestrator:
         # Add error callback to log any uncaught exceptions
         def task_done_callback(task: asyncio.Task):
             try:
-                if task.exception():
-                    self.logger.error(f"Scan task failed with exception: {task.exception()}")
-            except asyncio.CancelledError:
-                self.logger.info("Scan task was cancelled")
+                if task.cancelled():
+                    self.logger.warning("Scan task was cancelled")
+                elif task.exception():
+                    exc = task.exception()
+                    self.logger.error(f"Scan task failed with exception: {exc}")
+                    import traceback
+                    self.logger.error(f"Task exception traceback: {traceback.format_exc()}")
+                else:
+                    self.logger.info("Scan task completed successfully")
+            except Exception as e:
+                self.logger.error(f"Error in task callback: {e}")
         
         self.scan_task.add_done_callback(task_done_callback)
         
