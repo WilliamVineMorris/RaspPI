@@ -95,6 +95,11 @@ async def test_mock_camera():
             'port': 0,
             'resolution': [640, 480],
             'name': 'test_camera'
+        },
+        'camera_2': {
+            'port': 1,
+            'resolution': [640, 480],
+            'name': 'secondary_camera'
         }
     }
     
