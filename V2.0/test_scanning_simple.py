@@ -394,6 +394,9 @@ web_interface:
             # Should complete or be stopped
             assert scan_state.status in [ScanStatus.COMPLETED, ScanStatus.CANCELLED]
             
+            # Give time for report generation to complete
+            await asyncio.sleep(0.1)
+            
             # Check that some files were created
             output_files = list(Path(scan_dir).glob("*"))
             assert len(output_files) > 0
@@ -539,6 +542,9 @@ web_interface:
             await asyncio.sleep(0.1)
             if scan_state.status != ScanStatus.COMPLETED:  # Might complete too fast
                 assert scan_state.status == ScanStatus.PAUSED
+            
+            # Give time for any report generation to complete
+            await asyncio.sleep(0.1)
             
             await orchestrator.shutdown()
             

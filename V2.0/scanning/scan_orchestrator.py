@@ -608,6 +608,9 @@ class ScanOrchestrator:
         
         try:
             import json
+            # Ensure output directory exists
+            report_file.parent.mkdir(parents=True, exist_ok=True)
+            
             with open(report_file, 'w') as f:
                 json.dump(report_data, f, indent=2)
             
