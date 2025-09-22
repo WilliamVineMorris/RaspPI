@@ -564,11 +564,13 @@ class FluidNCController(MotionController):
             return False
     
     async def _wait_for_homing_complete(self):
-        """Wait for homing sequence to complete with better monitoring"""
+        """Wait for homing sequence to complete with thorough monitoring"""
         start_time = time.time()
         timeout = 120.0  # 2 minute timeout for homing
         last_status = None
         status_unchanged_count = 0
+        homing_started = False
+        idle_stable_count = 0  # Count how many consecutive times we see stable idle
         
         logger.info("Monitoring homing progress...")
         
@@ -582,35 +584,61 @@ class FluidNCController(MotionController):
                         logger.info(f"Homing status: {status_response}")
                         last_status = status_response
                         status_unchanged_count = 0
+                        idle_stable_count = 0  # Reset stable count on status change
                     else:
                         status_unchanged_count += 1
                     
-                    # Check for completion - be more specific about homing states
-                    if 'Idle' in status_response and 'MPos:' in status_response:
-                        # Double-check that we're actually homed by verifying position is reasonable
-                        logger.info("System reports idle with position - verifying homing completion...")
-                        
-                        # Parse position from status to verify homing worked
-                        position = self._parse_position_from_status(status_response)
-                        if position:
-                            logger.info(f"Position after homing: {position}")
-                            # Additional verification: check if position looks like a home position
-                            # (positions should be at or near configured home positions)
-                            return  # Homing complete
-                        else:
-                            logger.warning("Could not parse position from status - continuing to monitor")
-                            continue
-                            
-                    elif 'Home' in status_response or 'Homing' in status_response:
-                        logger.info("Homing in progress...")
-                        await asyncio.sleep(2.0)  # Still homing, check less frequently
+                    # Check for homing in progress first
+                    if 'Home' in status_response or 'Homing' in status_response:
+                        logger.info("Homing sequence actively running...")
+                        homing_started = True
+                        idle_stable_count = 0
+                        await asyncio.sleep(2.0)  # Check less frequently during active homing
                         continue
+                        
                     elif 'Alarm' in status_response:
                         raise MotionSafetyError(f"Alarm during homing: {status_response}")
+                        
                     elif 'Hold' in status_response:
                         logger.warning("System in hold state during homing - this may indicate an issue")
+                        idle_stable_count = 0
                         await asyncio.sleep(1.0)
                         continue
+                    
+                    # Check for completion - system should be idle with valid position
+                    elif 'Idle' in status_response and 'MPos:' in status_response:
+                        # Increment stable count
+                        idle_stable_count += 1
+                        
+                        if idle_stable_count == 1:
+                            logger.info("System reports idle with position - starting verification...")
+                        
+                        # Require multiple consecutive stable readings before declaring complete
+                        if idle_stable_count >= 5:  # 5 seconds of stable idle state
+                            logger.info("Verified stable idle state - checking final position...")
+                            
+                            # Parse position from status to verify homing worked
+                            position = self._parse_position_from_status(status_response)
+                            if position:
+                                logger.info(f"Final homed position: {position}")
+                                
+                                # Verify positions are reasonable for homed state
+                                if self._verify_home_position(position):
+                                    logger.info("✅ Homing sequence completed successfully")
+                                    return  # Homing complete
+                                else:
+                                    logger.warning("Position doesn't match expected home positions - continuing to wait")
+                                    idle_stable_count = 0  # Reset and continue waiting
+                            else:
+                                logger.warning("Could not parse position from status - continuing to monitor")
+                                idle_stable_count = 0
+                        else:
+                            logger.info(f"Idle state verification: {idle_stable_count}/5")
+                            
+                    else:
+                        # Unknown state
+                        idle_stable_count = 0
+                        logger.info(f"Waiting for homing completion... Current state: {status_response}")
                     
                     # Detect potential hanging
                     if status_unchanged_count > 30:  # Status unchanged for 30+ checks
@@ -625,22 +653,56 @@ class FluidNCController(MotionController):
                     
                 else:
                     logger.warning("No status response from FluidNC")
+                    idle_stable_count = 0
                 
                 await asyncio.sleep(1.0)
                 
             except Exception as e:
                 logger.error(f"Error monitoring homing: {e}")
+                idle_stable_count = 0
                 await asyncio.sleep(1.0)
         
         # Timeout reached
         logger.error(f"Homing timeout after {timeout} seconds")
         logger.error("This usually indicates:")
         logger.error("  1. Motors not powered/enabled")
-        logger.error("  2. Endstops not wired correctly")
+        logger.error("  2. Endstops not wired correctly") 
         logger.error("  3. Motor drivers not configured")
         logger.error("  4. Power supply issues")
         
         raise MotionTimeoutError(f"Homing timeout after {timeout} seconds")
+    
+    def _verify_home_position(self, position: Position4D) -> bool:
+        """
+        Verify that the position looks like a proper home position
+        
+        Args:
+            position: Position to verify
+            
+        Returns:
+            bool: True if position appears to be a valid home position
+        """
+        try:
+            # Expected home positions (with tolerance)
+            expected_x = 0.0      # X homes to minimum
+            expected_y = 200.0    # Y homes to maximum  
+            tolerance = 5.0       # 5mm tolerance
+            
+            x_ok = abs(position.x - expected_x) <= tolerance
+            y_ok = abs(position.y - expected_y) <= tolerance
+            
+            logger.info(f"Home position verification:")
+            logger.info(f"  X: {position.x:.3f}mm (expected {expected_x}±{tolerance}mm) {'✅' if x_ok else '❌'}")
+            logger.info(f"  Y: {position.y:.3f}mm (expected {expected_y}±{tolerance}mm) {'✅' if y_ok else '❌'}")
+            logger.info(f"  Z: {position.z:.3f}° (continuous, any value OK)")
+            logger.info(f"  C: {position.c:.3f}° (servo, any value OK)")
+            
+            # Only X and Y axes actually home, so only verify those
+            return x_ok and y_ok
+            
+        except Exception as e:
+            logger.error(f"Error verifying home position: {e}")
+            return False
     
     # Safety and Emergency
     async def emergency_stop(self) -> bool:

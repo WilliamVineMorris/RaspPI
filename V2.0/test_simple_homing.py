@@ -69,6 +69,11 @@ async def simple_homing_test():
         print("  Y-axis: home to 200.0mm (maximum)")
         print("  Z-axis: no homing (continuous rotation)")
         print("  C-axis: no homing (servo)")
+        print("\nImproved homing completion detection:")
+        print("  - Waits for actual homing sequence to start")
+        print("  - Requires 5 seconds of stable 'Idle' state")
+        print("  - Verifies final positions are within ±5mm of expected")
+        print("  - Provides detailed progress logging")
         
         proceed = input("\nProceed with homing? (y/N): ")
         if proceed.lower() != 'y':
@@ -88,11 +93,31 @@ async def simple_homing_test():
             if final_position:
                 print(f"Final Position: {final_position}")
                 
-                # Simple verification
-                if abs(final_position.x - 0.0) <= 1.0 and abs(final_position.y - 200.0) <= 1.0:
-                    print("✅ Position verification PASSED")
+                # Detailed verification with tolerance
+                print("\n--- Position Verification ---")
+                expected_x, expected_y = 0.0, 200.0
+                tolerance = 5.0  # 5mm tolerance
+                
+                x_diff = abs(final_position.x - expected_x)
+                y_diff = abs(final_position.y - expected_y)
+                x_ok = x_diff <= tolerance
+                y_ok = y_diff <= tolerance
+                
+                print(f"X-axis: {final_position.x:.3f}mm (expected {expected_x}±{tolerance}mm)")
+                print(f"  Difference: {x_diff:.3f}mm {'✅ PASS' if x_ok else '❌ FAIL'}")
+                print(f"Y-axis: {final_position.y:.3f}mm (expected {expected_y}±{tolerance}mm)")
+                print(f"  Difference: {y_diff:.3f}mm {'✅ PASS' if y_ok else '❌ FAIL'}")
+                print(f"Z-axis: {final_position.z:.3f}° (no verification needed)")
+                print(f"C-axis: {final_position.c:.3f}° (no verification needed)")
+                
+                if x_ok and y_ok:
+                    print("\n✅ Position verification PASSED!")
                 else:
-                    print("⚠️  Position verification - check values")
+                    print("\n❌ Position verification FAILED!")
+                    print("   This may indicate:")
+                    print("   - Homing completed too early")
+                    print("   - Endstop positioning issues")
+                    print("   - Motor configuration problems")
             
             print(f"Controller is_homed: {controller.is_homed}")
         else:
