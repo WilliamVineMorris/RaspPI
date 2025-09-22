@@ -84,10 +84,13 @@ def test_grid_pattern():
         max_y=10.0,
         min_z=5.0,
         max_z=15.0,  # Make max_z > min_z
+        min_c=-30.0,
+        max_c=30.0,
         x_spacing=10.0,
         y_spacing=10.0,
         c_steps=2,
-        zigzag=True
+        zigzag=True,
+        safety_margin=0.5  # Smaller safety margin for test
     )
     
     pattern = GridScanPattern("test_grid", params)

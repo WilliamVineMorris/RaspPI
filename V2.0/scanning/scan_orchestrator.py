@@ -717,7 +717,8 @@ class ScanOrchestrator:
             max_z=max_z,
             x_spacing=spacing,
             y_spacing=spacing,
-            c_steps=len(rotations) if rotations else 1
+            c_steps=len(rotations) if rotations else 1,
+            safety_margin=0.5  # Use smaller safety margin for wider coordinate ranges
         )
         
         # Generate pattern ID
