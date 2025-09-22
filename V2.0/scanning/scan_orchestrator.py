@@ -699,14 +699,22 @@ class ScanOrchestrator:
         """Create a grid scan pattern"""
         from .scan_patterns import GridPatternParameters
         
+        # Handle Z height - if single height provided, use small range
+        if z_height is not None:
+            min_z = z_height
+            max_z = z_height + 0.1  # Small increment to satisfy validation
+        else:
+            min_z = 0.0
+            max_z = 0.1
+        
         # Create pattern parameters
         parameters = GridPatternParameters(
             min_x=x_range[0],
             max_x=x_range[1],
             min_y=y_range[0],
             max_y=y_range[1],
-            min_z=z_height or 0.0,
-            max_z=z_height or 0.0,
+            min_z=min_z,
+            max_z=max_z,
             x_spacing=spacing,
             y_spacing=spacing,
             c_steps=len(rotations) if rotations else 1
