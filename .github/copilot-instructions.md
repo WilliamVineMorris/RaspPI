@@ -120,3 +120,38 @@ This codebase is designed for development on PC, version control via GitHub, the
 - **Motion Safety**: Validate all positions against hardware limits before movement
 - **Emergency Systems**: Implement emergency stop in all hardware controllers
 - **Exception Handling**: Use module-specific error types for proper error recovery
+
+## Testing Protocol for Raspberry Pi Deployment
+
+### **CRITICAL RULE: Always Wait for User Testing on Pi Hardware**
+
+When making code changes that affect Pi hardware or system functionality:
+
+1. **NEVER attempt to run Pi-specific code locally** on development machines
+2. **ALWAYS wait for user confirmation** after providing code changes
+3. **Let the user test on actual Pi hardware** before proceeding
+4. **Only continue development** after user reports test results
+
+### Code Change Testing Workflow:
+```
+1. Agent provides code changes/fixes
+2. Agent states: "Please test this on the Pi hardware"  
+3. User deploys and tests on actual Raspberry Pi
+4. User reports results (success/failure/issues)
+5. Agent proceeds based on actual Pi test results
+```
+
+### What Requires Pi Testing:
+- Any hardware interface changes (GPIO, cameras, motion control)
+- Web interface modifications 
+- Configuration file updates
+- Module integration changes
+- System startup/initialization code
+- FluidNC communication updates
+
+### Mock Testing vs Real Hardware:
+- **Mock mode**: Use for initial development and logic validation
+- **Real hardware**: Required for final verification and deployment
+- **Never assume**: Mock behavior matches real Pi hardware behavior
+
+**Remember**: The Pi environment has unique characteristics (GPIO timing, camera interfaces, USB devices) that cannot be replicated locally. Always defer to user testing results on actual hardware.
