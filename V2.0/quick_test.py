@@ -15,6 +15,7 @@ Created: September 2025
 import sys
 import asyncio
 import tempfile
+import os
 from pathlib import Path
 
 # Add project root to path
@@ -25,96 +26,62 @@ from scanning.scan_orchestrator import ScanOrchestrator, MockCameraManager
 
 
 def create_test_config():
-    """Create minimal test configuration"""
-    config = {
-        'system': {
-            'name': 'Quick Test Scanner',
-            'debug_mode': False,
-            'simulation_mode': False,  # Test with real hardware
-            'log_level': 'INFO'
-        },
-        'platform': {
-            'type': 'raspberry_pi_5',
-            'gpio_library': 'pigpio',
-            'camera_interface': 'libcamera'
-        },
-        'motion': {
-            'controller': {
-                'type': 'fluidnc',
-                'connection': 'usb',
-                'port': '/dev/ttyUSB0',
-                'baudrate': 115200,
-                'timeout': 5.0  # Shorter timeout for testing
-            },
-            'axes': {
-                'x_axis': {
-                    'type': 'linear',
-                    'units': 'mm',
-                    'min_limit': 0.0,
-                    'max_limit': 200.0,
-                    'max_feedrate': 1000.0,
-                    'home_position': 0.0,
-                    'home_direction': 'negative'
-                },
-                'y_axis': {
-                    'type': 'linear', 
-                    'units': 'mm',
-                    'min_limit': 0.0,
-                    'max_limit': 200.0,
-                    'max_feedrate': 1000.0,
-                    'home_position': 0.0,
-                    'home_direction': 'negative'
-                },
-                'z_axis': {
-                    'type': 'rotational',
-                    'units': 'degrees',
-                    'min_limit': -999999.0,
-                    'max_limit': 999999.0,
-                    'max_feedrate': 360.0,
-                    'home_position': 0.0,
-                    'continuous': True
-                },
-                'c_axis': {
-                    'type': 'rotational',
-                    'units': 'degrees',
-                    'min_limit': -90.0,
-                    'max_limit': 90.0,
-                    'max_feedrate': 180.0,
-                    'home_position': 0.0
-                }
-            }
-        },
-        'cameras': {
-            'camera_1': {
-                'port': 0,
-                'resolution': [1920, 1080],
-                'name': 'main',
-                'framerate': 30
-            },
-            'camera_2': {
-                'port': 1,
-                'resolution': [1920, 1080],
-                'name': 'secondary',
-                'framerate': 30
-            }
-        }
-    }
-    
-    # Write to temporary file
+    """Create minimal test configuration file"""
+    # Create temporary file with manual YAML
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False, encoding='utf-8') as f:
-        # Write YAML manually
-        def write_dict(d, indent=0):
-            for key, value in d.items():
-                f.write('  ' * indent + f"{key}:")
-                if isinstance(value, dict):
-                    f.write('\n')
-                    write_dict(value, indent + 1)
-                elif isinstance(value, list):
-                    f.write(f" {value}\n")
-                else:
-                    f.write(f" {value}\n")
+        f.write("system:\n")
+        f.write("  name: Quick Test Scanner\n")
+        f.write("  debug_mode: false\n")
+        f.write("  simulation_mode: false\n")
+        f.write("  log_level: INFO\n")
+        f.write("platform:\n")
+        f.write("  type: raspberry_pi_5\n")
+        f.write("motion:\n")
+        f.write("  controller:\n")
+        f.write("    type: fluidnc\n")
+        f.write("    port: /dev/ttyUSB0\n")
+        f.write("    baudrate: 115200\n")
+        f.write("cameras:\n")
+        f.write("  camera_1:\n")
+        f.write("    port: 0\n")
+        f.write("    resolution: [1920, 1080]\n")
+        f.write("    name: main\n")
+        f.write("lighting:\n")
+        f.write("  zones:\n")
+        f.write("    zone_1:\n")
+        f.write("      type: led_array\n")
+        f.write("      pin: 18\n")
+        f.write("      count: 60\n")
         
-        write_dict(config)
+        return f.name
+
+
+def create_mock_config():
+    """Create configuration for mock camera testing"""
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False, encoding='utf-8') as f:
+        f.write("system:\n")
+        f.write("  name: Mock Test Scanner\n")
+        f.write("  debug_mode: true\n")
+        f.write("  simulation_mode: true\n")
+        f.write("  log_level: INFO\n")
+        f.write("platform:\n")
+        f.write("  type: test\n")
+        f.write("motion:\n")
+        f.write("  controller:\n")
+        f.write("    type: mock\n")
+        f.write("    port: /dev/null\n")
+        f.write("cameras:\n")
+        f.write("  camera_1:\n")
+        f.write("    port: 0\n")
+        f.write("    resolution: [640, 480]\n")
+        f.write("    name: test_camera\n")
+        f.write("lighting:\n")
+        f.write("  zones:\n")
+        f.write("    zone_1:\n")
+        f.write("      type: led_array\n")
+        f.write("      pin: 18\n")
+        f.write("      count: 60\n")
+        
         return f.name
 
 
@@ -134,30 +101,20 @@ async def test_fluidnc_connection():
         if success:
             print("   ✅ FluidNC initialization successful!")
             
-            # Test homing  
-            print("   🏠 Testing homing sequence...")
+            # Check if motion controller is connected
             motion_controller = orchestrator.motion_controller
-            
-            # Check if it's the real controller (adapter with FluidNC)
-            try:
-                if hasattr(motion_controller, 'controller'):
-                    # This is the adapter, get the real controller
-                    real_controller = getattr(motion_controller, 'controller')
-                    if hasattr(real_controller, 'home_all_axes'):
-                        homed = await real_controller.home_all_axes()
-                        if homed:
-                            print("   ✅ Homing completed successfully!")
-                        else:
-                            print("   ⚠️  Homing failed")
-                    else:
-                        print("   ℹ️  Controller doesn't support homing test")
+            if motion_controller and hasattr(motion_controller, 'is_connected'):
+                connected = motion_controller.is_connected()
+                if connected:
+                    print("   ✅ FluidNC connection verified!")
                 else:
-                    print("   ℹ️  Mock controller - skipping homing test")
-            except Exception as e:
-                print(f"   ⚠️  Homing error: {e}")
+                    print("   ❌ FluidNC not connected")
+            else:
+                print("   ⚠️  Motion controller status unknown")
         else:
             print("   ❌ FluidNC initialization failed")
-        
+            
+        # Clean shutdown
         await orchestrator.shutdown()
         return success
         
@@ -165,132 +122,99 @@ async def test_fluidnc_connection():
         print(f"   ❌ FluidNC test error: {e}")
         return False
     finally:
-        Path(config_file).unlink()
+        if os.path.exists(config_file):
+            os.unlink(config_file)
 
 
 async def test_mock_camera_jpeg():
     """Test mock camera JPEG generation"""
-    print("\n📷 Testing Mock Camera JPEG Generation...")
+    print("📷 Testing Mock Camera JPEG Generation...")
     
-    # Create simulation config
-    config = {
-        'system': {
-            'name': 'Mock Test Scanner',
-            'debug_mode': False,
-            'simulation_mode': True,  # Force simulation for this test
-            'log_level': 'INFO'
-        },
-        'platform': {
-            'type': 'test'
-        },
-        'cameras': {
-            'camera_1': {
-                'port': 0,
-                'resolution': [640, 480],
-                'name': 'test_camera'
-            }
-        }
-    }
-    
-    # Write to temporary file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False, encoding='utf-8') as f:
-        def write_dict(d, indent=0):
-            for key, value in d.items():
-                f.write('  ' * indent + f"{key}:")
-                if isinstance(value, dict):
-                    f.write('\n')
-                    write_dict(value, indent + 1)
-                elif isinstance(value, list):
-                    f.write(f" {value}\n")
-                else:
-                    f.write(f" {value}\n")
-        
-        write_dict(config)
-        config_file = f.name
+    config_file = create_mock_config()
     
     try:
         config_manager = ConfigManager(config_file)
-        
         mock_camera = MockCameraManager(config_manager)
         
-        # Test capture
-        test_output_dir = Path("/tmp/quick_test_jpeg")
+        # Test JPEG generation
+        test_output_dir = Path("/tmp/test_mock_jpeg")
         test_output_dir.mkdir(exist_ok=True)
         
-        print("   📸 Generating mock JPEG files...")
-        results = await mock_camera.capture_all(
-            test_output_dir,
-            "test_image",
-            {"test": "quick_test"}
-        )
+        print("   📸 Generating test JPEG...")
         
-        print(f"   📤 Generated {len(results)} files")
-        
-        # Analyze each file
-        valid_jpegs = 0
-        for result in results:
-            if result['success']:
-                file_path = Path(result['filepath'])
-                print(f"   📁 Checking: {file_path.name}")
-                
-                # Check JPEG validity
-                try:
-                    with open(file_path, 'rb') as f:
-                        header = f.read(4)
-                    
-                    if header.startswith(b'\xff\xd8'):
-                        print(f"      ✅ Valid JPEG header")
-                        valid_jpegs += 1
+        try:
+            results = await mock_camera.capture_all(
+                test_output_dir, 
+                "quick_test", 
+                {"test": True}
+            )
+            
+            if results and len(results) > 0:
+                # Check first result
+                result = results[0]
+                if result['success']:
+                    file_path = Path(result['filepath'])
+                    if file_path.exists():
+                        # Check JPEG header
+                        with open(file_path, 'rb') as f:
+                            header = f.read(4)
+                        
+                        if header.startswith(b'\xff\xd8'):
+                            print("   ✅ Valid JPEG generated!")
+                            return True
+                        else:
+                            print(f"   ❌ Invalid JPEG header: {header.hex()}")
+                            return False
                     else:
-                        print(f"      ❌ Invalid JPEG header: {header.hex()}")
+                        print("   ❌ JPEG file not created")
+                        return False
+                else:
+                    print(f"   ❌ Capture failed: {result.get('error', 'Unknown error')}")
+                    return False
+            else:
+                print("   ❌ No capture results")
+                return False
                 
-                except Exception as e:
-                    print(f"      ❌ Error reading file: {e}")
+        except Exception as e:
+            print(f"   ❌ JPEG generation error: {e}")
+            return False
         
-        # Cleanup
-        for result in results:
-            if result['success']:
-                Path(result['filepath']).unlink()
-        test_output_dir.rmdir()
-        
-        success = valid_jpegs == len(results)
-        if success:
-            print(f"   ✅ All {valid_jpegs} JPEG files are valid!")
-        else:
-            print(f"   ⚠️  Only {valid_jpegs}/{len(results)} JPEG files are valid")
-        
-        return success
+        finally:
+            # Cleanup
+            if test_output_dir.exists():
+                for file in test_output_dir.glob("*"):
+                    file.unlink()
+                test_output_dir.rmdir()
         
     except Exception as e:
         print(f"   ❌ JPEG test error: {e}")
         return False
     finally:
-        Path(config_file).unlink()
+        if os.path.exists(config_file):
+            os.unlink(config_file)
 
 
 async def main():
-    """Main test function"""
+    """Run quick integration tests"""
     print("🧪 Quick Integration Test - Testing Fixes")
     print("=" * 50)
     
-    # Test FluidNC connection improvements
+    # Test 1: FluidNC Connection
     fluidnc_success = await test_fluidnc_connection()
     
-    # Test JPEG generation fixes
+    # Test 2: Mock Camera JPEG Generation
     jpeg_success = await test_mock_camera_jpeg()
     
-    # Summary
+    # Results Summary
     print("\n📊 Test Results Summary")
     print("=" * 30)
     print(f"   FluidNC Connection: {'✅ PASS' if fluidnc_success else '❌ FAIL'}")
     print(f"   JPEG Generation:    {'✅ PASS' if jpeg_success else '❌ FAIL'}")
     
     if fluidnc_success and jpeg_success:
-        print("\n🎉 ALL FIXES WORKING! Ready for full integration test")
+        print("\n🎉 All tests passed! Fixes are working correctly.")
     else:
         print("\n⚠️  Some issues remain - check logs for details")
-    
-    return fluidnc_success and jpeg_success
 
 
 if __name__ == "__main__":

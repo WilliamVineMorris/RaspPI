@@ -304,6 +304,15 @@ class FluidNCController(MotionController):
                 await self._send_command('$X')  # Unlock
                 await asyncio.sleep(0.5)
             
+            # Enable stepper motors - critical for movement
+            try:
+                logger.info("Enabling stepper motors...")
+                await self._send_command('M17')  # Enable steppers
+                await asyncio.sleep(0.2)
+            except FluidNCCommandError as e:
+                logger.warning(f"M17 command failed, trying alternative: {e}")
+                # Some FluidNC versions may not support M17
+            
             # Set basic G-code modes first (these should work even without homing)
             basic_commands = [
                 'G90',  # Absolute positioning
@@ -433,10 +442,27 @@ class FluidNCController(MotionController):
             logger.info("Starting homing sequence")
             self.status = MotionStatus.HOMING
             
+            # Ensure motors are enabled before homing
+            try:
+                logger.info("Ensuring motors are enabled...")
+                await self._send_command('M17')  # Enable steppers
+                await asyncio.sleep(0.5)
+            except FluidNCCommandError as e:
+                logger.warning(f"Motor enable command failed: {e}")
+            
+            # Check system status before homing
+            status_response = await self._send_command('?', wait_for_response=True)
+            logger.info(f"Pre-homing status: {status_response}")
+            
+            if status_response and 'Alarm' in status_response:
+                logger.error("Cannot home - system in alarm state")
+                raise MotionSafetyError("System in alarm state before homing")
+            
             # Send homing command
+            logger.info("Sending homing command...")
             await self._send_command('$H')
             
-            # Wait for homing completion
+            # Wait for homing completion with better monitoring
             await self._wait_for_homing_complete()
             
             # Update position to home
@@ -464,24 +490,66 @@ class FluidNCController(MotionController):
             return False
     
     async def _wait_for_homing_complete(self):
-        """Wait for homing sequence to complete"""
+        """Wait for homing sequence to complete with better monitoring"""
         start_time = time.time()
         timeout = 120.0  # 2 minute timeout for homing
+        last_status = None
+        status_unchanged_count = 0
+        
+        logger.info("Monitoring homing progress...")
         
         while time.time() - start_time < timeout:
-            status_response = await self._send_command('?')
-            
-            if status_response and 'Idle' in status_response:
-                return  # Homing complete
-            elif status_response and 'Home' in status_response:
-                await asyncio.sleep(0.5)  # Still homing
-                continue
-            elif status_response and 'Alarm' in status_response:
-                raise MotionSafetyError("Alarm during homing - check endstops")
-            
-            await asyncio.sleep(0.5)
+            try:
+                status_response = await self._send_command('?', wait_for_response=True)
+                
+                if status_response:
+                    # Log status changes
+                    if status_response != last_status:
+                        logger.info(f"Homing status: {status_response}")
+                        last_status = status_response
+                        status_unchanged_count = 0
+                    else:
+                        status_unchanged_count += 1
+                    
+                    # Check for completion
+                    if 'Idle' in status_response:
+                        logger.info("Homing completed - system idle")
+                        return  # Homing complete
+                    elif 'Home' in status_response:
+                        await asyncio.sleep(1.0)  # Still homing, check less frequently
+                        continue
+                    elif 'Alarm' in status_response:
+                        raise MotionSafetyError("Alarm during homing - check endstops and motor power")
+                    
+                    # Detect potential hanging
+                    if status_unchanged_count > 30:  # Status unchanged for 30+ checks
+                        logger.warning(f"Homing may be hanging - status unchanged: {status_response}")
+                        
+                        # Try to get more detailed status
+                        settings_check = await self._send_command('$$', wait_for_response=True)
+                        if settings_check:
+                            logger.info("FluidNC is responding to commands")
+                        else:
+                            raise MotionTimeoutError("FluidNC not responding during homing")
+                    
+                else:
+                    logger.warning("No status response from FluidNC")
+                
+                await asyncio.sleep(1.0)
+                
+            except Exception as e:
+                logger.error(f"Error monitoring homing: {e}")
+                await asyncio.sleep(1.0)
         
-        raise MotionTimeoutError("Homing timeout exceeded")
+        # Timeout reached
+        logger.error(f"Homing timeout after {timeout} seconds")
+        logger.error("This usually indicates:")
+        logger.error("  1. Motors not powered/enabled")
+        logger.error("  2. Endstops not wired correctly")
+        logger.error("  3. Motor drivers not configured")
+        logger.error("  4. Power supply issues")
+        
+        raise MotionTimeoutError(f"Homing timeout after {timeout} seconds")
     
     # Safety and Emergency
     async def emergency_stop(self) -> bool:
