@@ -181,6 +181,17 @@ class PiTestRunner:
                         'camera_count': 2,
                         'camera_1': {'port': 0, 'name': 'test_cam1', 'resolution': [1920, 1080]},
                         'camera_2': {'port': 1, 'name': 'test_cam2', 'resolution': [1920, 1080]}
+                    },
+                    'lighting': {
+                        'led_zones': {
+                            'zone_1': {'gpio_pin': 18, 'led_count': 10, 'brightness': 255, 'max_intensity': 80},
+                            'zone_2': {'gpio_pin': 19, 'led_count': 10, 'brightness': 255, 'max_intensity': 80}
+                        }
+                    },
+                    'web_interface': {
+                        'port': 5000,
+                        'host': '0.0.0.0',
+                        'debug': False
                     }
                 }
                 
