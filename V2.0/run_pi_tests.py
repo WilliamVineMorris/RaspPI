@@ -166,7 +166,7 @@ class PiTestRunner:
                     },
                     'motion': {
                         'controller_type': 'fluidnc',
-                        'port': '/dev/ttyUSB0',
+                        'port': self.args.motion_port or '/dev/ttyUSB0',
                         'baudrate': 115200,
                         'axes': {
                             'x_axis': {'type': 'linear', 'units': 'mm', 'min_limit': -150.0, 'max_limit': 150.0, 'home_position': 0.0, 'max_feedrate': 8000.0},

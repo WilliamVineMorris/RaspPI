@@ -663,9 +663,9 @@ class PiCameraController(CameraController):
             if settings.white_balance:
                 controls['ColourGains'] = settings.white_balance
             
-            # Apply controls
-            with camera.controls as ctrl:
-                ctrl.update(controls)
+            # Apply controls using set_controls method
+            if controls:
+                camera.set_controls(controls)
             
             logger.debug(f"Applied settings to camera {camera_id}: {controls}")
             return True
