@@ -133,6 +133,16 @@ class StreamingError(CameraError):
     pass
 
 
+class CameraConfigurationError(CameraError):
+    """Raised when camera configuration fails"""
+    pass
+
+
+class CameraConnectionError(CameraError):
+    """Raised when camera connection fails"""
+    pass
+
+
 # LED Control Errors
 class LEDError(HardwareError):
     """Base class for LED control errors"""

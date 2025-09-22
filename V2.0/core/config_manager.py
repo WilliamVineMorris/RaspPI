@@ -113,6 +113,9 @@ class ConfigManager:
             logger.info(f"Configuration loaded from {self.config_file}")
             return True
             
+        except ConfigurationNotFoundError:
+            # Re-raise file not found errors without wrapping
+            raise
         except yaml.YAMLError as e:
             raise ConfigurationError(f"Invalid YAML in {self.config_file}: {e}")
         except Exception as e:

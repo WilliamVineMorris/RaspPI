@@ -37,6 +37,7 @@ class CaptureMode(Enum):
     BURST = "burst"             # Burst mode capture
     CONTINUOUS = "continuous"   # Continuous capture
     TIMELAPSE = "timelapse"     # Time-lapse capture
+    VIDEO = "video"             # Video recording
 
 
 class ImageFormat(Enum):
@@ -106,6 +107,22 @@ class SyncCaptureResult:
         return (self.success and 
                 self.camera1_result is not None and self.camera1_result.success and
                 self.camera2_result is not None and self.camera2_result.success)
+
+
+@dataclass
+class CameraCapabilities:
+    """Camera capabilities and limits"""
+    supported_resolutions: List[Tuple[int, int]]
+    supported_formats: List[ImageFormat]
+    min_exposure_time: float  # seconds
+    max_exposure_time: float  # seconds
+    min_iso: int
+    max_iso: int
+    supports_video: bool = False
+    supports_burst: bool = False
+    max_burst_rate: float = 1.0  # fps
+    max_video_resolution: Optional[Tuple[int, int]] = None
+    supports_auto_focus: bool = False
 
 
 class CameraController(ABC):
