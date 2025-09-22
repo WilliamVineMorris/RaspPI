@@ -350,7 +350,7 @@ class FluidNCController(MotionController):
             # Enable auto-report for efficient status monitoring
             try:
                 logger.info("Enabling auto-report interval for status updates...")
-                await self._send_command('$Report/Interval=1000')  # 1 second auto-report
+                await self._send_command('$Report/Interval=200')  # 200ms auto-report for responsive monitoring
                 await asyncio.sleep(0.2)
             except FluidNCCommandError as e:
                 logger.warning(f"Auto-report setup failed: {e}")
@@ -816,145 +816,132 @@ class FluidNCController(MotionController):
     
     async def _wait_for_homing_complete(self):
         """
-        Wait for homing sequence to complete using message-based monitoring.
-        This listens for FluidNC homing debug messages and completion signals.
+        Wait for homing sequence to complete, accounting for delayed status output.
+        FluidNC status can lag significantly (20+ seconds) behind actual machine movement.
+        
+        Homing strategy:
+        1. Detect when homing starts (Home state appears)
+        2. Monitor for position stability indicating completion
+        3. Use timeout-based detection when status lags
+        4. Handle 2-cycle homing (Y-axis first, then X-axis)
         """
         start_time = time.time()
-        timeout = 120.0  # 2 minute timeout for homing
+        timeout = 180.0  # 3 minute timeout for dual-cycle homing
         homing_started = False
-        homing_axes = set()  # Track which axes are being homed
-        completed_axes = set()  # Track completed axes
         
         logger.info("Monitoring homing progress via FluidNC messages...")
+        logger.info("Note: FluidNC status may lag significantly behind actual movement")
         
-        # Initialize variables for the polling approach as fallback
+        # Track status for lag detection
         last_status = None
         status_unchanged_count = 0
-        idle_stable_count = 0
+        last_position = None
+        position_stable_count = 0
+        homing_phase_start = None
         
         while time.time() - start_time < timeout:
             try:
-                # Reduced polling frequency - check every 2-3 seconds
-                status_response = await self._get_status_response()
+                # First priority: Check for homing messages from FluidNC
+                messages = await self._read_all_messages()
+                current_time = time.time()
                 
-                if status_response:
-                    # Log status changes only
-                    if status_response != last_status:
-                        logger.info(f"Homing status: {status_response}")
-                        last_status = status_response
-                        status_unchanged_count = 0
-                        # Reset counters on status change
-                        if 'Home' not in status_response:
-                            idle_stable_count = 0
-                    else:
-                        status_unchanged_count += 1
-                    
-                    # Check for homing in progress first
-                    if 'Home' in status_response or 'Homing' in status_response:
-                        if not homing_started:
-                            logger.info("Homing sequence actively running...")
+                # Process any homing-related messages
+                homing_message_received = False
+                for message in messages:
+                    if any(keyword in message.lower() for keyword in ['homing', 'home', 'dbg:']):
+                        logger.info(f"Homing message: {message}")
+                        homing_message_received = True
                         homing_started = True
-                        idle_stable_count = 0
-                        await asyncio.sleep(3.0)  # Longer delay during active homing
-                        continue
+                        homing_phase_start = current_time
                         
-                    elif 'Alarm' in status_response:
-                        # During homing, FluidNC may go through alarm states temporarily
-                        # Check if this is completion in alarm state (common with FluidNC)
-                        if homing_started:
-                            # Parse position to see if we're at home position
-                            position = self._parse_position_from_status(status_response)
-                            if position and self._verify_home_position(position):
-                                idle_stable_count += 1
-                                logger.info(f"Homing completion detected in alarm state: {idle_stable_count}/2")
-                                logger.info(f"Position verification: {position}")
-                                
-                                if idle_stable_count >= 2:
-                                    logger.info("✅ Homing sequence completed successfully (alarm state with correct position)")
-                                    logger.info(f"Final homed position: {position}")
-                                    return  # Homing complete!
-                            else:
-                                logger.debug(f"Alarm state but position not verified: {status_response}")
-                                idle_stable_count = 0
-                            await asyncio.sleep(1.0)
-                            continue
-                        else:
-                            # Alarm before homing started - continue monitoring, don't fail immediately
-                            logger.debug(f"Alarm before homing started: {status_response}")
-                            await asyncio.sleep(1.0)
-                            continue
-                        
-                    elif 'Hold' in status_response:
-                        logger.warning("System in hold state during homing - this may indicate an issue")
-                        idle_stable_count = 0
-                        await asyncio.sleep(1.0)
-                        continue
-                    
-                    # Check for completion - system should be idle with valid position
-                    elif 'Idle' in status_response and 'MPos:' in status_response:
-                        # We have an Idle status with position data
-                        if idle_stable_count == 0:
-                            logger.info("System reports idle with position - starting verification...")
-                        
-                        # Parse position immediately to check if it's valid
-                        position = self._parse_position_from_status(status_response)
-                        if position:
-                            # Verify positions are reasonable for homed state
-                            if self._verify_home_position(position):
-                                idle_stable_count += 1
-                                logger.info(f"Homing completion verification: {idle_stable_count}/2")
-                                
-                                # Require only 2 confirmations for faster completion
-                                if idle_stable_count >= 2:
-                                    logger.info("✅ Homing sequence completed successfully")
-                                    logger.info(f"Final homed position: {position}")
-                                    return  # Homing complete
-                            else:
-                                logger.warning("Position doesn't match expected home positions - continuing to wait")
-                                idle_stable_count = 0  # Reset and continue waiting
-                        else:
-                            logger.warning("Could not parse position from status - continuing to monitor")
-                            idle_stable_count = 0
-                            
-                    else:
-                        # Unknown state - reset verification
-                        if idle_stable_count > 0:
-                            logger.info(f"Unexpected status during verification: {status_response}")
-                        idle_stable_count = 0
-                        logger.debug(f"Waiting for homing completion... Current state: {status_response}")
-                    
-                    # Detect potential hanging (reduced threshold)
-                    if status_unchanged_count > 15:  # Reduced from 30 for faster detection
-                        logger.warning(f"Homing may be hanging - status unchanged: {status_response}")
-                        
-                        # Try to get more detailed status
-                        settings_check = await self._send_command('$$', wait_for_response=True)
-                        if settings_check:
-                            logger.info("FluidNC is responding to commands")
-                        else:
-                            raise MotionTimeoutError("FluidNC not responding during homing")
-                    
-                else:
-                    logger.warning("No status response from FluidNC")
-                    idle_stable_count = 0
+                        # Check for completion messages
+                        if 'homing done' in message.lower() or 'homed:' in message.lower():
+                            logger.info("✅ Homing completion detected via message")
+                            return  # Homing complete!
                 
-                # Standard polling interval - check every 2 seconds to reduce FluidNC load
-                await asyncio.sleep(2.0)
+                # If we received homing messages, continue monitoring messages
+                if homing_message_received:
+                    await asyncio.sleep(0.2)  # Quick check for more messages
+                    continue
+                
+                # If no homing messages for 2+ seconds, fall back to status polling
+                time_since_message_start = current_time - (homing_phase_start or start_time)
+                if homing_started and time_since_message_start >= 2.0:
+                    logger.info("No homing messages for 2+ seconds, checking status...")
+                    
+                    # Get status response for completion check
+                    status_response = await self._get_status_response()
+                    
+                    if status_response:
+                        # Log status if it changed
+                        if status_response != last_status:
+                            logger.info(f"Homing status: {status_response}")
+                            last_status = status_response
+                            status_unchanged_count = 0
+                        else:
+                            status_unchanged_count += 1
+                        
+                        # Parse current position
+                        current_position = self._parse_position_from_status(status_response)
+                        
+                        # Track position stability
+                        if current_position and last_position:
+                            if (abs(current_position.x - last_position.x) < 0.1 and 
+                                abs(current_position.y - last_position.y) < 0.1):
+                                position_stable_count += 1
+                            else:
+                                position_stable_count = 0
+                                last_position = current_position
+                        elif current_position:
+                            last_position = current_position
+                        
+                        # Check completion patterns when messages have stopped
+                        
+                        # Pattern 1: Idle state with correct position
+                        if 'Idle' in status_response and current_position:
+                            if self._verify_home_position(current_position):
+                                logger.info(f"✅ Homing completed (Idle state): {current_position}")
+                                return  # Homing complete!
+                        
+                        # Pattern 2: Alarm state with correct position (common after homing)
+                        elif 'Alarm' in status_response and current_position:
+                            if self._verify_home_position(current_position):
+                                logger.info(f"✅ Homing completed (Alarm state with correct position): {current_position}")
+                                return  # Homing complete!
+                        
+                        # Pattern 3: Position stable at home for extended time
+                        elif position_stable_count >= 3 and current_position:  # 3 * 2 seconds = 6 seconds stable
+                            if self._verify_home_position(current_position):
+                                logger.info(f"✅ Homing completed (position stable): {current_position}")
+                                return  # Homing complete!
+                        
+                        # Pattern 4: Status unchanged for long time with correct position
+                        elif status_unchanged_count >= 5 and current_position:  # 5 * 2 seconds = 10 seconds
+                            if self._verify_home_position(current_position):
+                                logger.info(f"✅ Homing completed (status stable): {current_position}")
+                                return  # Homing complete!
+                
+                # If homing hasn't started yet, check status to detect start
+                if not homing_started:
+                    status_response = await self._get_status_response()
+                    if status_response and ('Home' in status_response or 'Homing' in status_response):
+                        logger.info("Homing sequence actively running...")
+                        homing_started = True
+                        homing_phase_start = current_time
+                
+                # Polling interval: frequent during message phase, less frequent during status phase
+                if homing_message_received:
+                    await asyncio.sleep(0.5)  # Fast polling when getting messages
+                else:
+                    await asyncio.sleep(2.0)  # Slower polling when monitoring status
                 
             except Exception as e:
                 logger.error(f"Error monitoring homing: {e}")
-                idle_stable_count = 0
                 await asyncio.sleep(1.0)
         
         # Timeout reached
         logger.error(f"Homing timeout after {timeout} seconds")
-        logger.error("This usually indicates:")
-        logger.error("  1. Motors not powered/enabled")
-        logger.error("  2. Endstops not wired correctly") 
-        logger.error("  3. Motor drivers not configured")
-        logger.error("  4. Power supply issues")
-        
-        raise MotionTimeoutError(f"Homing timeout after {timeout} seconds")
+        raise MotionTimeoutError(f"Homing did not complete within {timeout} seconds")
     
     def _verify_home_position(self, position: Position4D) -> bool:
         """
