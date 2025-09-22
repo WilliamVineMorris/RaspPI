@@ -390,19 +390,19 @@ web_interface:
             assert status is not None, f"Orchestrator status is None"
             assert status['scan_id'] == "test_mock_scan", f"Expected scan_id 'test_mock_scan', got {status.get('scan_id', 'None')}"
             
-            # Wait for completion (with longer timeout since we slowed down mock operations)
-            timeout = 10.0
+            # Wait for completion (with timeout adjusted for faster mock operations)
+            timeout = 5.0
             start_time = asyncio.get_event_loop().time()
             
             while (scan_state.status in [ScanStatus.INITIALIZING, ScanStatus.RUNNING] 
                    and asyncio.get_event_loop().time() - start_time < timeout):
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.1)
             
             # Should complete or be stopped
             assert scan_state.status in [ScanStatus.COMPLETED, ScanStatus.CANCELLED], f"Expected scan to complete/cancel, got status: {scan_state.status}"
             
             # Give time for report generation to complete
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.2)
             
             # Check that some files were created (images and report)
             output_files = list(Path(scan_dir).glob("*"))

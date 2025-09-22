@@ -118,22 +118,22 @@ class MockMotionController:
         return True
         
     async def home(self) -> bool:
-        await asyncio.sleep(0.5)  # Simulate longer homing
+        await asyncio.sleep(0.2)  # Reduce homing time for tests
         self._position = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'rotation': 0.0}
         return True
         
     async def move_to(self, x: float, y: float) -> bool:
-        await asyncio.sleep(0.5)  # Simulate longer movement
+        await asyncio.sleep(0.1)  # Reduce movement time for tests
         self._position.update({'x': x, 'y': y})
         return True
         
     async def move_z_to(self, z: float) -> bool:
-        await asyncio.sleep(0.3)  # Simulate longer movement
+        await asyncio.sleep(0.1)  # Reduce movement time for tests
         self._position['z'] = z
         return True
         
     async def rotate_to(self, rotation: float) -> bool:
-        await asyncio.sleep(0.5)  # Simulate longer rotation
+        await asyncio.sleep(0.1)  # Reduce rotation time for tests
         self._position['rotation'] = rotation
         return True
         
@@ -161,7 +161,7 @@ class MockCameraManager:
         return True
         
     async def capture_all(self, output_dir: Path, filename_base: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
-        await asyncio.sleep(0.8)  # Simulate longer capture time
+        await asyncio.sleep(0.2)  # Reduce capture time for tests
         
         # Create mock image files
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -400,6 +400,7 @@ class ScanOrchestrator:
         try:
             # Start the scan
             self.current_scan.start()
+            self.logger.info(f"Scan {self.current_scan.scan_id} started")
             
             # Home the system
             await self._home_system()
@@ -410,12 +411,15 @@ class ScanOrchestrator:
             # Complete the scan
             if not self._stop_requested and not self._emergency_stop:
                 self.current_scan.complete()
+                self.logger.info(f"Scan {self.current_scan.scan_id} completed successfully")
             else:
                 self.current_scan.cancel()
+                self.logger.info(f"Scan {self.current_scan.scan_id} cancelled")
                 
         except Exception as e:
             self.logger.error(f"Scan execution failed: {e}")
-            self.current_scan.fail(str(e), {'exception_type': type(e).__name__})
+            if self.current_scan:
+                self.current_scan.fail(str(e), {'exception_type': type(e).__name__})
         
         finally:
             await self._cleanup_scan()
@@ -440,15 +444,19 @@ class ScanOrchestrator:
         
         # Generate points from pattern
         scan_points = self.current_pattern.generate_points()
+        self.logger.info(f"Starting scan of {len(scan_points)} points")
         
         for i, point in enumerate(scan_points):
             if self._check_stop_conditions():
+                self.logger.info(f"Scan stopped at point {i}")
                 break
             
             # Handle pause requests
             await self._handle_pause()
             
             try:
+                self.logger.debug(f"Processing point {i+1}/{len(scan_points)}: {point.position}")
+                
                 # Move to position
                 await self._move_to_point(point)
                 
@@ -457,6 +465,8 @@ class ScanOrchestrator:
                 
                 # Update progress
                 self.current_scan.update_progress(i + 1, images_captured)
+                
+                self.logger.debug(f"Completed point {i+1}/{len(scan_points)}")
                 
             except Exception as e:
                 self.logger.error(f"Failed to process point {i}: {e}")
@@ -472,6 +482,8 @@ class ScanOrchestrator:
                     continue
                 else:
                     raise
+        
+        self.logger.info(f"Scan execution completed")
     
     async def _move_to_point(self, point: ScanPoint):
         """Move to a scan point"""
@@ -555,9 +567,16 @@ class ScanOrchestrator:
             self.current_scan.pause()
             self._pause_requested = False
             
-            # Wait until resume is requested
+            # Wait until resume is requested (with timeout to prevent infinite loops)
+            pause_timeout = 30.0  # 30 second timeout
+            pause_start = time.time()
+            
             while self.current_scan.status == ScanStatus.PAUSED:
                 if self._stop_requested or self._emergency_stop:
+                    break
+                if time.time() - pause_start > pause_timeout:
+                    self.logger.warning("Pause timeout reached, auto-resuming scan")
+                    self.current_scan.resume()
                     break
                 await asyncio.sleep(0.1)
     
