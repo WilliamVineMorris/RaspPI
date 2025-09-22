@@ -1,0 +1,190 @@
+# Scanner System Configuration
+# Main configuration file for 4DOF scanner system
+
+# System Configuration
+system:
+  name: "4DOF Scanner V2.0"
+  debug_mode: false
+  simulation_mode: false  # Set to true for testing without hardware
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  
+# Hardware Platform
+platform:
+  type: "raspberry_pi_5"
+  gpio_library: "pigpio"  # pigpio for precise timing
+  camera_interface: "libcamera"  # Pi5 camera system
+
+# Motion Control Configuration
+motion:
+  controller:
+    type: "fluidnc"
+    connection: "usb"
+    port: "/dev/ttyUSB0"  # Adjust as needed
+    baudrate: 115200
+    timeout: 10.0
+    
+  # Axis Configuration and Limits
+  axes:
+    x_axis:
+      type: "linear"
+      units: "mm"
+      min_limit: 0.0
+      max_limit: 200.0
+      home_position: 0.0
+      max_feedrate: 1000  # mm/min
+      
+    y_axis:
+      type: "linear" 
+      units: "mm"
+      min_limit: 0.0
+      max_limit: 200.0
+      home_position: 0.0
+      max_feedrate: 1000  # mm/min
+      
+    z_axis:
+      type: "rotational"
+      units: "degrees"
+      min_limit: -999999  # Continuous rotation
+      max_limit: 999999
+      home_position: 0.0
+      max_feedrate: 360   # degrees/min
+      continuous: true
+      
+    c_axis:
+      type: "rotational"
+      units: "degrees"
+      min_limit: -90.0
+      max_limit: 90.0
+      home_position: 0.0
+      max_feedrate: 180   # degrees/min
+      continuous: false
+  
+  # Safety Configuration
+  safety:
+    enable_limits: true
+    safe_height_z: 0.0    # Safe Z rotation position
+    safe_tilt_c: 0.0      # Safe camera tilt position
+    collision_detection: true
+    emergency_stop_enabled: true
+    
+# Camera Configuration
+cameras:
+  system_type: "dual_camera"
+  
+  camera_1:
+    port: 0
+    name: "Primary Camera"
+    resolution:
+      capture: [3280, 2464]  # High-res for photos
+      preview: [1280, 720]   # Lower-res for streaming
+    format: "jpeg"
+    quality: 95
+    
+  camera_2:
+    port: 1  
+    name: "Secondary Camera"
+    resolution:
+      capture: [3280, 2464]  # High-res for photos
+      preview: [1280, 720]   # Lower-res for streaming
+    format: "jpeg"
+    quality: 95
+    
+  synchronization:
+    enable: true
+    tolerance_ms: 10  # Acceptable sync difference
+    
+  streaming:
+    enable: true
+    fps: 30
+    quality: 70
+    
+# LED Flash Configuration  
+lighting:
+  system_type: "dual_zone_pwm"
+  
+  led_zones:
+    zone_1:
+      gpio_pin: 18  # PWM-capable pin
+      name: "Primary LED Array"
+      max_intensity: 90.0  # Never exceed 90% for safety
+      
+    zone_2:
+      gpio_pin: 19  # PWM-capable pin  
+      name: "Secondary LED Array"
+      max_intensity: 90.0  # Never exceed 90% for safety
+  
+  flash_profiles:
+    standard:
+      pre_flash_ms: 50
+      main_flash_ms: 100
+      intensity_percent: 70.0
+      
+    macro:
+      pre_flash_ms: 30
+      main_flash_ms: 150
+      intensity_percent: 85.0
+      
+    low_power:
+      pre_flash_ms: 20
+      main_flash_ms: 80
+      intensity_percent: 50.0
+  
+  safety:
+    max_continuous_ms: 200  # Never flash longer than 200ms
+    cooldown_ms: 1000       # Minimum time between flashes
+    auto_shutoff: true      # Auto turn off if system error
+    
+# Web Interface Configuration
+web_interface:
+  host: "0.0.0.0"  # Listen on all interfaces
+  port: 5000
+  debug: false
+  
+  features:
+    streaming: true
+    manual_control: true
+    scan_monitoring: true
+    file_browser: true
+    
+  security:
+    authentication: false  # Set to true for password protection
+    cors_enabled: true
+    
+# Data Storage Configuration  
+storage:
+  base_directory: "/home/pi/scanner_data"
+  
+  organization:
+    use_date_folders: true
+    use_session_folders: true
+    
+  formats:
+    photos: "jpeg"
+    metadata: "json"
+    logs: "txt"
+    
+  backup:
+    auto_backup: false
+    backup_location: "/home/pi/scanner_backups"
+    
+# Communication Configuration
+communication:
+  data_transfer:
+    method: "network"  # network, usb, or disabled
+    destination_ip: "192.168.1.100"  # PC IP address
+    port: 8080
+    auto_transfer: false
+    
+# Scan Configuration Defaults
+scanning:
+  default_stabilization_delay: 1.0  # Seconds to wait after movement
+  default_capture_delay: 0.5        # Additional delay before capture
+  
+  path_planning:
+    default_overlap_percent: 20
+    default_safety_margin: 5.0  # mm
+    
+  session_management:
+    auto_save_metadata: true
+    auto_generate_thumbnails: true
+    max_session_duration_hours: 4
