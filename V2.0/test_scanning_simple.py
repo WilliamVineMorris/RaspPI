@@ -27,6 +27,10 @@ def run_test(test_name, test_func):
         return True
     except Exception as e:
         print(f"❌ FAIL: {e}")
+        # Print more detailed error information
+        import traceback
+        tb_lines = traceback.format_exc().split('\n')
+        print(f"   Error details: {tb_lines[-3:-1]}")
         return False
 
 def test_position4d():
