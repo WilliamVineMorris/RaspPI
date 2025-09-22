@@ -401,7 +401,7 @@ class FluidNCController(MotionController):
         """
         if not self.is_connected():
             raise FluidNCConnectionError("Not connected to FluidNC")
-        
+
         async with self.connection_lock:
             try:
                 if not self.serial_connection:
@@ -435,22 +435,33 @@ class FluidNCController(MotionController):
                             if line.startswith('error:') or line == 'error':
                                 return line
                                 
-                            # Continue reading if we just got "ok" acknowledgment
+                            # Skip "ok" acknowledgments - they're not status
                             if line == 'ok':
+                                continue
+                                
+                            # Skip info messages that aren't status
+                            if line.startswith('[MSG:INFO:') or line.startswith('[GC:') or line.startswith('[G54:'):
                                 continue
                     else:
                         await asyncio.sleep(0.01)
                 
                 # If we got here, we didn't find a proper status response
-                all_response = '\n'.join(response_lines)
-                logger.warning(f"No status response found, got: {all_response}")
-                return all_response if all_response else None
+                # Filter out non-status responses for logging
+                status_lines = [line for line in response_lines 
+                              if not (line == 'ok' or line.startswith('[MSG:INFO:') or 
+                                     line.startswith('[GC:') or line.startswith('[G54:'))]
+                
+                if status_lines:
+                    all_response = '\n'.join(status_lines)
+                    logger.warning(f"No proper status response found, got: {all_response}")
+                    return all_response
+                else:
+                    logger.debug("Only acknowledgment responses received, no status data")
+                    return None
                 
             except Exception as e:
                 logger.error(f"Error reading status response: {e}")
-                raise FluidNCConnectionError(f"Failed to read status response: {e}")
-    
-    # Position and Movement
+                raise FluidNCConnectionError(f"Failed to read status response: {e}")    # Position and Movement
     async def move_to_position(self, position: Position4D, feedrate: Optional[float] = None) -> bool:
         """Move to specified 4DOF position"""
         try:
@@ -616,39 +627,40 @@ class FluidNCController(MotionController):
     def _parse_position_from_status(self, status_response: str) -> Optional[Position4D]:
         """Parse position from FluidNC status response"""
         try:
-            # FluidNC status format: <Idle|MPos:0.000,0.000,0.000,0.000,0.000,0.000|FS:0,0>
-            # Try work coordinates first (WPos), then machine coordinates (MPos)
-            # Work coordinates are what G-code uses, machine coordinates are absolute
+            # FluidNC status format: <Idle|MPos:0.000,0.000,0.000,0.000,0.000,0.000|WPos:0.000,0.000,0.000,0.000,0.000,0.000|FS:0,0>
             
-            # First try work coordinates (WPos)
-            wpos_match = re.search(r'WPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,[\d\.-]+,[\d\.-]+)?', status_response)
-            if wpos_match:
-                x, y, z, c = map(float, wpos_match.groups())
-                logger.debug(f"Parsed work position from status: X={x}, Y={y}, Z={z}, C={c}")
-                return Position4D(x=x, y=y, z=z, c=c)
-            
-            # Fallback to machine coordinates (MPos)
+            # Parse both machine (MPos) and work (WPos) coordinates
             mpos_match = re.search(r'MPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,[\d\.-]+,[\d\.-]+)?', status_response)
-            if mpos_match:
-                x, y, z, c = map(float, mpos_match.groups())
-                
-                # Check if we have work coordinate offsets (WCO)
-                wco_match = re.search(r'WCO:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,[\d\.-]+,[\d\.-]+)?', status_response)
-                if wco_match:
-                    # Calculate work position by subtracting offsets from machine position
-                    wco_x, wco_y, wco_z, wco_c = map(float, wco_match.groups())
-                    x -= wco_x
-                    y -= wco_y  
-                    z -= wco_z
-                    c -= wco_c
-                    logger.debug(f"Applied work coordinate offsets: WCO=({wco_x},{wco_y},{wco_z},{wco_c})")
-                
-                logger.debug(f"Parsed machine position from status: X={x}, Y={y}, Z={z}, C={c}")
-                return Position4D(x=x, y=y, z=z, c=c)
-            else:
-                logger.warning(f"Could not match position pattern in: {status_response}")
+            wpos_match = re.search(r'WPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,[\d\.-]+,[\d\.-]+)?', status_response)
             
-            return None
+            if not (mpos_match and wpos_match):
+                # Fallback to machine coordinates only if we can't get both
+                if mpos_match:
+                    x, y, z, c = map(float, mpos_match.groups())
+                    logger.debug(f"Parsed machine position only: X={x}, Y={y}, Z={z}, C={c}")
+                    return Position4D(x=x, y=y, z=z, c=c)
+                else:
+                    logger.warning(f"Could not match position pattern in: {status_response}")
+                    return None
+            
+            # Parse machine coordinates
+            mx, my, mz, mc = map(float, mpos_match.groups())
+            
+            # Parse work coordinates  
+            wx, wy, wz, wc = map(float, wpos_match.groups())
+            
+            # Use work coordinates for X, Y, C but machine coordinates for Z
+            # This prevents Z-axis coordinate accumulation issues while maintaining
+            # proper work coordinate system behavior for other axes
+            position = Position4D(
+                x=wx,    # Work coordinate for X
+                y=wy,    # Work coordinate for Y
+                z=mz,    # Machine coordinate for Z (prevents accumulation)
+                c=wc     # Work coordinate for C
+            )
+            
+            logger.debug(f"Parsed hybrid position - Work X,Y,C: ({wx},{wy},{wc}), Machine Z: {mz}")
+            return position
             
         except Exception as e:
             logger.error(f"Failed to parse position from status: {e}")
@@ -740,24 +752,31 @@ class FluidNCController(MotionController):
             # Reset Z-axis position to 0 (continuous rotation axis)
             logger.info("Resetting Z-axis position to 0° (continuous rotation axis)...")
             try:
-                # First, clear any existing work coordinate offsets
-                await self._send_command('G10 L2 P1 Z0')  # Set Z offset to 0 in coordinate system 1
+                # Check current work coordinate offsets before reset
+                logger.debug("Checking current work coordinate offsets...")
+                await self._send_command('$#')  # Show current work coordinate offsets
                 await asyncio.sleep(0.5)
                 
-                # Use G92 to set current Z position to 0 in work coordinates
-                await self._send_command('G92 Z0')  # Set current Z position to 0
+                # Use proper FluidNC command to make current position become zero in work coordinates
+                # G10 L20 P0 Z0 = Set current machine position as zero in current work coordinate system
+                await self._send_command('G10 L20 P0 Z0')  # Make current Z position become 0° in work coordinates
                 await asyncio.sleep(1.0)  # Give FluidNC time to process coordinate change
                 
-                # Select coordinate system to ensure changes take effect
+                # Ensure we're using the default coordinate system (G54)
                 await self._send_command('G54')  # Select coordinate system 1 (default)
                 await asyncio.sleep(0.5)
                 
-                # Verify the reset worked
+                # Verify the reset worked by checking offsets again
+                logger.debug("Verifying Z-axis reset...")
+                await self._send_command('$#')  # Show updated work coordinate offsets
+                await asyncio.sleep(0.5)
+                
+                # Get status to confirm position
                 status_response = await self._get_status_response()
                 if status_response:
                     logger.info(f"Z-axis reset status: {status_response}")
                 
-                logger.info("Z-axis position reset to 0°")
+                logger.info("Z-axis position reset to 0° using proper FluidNC work coordinate command")
             except Exception as e:
                 logger.warning(f"Failed to reset Z-axis position: {e}")
                 # Continue anyway - Z-axis reset is not critical for basic operation
@@ -1360,6 +1379,89 @@ class FluidNCController(MotionController):
             
         except Exception as e:
             logger.error(f"Position validation failed: {e}")
+            return False
+
+    async def reset_work_coordinate_offsets(self) -> bool:
+        """
+        Reset work coordinate offsets using proper FluidNC commands.
+        
+        This method provides different levels of work coordinate reset:
+        1. Reset current coordinate system to zero
+        2. Complete system reset (all coordinate systems)
+        
+        Returns:
+            bool: True if reset was successful, False otherwise
+        """
+        if not self.is_connected():
+            logger.error("Cannot reset work coordinates - not connected to FluidNC")
+            return False
+            
+        try:
+            logger.info("Resetting work coordinate offsets...")
+            
+            # Show current state before reset
+            logger.debug("Current work coordinate state:")
+            await self._send_command('$#')  # Show all work coordinate offsets
+            await asyncio.sleep(0.5)
+            await self._send_command('$G')  # Show current coordinate system
+            await asyncio.sleep(0.5)
+            
+            # Method 1: Reset current work coordinate system to zero
+            # G10 L2 P0 X0 Y0 Z0 C0 = Set all axes in current coordinate system to zero offset
+            logger.info("Resetting current coordinate system to zero...")
+            await self._send_command('G10 L2 P0 X0 Y0 Z0 C0')
+            await asyncio.sleep(1.0)
+            
+            # Ensure we're using G54 (default coordinate system)
+            await self._send_command('G54')
+            await asyncio.sleep(0.5)
+            
+            # Show state after reset
+            logger.debug("Work coordinate state after reset:")
+            await self._send_command('$#')  # Show updated offsets
+            await asyncio.sleep(0.5)
+            
+            logger.info("Work coordinate offsets reset successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to reset work coordinate offsets: {e}")
+            return False
+    
+    async def complete_system_reset(self) -> bool:
+        """
+        Perform complete system reset of all work coordinate offsets.
+        
+        WARNING: This resets ALL coordinate systems (G54-G59) to default values.
+        Use with caution as this affects all stored work coordinate systems.
+        
+        Returns:
+            bool: True if reset was successful, False otherwise
+        """
+        if not self.is_connected():
+            logger.error("Cannot perform system reset - not connected to FluidNC")
+            return False
+            
+        try:
+            logger.warning("Performing COMPLETE system reset - all coordinate systems will be reset!")
+            
+            # Reset all work coordinate offsets to defaults
+            await self._send_command('$RST=#')
+            await asyncio.sleep(2.0)  # Give more time for system reset
+            
+            # Ensure we're using G54 (default coordinate system)
+            await self._send_command('G54')
+            await asyncio.sleep(0.5)
+            
+            # Verify reset
+            await self._send_command('$#')  # Show all coordinate systems
+            await asyncio.sleep(0.5)
+            
+            logger.info("Complete system reset performed successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to perform complete system reset: {e}")
             return False
 
 
