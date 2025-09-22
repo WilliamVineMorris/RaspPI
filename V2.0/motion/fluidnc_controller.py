@@ -791,16 +791,29 @@ class FluidNCController(MotionController):
                         
                     elif 'Alarm' in status_response:
                         # During homing, FluidNC may go through alarm states temporarily
-                        # Only treat as error if we see persistent alarms without any homing progress
+                        # Check if this is completion in alarm state (common with FluidNC)
                         if homing_started:
-                            logger.debug(f"Temporary alarm during homing sequence: {status_response}")
-                            # Don't immediately fail - homing may clear this alarm
-                            idle_stable_count = 0
+                            # Parse position to see if we're at home position
+                            position = self._parse_position_from_status(status_response)
+                            if position and self._verify_home_position(position):
+                                idle_stable_count += 1
+                                logger.info(f"Homing completion detected in alarm state: {idle_stable_count}/2")
+                                logger.info(f"Position verification: {position}")
+                                
+                                if idle_stable_count >= 2:
+                                    logger.info("✅ Homing sequence completed successfully (alarm state with correct position)")
+                                    logger.info(f"Final homed position: {position}")
+                                    return  # Homing complete!
+                            else:
+                                logger.debug(f"Alarm state but position not verified: {status_response}")
+                                idle_stable_count = 0
                             await asyncio.sleep(1.0)
                             continue
                         else:
-                            # Alarm before homing started is a real problem
-                            raise MotionSafetyError(f"Alarm before homing started: {status_response}")
+                            # Alarm before homing started - continue monitoring, don't fail immediately
+                            logger.debug(f"Alarm before homing started: {status_response}")
+                            await asyncio.sleep(1.0)
+                            continue
                         
                     elif 'Hold' in status_response:
                         logger.warning("System in hold state during homing - this may indicate an issue")
