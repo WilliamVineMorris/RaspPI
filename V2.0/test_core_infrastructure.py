@@ -22,8 +22,18 @@ import yaml
 from pathlib import Path
 
 # Add project root to path
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+def get_user_input(prompt: str, default: str = "y") -> str:
+    """Get user input with graceful handling for automated testing"""
+    try:
+        response = input(f"{prompt} [{default}]: ").strip()
+        return response if response else default
+    except (EOFError, KeyboardInterrupt):
+        # Handle automated testing or Ctrl+C gracefully
+        print(f"\nUsing default: {default}")
+        return default
 
 def test_exceptions():
     """Test custom exception classes"""
@@ -129,6 +139,28 @@ def test_config_manager():
                     'min_limit': 0.0,
                     'max_limit': 200.0,
                     'max_feedrate': 1000
+                },
+                'y_axis': {
+                    'type': 'linear',
+                    'units': 'mm',
+                    'min_limit': 0.0,
+                    'max_limit': 200.0,
+                    'max_feedrate': 1000
+                },
+                'z_axis': {
+                    'type': 'rotational',
+                    'units': 'degrees',
+                    'min_limit': -999999,
+                    'max_limit': 999999,
+                    'max_feedrate': 360,
+                    'continuous': True
+                },
+                'c_axis': {
+                    'type': 'rotational',
+                    'units': 'degrees',
+                    'min_limit': -90.0,
+                    'max_limit': 90.0,
+                    'max_feedrate': 180
                 }
             }
         },
@@ -139,12 +171,23 @@ def test_config_manager():
                     'capture': [3280, 2464],
                     'preview': [1280, 720]
                 }
+            },
+            'camera_2': {
+                'port': 1,
+                'resolution': {
+                    'capture': [3280, 2464],
+                    'preview': [1280, 720]
+                }
             }
         },
         'lighting': {
             'led_zones': {
                 'zone_1': {
                     'gpio_pin': 18,
+                    'max_intensity': 85.0
+                },
+                'zone_2': {
+                    'gpio_pin': 19,
                     'max_intensity': 85.0
                 }
             }
@@ -278,18 +321,73 @@ def main():
     print("=" * 60)
     print("Core Infrastructure Test Suite")
     print("=" * 60)
+    print("\nThis will test the core infrastructure components:")
+    print("- Exception handling system")
+    print("- Event bus communication")
+    print("- Configuration management")
+    print("- Logging system")
+    print("- Module integration")
+    
+    # Check if running in interactive mode
+    interactive = get_user_input("\nRun tests interactively?", "y").lower() in ['y', 'yes']
+    
+    if interactive:
+        print("\n📝 Note: This test suite creates temporary files and logs.")
+        print("   No permanent changes will be made to your system.")
+        
+        proceed = get_user_input("Proceed with tests?", "y").lower()
+        if proceed not in ['y', 'yes']:
+            print("Tests cancelled.")
+            return False
+    
+    print("\n" + "=" * 60)
+    print("Starting Tests...")
+    print("=" * 60)
     
     try:
+        # Run tests with progress indicators
+        print("\n[1/5] Testing exception system...")
         test_exceptions()
+        
+        if interactive:
+            get_user_input("Press Enter to continue to event bus tests")
+        
+        print("[2/5] Testing event bus...")
         test_events()
+        
+        if interactive:
+            get_user_input("Press Enter to continue to configuration tests")
+        
+        print("[3/5] Testing configuration manager...")
         test_config_manager()
+        
+        if interactive:
+            get_user_input("Press Enter to continue to logging tests")
+        
+        print("[4/5] Testing logging system...")
         test_logging()
+        
+        if interactive:
+            get_user_input("Press Enter to continue to integration tests")
+        
+        print("[5/5] Testing module integration...")
         test_integration()
         
         print("=" * 60)
         print("🎉 ALL CORE INFRASTRUCTURE TESTS PASSED!")
-        print("The core modules are ready for integration.")
         print("=" * 60)
+        print("✅ Exception system: Working correctly")
+        print("✅ Event bus: Working correctly") 
+        print("✅ Configuration manager: Working correctly")
+        print("✅ Logging system: Working correctly")
+        print("✅ Module integration: Working correctly")
+        print("=" * 60)
+        print("🚀 The core modules are ready for the next development phase!")
+        print("   You can now proceed to implement the abstract interfaces.")
+        print("=" * 60)
+        
+        if interactive:
+            get_user_input("\nPress Enter to exit")
         
         return True
         
@@ -297,8 +395,21 @@ def main():
         print("=" * 60)
         print(f"❌ TEST FAILED: {e}")
         print("=" * 60)
-        import traceback
-        traceback.print_exc()
+        
+        if interactive:
+            show_traceback = get_user_input("Show detailed error traceback?", "y").lower()
+            if show_traceback in ['y', 'yes']:
+                import traceback
+                traceback.print_exc()
+        else:
+            import traceback
+            traceback.print_exc()
+            
+        print("\n💡 Troubleshooting tips:")
+        print("   - Ensure all required dependencies are installed (see requirements.txt)")
+        print("   - Check that you're in the correct directory (RaspPI/V2.0)")
+        print("   - Verify Python version is 3.10 or higher")
+        
         return False
 
 
