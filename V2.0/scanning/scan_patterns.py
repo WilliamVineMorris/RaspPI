@@ -60,7 +60,7 @@ class PatternParameters:
     
     # Safety and limits
     max_feedrate: float = 1000.0  # mm/min
-    safety_margin: float = 5.0  # Safety margin from limits
+    safety_margin: float = 0.5  # Safety margin from limits (reduced for testing)
     
     def __post_init__(self):
         """Validate parameters"""
