@@ -31,6 +31,10 @@ class ColoredFormatter(logging.Formatter):
     RESET = '\033[0m'
     
     def format(self, record):
+        # Ensure scanner_module is present
+        if not hasattr(record, 'scanner_module'):
+            record.scanner_module = 'system'
+        
         # Add color to the level name
         if record.levelname in self.COLORS:
             record.levelname = (
@@ -39,19 +43,77 @@ class ColoredFormatter(logging.Formatter):
         return super().format(record)
 
 
+class SafeFormatter(logging.Formatter):
+    """Formatter that safely handles missing scanner_module attribute"""
+    
+    def format(self, record):
+        # Ensure scanner_module is present
+        if not hasattr(record, 'scanner_module'):
+            record.scanner_module = 'system'
+        return super().format(record)
+
+
+class SafeRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """RotatingFileHandler that ensures scanner_module is always present before formatting"""
+    
+    def emit(self, record):
+        # Ensure scanner_module is present before any formatting operations
+        if not hasattr(record, 'scanner_module'):
+            record.scanner_module = 'system'
+        super().emit(record)
+
+
 class ScannerLogFilter(logging.Filter):
     """Custom filter for scanner-specific log formatting"""
     
     def filter(self, record):
-        # Add scanner module information if not present
-        if not hasattr(record, 'scanner_module'):
+        # Always ensure scanner_module is present - this is the primary defense
+        try:
+            # Check if scanner_module exists and is not empty
+            existing_module = getattr(record, 'scanner_module', None)
+            if not existing_module:
+                raise AttributeError("scanner_module missing or empty")
+        except (AttributeError, TypeError):
             # Extract module from logger name
             name_parts = record.name.split('.')
             if len(name_parts) >= 2:
-                record.scanner_module = name_parts[1]  # e.g., 'motion', 'camera', etc.
+                # Common module mappings
+                module_map = {
+                    'camera': 'camera',
+                    'motion': 'motion', 
+                    'lighting': 'lighting',
+                    'planning': 'planning',
+                    'storage': 'storage',
+                    'web': 'web',
+                    'communication': 'comm',
+                    'orchestration': 'orch',
+                    'picamera2': 'picamera2',
+                    'test_camera_simple': 'system',
+                    'test_core_infrastructure': 'system',
+                    'test_motion_only': 'system',
+                    'pi_camera_controller': 'camera',
+                    'fluidnc_controller': 'motion'
+                }
+                
+                # Try to match known modules
+                detected_module = 'system'  # default fallback
+                for key, value in module_map.items():
+                    if key in record.name:
+                        detected_module = value
+                        break
+                
+                # Fallback to second part of name if no mapping found
+                if detected_module == 'system' and len(name_parts) >= 2:
+                    detected_module = name_parts[1][:8]  # truncate to 8 chars max
+                
+                record.scanner_module = detected_module
             else:
                 record.scanner_module = 'system'
         
+        # Double check that scanner_module is now definitely set
+        if not hasattr(record, 'scanner_module'):
+            record.scanner_module = 'system'
+            
         return True
 
 
@@ -95,7 +157,7 @@ def setup_logging(log_level: str = "INFO",
     root_logger.setLevel(numeric_level)
     
     # Create formatters
-    detailed_formatter = logging.Formatter(
+    detailed_formatter = SafeFormatter(
         fmt='%(asctime)s | %(levelname)-8s | %(scanner_module)-8s | %(name)-20s | %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
@@ -121,7 +183,7 @@ def setup_logging(log_level: str = "INFO",
     # Setup rotating file handler for main log
     if enable_file:
         main_log_file = log_dir / "scanner_system.log"
-        file_handler = logging.handlers.RotatingFileHandler(
+        file_handler = SafeRotatingFileHandler(
             filename=main_log_file,
             maxBytes=max_file_size,
             backupCount=backup_count,
@@ -134,7 +196,7 @@ def setup_logging(log_level: str = "INFO",
         
         # Setup separate error log
         error_log_file = log_dir / "scanner_errors.log"
-        error_handler = logging.handlers.RotatingFileHandler(
+        error_handler = SafeRotatingFileHandler(
             filename=error_log_file,
             maxBytes=max_file_size,
             backupCount=backup_count,
@@ -182,7 +244,7 @@ def _configure_module_loggers(log_dir: Path, formatter: logging.Formatter,
             
             # Create dedicated file handler for this module
             module_log_file = log_dir / log_filename
-            module_handler = logging.handlers.RotatingFileHandler(
+            module_handler = SafeRotatingFileHandler(
                 filename=module_log_file,
                 maxBytes=5 * 1024 * 1024,  # 5MB per module
                 backupCount=3,
@@ -190,6 +252,7 @@ def _configure_module_loggers(log_dir: Path, formatter: logging.Formatter,
             )
             module_handler.setLevel(level)
             module_handler.setFormatter(formatter)
+            module_handler.addFilter(ScannerLogFilter())
             
             # Add filter to only log messages from this module
             module_handler.addFilter(ModuleFilter(module_name))
