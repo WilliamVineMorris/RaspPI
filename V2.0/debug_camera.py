@@ -104,7 +104,14 @@ async def test_mock_camera():
     
     # Create temporary config file
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-        # Write YAML manually since yaml module might not be available
+        # Write complete YAML config with required system fields
+        f.write("system:\n")
+        f.write("  name: Test Scanner\n")
+        f.write("  debug_mode: false\n")
+        f.write("  simulation_mode: true\n")
+        f.write("  log_level: INFO\n")
+        f.write("platform:\n")
+        f.write("  type: test\n")
         f.write("cameras:\n")
         for cam_name, cam_config in mock_config.items():
             f.write(f"  {cam_name}:\n")

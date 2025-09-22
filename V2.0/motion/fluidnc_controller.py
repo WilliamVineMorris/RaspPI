@@ -242,52 +242,89 @@ class FluidNCController(MotionController):
             except Exception as e:
                 raise FluidNCError(f"Unexpected command error: {e}")
     
-    async def _read_response(self) -> str:
+    async def _read_response(self, timeout_override: Optional[float] = None) -> str:
         """Read response from FluidNC"""
         if not self.serial_connection:
             raise FluidNCConnectionError("Serial connection not established")
             
         response_lines = []
+        timeout = timeout_override or self.timeout
         start_time = time.time()
         
-        while time.time() - start_time < self.timeout:
-            if self.serial_connection.in_waiting > 0:
-                line = self.serial_connection.readline().decode('utf-8').strip()
-                if line:
-                    response_lines.append(line)
-                    
-                    # Check for completion indicators
-                    if line in ['ok', 'error']:
-                        break
-                    if line.startswith('error:'):
-                        break
-            else:
-                await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
-        
-        response = '\n'.join(response_lines)
-        
-        # Check for errors
-        if 'error' in response.lower():
-            raise FluidNCCommandError(f"FluidNC error: {response}")
-        
-        return response
+        try:
+            while time.time() - start_time < timeout:
+                if self.serial_connection.in_waiting > 0:
+                    line = self.serial_connection.readline().decode('utf-8').strip()
+                    if line:
+                        response_lines.append(line)
+                        
+                        # Check for completion indicators
+                        if line in ['ok', 'error']:
+                            break
+                        if line.startswith('error:'):
+                            break
+                        # Also check for status responses
+                        if line.startswith('<') and line.endswith('>'):
+                            # This is a status response, it's complete
+                            break
+                else:
+                    await asyncio.sleep(0.01)  # Small delay to prevent busy waiting
+            
+            response = '\n'.join(response_lines)
+            
+            # Check for timeout
+            if not response:
+                logger.warning("No response received within timeout")
+                return ""
+            
+            # Check for errors
+            if 'error' in response.lower() and not response.startswith('['):
+                # Don't treat informational messages as errors
+                raise FluidNCCommandError(f"FluidNC error: {response}")
+            
+            return response
+            
+        except asyncio.CancelledError:
+            logger.warning("Response reading was cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Error reading response: {e}")
+            raise FluidNCConnectionError(f"Failed to read response: {e}")
     
     async def _send_startup_commands(self):
         """Send initial configuration commands to FluidNC"""
-        startup_commands = [
-            '$H',  # Home all axes
-            'G90',  # Absolute positioning
-            'G21',  # Millimeter units
-            'G94',  # Feed rate per minute
-            '$G',  # Get current G-code state
-        ]
-        
-        for command in startup_commands:
-            try:
-                await self._send_command(command)
-                await asyncio.sleep(0.1)  # Small delay between commands
-            except FluidNCCommandError as e:
-                logger.warning(f"Startup command failed: {command} - {e}")
+        try:
+            # First, check status and clear any alarms
+            status_response = await self._send_command('?', wait_for_response=True)
+            logger.info(f"Initial status: {status_response}")
+            
+            # If in alarm state, unlock first
+            if status_response and 'Alarm' in status_response:
+                logger.info("System in alarm state, unlocking...")
+                await self._send_command('$X')  # Unlock
+                await asyncio.sleep(0.5)
+            
+            # Set basic G-code modes first (these should work even without homing)
+            basic_commands = [
+                'G90',  # Absolute positioning
+                'G21',  # Millimeter units 
+                'G94',  # Feed rate per minute
+            ]
+            
+            for command in basic_commands:
+                try:
+                    await self._send_command(command)
+                    await asyncio.sleep(0.1)
+                except FluidNCCommandError as e:
+                    logger.warning(f"Basic command failed: {command} - {e}")
+            
+            # Note: Homing ($H) is intentionally NOT done here during initialization
+            # It should be done separately via the home() method when needed
+            logger.info("Basic FluidNC configuration complete - ready for homing")
+            
+        except Exception as e:
+            logger.error(f"Startup command sequence failed: {e}")
+            raise
     
     # Position and Movement
     async def move_to_position(self, position: Position4D, feedrate: Optional[float] = None) -> bool:
