@@ -29,25 +29,85 @@ class SimpleWebInterface:
     def _setup_routes(self):
         """Setup Flask routes"""
         
+        def get_mock_status():
+            """Get mock system status for templates"""
+            return {
+                'system': {
+                    'status': 'ready',
+                    'timestamp': datetime.now().isoformat(),
+                    'errors': [],
+                    'warnings': []
+                },
+                'motion': {
+                    'status': 'ready',
+                    'position': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0},
+                    'homed': [True, True, True, True],
+                    'moving': False
+                },
+                'camera': {
+                    'status': 'ready',
+                    'cameras': ['camera_0', 'camera_1'],
+                    'active_camera': 'camera_0',
+                    'resolution': '1920x1080'
+                },
+                'lighting': {
+                    'status': 'ready',
+                    'zones': ['zone_1', 'zone_2', 'zone_3', 'zone_4']
+                },
+                'scan': {
+                    'active': False,
+                    'status': 'idle',
+                    'progress': 0.0,
+                    'current_point': 0,
+                    'total_points': 0,
+                    'phase': 'idle'
+                },
+                'timestamp': datetime.now().isoformat()
+            }
+        
         @self.app.route('/')
         def index():
-            return render_template('dashboard.html')
+            status = get_mock_status()
+            return render_template('dashboard.html', status=status)
         
         @self.app.route('/dashboard')
         def dashboard():
-            return render_template('dashboard.html')
+            status = get_mock_status()
+            return render_template('dashboard.html', status=status)
         
         @self.app.route('/manual')
         def manual():
-            return render_template('manual.html')
+            status = get_mock_status()
+            return render_template('manual.html', status=status)
         
         @self.app.route('/scans')
         def scans():
-            return render_template('scans.html')
+            # Mock scan data
+            scan_history = [
+                {
+                    'id': 'scan_001',
+                    'name': 'Test Scan 1',
+                    'timestamp': '2025-09-20T10:30:00',
+                    'status': 'completed',
+                    'points': 100,
+                    'duration': '00:15:30'
+                },
+                {
+                    'id': 'scan_002', 
+                    'name': 'Test Scan 2',
+                    'timestamp': '2025-09-21T14:20:00',
+                    'status': 'completed',
+                    'points': 150,
+                    'duration': '00:22:45'
+                }
+            ]
+            status = get_mock_status()
+            return render_template('scans.html', status=status, scan_history=scan_history)
         
         @self.app.route('/settings')
         def settings():
-            return render_template('settings.html')
+            status = get_mock_status()
+            return render_template('settings.html', status=status)
         
         # API routes with mock responses
         @self.app.route('/api/status')
