@@ -45,11 +45,14 @@ except ImportError:
     class MockPWM:
         def __init__(self): 
             self.duty_cycle = 0.0
+            self._stopped = False
         def start(self, duty): 
             self.duty_cycle = duty
         def ChangeDutyCycle(self, duty): 
             self.duty_cycle = duty
-        def stop(self): pass
+        def stop(self): 
+            self._stopped = True
+            self.duty_cycle = 0.0
     
     GPIO = MockGPIO()
 
@@ -89,6 +92,7 @@ class GPIOLEDController(LightingController):
         self._max_duty_cycle = 0.89  # 89% safety limit
         self._flash_timeout = 5.0  # Maximum flash duration (seconds)
         self._thermal_protection = True
+        self._shutdown_complete = False  # Track shutdown state
         
         # Zone Configuration from config
         self.zone_configs = self._parse_zone_configs(config.get('zones', {}))
@@ -189,29 +193,39 @@ class GPIOLEDController(LightingController):
     
     async def shutdown(self) -> bool:
         """Shutdown all LEDs and cleanup GPIO"""
+        if self._shutdown_complete:
+            logger.debug("GPIO LED controller already shut down")
+            return True
+            
         try:
             logger.info("Shutting down GPIO LED controller")
             
             # Turn off all LEDs
             await self.turn_off_all()
             
-            # Stop all PWM controllers
+            # Stop all PWM controllers and clear references
             for zone_id, pwm_list in self.pwm_controllers.items():
                 for pwm in pwm_list:
                     try:
                         pwm.stop()
+                        # Clear the PWM object reference to avoid garbage collection issues
+                        del pwm
                     except Exception as e:
                         logger.warning(f"Error stopping PWM for zone '{zone_id}': {e}")
             
-            # Cleanup GPIO
-            try:
-                GPIO.cleanup()
-            except Exception as e:
-                logger.warning(f"GPIO cleanup warning: {e}")
-            
-            self.status = LightingStatus.DISCONNECTED
+            # Clear collections before GPIO cleanup
             self.pwm_controllers.clear()
             self.zone_states.clear()
+            
+            # Cleanup GPIO last, after all PWM objects are properly stopped
+            if GPIO_AVAILABLE:
+                try:
+                    GPIO.cleanup()
+                except Exception as e:
+                    logger.warning(f"GPIO cleanup warning: {e}")
+            
+            self.status = LightingStatus.DISCONNECTED
+            self._shutdown_complete = True
             
             logger.info("GPIO LED controller shutdown complete")
             return True

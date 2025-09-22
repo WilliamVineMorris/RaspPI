@@ -44,21 +44,21 @@ class IntegratedHardwareTest:
     async def cleanup_resources(self):
         """Clean up hardware resources between tests"""
         try:
-            if self.camera_manager:
+            if self.camera_manager and hasattr(self.camera_manager, 'is_connected') and self.camera_manager.is_connected():
                 await self.camera_manager.shutdown()
                 self.camera_manager = None
         except Exception as e:
             logger.debug(f"Camera cleanup warning: {e}")
         
         try:
-            if self.motion_controller:
+            if self.motion_controller and hasattr(self.motion_controller, 'is_connected') and self.motion_controller.is_connected():
                 await self.motion_controller.shutdown()
                 self.motion_controller = None
         except Exception as e:
             logger.debug(f"Motion cleanup warning: {e}")
         
         try:
-            if self.lighting_controller:
+            if self.lighting_controller and hasattr(self.lighting_controller, 'status'):
                 await self.lighting_controller.shutdown()
                 self.lighting_controller = None
         except Exception as e:
