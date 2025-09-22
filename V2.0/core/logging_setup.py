@@ -225,11 +225,11 @@ def get_logger(name: str, module: Optional[str] = None) -> Union[logging.Logger,
     
     logger = logging.getLogger(logger_name)
     
-    # Add module attribute for filtering
+    # Add scanner module attribute for filtering
     class ModuleLoggerAdapter(logging.LoggerAdapter):
         def process(self, msg, kwargs):
             if module:
-                kwargs.setdefault('extra', {})['module'] = module
+                kwargs.setdefault('extra', {})['scanner_module'] = module
             return msg, kwargs
     
     return ModuleLoggerAdapter(logger, {}) if module else logger
