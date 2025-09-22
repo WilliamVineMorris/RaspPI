@@ -73,6 +73,46 @@ def test_scan_point():
     assert point.capture_count == 2
     assert point.dwell_time == 0.3
 
+def test_cylindrical_pattern():
+    """Test cylindrical pattern generation for turntable scanner"""
+    from scanning import CylindricalScanPattern, CylindricalPatternParameters
+    
+    params = CylindricalPatternParameters(
+        x_start=-20.0,   # Horizontal camera movement
+        x_end=20.0,
+        x_step=20.0,     # Large steps for testing
+        y_start=20.0,    # Vertical camera movement  
+        y_end=60.0,
+        y_step=20.0,     # Large steps for testing
+        z_rotations=[0.0, 90.0, 180.0, 270.0],  # Turntable positions
+        c_angles=[-15.0, 0.0, 15.0],             # Camera pivot angles
+        safety_margin=0.1  # Small safety margin
+    )
+    
+    pattern = CylindricalScanPattern("test_cylindrical", params)
+    points = pattern.generate_points()
+    
+    # Should have points: 3 x-pos × 3 y-pos × 4 z-rot × 3 c-angles = 108 points
+    assert len(points) > 0
+    print(f"Generated {len(points)} cylindrical scan points")
+    
+    # Check first point
+    if points:
+        first_point = points[0]
+        assert hasattr(first_point, 'position')
+        print(f"First point: {first_point.position}")
+    
+    # Verify coordinate ranges
+    for point in points:
+        pos = point.position
+        assert params.x_start <= pos.x <= params.x_end
+        assert params.y_start <= pos.y <= params.y_end
+        if params.z_rotations:
+            assert pos.z in params.z_rotations
+        if params.c_angles:
+            assert pos.c in params.c_angles
+
+
 def test_grid_pattern():
     """Test grid pattern generation"""
     from scanning import GridScanPattern, GridPatternParameters
@@ -219,20 +259,23 @@ web_interface:
         result = await orchestrator.initialize()
         assert result is True
         
-        # Test pattern creation
-        pattern = orchestrator.create_grid_pattern(
-            x_range=(-10.0, 10.0),
-            y_range=(-5.0, 5.0),
-            spacing=10.0,
-            z_height=15.0
+        # Test cylindrical pattern creation
+        pattern = orchestrator.create_cylindrical_pattern(
+            x_range=(-20.0, 20.0),     # Horizontal camera movement
+            y_range=(20.0, 60.0),      # Vertical camera movement
+            x_step=20.0,
+            y_step=20.0,
+            z_rotations=[0.0, 180.0], # Turntable positions
+            c_angles=[0.0]             # Camera angles
         )
         
         assert pattern is not None
-        assert pattern.pattern_id.startswith("grid_")
+        assert pattern.pattern_id.startswith("cylindrical_")
         
         # Test point generation
         points = pattern.generate_points()
         assert len(points) > 0
+        print(f"Generated {len(points)} cylindrical points in orchestrator test")
         
         await orchestrator.shutdown()
         
@@ -511,6 +554,7 @@ def main():
     tests = [
         ("Position4D Creation", test_position4d),
         ("ScanPoint Creation", test_scan_point),
+        ("Cylindrical Pattern", test_cylindrical_pattern),
         ("Grid Pattern Generation", test_grid_pattern),
         ("Scan State Management", test_scan_state),
         ("State Persistence", test_state_persistence),

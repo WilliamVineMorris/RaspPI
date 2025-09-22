@@ -17,7 +17,9 @@ from .scan_patterns import (
     PatternType,
     PatternParameters,
     GridScanPattern,
-    GridPatternParameters
+    GridPatternParameters,
+    CylindricalScanPattern,
+    CylindricalPatternParameters
 )
 
 from .scan_state import (
