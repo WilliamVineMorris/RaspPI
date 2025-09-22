@@ -155,20 +155,45 @@ class PiTestRunner:
                 from core.config_manager import ConfigManager
                 import tempfile
                 import yaml
+                import os
+                
+                # Create minimal valid config that matches expected schema
+                test_config = {
+                    'system': {
+                        'name': 'test_scanner',
+                        'log_level': 'INFO',
+                        'log_directory': '/tmp/test_logs'
+                    },
+                    'motion': {
+                        'controller_type': 'fluidnc',
+                        'port': '/dev/ttyUSB0',
+                        'baudrate': 115200,
+                        'axes': {
+                            'x_axis': {'type': 'linear', 'units': 'mm', 'min_limit': -150.0, 'max_limit': 150.0, 'home_position': 0.0, 'max_feedrate': 8000.0},
+                            'y_axis': {'type': 'linear', 'units': 'mm', 'min_limit': -100.0, 'max_limit': 100.0, 'home_position': 0.0, 'max_feedrate': 8000.0}
+                        }
+                    },
+                    'cameras': {
+                        'camera_count': 2,
+                        'camera0': {'port': 0, 'name': 'test_cam0'},
+                        'camera1': {'port': 1, 'name': 'test_cam1'}
+                    }
+                }
                 
                 # Create temporary config file
                 with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
-                    yaml.dump({'test': True, 'system': {'name': 'test'}}, f)
+                    yaml.dump(test_config, f)
                     temp_config = f.name
                 
-                config_manager = ConfigManager(temp_config)
-                test_value = config_manager.get('test', False)
+                try:
+                    config_manager = ConfigManager(temp_config)
+                    test_value = config_manager.get('system.name', 'default')
+                    self.logger.info(f"   ✅ Configuration system working (loaded: {test_value})")
+                finally:
+                    # Clean up
+                    if os.path.exists(temp_config):
+                        os.unlink(temp_config)
                 
-                # Clean up
-                import os
-                os.unlink(temp_config)
-                
-                self.logger.info("   ✅ Configuration system working")
             except Exception as e:
                 self.logger.error(f"   ❌ Configuration system failed: {e}")
                 success = False
