@@ -57,6 +57,22 @@ async def test_motion_system():
                     print("❌ Homing failed - cannot proceed with motion tests")
                     return False
                 print("✅ Homing completed")
+                
+                # Check if system is still in alarm state after homing
+                status = await controller.get_status()
+                if status == MotionStatus.ALARM:
+                    print("⚠️  System still in alarm state after homing")
+                    unlock_choice = input("Attempt to unlock system? (y/N): ")
+                    if unlock_choice.lower() == 'y':
+                        print("🔓 Unlocking system...")
+                        if await controller.unlock_system():
+                            print("✅ System unlocked successfully")
+                        else:
+                            print("⚠️  System still in alarm state - some tests may fail")
+                            proceed_anyway = input("Continue with tests anyway? (y/N): ")
+                            if proceed_anyway.lower() != 'y':
+                                print("❌ Cannot proceed - system needs manual attention")
+                                return False
             else:
                 print("❌ Cannot test motion without homing")
                 return False

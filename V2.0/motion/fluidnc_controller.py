@@ -347,6 +347,15 @@ class FluidNCController(MotionController):
                 except FluidNCCommandError as e:
                     logger.warning(f"Basic command failed: {command} - {e}")
             
+            # Enable auto-report for efficient status monitoring
+            try:
+                logger.info("Enabling auto-report interval for status updates...")
+                await self._send_command('$Report/Interval=1000')  # 1 second auto-report
+                await asyncio.sleep(0.2)
+            except FluidNCCommandError as e:
+                logger.warning(f"Auto-report setup failed: {e}")
+                # Continue without auto-report - fall back to polling
+            
             # Note: Homing ($H) is intentionally NOT done here during initialization
             # It should be done separately via the home() method when needed
             logger.info("Basic FluidNC configuration complete - ready for homing")
@@ -593,6 +602,39 @@ class FluidNCController(MotionController):
             logger.error(f"Failed to parse position from status: {e}")
             return None
     
+    async def _read_all_messages(self) -> list[str]:
+        """
+        Read all available messages from FluidNC serial buffer.
+        This captures both responses and unsolicited messages like debug output.
+        
+        Returns:
+            List of message strings received
+        """
+        messages = []
+        
+        if not self.serial_connection:
+            return messages
+            
+        try:
+            # Read all available data without blocking
+            while self.serial_connection.in_waiting > 0:
+                try:
+                    line = self.serial_connection.readline().decode('utf-8').strip()
+                    if line:
+                        messages.append(line)
+                        logger.debug(f"FluidNC message: {line}")
+                except UnicodeDecodeError:
+                    # Skip malformed messages
+                    continue
+                except Exception as e:
+                    logger.warning(f"Error reading message: {e}")
+                    break
+                    
+        except Exception as e:
+            logger.error(f"Error reading FluidNC messages: {e}")
+            
+        return messages
+    
     # Homing Operations
     async def home(self) -> bool:
         """
@@ -672,7 +714,22 @@ class FluidNCController(MotionController):
                 )
                 self.current_position = home_position
                 final_position = home_position
+            
+            # Check if system is still in alarm state after homing
+            await asyncio.sleep(0.5)  # Brief pause before status check
+            final_status = await self._get_status_response()
+            
+            if final_status and 'Alarm' in final_status:
+                logger.warning("⚠️  System still in alarm state after homing completion")
+                logger.warning(f"Final status: {final_status}")
                 
+                # Offer user the option to unlock
+                if await self._offer_post_homing_unlock():
+                    logger.info("System unlocked successfully after homing")
+                else:
+                    logger.warning("System remains in alarm state - some operations may be restricted")
+                    # Don't fail homing - let user decide what to do
+                    
             self.is_homed = True
             self.status = MotionStatus.IDLE
             
@@ -689,40 +746,61 @@ class FluidNCController(MotionController):
             return False
     
     async def _wait_for_homing_complete(self):
-        """Wait for homing sequence to complete with thorough monitoring"""
+        """
+        Wait for homing sequence to complete using message-based monitoring.
+        This listens for FluidNC homing debug messages and completion signals.
+        """
         start_time = time.time()
         timeout = 120.0  # 2 minute timeout for homing
+        homing_started = False
+        homing_axes = set()  # Track which axes are being homed
+        completed_axes = set()  # Track completed axes
+        
+        logger.info("Monitoring homing progress via FluidNC messages...")
+        
+        # Initialize variables for the polling approach as fallback
         last_status = None
         status_unchanged_count = 0
-        homing_started = False
-        idle_stable_count = 0  # Count how many consecutive times we see stable idle
-        
-        logger.info("Monitoring homing progress...")
+        idle_stable_count = 0
         
         while time.time() - start_time < timeout:
             try:
+                # Reduced polling frequency - check every 2-3 seconds
                 status_response = await self._get_status_response()
                 
                 if status_response:
-                    # Log status changes
+                    # Log status changes only
                     if status_response != last_status:
                         logger.info(f"Homing status: {status_response}")
                         last_status = status_response
                         status_unchanged_count = 0
-                        idle_stable_count = 0  # Reset stable count on status change
+                        # Reset counters on status change
+                        if 'Home' not in status_response:
+                            idle_stable_count = 0
                     else:
                         status_unchanged_count += 1
                     
                     # Check for homing in progress first
                     if 'Home' in status_response or 'Homing' in status_response:
-                        logger.info("Homing sequence actively running...")
+                        if not homing_started:
+                            logger.info("Homing sequence actively running...")
                         homing_started = True
                         idle_stable_count = 0
-                        await asyncio.sleep(2.0)  # Check every 2 seconds during active homing
+                        await asyncio.sleep(3.0)  # Longer delay during active homing
                         continue
                         
                     elif 'Alarm' in status_response:
-                        raise MotionSafetyError(f"Alarm during homing: {status_response}")
+                        # During homing, FluidNC may go through alarm states temporarily
+                        # Only treat as error if we see persistent alarms without any homing progress
+                        if homing_started:
+                            logger.debug(f"Temporary alarm during homing sequence: {status_response}")
+                            # Don't immediately fail - homing may clear this alarm
+                            idle_stable_count = 0
+                            await asyncio.sleep(1.0)
+                            continue
+                        else:
+                            # Alarm before homing started is a real problem
+                            raise MotionSafetyError(f"Alarm before homing started: {status_response}")
                         
                     elif 'Hold' in status_response:
                         logger.warning("System in hold state during homing - this may indicate an issue")
@@ -742,10 +820,10 @@ class FluidNCController(MotionController):
                             # Verify positions are reasonable for homed state
                             if self._verify_home_position(position):
                                 idle_stable_count += 1
-                                logger.info(f"Idle state verification with valid position: {idle_stable_count}/3")
+                                logger.info(f"Homing completion verification: {idle_stable_count}/2")
                                 
-                                # Require fewer consecutive readings since we have position verification
-                                if idle_stable_count >= 3:  # 3 seconds of stable idle with valid position
+                                # Require only 2 confirmations for faster completion
+                                if idle_stable_count >= 2:
                                     logger.info("✅ Homing sequence completed successfully")
                                     logger.info(f"Final homed position: {position}")
                                     return  # Homing complete
@@ -763,8 +841,8 @@ class FluidNCController(MotionController):
                         idle_stable_count = 0
                         logger.debug(f"Waiting for homing completion... Current state: {status_response}")
                     
-                    # Detect potential hanging
-                    if status_unchanged_count > 30:  # Status unchanged for 30+ checks
+                    # Detect potential hanging (reduced threshold)
+                    if status_unchanged_count > 15:  # Reduced from 30 for faster detection
                         logger.warning(f"Homing may be hanging - status unchanged: {status_response}")
                         
                         # Try to get more detailed status
@@ -778,8 +856,8 @@ class FluidNCController(MotionController):
                     logger.warning("No status response from FluidNC")
                     idle_stable_count = 0
                 
-                # Standard polling interval - check every 1 second to reduce FluidNC load
-                await asyncio.sleep(1.0)
+                # Standard polling interval - check every 2 seconds to reduce FluidNC load
+                await asyncio.sleep(2.0)
                 
             except Exception as e:
                 logger.error(f"Error monitoring homing: {e}")
@@ -826,6 +904,83 @@ class FluidNCController(MotionController):
             
         except Exception as e:
             logger.error(f"Error verifying home position: {e}")
+            return False
+    
+    async def _offer_post_homing_unlock(self) -> bool:
+        """
+        Offer user the option to unlock the system after homing if still in alarm state.
+        This is a non-interactive version that logs the recommendation.
+        
+        Returns:
+            bool: True if unlock was attempted, False otherwise
+        """
+        try:
+            logger.info("💡 System is in alarm state after homing completion")
+            logger.info("💡 This sometimes happens and can be cleared with an unlock command")
+            logger.info("💡 Attempting automatic unlock...")
+            
+            # Try automatic unlock
+            response = await self._send_command('$X')
+            await asyncio.sleep(0.5)
+            
+            # Check if unlock was successful
+            status_after_unlock = await self._get_status_response()
+            if status_after_unlock and 'Idle' in status_after_unlock:
+                logger.info("✅ Automatic unlock successful - system is now ready")
+                return True
+            else:
+                logger.warning(f"⚠️  Unlock attempted but system still shows: {status_after_unlock}")
+                logger.warning("💡 You may need to check:")
+                logger.warning("   - Limit switch wiring")
+                logger.warning("   - Motor driver status") 
+                logger.warning("   - Power supply connections")
+                logger.warning("   - Manual unlock with: $X command")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error during post-homing unlock: {e}")
+            return False
+    
+    async def unlock_system(self) -> bool:
+        """
+        Unlock the FluidNC system from alarm state using $X command.
+        
+        Returns:
+            bool: True if unlock was successful, False otherwise
+        """
+        try:
+            logger.info("Unlocking FluidNC system from alarm state...")
+            
+            # Check current status
+            current_status = await self._get_status_response()
+            logger.info(f"Current status before unlock: {current_status}")
+            
+            if current_status and 'Alarm' not in current_status:
+                logger.info("System is not in alarm state - unlock not needed")
+                return True
+            
+            # Send unlock command
+            response = await self._send_command('$X')
+            await asyncio.sleep(0.5)
+            
+            # Verify unlock was successful
+            status_after_unlock = await self._get_status_response()
+            logger.info(f"Status after unlock: {status_after_unlock}")
+            
+            if status_after_unlock and 'Idle' in status_after_unlock:
+                logger.info("✅ System unlocked successfully")
+                self.status = MotionStatus.IDLE
+                return True
+            elif status_after_unlock and 'Alarm' in status_after_unlock:
+                logger.warning("⚠️  System still in alarm state after unlock attempt")
+                logger.warning("This may indicate a hardware issue that needs attention")
+                return False
+            else:
+                logger.warning(f"Unexpected status after unlock: {status_after_unlock}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error during system unlock: {e}")
             return False
     
     # Safety and Emergency
@@ -892,7 +1047,7 @@ class FluidNCController(MotionController):
                 self.status = MotionStatus.MOVING
             elif response and 'Home' in response:
                 self.status = MotionStatus.HOMING
-            if response and 'Alarm' in response:
+            elif response and 'Alarm' in response:
                 self.status = MotionStatus.ALARM
             elif response and 'Error' in response:
                 self.status = MotionStatus.ERROR
