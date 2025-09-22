@@ -116,6 +116,41 @@ async def test_mock_camera():
         f.write("  controller:\n")
         f.write("    type: mock\n")
         f.write("    port: /dev/null\n")
+        f.write("  axes:\n")
+        f.write("    x_axis:\n")
+        f.write("      type: linear\n")
+        f.write("      units: mm\n")
+        f.write("      min_limit: 0.0\n")
+        f.write("      max_limit: 200.0\n")  # From max_travel_mm in FluidNC config
+        f.write("      max_feedrate: 1000.0\n")  # From max_rate_mm_per_min
+        f.write("      steps_per_mm: 800\n")  # From FluidNC config
+        f.write("      has_limits: true\n")  # Has limit switches
+        f.write("    y_axis:\n")
+        f.write("      type: linear\n")
+        f.write("      units: mm\n")
+        f.write("      min_limit: 0.0\n")
+        f.write("      max_limit: 200.0\n")  # From max_travel_mm
+        f.write("      max_feedrate: 1000.0\n")  # From max_rate_mm_per_min
+        f.write("      steps_per_mm: 800\n")  # From FluidNC config
+        f.write("      has_limits: true\n")  # Has limit switches
+        f.write("    z_axis:\n")
+        f.write("      type: rotational\n")
+        f.write("      units: degrees\n")
+        f.write("      min_limit: -180.0\n")  # Continuous rotation
+        f.write("      max_limit: 180.0\n")   # 360mm travel = 360 degrees
+        f.write("      max_feedrate: 800.0\n")  # From max_rate_mm_per_min
+        f.write("      steps_per_mm: 1422\n")  # From FluidNC config (steps per degree)
+        f.write("      continuous: true\n")  # Continuous rotation
+        f.write("      has_limits: false\n")  # No limit switches
+        f.write("    c_axis:\n")
+        f.write("      type: rotational\n")
+        f.write("      units: degrees\n")
+        f.write("      min_limit: -90.0\n")  # Servo range
+        f.write("      max_limit: 90.0\n")   # 180mm travel = 180 degrees
+        f.write("      max_feedrate: 5000.0\n")  # From max_rate_mm_per_min (servo is fast)
+        f.write("      steps_per_mm: 300\n")  # From FluidNC config
+        f.write("      servo_controlled: true\n")  # RC servo
+        f.write("      has_limits: false\n")  # Soft limits only
         f.write("lighting:\n")
         f.write("  zones:\n")
         f.write("    zone_1:\n")
