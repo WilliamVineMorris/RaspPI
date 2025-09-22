@@ -47,62 +47,7 @@ class CameraManagerProtocol(Protocol):
     async def shutdown(self) -> None: ...
     def get_current_settings(self) -> Dict[str, Any]: ...
 
-class ScanOrchestrator:
-    """
-    Main orchestration engine for 3D scanning operations
-    
-    Coordinates motion controller, cameras, scan patterns, and state management
-    to perform complete scanning workflows with error recovery and progress tracking.
-    """
-    
-"""
-Scan Orchestrator - Main Coordination Engine
-
-This module provides the ScanOrchestrator class that coordinates all scanner
-components to perform complete 3D scanning operations. It integrates motion
-control, camera capture, pattern execution, and state management.
-
-Note: This is the orchestration framework. Hardware interfaces will be
-implemented when the motion and camera modules are complete.
-"""
-
-import asyncio
-import logging
-import time
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, Any, Optional, List, Union, Protocol
-
-from core.config_manager import ConfigManager
-from core.events import EventBus, EventPriority
-from core.exceptions import ScannerSystemError, HardwareError, ConfigurationError
-
-from .scan_patterns import ScanPattern, ScanPoint, GridScanPattern
-from .scan_state import ScanState, ScanStatus, ScanPhase
-
-logger = logging.getLogger(__name__)
-
-# Protocol definitions for hardware interfaces (to be implemented)
-class MotionControllerProtocol(Protocol):
-    """Protocol for motion controller interface"""
-    async def initialize(self) -> bool: ...
-    async def home(self) -> bool: ...
-    async def move_to(self, x: float, y: float) -> bool: ...
-    async def move_z_to(self, z: float) -> bool: ...
-    async def rotate_to(self, rotation: float) -> bool: ...
-    async def emergency_stop(self) -> bool: ...
-    async def shutdown(self) -> None: ...
-    def is_connected(self) -> bool: ...
-    def get_current_settings(self) -> Dict[str, Any]: ...
-
-class CameraManagerProtocol(Protocol):
-    """Protocol for camera manager interface"""
-    async def initialize(self) -> bool: ...
-    async def capture_all(self, output_dir: Path, filename_base: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]: ...
-    async def check_camera_health(self) -> bool: ...
-    async def stop_all(self) -> None: ...
-    async def shutdown(self) -> None: ...
-    def get_current_settings(self) -> Dict[str, Any]: ...
+# Hardware Adapter Classes
 
 # Mock implementations for testing/development
 class MockMotionController:
@@ -200,6 +145,149 @@ class MockCameraManager:
         
     def get_current_settings(self) -> Dict[str, Any]:
         return {'initialized': self._initialized}
+class MotionControllerAdapter:
+    """Adapter to make FluidNCController compatible with orchestrator protocol"""
+    
+    def __init__(self, fluidnc_controller):
+        self.controller = fluidnc_controller
+        
+    async def initialize(self) -> bool:
+        return await self.controller.initialize()
+        
+    async def home(self) -> bool:
+        return await self.controller.home_all_axes()
+        
+    async def move_to(self, x: float, y: float) -> bool:
+        from motion.base import Position4D
+        current_pos = await self.controller.get_position()
+        new_pos = Position4D(x=x, y=y, z=current_pos.z, c=current_pos.c)
+        return await self.controller.move_to_position(new_pos)
+        
+    async def move_z_to(self, z: float) -> bool:
+        from motion.base import Position4D
+        current_pos = await self.controller.get_position()
+        new_pos = Position4D(x=current_pos.x, y=current_pos.y, z=z, c=current_pos.c)
+        return await self.controller.move_to_position(new_pos)
+        
+    async def rotate_to(self, rotation: float) -> bool:
+        from motion.base import Position4D
+        current_pos = await self.controller.get_position()
+        new_pos = Position4D(x=current_pos.x, y=current_pos.y, z=current_pos.z, c=rotation)
+        return await self.controller.move_to_position(new_pos)
+        
+    async def emergency_stop(self) -> bool:
+        return await self.controller.emergency_stop()
+        
+    async def shutdown(self) -> None:
+        await self.controller.shutdown()
+        
+    def is_connected(self) -> bool:
+        return self.controller.is_connected()
+        
+    def get_current_settings(self) -> Dict[str, Any]:
+        return {'controller_type': 'FluidNC', 'connected': self.controller.is_connected()}
+
+
+class CameraManagerAdapter:
+    """Adapter to make PiCameraController compatible with orchestrator protocol"""
+    
+    def __init__(self, pi_camera_controller, config_manager):
+        self.controller = pi_camera_controller
+        self.config_manager = config_manager
+        
+    async def initialize(self) -> bool:
+        return await self.controller.initialize()
+        
+    async def capture_all(self, output_dir: Path, filename_base: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Capture from all available cameras"""
+        results = []
+        
+        # Get list of available cameras
+        cameras = await self.controller.list_cameras()
+        
+        for camera_id in cameras:
+            try:
+                # Use synchronized capture for all cameras
+                sync_result = await self.controller.capture_synchronized()
+                
+                # Process results for each camera
+                if sync_result.success:
+                    for cam_result in sync_result.results:
+                        if cam_result.success and cam_result.filepath:
+                            # Move file to desired location
+                            import shutil
+                            src_path = Path(cam_result.filepath)
+                            dst_path = output_dir / f"{filename_base}_{cam_result.camera_id}.jpg"
+                            shutil.move(str(src_path), str(dst_path))
+                            
+                            results.append({
+                                'camera_id': cam_result.camera_id,
+                                'success': True,
+                                'filepath': str(dst_path),
+                                'metadata': metadata
+                            })
+                        else:
+                            results.append({
+                                'camera_id': cam_result.camera_id,
+                                'success': False,
+                                'error': cam_result.error_message or 'Unknown error'
+                            })
+                else:
+                    # Fallback to individual captures
+                    for camera_id in cameras:
+                        try:
+                            result = await self.controller.capture_photo(camera_id)
+                            if result.success and result.filepath:
+                                import shutil
+                                src_path = Path(result.filepath)
+                                dst_path = output_dir / f"{filename_base}_{result.camera_id}.jpg"
+                                shutil.move(str(src_path), str(dst_path))
+                                
+                                results.append({
+                                    'camera_id': result.camera_id,
+                                    'success': True,
+                                    'filepath': str(dst_path),
+                                    'metadata': metadata
+                                })
+                            else:
+                                results.append({
+                                    'camera_id': camera_id,
+                                    'success': False,
+                                    'error': result.error_message or 'Capture failed'
+                                })
+                        except Exception as e:
+                            results.append({
+                                'camera_id': camera_id,
+                                'success': False,
+                                'error': str(e)
+                            })
+                            
+            except Exception as e:
+                # Handle complete failure
+                for camera_id in cameras:
+                    results.append({
+                        'camera_id': camera_id,
+                        'success': False,
+                        'error': str(e)
+                    })
+                break
+                
+        return results
+        
+    async def check_camera_health(self) -> bool:
+        status = await self.controller.get_status()
+        from camera.base import CameraStatus
+        return status in [CameraStatus.READY, CameraStatus.CAPTURING]
+        
+    async def stop_all(self) -> None:
+        # Pi camera controller doesn't have explicit stop_all, but we can shutdown and restart
+        pass
+        
+    async def shutdown(self) -> None:
+        await self.controller.shutdown()
+        
+    def get_current_settings(self) -> Dict[str, Any]:
+        return {'controller_type': 'PiCamera', 'is_connected': self.controller.is_connected()}
 
 class ScanOrchestrator:
     """
@@ -219,9 +307,34 @@ class ScanOrchestrator:
         self.config_manager = config_manager
         self.config = config_manager  # ConfigManager itself has the config data
         
-        # Initialize components (using mocks for now)
-        self.motion_controller = MockMotionController(config_manager)
-        self.camera_manager = MockCameraManager(config_manager)
+        # Initialize components - UPDATED: Using real hardware controllers
+        # Check if simulation mode is enabled
+        if config_manager.get('system.simulation_mode', False):
+            # Use mock controllers for simulation/testing
+            self.motion_controller = MockMotionController(config_manager)
+            self.camera_manager = MockCameraManager(config_manager)
+            self.logger.info("Initialized with mock hardware (simulation mode)")
+        else:
+            # Import and use real hardware controllers with adapters
+            try:
+                from motion.fluidnc_controller import FluidNCController
+                from camera.pi_camera_controller import PiCameraController
+                
+                motion_config = config_manager.get('motion', {})
+                camera_config = config_manager.get('cameras', {})
+                
+                # Create hardware controllers
+                fluidnc_controller = FluidNCController(motion_config)
+                pi_camera_controller = PiCameraController(camera_config)
+                
+                # Wrap with adapters to match protocol interface
+                self.motion_controller = MotionControllerAdapter(fluidnc_controller)
+                self.camera_manager = CameraManagerAdapter(pi_camera_controller, config_manager)
+                self.logger.info("Initialized with real hardware controllers")
+            except ImportError as e:
+                self.logger.warning(f"Hardware modules not available, falling back to mocks: {e}")
+                self.motion_controller = MockMotionController(config_manager)
+                self.camera_manager = MockCameraManager(config_manager)
         self.event_bus = EventBus()
         
         # Active scan state
@@ -811,7 +924,7 @@ class ScanOrchestrator:
                                  x_step: float = 10.0,
                                  y_step: float = 15.0,
                                  z_rotations: Optional[List[float]] = None,
-                                 c_angles: Optional[List[float]] = None) -> 'CylindricalScanPattern':
+                                 c_angles: Optional[List[float]] = None):
         """
         Create a cylindrical scan pattern for turntable scanner
         
