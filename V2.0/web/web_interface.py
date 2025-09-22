@@ -273,10 +273,10 @@ class ScannerWebInterface:
                 return render_template('dashboard.html', status=status)
             except Exception as e:
                 self.logger.error(f"Dashboard error: {e}")
-                return render_template('error.html', error=str(e)), 500
+                return jsonify({'error': str(e)}), 500
         
         @self.app.route('/manual')
-        def manual_control():
+        def manual():
             """Manual control page"""
             try:
                 status = self._get_system_status()
@@ -286,10 +286,10 @@ class ScannerWebInterface:
                                      position_limits=CommandValidator.POSITION_LIMITS)
             except Exception as e:
                 self.logger.error(f"Manual control error: {e}")
-                return render_template('error.html', error=str(e)), 500
+                return jsonify({'error': str(e)}), 500
         
         @self.app.route('/scans')
-        def scan_management():
+        def scans():
             """Scan management page"""
             try:
                 status = self._get_system_status()
@@ -297,7 +297,7 @@ class ScannerWebInterface:
                 return render_template('scans.html', status=status, history=scan_history)
             except Exception as e:
                 self.logger.error(f"Scan management error: {e}")
-                return render_template('error.html', error=str(e)), 500
+                return jsonify({'error': str(e)}), 500
         
         @self.app.route('/settings')
         def settings():
@@ -308,7 +308,7 @@ class ScannerWebInterface:
                 return render_template('settings.html', status=status, config=config)
             except Exception as e:
                 self.logger.error(f"Settings error: {e}")
-                return render_template('error.html', error=str(e)), 500
+                return jsonify({'error': str(e)}), 500
         
         # API endpoints for robust command/data transfer
         @self.app.route('/api/status')
@@ -540,9 +540,11 @@ class ScannerWebInterface:
             status = {
                 'timestamp': datetime.now().isoformat(),
                 'system': {
-                    'initialized': hasattr(self.orchestrator, 'motion_controller'),
+                    'initialized': hasattr(self.orchestrator, 'motion_controller') if self.orchestrator else False,
                     'ready': True,
-                    'errors': []
+                    'status': 'ready',
+                    'errors': [],
+                    'warnings': []
                 },
                 'motion': {
                     'connected': False,
