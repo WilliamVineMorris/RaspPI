@@ -406,6 +406,7 @@ class ScanOrchestrator:
     async def _execute_scan(self):
         """Main scan execution loop"""
         if not self.current_scan or not self.current_pattern:
+            self.logger.error("Cannot execute scan: missing scan state or pattern")
             return
         
         try:
@@ -414,10 +415,14 @@ class ScanOrchestrator:
             self.logger.info(f"Scan {self.current_scan.scan_id} started")
             
             # Home the system
+            self.logger.info("Starting homing sequence")
             await self._home_system()
+            self.logger.info("Homing completed")
             
             # Execute scan points
+            self.logger.info("Starting scan points execution")
             await self._execute_scan_points()
+            self.logger.info("Scan points execution completed")
             
             # Complete the scan
             if not self._stop_requested and not self._emergency_stop:
@@ -429,6 +434,8 @@ class ScanOrchestrator:
                 
         except Exception as e:
             self.logger.error(f"Scan execution failed: {e}")
+            import traceback
+            self.logger.error(f"Full traceback: {traceback.format_exc()}")
             if self.current_scan:
                 self.current_scan.fail(str(e), {'exception_type': type(e).__name__})
         
@@ -440,7 +447,8 @@ class ScanOrchestrator:
         if self._check_stop_conditions():
             return
         
-        self.current_scan.set_phase(ScanPhase.HOMING)
+        if self.current_scan:
+            self.current_scan.set_phase(ScanPhase.HOMING)
         self.logger.info("Homing motion system")
         
         if not await self.motion_controller.home():
@@ -451,7 +459,8 @@ class ScanOrchestrator:
         if not self.current_pattern or not self.current_scan:
             return
         
-        self.current_scan.set_phase(ScanPhase.POSITIONING)
+        if self.current_scan:
+            self.current_scan.set_phase(ScanPhase.POSITIONING)
         
         # Generate points from pattern
         scan_points = self.current_pattern.generate_points()
@@ -575,6 +584,7 @@ class ScanOrchestrator:
     async def _handle_pause(self):
         """Handle pause requests"""
         if self._pause_requested and self.current_scan:
+            self.logger.info("Handling pause request")
             self.current_scan.pause()
             self._pause_requested = False
             
@@ -582,14 +592,17 @@ class ScanOrchestrator:
             pause_timeout = 30.0  # 30 second timeout
             pause_start = time.time()
             
+            self.logger.info("Waiting for resume or stop")
             while self.current_scan.status == ScanStatus.PAUSED:
                 if self._stop_requested or self._emergency_stop:
+                    self.logger.info("Stop requested during pause")
                     break
                 if time.time() - pause_start > pause_timeout:
                     self.logger.warning("Pause timeout reached, auto-resuming scan")
                     self.current_scan.resume()
                     break
                 await asyncio.sleep(0.1)
+            self.logger.info("Pause handling completed")
     
     def _check_stop_conditions(self) -> bool:
         """Check if scan should stop"""
