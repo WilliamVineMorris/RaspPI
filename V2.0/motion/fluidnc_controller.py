@@ -241,11 +241,11 @@ class FluidNCController(MotionController):
                 self.serial_connection.write(command.encode('utf-8'))
                 self.serial_connection.flush()
                 
-                logger.debug(f"Sent command: {command.strip()}")
+                logger.info(f"Sent command: {command.strip()}")
                 
                 if wait_for_response:
                     response = await self._read_response()
-                    logger.debug(f"Received response: {response}")
+                    logger.info(f"Received response: {response}")
                     return response
                 
                 return None
@@ -468,8 +468,11 @@ class FluidNCController(MotionController):
             
             command = f"G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} C{position.c:.3f} F{feedrate}"
             
+            logger.info(f"Sending movement command: {command}")
+            
             # Send move command
-            await self._send_command(command)
+            response = await self._send_command(command)
+            logger.debug(f"Movement command response: {response}")
             
             # Wait for movement completion
             await self._wait_for_movement_complete()
@@ -496,16 +499,21 @@ class FluidNCController(MotionController):
         Wait for FluidNC to complete current movement
         
         This method properly waits for movement completion by:
-        1. Using _get_status_response() to avoid "ok" acknowledgment confusion
-        2. Monitoring for 'Idle' state which indicates movement completion
-        3. Handling intermediate states like 'Run' during movement execution
-        4. Providing detailed progress logging
+        1. Waiting briefly to ensure movement starts before checking completion
+        2. Using _get_status_response() to avoid "ok" acknowledgment confusion
+        3. Monitoring for 'Idle' state which indicates movement completion
+        4. Handling intermediate states like 'Run' during movement execution
+        5. Providing detailed progress logging
         """
         start_time = time.time()
         timeout = 60.0  # 60 second timeout for movements
         last_status = None
+        movement_started = False
         
         logger.info("Waiting for movement completion...")
+        
+        # Give the movement time to start (FluidNC needs time to process G-code)
+        await asyncio.sleep(0.5)
         
         while time.time() - start_time < timeout:
             try:
@@ -518,10 +526,27 @@ class FluidNCController(MotionController):
                         logger.debug(f"Movement status: {status_response}")
                         last_status = status_response
                     
-                    # Check for completion - system idle
+                    # Check if movement has started
+                    if 'Run' in status_response or 'Jog' in status_response:
+                        movement_started = True
+                        logger.debug("Movement in progress...")
+                        await asyncio.sleep(0.2)  # Check every 200ms during movement
+                        continue
+                    
+                    # Check for completion - system idle (only after movement started)
                     if 'Idle' in status_response:
-                        logger.info("✅ Movement completed - system idle")
-                        return  # Movement complete
+                        if movement_started:
+                            logger.info("✅ Movement completed - system idle")
+                            return  # Movement complete
+                        else:
+                            # System was already idle - movement may have completed too quickly
+                            # or command may not have been processed. Wait a bit more.
+                            elapsed = time.time() - start_time
+                            if elapsed > 2.0:  # After 2 seconds, assume movement is done
+                                logger.info("✅ Movement completed - system idle (quick completion)")
+                                return
+                            await asyncio.sleep(0.2)
+                            continue
                         
                     # Check for active movement states
                     elif 'Run' in status_response or 'Jog' in status_response:
@@ -568,6 +593,7 @@ class FluidNCController(MotionController):
         try:
             # Get actual status response (not just "ok")
             response = await self._get_status_response()
+            logger.debug(f"Status response for position: {response}")
             
             # Parse position from status response
             if response:
@@ -580,7 +606,7 @@ class FluidNCController(MotionController):
                     logger.warning(f"Could not parse position from: {response}")
             
             # Fallback to cached position
-            logger.debug(f"Using cached position: {self.current_position}")
+            logger.warning(f"Using cached position: {self.current_position}")
             return self.current_position
             
         except Exception as e:
@@ -590,16 +616,43 @@ class FluidNCController(MotionController):
     def _parse_position_from_status(self, status_response: str) -> Optional[Position4D]:
         """Parse position from FluidNC status response"""
         try:
-            # FluidNC status format: <Idle|MPos:0.000,0.000,0.000,0.000|FS:0,0>
-            match = re.search(r'MPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)', status_response)
-            if match:
-                x, y, z, c = map(float, match.groups())
+            # FluidNC status format: <Idle|MPos:0.000,0.000,0.000,0.000,0.000,0.000|FS:0,0>
+            # Try work coordinates first (WPos), then machine coordinates (MPos)
+            # Work coordinates are what G-code uses, machine coordinates are absolute
+            
+            # First try work coordinates (WPos)
+            wpos_match = re.search(r'WPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,[\d\.-]+,[\d\.-]+)?', status_response)
+            if wpos_match:
+                x, y, z, c = map(float, wpos_match.groups())
+                logger.debug(f"Parsed work position from status: X={x}, Y={y}, Z={z}, C={c}")
                 return Position4D(x=x, y=y, z=z, c=c)
+            
+            # Fallback to machine coordinates (MPos)
+            mpos_match = re.search(r'MPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,[\d\.-]+,[\d\.-]+)?', status_response)
+            if mpos_match:
+                x, y, z, c = map(float, mpos_match.groups())
+                
+                # Check if we have work coordinate offsets (WCO)
+                wco_match = re.search(r'WCO:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,[\d\.-]+,[\d\.-]+)?', status_response)
+                if wco_match:
+                    # Calculate work position by subtracting offsets from machine position
+                    wco_x, wco_y, wco_z, wco_c = map(float, wco_match.groups())
+                    x -= wco_x
+                    y -= wco_y  
+                    z -= wco_z
+                    c -= wco_c
+                    logger.debug(f"Applied work coordinate offsets: WCO=({wco_x},{wco_y},{wco_z},{wco_c})")
+                
+                logger.debug(f"Parsed machine position from status: X={x}, Y={y}, Z={z}, C={c}")
+                return Position4D(x=x, y=y, z=z, c=c)
+            else:
+                logger.warning(f"Could not match position pattern in: {status_response}")
             
             return None
             
         except Exception as e:
             logger.error(f"Failed to parse position from status: {e}")
+            logger.error(f"Status response was: {status_response}")
             return None
     
     async def _read_all_messages(self) -> list[str]:
@@ -687,11 +740,27 @@ class FluidNCController(MotionController):
             # Reset Z-axis position to 0 (continuous rotation axis)
             logger.info("Resetting Z-axis position to 0° (continuous rotation axis)...")
             try:
+                # First, clear any existing work coordinate offsets
+                await self._send_command('G10 L2 P1 Z0')  # Set Z offset to 0 in coordinate system 1
+                await asyncio.sleep(0.5)
+                
+                # Use G92 to set current Z position to 0 in work coordinates
                 await self._send_command('G92 Z0')  # Set current Z position to 0
-                await asyncio.sleep(0.5)  # Give FluidNC time to process
+                await asyncio.sleep(1.0)  # Give FluidNC time to process coordinate change
+                
+                # Select coordinate system to ensure changes take effect
+                await self._send_command('G54')  # Select coordinate system 1 (default)
+                await asyncio.sleep(0.5)
+                
+                # Verify the reset worked
+                status_response = await self._get_status_response()
+                if status_response:
+                    logger.info(f"Z-axis reset status: {status_response}")
+                
                 logger.info("Z-axis position reset to 0°")
             except Exception as e:
                 logger.warning(f"Failed to reset Z-axis position: {e}")
+                # Continue anyway - Z-axis reset is not critical for basic operation
             
             # Get actual position from FluidNC after homing
             logger.info("Reading actual home position from FluidNC...")
