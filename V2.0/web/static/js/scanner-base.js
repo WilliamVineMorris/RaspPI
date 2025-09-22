@@ -9,11 +9,9 @@
 window.ScannerBase = {
     // Configuration
     config: {
-        updateInterval: 1000,           // Status update interval (ms)
-        reconnectDelay: 5000,          // WebSocket reconnect delay (ms)
-        maxReconnectAttempts: 10,      // Maximum reconnection attempts
-        requestTimeout: 10000,         // API request timeout (ms)
-        showDebugLogs: false           // Enable debug logging
+        updateInterval: 2000,           // Status update interval (ms) - increased for HTTP polling
+        requestTimeout: 10000,          // API request timeout (ms)
+        showDebugLogs: false            // Enable debug logging
     },
 
     // State management
@@ -21,61 +19,71 @@ window.ScannerBase = {
         connected: false,
         systemStatus: null,
         lastUpdate: null,
-        reconnectAttempts: 0,
         pendingRequests: new Map()
     },
 
-    // WebSocket connection
-    socket: null,
+    // Polling interval reference
+    pollingInterval: null,
 
     /**
      * Initialize the scanner base functionality
      */
     init() {
         this.log('Initializing scanner base...');
-        this.setupWebSocket();
+        this.setupHttpPolling();
         this.setupEventHandlers();
         this.startStatusUpdater();
         this.log('Scanner base initialized');
     },
 
     /**
-     * Setup WebSocket connection for real-time updates
+     * Setup HTTP polling for status updates (replacing WebSocket)
      */
-    setupWebSocket() {
+    setupHttpPolling() {
         try {
-            // Connect to WebSocket
-            this.socket = io();
-
-            this.socket.on('connect', () => {
-                this.log('WebSocket connected');
-                this.state.connected = true;
-                this.state.reconnectAttempts = 0;
-                this.updateConnectionStatus(true);
-                this.showAlert('Connected to scanner', 'success');
-            });
-
-            this.socket.on('disconnect', () => {
-                this.log('WebSocket disconnected');
-                this.state.connected = false;
-                this.updateConnectionStatus(false);
-                this.showAlert('Disconnected from scanner', 'warning');
-                this.scheduleReconnect();
-            });
-
-            this.socket.on('status_update', (status) => {
-                this.handleStatusUpdate(status);
-            });
-
-            this.socket.on('connect_error', (error) => {
-                this.log('WebSocket connection error:', error);
-                this.scheduleReconnect();
-            });
-
+            this.log('Setting up HTTP polling...');
+            this.state.connected = true;
+            this.updateConnectionStatus(true);
+            
+            // Start polling immediately
+            this.pollStatus();
+            
+            // Set up regular polling
+            this.pollingInterval = setInterval(() => {
+                this.pollStatus();
+            }, this.config.updateInterval);
+            
+            this.log('HTTP polling established');
         } catch (error) {
-            this.log('Error setting up WebSocket:', error);
-            this.showAlert('Failed to establish real-time connection', 'error');
+            this.log('Error setting up HTTP polling:', error);
+            this.showAlert('Failed to establish connection', 'error');
         }
+    },
+
+    /**
+     * Poll for status updates via HTTP
+     */
+    pollStatus() {
+        if (document.hidden) {
+            // Skip polling when page is not visible
+            return;
+        }
+        
+        this.apiRequest('GET', '/api/status')
+            .then(status => {
+                this.handleStatusUpdate(status);
+                if (!this.state.connected) {
+                    this.state.connected = true;
+                    this.updateConnectionStatus(true);
+                }
+            })
+            .catch(error => {
+                this.log('Polling error:', error);
+                if (this.state.connected) {
+                    this.state.connected = false;
+                    this.updateConnectionStatus(false);
+                }
+            });
     },
 
     /**
@@ -84,18 +92,16 @@ window.ScannerBase = {
     setupEventHandlers() {
         // Handle page visibility changes
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden && this.socket && !this.socket.connected) {
-                this.log('Page visible, attempting reconnection...');
-                this.socket.connect();
+            if (!document.hidden) {
+                this.log('Page visible, resuming polling...');
+                this.pollStatus();
             }
         });
 
         // Handle online/offline status
         window.addEventListener('online', () => {
-            this.log('Network online, attempting reconnection...');
-            if (this.socket && !this.socket.connected) {
-                this.socket.connect();
-            }
+            this.log('Network online, resuming polling...');
+            this.pollStatus();
         });
 
         window.addEventListener('offline', () => {
@@ -105,36 +111,10 @@ window.ScannerBase = {
 
         // Handle beforeunload to cleanup
         window.addEventListener('beforeunload', () => {
-            if (this.socket) {
-                this.socket.disconnect();
+            if (this.pollingInterval) {
+                clearInterval(this.pollingInterval);
             }
         });
-    },
-
-    /**
-     * Schedule WebSocket reconnection with exponential backoff
-     */
-    scheduleReconnect() {
-        if (this.state.reconnectAttempts >= this.config.maxReconnectAttempts) {
-            this.log('Maximum reconnection attempts reached');
-            this.showAlert('Unable to connect to scanner. Please refresh the page.', 'error');
-            return;
-        }
-
-        this.state.reconnectAttempts++;
-        const delay = Math.min(
-            this.config.reconnectDelay * Math.pow(2, this.state.reconnectAttempts - 1),
-            30000
-        );
-
-        this.log(`Scheduling reconnection attempt ${this.state.reconnectAttempts} in ${delay}ms`);
-        
-        setTimeout(() => {
-            if (this.socket && !this.socket.connected) {
-                this.log('Attempting to reconnect...');
-                this.socket.connect();
-            }
-        }, delay);
     },
 
     /**

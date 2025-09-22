@@ -99,7 +99,7 @@ def create_mock_orchestrator():
             print(f"Mock: Capturing image from {camera_id} to {filename}")
             
         def get_preview_frame(self, camera_id):
-            print(f"Mock: Getting preview frame from {camera_id}")
+            # Reduced logging for preview frames to avoid console spam
             return None  # Would return actual frame data
     
     class MockLightingController:
