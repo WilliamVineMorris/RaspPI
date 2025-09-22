@@ -69,7 +69,7 @@ window.ScannerBase = {
             return;
         }
         
-        this.apiRequest('GET', '/api/status')
+        this.apiRequest('/api/status')
             .then(status => {
                 this.handleStatusUpdate(status);
                 if (!this.state.connected) {
