@@ -179,8 +179,8 @@ class PiTestRunner:
                     },
                     'cameras': {
                         'camera_count': 2,
-                        'camera0': {'port': 0, 'name': 'test_cam0'},
-                        'camera1': {'port': 1, 'name': 'test_cam1'}
+                        'camera_1': {'port': 0, 'name': 'test_cam1', 'resolution': [1920, 1080]},
+                        'camera_2': {'port': 1, 'name': 'test_cam2', 'resolution': [1920, 1080]}
                     }
                 }
                 
