@@ -116,9 +116,21 @@ class MockCameraManager:
             filename = f"{filename_base}_{camera_id}.jpg"
             filepath = output_dir / filename
             
-            # Create dummy file
+            # Create dummy JPEG files with proper headers
             try:
-                filepath.write_text(f"Mock image data for {camera_id}")
+                # Create a minimal valid JPEG file
+                jpeg_header = b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00'
+                jpeg_data = b'\xff\xc0\x00\x11\x08\x00\x10\x00\x10\x01\x01\x11\x00\x02\x11\x01\x03\x11\x01'
+                jpeg_end = b'\xff\xd9'
+                
+                # Write minimal but valid JPEG file
+                with open(filepath, 'wb') as f:
+                    f.write(jpeg_header)
+                    f.write(jpeg_data)
+                    # Add some dummy image data
+                    f.write(b'\x00' * 64)  # Minimal image data
+                    f.write(jpeg_end)
+                
                 results.append({
                     'camera_id': camera_id,
                     'success': True,

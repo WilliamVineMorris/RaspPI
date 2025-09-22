@@ -162,9 +162,12 @@ class FluidNCController(MotionController):
     
     def is_connected(self) -> bool:
         """Check if FluidNC is connected"""
-        return (self.serial_connection is not None and 
-                self.serial_connection.is_open and
-                self.status != MotionStatus.DISCONNECTED)
+        # During initialization, check serial connection first
+        # Status might still be DISCONNECTED during setup
+        if self.serial_connection and self.serial_connection.is_open:
+            # If we're not in an error state, consider connected
+            return self.status not in [MotionStatus.ERROR, MotionStatus.EMERGENCY_STOP]
+        return False
     
     # Serial Communication
     async def _connect_serial(self) -> bool:
