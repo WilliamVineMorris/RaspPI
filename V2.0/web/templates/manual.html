@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block title %}Manual Control - 3D Scanner Control{% endblock %}
+
+{% block content %}
+<div class="manual-control-grid">
+    <!-- Position Control Panel -->
+    <section class="position-control-panel">
+        <h2>Position Control</h2>
+        
+        <!-- Current Position Display -->
+        <div class="current-position">
+            <h3>Current Position</h3>
+            <div class="position-display">
+                <div class="axis-position">
+                    <label>X:</label>
+                    <span id="currentX">0.0</span>mm
+                </div>
+                <div class="axis-position">
+                    <label>Y:</label>
+                    <span id="currentY">0.0</span>mm
+                </div>
+                <div class="axis-position">
+                    <label>Z:</label>
+                    <span id="currentZ">0.0</span>mm
+                </div>
+                <div class="axis-position">
+                    <label>C:</label>
+                    <span id="currentC">0.0</span>°
+                </div>
+            </div>
+        </div>
+
+        <!-- Step Size Selection -->
+        <div class="step-size-control">
+            <label for="stepSize">Step Size:</label>
+            <select id="stepSize" class="step-size-select">
+                {% for size in step_sizes %}
+                <option value="{{ size }}" {% if size == 1.0 %}selected{% endif %}>{{ size }}mm</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- Jog Controls -->
+        <div class="jog-controls">
+            <!-- X-Y Control -->
+            <div class="xy-control">
+                <h4>X-Y Movement</h4>
+                <div class="xy-grid">
+                    <button class="jog-btn" onclick="jogAxis('y', getStepSize())">↑</button>
+                    <div class="xy-center">
+                        <button class="jog-btn" onclick="jogAxis('x', -getStepSize())">←</button>
+                        <button class="home-btn" onclick="homeAxes(['x', 'y'])">🏠</button>
+                        <button class="jog-btn" onclick="jogAxis('x', getStepSize())">→</button>
+                    </div>
+                    <button class="jog-btn" onclick="jogAxis('y', -getStepSize())">↓</button>
+                </div>
+            </div>
+
+            <!-- Z Control -->
+            <div class="z-control">
+                <h4>Z Movement</h4>
+                <div class="z-buttons">
+                    <button class="jog-btn z-up" onclick="jogAxis('z', getStepSize())">Z ↑</button>
+                    <button class="home-btn" onclick="homeAxes(['z'])">🏠 Z</button>
+                    <button class="jog-btn z-down" onclick="jogAxis('z', -getStepSize())">Z ↓</button>
+                </div>
+            </div>
+
+            <!-- C (Rotation) Control -->
+            <div class="c-control">
+                <h4>C Rotation</h4>
+                <div class="c-buttons">
+                    <button class="jog-btn c-ccw" onclick="jogAxis('c', -getStepSize())">↺ CCW</button>
+                    <button class="home-btn" onclick="homeAxes(['c'])">🏠 C</button>
+                    <button class="jog-btn c-cw" onclick="jogAxis('c', getStepSize())">↻ CW</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Direct Position Input -->
+        <div class="direct-position">
+            <h4>Go to Position</h4>
+            <div class="position-inputs">
+                <div class="input-group">
+                    <label for="targetX">X:</label>
+                    <input type="number" id="targetX" step="0.1" 
+                           min="{{ position_limits.x[0] }}" 
+                           max="{{ position_limits.x[1] }}" 
+                           value="0.0">
+                    <span>mm</span>
+                </div>
+                <div class="input-group">
+                    <label for="targetY">Y:</label>
+                    <input type="number" id="targetY" step="0.1" 
+                           min="{{ position_limits.y[0] }}" 
+                           max="{{ position_limits.y[1] }}" 
+                           value="0.0">
+                    <span>mm</span>
+                </div>
+                <div class="input-group">
+                    <label for="targetZ">Z:</label>
+                    <input type="number" id="targetZ" step="0.1" 
+                           min="{{ position_limits.z[0] }}" 
+                           max="{{ position_limits.z[1] }}" 
+                           value="25.0">
+                    <span>mm</span>
+                </div>
+                <div class="input-group">
+                    <label for="targetC">C:</label>
+                    <input type="number" id="targetC" step="1" 
+                           min="{{ position_limits.c[0] }}" 
+                           max="{{ position_limits.c[1] }}" 
+                           value="0.0">
+                    <span>°</span>
+                </div>
+            </div>
+            <button class="action-btn primary" onclick="gotoPosition()">Go to Position</button>
+        </div>
+
+        <!-- Homing Controls -->
+        <div class="homing-controls">
+            <h4>Homing</h4>
+            <div class="home-buttons">
+                <button class="action-btn secondary" onclick="homeAxes(['x'])">Home X</button>
+                <button class="action-btn secondary" onclick="homeAxes(['y'])">Home Y</button>
+                <button class="action-btn secondary" onclick="homeAxes(['z'])">Home Z</button>
+                <button class="action-btn secondary" onclick="homeAxes(['c'])">Home C</button>
+                <button class="action-btn primary" onclick="homeAllAxes()">Home All</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Camera Control Panel -->
+    <section class="camera-control-panel">
+        <h2>Camera Control</h2>
+        
+        <!-- Camera Selection -->
+        <div class="camera-selection">
+            <label for="activeCamera">Active Camera:</label>
+            <select id="activeCamera" class="camera-select">
+                <option value="0">Camera 1 (Primary)</option>
+                <option value="1">Camera 2 (Secondary)</option>
+                <option value="both">Both Cameras</option>
+            </select>
+        </div>
+
+        <!-- Camera Actions -->
+        <div class="camera-actions">
+            <button class="action-btn primary" onclick="capturePhoto()">📸 Capture Photo</button>
+            <button class="action-btn secondary" onclick="captureFromCamera(0)">📸 Capture Cam 1</button>
+            <button class="action-btn secondary" onclick="captureFromCamera(1)">📸 Capture Cam 2</button>
+        </div>
+
+        <!-- Camera Preview -->
+        <div class="camera-preview">
+            <h4>Live Preview</h4>
+            <div class="preview-container">
+                <img id="activePreview" 
+                     src="/camera/0" 
+                     alt="Camera Preview" 
+                     class="camera-preview-img"
+                     onerror="this.src='data:image/svg+xml,<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 300 200&quot;><rect width=&quot;300&quot; height=&quot;200&quot; fill=&quot;%23f0f0f0&quot;/><text x=&quot;150&quot; y=&quot;100&quot; text-anchor=&quot;middle&quot; fill=&quot;%23666&quot;>Camera Offline</text></svg>'">
+            </div>
+        </div>
+    </section>
+
+    <!-- Lighting Control Panel -->
+    <section class="lighting-control-panel">
+        <h2>Lighting Control</h2>
+        
+        <!-- Zone Controls -->
+        <div class="lighting-zones" id="lightingZones">
+            <div class="zone-control">
+                <h4>Zone 1</h4>
+                <div class="zone-controls">
+                    <input type="range" class="brightness-slider" 
+                           min="0" max="100" value="0" 
+                           id="zone1Brightness" 
+                           onchange="setBrightness('zone1', this.value)">
+                    <span class="brightness-value">0%</span>
+                    <button class="flash-btn" onclick="flashZone('zone1')">⚡ Flash</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Global Lighting Controls -->
+        <div class="global-lighting">
+            <h4>All Zones</h4>
+            <div class="global-controls">
+                <button class="action-btn secondary" onclick="testLighting()">⚡ Test Flash</button>
+                <button class="action-btn secondary" onclick="turnOnAllLights()">💡 All On</button>
+                <button class="action-btn secondary" onclick="turnOffAllLights()">🌙 All Off</button>
+            </div>
+        </div>
+
+        <!-- Flash Settings -->
+        <div class="flash-settings">
+            <h4>Flash Settings</h4>
+            <div class="flash-controls">
+                <div class="input-group">
+                    <label for="flashBrightness">Brightness:</label>
+                    <input type="range" id="flashBrightness" min="10" max="100" value="80">
+                    <span id="flashBrightnessValue">80%</span>
+                </div>
+                <div class="input-group">
+                    <label for="flashDuration">Duration:</label>
+                    <input type="number" id="flashDuration" min="50" max="1000" value="100" step="50">
+                    <span>ms</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Status Panel -->
+    <section class="manual-status-panel">
+        <h2>System Status</h2>
+        <div class="status-compact">
+            <div class="status-row">
+                <span class="status-label">Motion:</span>
+                <span class="status-value" id="motionStatusText">Ready</span>
+                <span class="status-indicator" id="motionStatusDot">●</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Cameras:</span>
+                <span class="status-value" id="cameraStatusText">Ready</span>
+                <span class="status-indicator" id="cameraStatusDot">●</span>
+            </div>
+            <div class="status-row">
+                <span class="status-label">Lighting:</span>
+                <span class="status-value" id="lightingStatusText">Ready</span>
+                <span class="status-indicator" id="lightingStatusDot">●</span>
+            </div>
+        </div>
+        
+        <!-- Quick Actions -->
+        <div class="quick-actions">
+            <button class="action-btn tertiary" onclick="refreshStatus()">🔄 Refresh</button>
+            <button class="action-btn tertiary" onclick="window.location.href='/'">📊 Dashboard</button>
+        </div>
+    </section>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" class="loading-overlay" style="display: none;">
+    <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Moving...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/manual-control.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,491 @@
+{% extends "base.html" %}
+
+{% block title %}Scan Management{% endblock %}
+
+{% block extra_css %}
+<style>
+    .scan-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .scan-builder {
+        background: var(--panel-bg);
+        border-radius: 8px;
+        padding: 1.5rem;
+        border: 1px solid var(--border-color);
+    }
+
+    .scan-queue {
+        background: var(--panel-bg);
+        border-radius: 8px;
+        padding: 1.5rem;
+        border: 1px solid var(--border-color);
+        max-height: 600px;
+        overflow-y: auto;
+    }
+
+    .scan-parameters {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .parameter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .parameter-group label {
+        font-weight: 600;
+        color: var(--text-primary);
+        font-size: 0.9rem;
+    }
+
+    .parameter-input {
+        padding: 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        font-size: 0.9rem;
+    }
+
+    .parameter-input:focus {
+        outline: none;
+        border-color: var(--accent-color);
+        box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.1);
+    }
+
+    .scan-type-selector {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .scan-type-card {
+        padding: 1rem;
+        border: 2px solid var(--border-color);
+        border-radius: 8px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background: var(--bg-primary);
+    }
+
+    .scan-type-card:hover {
+        border-color: var(--accent-color);
+        background: rgba(74, 144, 226, 0.05);
+    }
+
+    .scan-type-card.selected {
+        border-color: var(--accent-color);
+        background: rgba(74, 144, 226, 0.1);
+    }
+
+    .scan-type-card h4 {
+        margin: 0 0 0.5rem 0;
+        color: var(--text-primary);
+        font-size: 1rem;
+    }
+
+    .scan-type-card p {
+        margin: 0;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        line-height: 1.3;
+    }
+
+    .scan-preview {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+        background: var(--bg-secondary);
+    }
+
+    .preview-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+
+    .preview-item {
+        text-align: center;
+    }
+
+    .preview-value {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--accent-color);
+        display: block;
+    }
+
+    .preview-label {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-top: 0.25rem;
+    }
+
+    .scan-actions {
+        display: flex;
+        gap: 1rem;
+        justify-content: flex-end;
+    }
+
+    .queue-item {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .queue-item.active {
+        border-color: var(--success-color);
+        background: rgba(46, 204, 113, 0.1);
+    }
+
+    .queue-item.completed {
+        opacity: 0.7;
+        border-color: var(--border-color);
+    }
+
+    .queue-item.error {
+        border-color: var(--error-color);
+        background: rgba(231, 76, 60, 0.1);
+    }
+
+    .queue-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
+    }
+
+    .queue-title {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin: 0;
+    }
+
+    .queue-status {
+        padding: 0.25rem 0.5rem;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .queue-status.pending {
+        background: rgba(230, 126, 34, 0.2);
+        color: #e67e22;
+    }
+
+    .queue-status.running {
+        background: rgba(52, 152, 219, 0.2);
+        color: #3498db;
+    }
+
+    .queue-status.completed {
+        background: rgba(46, 204, 113, 0.2);
+        color: #2ecc71;
+    }
+
+    .queue-status.error {
+        background: rgba(231, 76, 60, 0.2);
+        color: #e74c3c;
+    }
+
+    .queue-details {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        line-height: 1.4;
+    }
+
+    .queue-progress {
+        margin-top: 0.5rem;
+    }
+
+    .progress-bar {
+        width: 100%;
+        height: 6px;
+        background: var(--border-color);
+        border-radius: 3px;
+        overflow: hidden;
+    }
+
+    .progress-fill {
+        height: 100%;
+        background: var(--accent-color);
+        transition: width 0.3s ease;
+    }
+
+    .queue-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
+
+    .queue-btn {
+        padding: 0.25rem 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .queue-btn:hover {
+        background: var(--bg-secondary);
+    }
+
+    .queue-btn.danger {
+        border-color: var(--error-color);
+        color: var(--error-color);
+    }
+
+    .queue-btn.danger:hover {
+        background: rgba(231, 76, 60, 0.1);
+    }
+
+    .advanced-settings {
+        border-top: 1px solid var(--border-color);
+        padding-top: 1.5rem;
+        margin-top: 1.5rem;
+    }
+
+    .settings-toggle {
+        background: none;
+        border: none;
+        color: var(--accent-color);
+        font-size: 0.9rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .settings-content {
+        display: none;
+    }
+
+    .settings-content.visible {
+        display: block;
+    }
+
+    @media (max-width: 768px) {
+        .scan-grid {
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+
+        .scan-parameters {
+            grid-template-columns: 1fr;
+        }
+
+        .scan-type-selector {
+            grid-template-columns: 1fr;
+        }
+
+        .scan-actions {
+            flex-direction: column;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="scan-grid">
+    <!-- Scan Builder -->
+    <div class="scan-builder">
+        <h2>Scan Configuration</h2>
+        
+        <!-- Scan Type Selection -->
+        <div class="scan-type-selector">
+            <div class="scan-type-card" data-type="surface">
+                <h4>Surface Scan</h4>
+                <p>High-resolution surface capture with multiple angles</p>
+            </div>
+            <div class="scan-type-card" data-type="volume">
+                <h4>Volume Scan</h4>
+                <p>Complete 360° volumetric capture</p>
+            </div>
+            <div class="scan-type-card" data-type="detail">
+                <h4>Detail Scan</h4>
+                <p>Ultra-high resolution focused scan</p>
+            </div>
+        </div>
+
+        <!-- Basic Parameters -->
+        <div class="scan-parameters">
+            <div class="parameter-group">
+                <label for="scanName">Scan Name</label>
+                <input type="text" id="scanName" class="parameter-input" placeholder="My Scan" value="">
+            </div>
+            <div class="parameter-group">
+                <label for="scanResolution">Resolution</label>
+                <select id="scanResolution" class="parameter-input">
+                    <option value="low">Low (Draft)</option>
+                    <option value="medium" selected>Medium (Standard)</option>
+                    <option value="high">High (Detailed)</option>
+                    <option value="ultra">Ultra (Maximum)</option>
+                </select>
+            </div>
+            <div class="parameter-group">
+                <label for="scanSpeed">Scan Speed</label>
+                <select id="scanSpeed" class="parameter-input">
+                    <option value="slow">Slow (Highest Quality)</option>
+                    <option value="medium" selected>Medium (Balanced)</option>
+                    <option value="fast">Fast (Quick Preview)</option>
+                </select>
+            </div>
+            <div class="parameter-group">
+                <label for="cameraCount">Cameras</label>
+                <select id="cameraCount" class="parameter-input">
+                    <option value="1">Single Camera</option>
+                    <option value="2" selected>Dual Camera</option>
+                    <option value="auto">Auto Select</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Scan Boundaries -->
+        <div class="parameter-group">
+            <label>Scan Boundaries (mm)</label>
+            <div class="scan-parameters">
+                <input type="number" id="boundaryXMin" class="parameter-input" placeholder="X Min" value="-50">
+                <input type="number" id="boundaryXMax" class="parameter-input" placeholder="X Max" value="50">
+                <input type="number" id="boundaryYMin" class="parameter-input" placeholder="Y Min" value="-50">
+                <input type="number" id="boundaryYMax" class="parameter-input" placeholder="Y Max" value="50">
+                <input type="number" id="boundaryZMin" class="parameter-input" placeholder="Z Min" value="0">
+                <input type="number" id="boundaryZMax" class="parameter-input" placeholder="Z Max" value="100">
+            </div>
+        </div>
+
+        <!-- Advanced Settings -->
+        <div class="advanced-settings">
+            <button class="settings-toggle" onclick="toggleAdvancedSettings()">
+                <span>⚙️</span> Advanced Settings
+                <span id="advancedToggleIcon">▼</span>
+            </button>
+            <div class="settings-content" id="advancedSettings">
+                <div class="scan-parameters">
+                    <div class="parameter-group">
+                        <label for="pointDensity">Point Density</label>
+                        <input type="range" id="pointDensity" min="1" max="10" value="5" class="parameter-input">
+                        <span id="densityValue">5</span>
+                    </div>
+                    <div class="parameter-group">
+                        <label for="overlapPercent">Image Overlap (%)</label>
+                        <input type="range" id="overlapPercent" min="20" max="80" value="50" class="parameter-input">
+                        <span id="overlapValue">50%</span>
+                    </div>
+                    <div class="parameter-group">
+                        <label for="lightingMode">Lighting Mode</label>
+                        <select id="lightingMode" class="parameter-input">
+                            <option value="auto" selected>Auto</option>
+                            <option value="uniform">Uniform</option>
+                            <option value="directional">Directional</option>
+                            <option value="custom">Custom Pattern</option>
+                        </select>
+                    </div>
+                    <div class="parameter-group">
+                        <label for="autoFocus">Auto Focus</label>
+                        <select id="autoFocus" class="parameter-input">
+                            <option value="enabled" selected>Enabled</option>
+                            <option value="disabled">Disabled</option>
+                            <option value="single">Single Point</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scan Preview -->
+        <div class="scan-preview">
+            <h4>Scan Preview</h4>
+            <div class="preview-grid">
+                <div class="preview-item">
+                    <span class="preview-value" id="previewPoints">--</span>
+                    <div class="preview-label">Capture Points</div>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-value" id="previewTime">--</span>
+                    <div class="preview-label">Estimated Time</div>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-value" id="previewSize">--</span>
+                    <div class="preview-label">Data Size</div>
+                </div>
+                <div class="preview-item">
+                    <span class="preview-value" id="previewImages">--</span>
+                    <div class="preview-label">Total Images</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="scan-actions">
+            <button class="btn btn-secondary" onclick="previewScan()">Preview Path</button>
+            <button class="btn btn-secondary" onclick="saveScanTemplate()">Save Template</button>
+            <button class="btn btn-primary" onclick="addToQueue()">Add to Queue</button>
+            <button class="btn btn-success" onclick="startScanNow()">Start Now</button>
+        </div>
+    </div>
+
+    <!-- Scan Queue -->
+    <div class="scan-queue">
+        <h3>Scan Queue</h3>
+        <div class="queue-controls" style="margin-bottom: 1rem;">
+            <button class="btn btn-sm btn-primary" onclick="startQueue()">Start Queue</button>
+            <button class="btn btn-sm btn-secondary" onclick="pauseQueue()">Pause</button>
+            <button class="btn btn-sm btn-secondary" onclick="clearQueue()">Clear All</button>
+        </div>
+        
+        <div id="scanQueueContainer">
+            <!-- Queue items will be populated here -->
+        </div>
+    </div>
+</div>
+
+<!-- Current Scan Status -->
+<div class="status-panel" id="currentScanPanel" style="display: none;">
+    <div class="panel-header">
+        <h3>Current Scan Progress</h3>
+        <button class="btn btn-sm btn-danger" onclick="stopCurrentScan()">Stop Scan</button>
+    </div>
+    <div class="panel-content">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+            <div>
+                <strong>Scan:</strong> <span id="currentScanName">--</span><br>
+                <strong>Phase:</strong> <span id="currentScanPhase">--</span><br>
+                <strong>Point:</strong> <span id="currentScanPoint">--</span>
+            </div>
+            <div>
+                <strong>Progress:</strong> <span id="currentScanProgress">0%</span><br>
+                <strong>Time Elapsed:</strong> <span id="currentScanElapsed">--</span><br>
+                <strong>Time Remaining:</strong> <span id="currentScanRemaining">--</span>
+            </div>
+        </div>
+        <div class="queue-progress" style="margin-top: 1rem;">
+            <div class="progress-bar">
+                <div class="progress-fill" id="currentScanProgressBar" style="width: 0%;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/scans.js') }}"></script>
+{% endblock %}

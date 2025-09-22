@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}3D Scanner Control{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/scanner.css') }}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📷</text></svg>">
+</head>
+<body>
+    <header class="main-header">
+        <div class="header-content">
+            <h1>
+                <span class="scanner-icon">📷</span>
+                3D Scanner Control
+            </h1>
+            <nav class="main-nav">
+                <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}">
+                    Dashboard
+                </a>
+                <a href="{{ url_for('manual_control') }}" class="nav-link {% if request.endpoint == 'manual_control' %}active{% endif %}">
+                    Manual Control
+                </a>
+                <a href="{{ url_for('scan_management') }}" class="nav-link {% if request.endpoint == 'scan_management' %}active{% endif %}">
+                    Scans
+                </a>
+                <a href="{{ url_for('settings') }}" class="nav-link {% if request.endpoint == 'settings' %}active{% endif %}">
+                    Settings
+                </a>
+            </nav>
+            <div class="header-actions">
+                <div class="system-status" id="systemStatus">
+                    <span class="status-dot" id="statusDot">●</span>
+                    <span id="statusText">Connecting...</span>
+                </div>
+                <button id="emergencyStop" class="emergency-stop" onclick="emergencyStop()">
+                    🛑 EMERGENCY STOP
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <div class="alert-container" id="alertContainer"></div>
+        
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="main-footer">
+        <div class="footer-content">
+            <span>Scanner System V2.0 | Status: <span id="footerStatus">Ready</span></span>
+            <span id="lastUpdate">Last update: --:--:--</span>
+        </div>
+    </footer>
+
+    <!-- Base JavaScript -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script src="{{ url_for('static', filename='js/scanner-base.js') }}"></script>
+    
+    {% block scripts %}{% endblock %}
+
+    <script>
+        // Initialize base functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            ScannerBase.init();
+        });
+    </script>
+</body>
+</html>

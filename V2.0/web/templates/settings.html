@@ -1,0 +1,1044 @@
+{% extends "base.html" %}
+
+{% block title %}System Settings{% endblock %}
+
+{% block extra_css %}
+<style>
+    .settings-container {
+        display: grid;
+        grid-template-columns: 250px 1fr;
+        gap: 2rem;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .settings-sidebar {
+        background: var(--panel-bg);
+        border-radius: 8px;
+        padding: 1.5rem;
+        border: 1px solid var(--border-color);
+        height: fit-content;
+        position: sticky;
+        top: 2rem;
+    }
+
+    .settings-nav {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .settings-nav li {
+        margin-bottom: 0.5rem;
+    }
+
+    .settings-nav a {
+        display: block;
+        padding: 0.75rem 1rem;
+        color: var(--text-secondary);
+        text-decoration: none;
+        border-radius: 6px;
+        transition: all 0.2s ease;
+        font-size: 0.9rem;
+    }
+
+    .settings-nav a:hover {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+    }
+
+    .settings-nav a.active {
+        background: var(--accent-color);
+        color: white;
+    }
+
+    .settings-content {
+        background: var(--panel-bg);
+        border-radius: 8px;
+        padding: 2rem;
+        border: 1px solid var(--border-color);
+    }
+
+    .settings-section {
+        display: none;
+    }
+
+    .settings-section.active {
+        display: block;
+    }
+
+    .settings-group {
+        margin-bottom: 2rem;
+        padding-bottom: 2rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .settings-group:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+        padding-bottom: 0;
+    }
+
+    .settings-group h3 {
+        margin: 0 0 1rem 0;
+        color: var(--text-primary);
+        font-size: 1.2rem;
+    }
+
+    .settings-group p {
+        margin: 0 0 1rem 0;
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        line-height: 1.4;
+    }
+
+    .setting-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .setting-item:last-child {
+        border-bottom: none;
+        padding-bottom: 0;
+    }
+
+    .setting-label {
+        flex: 1;
+        margin-right: 2rem;
+    }
+
+    .setting-label h4 {
+        margin: 0 0 0.25rem 0;
+        color: var(--text-primary);
+        font-size: 1rem;
+        font-weight: 600;
+    }
+
+    .setting-label .description {
+        color: var(--text-secondary);
+        font-size: 0.8rem;
+        line-height: 1.3;
+    }
+
+    .setting-control {
+        min-width: 200px;
+        text-align: right;
+    }
+
+    .setting-input {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        font-size: 0.9rem;
+    }
+
+    .setting-input:focus {
+        outline: none;
+        border-color: var(--accent-color);
+        box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.1);
+    }
+
+    .setting-toggle {
+        position: relative;
+        width: 50px;
+        height: 26px;
+    }
+
+    .setting-toggle input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+
+    .toggle-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #ccc;
+        transition: 0.3s;
+        border-radius: 26px;
+    }
+
+    .toggle-slider:before {
+        position: absolute;
+        content: "";
+        height: 20px;
+        width: 20px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        transition: 0.3s;
+        border-radius: 50%;
+    }
+
+    input:checked + .toggle-slider {
+        background-color: var(--accent-color);
+    }
+
+    input:checked + .toggle-slider:before {
+        transform: translateX(24px);
+    }
+
+    .status-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.8rem;
+        margin-top: 0.5rem;
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    .calibration-matrix {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
+    .matrix-input {
+        padding: 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        text-align: center;
+        font-size: 0.8rem;
+    }
+
+    .diagnostic-panel {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 1rem;
+        margin-top: 1rem;
+    }
+
+    .diagnostic-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+    }
+
+    .diagnostic-item {
+        text-align: center;
+    }
+
+    .diagnostic-value {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--accent-color);
+        display: block;
+    }
+
+    .diagnostic-label {
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        margin-top: 0.25rem;
+    }
+
+    .log-viewer {
+        background: #1a1a1a;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        padding: 1rem;
+        max-height: 400px;
+        overflow-y: auto;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 0.8rem;
+        line-height: 1.4;
+        margin-top: 1rem;
+    }
+
+    .log-entry {
+        margin-bottom: 0.25rem;
+        word-wrap: break-word;
+    }
+
+    .log-timestamp {
+        color: #888;
+        margin-right: 0.5rem;
+    }
+
+    .log-level-info { color: #3498db; }
+    .log-level-warning { color: #f39c12; }
+    .log-level-error { color: #e74c3c; }
+    .log-level-debug { color: #95a5a6; }
+
+    .action-buttons {
+        display: flex;
+        gap: 1rem;
+        margin-top: 1.5rem;
+        justify-content: flex-end;
+    }
+
+    .danger-zone {
+        background: rgba(231, 76, 60, 0.1);
+        border: 1px solid rgba(231, 76, 60, 0.3);
+        border-radius: 6px;
+        padding: 1.5rem;
+        margin-top: 2rem;
+    }
+
+    .danger-zone h3 {
+        color: var(--error-color);
+        margin: 0 0 1rem 0;
+    }
+
+    @media (max-width: 768px) {
+        .settings-container {
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+
+        .settings-sidebar {
+            position: static;
+        }
+
+        .settings-nav {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 0.5rem;
+        }
+
+        .setting-item {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+
+        .setting-control {
+            width: 100%;
+            text-align: left;
+        }
+
+        .calibration-matrix {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="settings-container">
+    <!-- Settings Navigation -->
+    <div class="settings-sidebar">
+        <h3>Settings</h3>
+        <ul class="settings-nav">
+            <li><a href="#motion" class="nav-link active" onclick="showSection('motion')">Motion Control</a></li>
+            <li><a href="#cameras" class="nav-link" onclick="showSection('cameras')">Cameras</a></li>
+            <li><a href="#lighting" class="nav-link" onclick="showSection('lighting')">Lighting</a></li>
+            <li><a href="#scanning" class="nav-link" onclick="showSection('scanning')">Scanning</a></li>
+            <li><a href="#network" class="nav-link" onclick="showSection('network')">Network</a></li>
+            <li><a href="#system" class="nav-link" onclick="showSection('system')">System</a></li>
+            <li><a href="#diagnostics" class="nav-link" onclick="showSection('diagnostics')">Diagnostics</a></li>
+            <li><a href="#maintenance" class="nav-link" onclick="showSection('maintenance')">Maintenance</a></li>
+        </ul>
+    </div>
+
+    <!-- Settings Content -->
+    <div class="settings-content">
+        <!-- Motion Control Settings -->
+        <div id="motion-settings" class="settings-section active">
+            <h2>Motion Control Settings</h2>
+            
+            <div class="settings-group">
+                <h3>FluidNC Configuration</h3>
+                <p>Configure motion controller connection and communication parameters.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Serial Port</h4>
+                        <div class="description">USB serial port for FluidNC communication</div>
+                    </div>
+                    <div class="setting-control">
+                        <select id="motionSerialPort" class="setting-input">
+                            <option value="/dev/ttyUSB0">/dev/ttyUSB0</option>
+                            <option value="/dev/ttyUSB1">/dev/ttyUSB1</option>
+                            <option value="/dev/ttyACM0">/dev/ttyACM0</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Baud Rate</h4>
+                        <div class="description">Serial communication speed</div>
+                    </div>
+                    <div class="setting-control">
+                        <select id="motionBaudRate" class="setting-input">
+                            <option value="115200" selected>115200</option>
+                            <option value="230400">230400</option>
+                            <option value="250000">250000</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Connection Timeout</h4>
+                        <div class="description">Timeout for motion controller connections (seconds)</div>
+                    </div>
+                    <div class="setting-control">
+                        <input type="number" id="motionTimeout" class="setting-input" value="10" min="5" max="60">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="settings-group">
+                <h3>Motion Limits</h3>
+                <p>Configure axis travel limits and safety boundaries.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>X-Axis Range (mm)</h4>
+                        <div class="description">Minimum and maximum X-axis positions</div>
+                    </div>
+                    <div class="setting-control">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                            <input type="number" id="xAxisMin" class="setting-input" placeholder="Min" value="-100">
+                            <input type="number" id="xAxisMax" class="setting-input" placeholder="Max" value="100">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Y-Axis Range (mm)</h4>
+                        <div class="description">Minimum and maximum Y-axis positions</div>
+                    </div>
+                    <div class="setting-control">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                            <input type="number" id="yAxisMin" class="setting-input" placeholder="Min" value="-100">
+                            <input type="number" id="yAxisMax" class="setting-input" placeholder="Max" value="100">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Z-Axis Range (mm)</h4>
+                        <div class="description">Minimum and maximum Z-axis positions</div>
+                    </div>
+                    <div class="setting-control">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                            <input type="number" id="zAxisMin" class="setting-input" placeholder="Min" value="0">
+                            <input type="number" id="zAxisMax" class="setting-input" placeholder="Max" value="200">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>C-Axis Range (degrees)</h4>
+                        <div class="description">Minimum and maximum C-axis rotation</div>
+                    </div>
+                    <div class="setting-control">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                            <input type="number" id="cAxisMin" class="setting-input" placeholder="Min" value="-180">
+                            <input type="number" id="cAxisMax" class="setting-input" placeholder="Max" value="180">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="settings-group">
+                <h3>Motion Speeds</h3>
+                <p>Configure default motion speeds for different operations.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Jog Speed (mm/min)</h4>
+                        <div class="description">Default speed for manual jogging</div>
+                    </div>
+                    <div class="setting-control">
+                        <input type="number" id="jogSpeed" class="setting-input" value="100" min="1" max="5000">
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Scan Speed (mm/min)</h4>
+                        <div class="description">Default speed for scanning movements</div>
+                    </div>
+                    <div class="setting-control">
+                        <input type="number" id="scanSpeed" class="setting-input" value="500" min="1" max="5000">
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Homing Speed (mm/min)</h4>
+                        <div class="description">Speed for homing operations</div>
+                    </div>
+                    <div class="setting-control">
+                        <input type="number" id="homingSpeed" class="setting-input" value="1000" min="1" max="5000">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Camera Settings -->
+        <div id="cameras-settings" class="settings-section">
+            <h2>Camera Settings</h2>
+            
+            <div class="settings-group">
+                <h3>Camera Configuration</h3>
+                <p>Configure camera detection and capture parameters.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Auto-detect Cameras</h4>
+                        <div class="description">Automatically detect and configure available cameras</div>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" id="autoDetectCameras" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Default Resolution</h4>
+                        <div class="description">Default capture resolution for new scans</div>
+                    </div>
+                    <div class="setting-control">
+                        <select id="defaultResolution" class="setting-input">
+                            <option value="1920x1080">1920x1080 (Full HD)</option>
+                            <option value="2560x1440">2560x1440 (2K)</option>
+                            <option value="3840x2160">3840x2160 (4K)</option>
+                            <option value="4624x3472" selected>4624x3472 (16MP)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Image Format</h4>
+                        <div class="description">File format for captured images</div>
+                    </div>
+                    <div class="setting-control">
+                        <select id="imageFormat" class="setting-input">
+                            <option value="jpg" selected>JPEG</option>
+                            <option value="png">PNG</option>
+                            <option value="raw">RAW (DNG)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Image Quality</h4>
+                        <div class="description">JPEG compression quality (1-100)</div>
+                    </div>
+                    <div class="setting-control">
+                        <input type="range" id="imageQuality" class="setting-input" min="1" max="100" value="95">
+                        <span id="qualityValue">95</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="settings-group">
+                <h3>Camera Calibration</h3>
+                <p>Camera calibration parameters for accurate measurements.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Calibration Matrix</h4>
+                        <div class="description">Camera intrinsic parameters (3x3 matrix)</div>
+                    </div>
+                    <div class="setting-control">
+                        <div class="calibration-matrix">
+                            <input type="number" class="matrix-input" placeholder="fx" value="3000">
+                            <input type="number" class="matrix-input" placeholder="0" value="0">
+                            <input type="number" class="matrix-input" placeholder="cx" value="2312">
+                            <input type="number" class="matrix-input" placeholder="0" value="0">
+                            <input type="number" class="matrix-input" placeholder="fy" value="3000">
+                            <input type="number" class="matrix-input" placeholder="cy" value="1736">
+                            <input type="number" class="matrix-input" placeholder="0" value="0">
+                            <input type="number" class="matrix-input" placeholder="0" value="0">
+                            <input type="number" class="matrix-input" placeholder="1" value="1">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Auto-calibration</h4>
+                        <div class="description">Automatically calibrate cameras using calibration targets</div>
+                    </div>
+                    <div class="setting-control">
+                        <button class="btn btn-secondary" onclick="startCameraCalibration()">Start Calibration</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Lighting Settings -->
+        <div id="lighting-settings" class="settings-section">
+            <h2>Lighting Settings</h2>
+            
+            <div class="settings-group">
+                <h3>GPIO Configuration</h3>
+                <p>Configure GPIO pins for LED lighting control.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>PWM Frequency (Hz)</h4>
+                        <div class="description">PWM frequency for LED brightness control</div>
+                    </div>
+                    <div class="setting-control">
+                        <input type="number" id="pwmFrequency" class="setting-input" value="1000" min="100" max="10000">
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Zone Configuration</h4>
+                        <div class="description">Number of lighting zones to configure</div>
+                    </div>
+                    <div class="setting-control">
+                        <input type="number" id="lightingZones" class="setting-input" value="4" min="1" max="16">
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Default Intensity (%)</h4>
+                        <div class="description">Default lighting intensity for new scans</div>
+                    </div>
+                    <div class="setting-control">
+                        <input type="range" id="defaultIntensity" class="setting-input" min="0" max="100" value="80">
+                        <span id="intensityValue">80%</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="settings-group">
+                <h3>Lighting Patterns</h3>
+                <p>Configure automatic lighting patterns for different scan types.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Uniform Lighting</h4>
+                        <div class="description">Use uniform lighting for all zones</div>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" id="uniformLighting" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Dynamic Patterns</h4>
+                        <div class="description">Enable dynamic lighting patterns during scanning</div>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" id="dynamicPatterns">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scanning Settings -->
+        <div id="scanning-settings" class="settings-section">
+            <h2>Scanning Settings</h2>
+            
+            <div class="settings-group">
+                <h3>Default Scan Parameters</h3>
+                <p>Configure default values for new scans.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Default Scan Type</h4>
+                        <div class="description">Default scan type for new scans</div>
+                    </div>
+                    <div class="setting-control">
+                        <select id="defaultScanType" class="setting-input">
+                            <option value="surface" selected>Surface Scan</option>
+                            <option value="volume">Volume Scan</option>
+                            <option value="detail">Detail Scan</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Point Density</h4>
+                        <div class="description">Default point density for scan patterns</div>
+                    </div>
+                    <div class="setting-control">
+                        <input type="range" id="defaultPointDensity" class="setting-input" min="1" max="10" value="5">
+                        <span id="densityValueDisplay">5</span>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Image Overlap (%)</h4>
+                        <div class="description">Default image overlap percentage</div>
+                    </div>
+                    <div class="setting-control">
+                        <input type="range" id="defaultOverlap" class="setting-input" min="20" max="80" value="50">
+                        <span id="overlapValueDisplay">50%</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="settings-group">
+                <h3>Data Management</h3>
+                <p>Configure scan data storage and management.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Auto-save Scans</h4>
+                        <div class="description">Automatically save scan data during capture</div>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" id="autoSaveScans" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Storage Location</h4>
+                        <div class="description">Default directory for scan data</div>
+                    </div>
+                    <div class="setting-control">
+                        <input type="text" id="storageLocation" class="setting-input" value="/home/pi/scans" readonly>
+                        <button class="btn btn-sm" onclick="browseStorageLocation()" style="margin-left: 0.5rem;">Browse</button>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Backup to Cloud</h4>
+                        <div class="description">Automatically backup scans to cloud storage</div>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" id="cloudBackup">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Network Settings -->
+        <div id="network-settings" class="settings-section">
+            <h2>Network Settings</h2>
+            
+            <div class="settings-group">
+                <h3>Web Interface</h3>
+                <p>Configure web interface accessibility and security.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Server Port</h4>
+                        <div class="description">Port for web interface (requires restart)</div>
+                    </div>
+                    <div class="setting-control">
+                        <input type="number" id="serverPort" class="setting-input" value="5000" min="1000" max="65535">
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>External Access</h4>
+                        <div class="description">Allow access from external devices</div>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" id="externalAccess" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Authentication</h4>
+                        <div class="description">Require authentication for web interface</div>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" id="requireAuth">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="settings-group">
+                <h3>Remote Access</h3>
+                <p>Configure remote access and monitoring capabilities.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>SSH Access</h4>
+                        <div class="description">Enable SSH for remote terminal access</div>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" id="sshAccess" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>VNC Access</h4>
+                        <div class="description">Enable VNC for remote desktop access</div>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" id="vncAccess">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- System Settings -->
+        <div id="system-settings" class="settings-section">
+            <h2>System Settings</h2>
+            
+            <div class="settings-group">
+                <h3>Performance</h3>
+                <p>Configure system performance and resource usage.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>CPU Governor</h4>
+                        <div class="description">CPU frequency scaling governor</div>
+                    </div>
+                    <div class="setting-control">
+                        <select id="cpuGovernor" class="setting-input">
+                            <option value="performance" selected>Performance</option>
+                            <option value="ondemand">On Demand</option>
+                            <option value="conservative">Conservative</option>
+                            <option value="powersave">Power Save</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>GPU Memory Split (MB)</h4>
+                        <div class="description">Memory allocated to GPU (requires reboot)</div>
+                    </div>
+                    <div class="setting-control">
+                        <select id="gpuMemory" class="setting-input">
+                            <option value="64">64</option>
+                            <option value="128" selected>128</option>
+                            <option value="256">256</option>
+                            <option value="512">512</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Enable GPU Acceleration</h4>
+                        <div class="description">Use GPU for image processing acceleration</div>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" id="gpuAcceleration" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="settings-group">
+                <h3>Logging</h3>
+                <p>Configure system logging and debugging.</p>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Log Level</h4>
+                        <div class="description">Minimum level for log messages</div>
+                    </div>
+                    <div class="setting-control">
+                        <select id="logLevel" class="setting-input">
+                            <option value="DEBUG">Debug</option>
+                            <option value="INFO" selected>Info</option>
+                            <option value="WARNING">Warning</option>
+                            <option value="ERROR">Error</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="setting-item">
+                    <div class="setting-label">
+                        <h4>Log Rotation</h4>
+                        <div class="description">Automatically rotate log files</div>
+                    </div>
+                    <div class="setting-control">
+                        <label class="setting-toggle">
+                            <input type="checkbox" id="logRotation" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Diagnostics -->
+        <div id="diagnostics-settings" class="settings-section">
+            <h2>System Diagnostics</h2>
+            
+            <div class="settings-group">
+                <h3>System Status</h3>
+                <p>Real-time system performance and health information.</p>
+                
+                <div class="diagnostic-panel">
+                    <div class="diagnostic-grid">
+                        <div class="diagnostic-item">
+                            <span class="diagnostic-value" id="cpuUsage">--</span>
+                            <div class="diagnostic-label">CPU Usage</div>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span class="diagnostic-value" id="memoryUsage">--</span>
+                            <div class="diagnostic-label">Memory Usage</div>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span class="diagnostic-value" id="diskUsage">--</span>
+                            <div class="diagnostic-label">Disk Usage</div>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span class="diagnostic-value" id="temperature">--</span>
+                            <div class="diagnostic-label">CPU Temperature</div>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span class="diagnostic-value" id="uptime">--</span>
+                            <div class="diagnostic-label">System Uptime</div>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span class="diagnostic-value" id="networkStatus">--</span>
+                            <div class="diagnostic-label">Network Status</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="settings-group">
+                <h3>Component Tests</h3>
+                <p>Test individual system components for proper operation.</p>
+                
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" onclick="testMotionSystem()">Test Motion</button>
+                    <button class="btn btn-secondary" onclick="testCameras()">Test Cameras</button>
+                    <button class="btn btn-secondary" onclick="testLighting()">Test Lighting</button>
+                    <button class="btn btn-secondary" onclick="runFullDiagnostic()">Full Diagnostic</button>
+                </div>
+            </div>
+            
+            <div class="settings-group">
+                <h3>System Logs</h3>
+                <p>Recent system logs and error messages.</p>
+                
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" onclick="refreshLogs()">Refresh</button>
+                    <button class="btn btn-secondary" onclick="downloadLogs()">Download</button>
+                    <button class="btn btn-secondary" onclick="clearLogs()">Clear</button>
+                </div>
+                
+                <div class="log-viewer" id="systemLogs">
+                    <div class="log-entry">
+                        <span class="log-timestamp">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Maintenance -->
+        <div id="maintenance-settings" class="settings-section">
+            <h2>System Maintenance</h2>
+            
+            <div class="settings-group">
+                <h3>Backup & Restore</h3>
+                <p>Backup and restore system configuration and data.</p>
+                
+                <div class="action-buttons">
+                    <button class="btn btn-primary" onclick="createBackup()">Create Backup</button>
+                    <button class="btn btn-secondary" onclick="restoreBackup()">Restore Backup</button>
+                    <button class="btn btn-secondary" onclick="downloadBackup()">Download Backup</button>
+                </div>
+            </div>
+            
+            <div class="settings-group">
+                <h3>System Updates</h3>
+                <p>Update system software and scanner firmware.</p>
+                
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" onclick="checkUpdates()">Check Updates</button>
+                    <button class="btn btn-primary" onclick="updateSystem()">Update System</button>
+                    <button class="btn btn-secondary" onclick="updateFirmware()">Update Firmware</button>
+                </div>
+            </div>
+            
+            <div class="settings-group">
+                <h3>Calibration</h3>
+                <p>Recalibrate system components for optimal performance.</p>
+                
+                <div class="action-buttons">
+                    <button class="btn btn-secondary" onclick="calibrateMotion()">Calibrate Motion</button>
+                    <button class="btn btn-secondary" onclick="calibrateCameras()">Calibrate Cameras</button>
+                    <button class="btn btn-secondary" onclick="calibrateLighting()">Calibrate Lighting</button>
+                </div>
+            </div>
+            
+            <div class="danger-zone">
+                <h3>⚠️ Danger Zone</h3>
+                <p>These actions will affect system operation and may result in data loss.</p>
+                
+                <div class="action-buttons">
+                    <button class="btn btn-warning" onclick="factoryReset()">Factory Reset</button>
+                    <button class="btn btn-danger" onclick="shutdownSystem()">Shutdown System</button>
+                    <button class="btn btn-danger" onclick="rebootSystem()">Reboot System</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Save/Cancel buttons for all sections -->
+        <div class="action-buttons" style="margin-top: 3rem; border-top: 1px solid var(--border-color); padding-top: 2rem;">
+            <button class="btn btn-secondary" onclick="resetSettings()">Reset to Defaults</button>
+            <button class="btn btn-secondary" onclick="cancelChanges()">Cancel Changes</button>
+            <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+{% endblock %}

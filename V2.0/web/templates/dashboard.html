@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - 3D Scanner Control{% endblock %}
+
+{% block content %}
+<div class="dashboard-grid">
+    <!-- System Status Panel -->
+    <section class="status-panel">
+        <h2>System Status</h2>
+        <div class="status-grid">
+            <div class="status-item">
+                <div class="status-header">
+                    <span class="status-label">Motion Controller</span>
+                    <span class="status-indicator" id="motionStatus">●</span>
+                </div>
+                <div class="status-details" id="motionDetails">
+                    <div>Position: <span id="currentPosition">X:0.0 Y:0.0 Z:0.0 C:0.0</span></div>
+                    <div>State: <span id="motionState">Unknown</span></div>
+                </div>
+            </div>
+
+            <div class="status-item">
+                <div class="status-header">
+                    <span class="status-label">Cameras</span>
+                    <span class="status-indicator" id="cameraStatus">●</span>
+                </div>
+                <div class="status-details" id="cameraDetails">
+                    <div>Available: <span id="cameraCount">0</span></div>
+                    <div>Active: <span id="activeCameras">None</span></div>
+                </div>
+            </div>
+
+            <div class="status-item">
+                <div class="status-header">
+                    <span class="status-label">Lighting</span>
+                    <span class="status-indicator" id="lightingStatus">●</span>
+                </div>
+                <div class="status-details" id="lightingDetails">
+                    <div>Zones: <span id="lightingZones">0</span></div>
+                    <div>Status: <span id="lightingState">Unknown</span></div>
+                </div>
+            </div>
+
+            <div class="status-item">
+                <div class="status-header">
+                    <span class="status-label">Current Scan</span>
+                    <span class="status-indicator" id="scanStatus">●</span>
+                </div>
+                <div class="status-details" id="scanDetails">
+                    <div>Progress: <span id="scanProgress">---%</span></div>
+                    <div>Points: <span id="scanPoints">0/0</span></div>
+                    <div>Phase: <span id="scanPhase">Idle</span></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quick Actions Panel -->
+    <section class="actions-panel">
+        <h2>Quick Actions</h2>
+        <div class="action-grid">
+            <button class="action-btn primary" onclick="homeAllAxes()" id="homeAllBtn">
+                🏠 Home All
+            </button>
+            <button class="action-btn secondary" onclick="capturePhoto()" id="captureBtn">
+                📸 Capture Photo
+            </button>
+            <button class="action-btn secondary" onclick="testLighting()" id="lightTestBtn">
+                ⚡ Test Lighting
+            </button>
+            <button class="action-btn tertiary" onclick="window.location.href='/manual'">
+                🎮 Manual Control
+            </button>
+            <button class="action-btn tertiary" onclick="window.location.href='/scans'">
+                📊 Start Scan
+            </button>
+            <button class="action-btn tertiary" onclick="refreshStatus()">
+                🔄 Refresh Status
+            </button>
+        </div>
+    </section>
+
+    <!-- Camera Feeds Panel -->
+    <section class="camera-panel">
+        <h2>Live Camera Feeds</h2>
+        <div class="camera-grid">
+            <div class="camera-container">
+                <h3>Camera 1 (Primary)</h3>
+                <div class="camera-feed-wrapper">
+                    <img id="camera1Feed" 
+                         src="/camera/0" 
+                         alt="Camera 1 Feed" 
+                         class="camera-feed"
+                         onerror="this.src='data:image/svg+xml,<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 200 150&quot;><rect width=&quot;200&quot; height=&quot;150&quot; fill=&quot;%23f0f0f0&quot;/><text x=&quot;100&quot; y=&quot;75&quot; text-anchor=&quot;middle&quot; fill=&quot;%23666&quot;>Camera 1 Offline</text></svg>'">
+                    <div class="camera-overlay">
+                        <button class="camera-control" onclick="captureFromCamera(0)">📸</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="camera-container">
+                <h3>Camera 2 (Secondary)</h3>
+                <div class="camera-feed-wrapper">
+                    <img id="camera2Feed" 
+                         src="/camera/1" 
+                         alt="Camera 2 Feed" 
+                         class="camera-feed"
+                         onerror="this.src='data:image/svg+xml,<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 200 150&quot;><rect width=&quot;200&quot; height=&quot;150&quot; fill=&quot;%23f0f0f0&quot;/><text x=&quot;100&quot; y=&quot;75&quot; text-anchor=&quot;middle&quot; fill=&quot;%23666&quot;>Camera 2 Offline</text></svg>'">
+                    <div class="camera-overlay">
+                        <button class="camera-control" onclick="captureFromCamera(1)">📸</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Activity Log Panel -->
+    <section class="log-panel">
+        <h2>Activity Log</h2>
+        <div class="log-container">
+            <div id="activityLog" class="log-content">
+                <div class="log-entry info">
+                    <span class="log-timestamp">{{ status.timestamp[:19] if status.timestamp else '--:--:--' }}</span>
+                    <span class="log-message">Web interface initialized</span>
+                </div>
+            </div>
+            <div class="log-controls">
+                <button onclick="clearLog()" class="log-control-btn">Clear</button>
+                <button onclick="downloadLog()" class="log-control-btn">Download</button>
+                <label class="log-control-checkbox">
+                    <input type="checkbox" id="autoScroll" checked>
+                    Auto-scroll
+                </label>
+            </div>
+        </div>
+    </section>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" class="loading-overlay" style="display: none;">
+    <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Processing...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

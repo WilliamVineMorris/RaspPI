@@ -1,0 +1,542 @@
+/**
+ * Dashboard JavaScript - Main system overview interface
+ * 
+ * Provides comprehensive system monitoring and quick control functionality
+ * with real-time status updates and emergency controls.
+ */
+
+// Dashboard-specific functionality
+const Dashboard = {
+    // Configuration
+    config: {
+        refreshInterval: 1000,
+        chartUpdateInterval: 5000,
+        maxDataPoints: 50
+    },
+
+    // Data storage for charts
+    data: {
+        temperature: [],
+        system_load: [],
+        memory_usage: [],
+        scan_progress: []
+    },
+
+    /**
+     * Initialize dashboard
+     */
+    init() {
+        ScannerBase.log('Initializing dashboard...');
+        
+        this.setupEventHandlers();
+        this.setupQuickActions();
+        this.setupControlButtons();
+        
+        // Listen for status updates
+        document.addEventListener('scanner:statusUpdate', (event) => {
+            this.handleStatusUpdate(event.detail.status);
+        });
+
+        ScannerBase.log('Dashboard initialized');
+    },
+
+    /**
+     * Setup dashboard-specific event handlers
+     */
+    setupEventHandlers() {
+        // Auto-scroll toggle for activity log
+        const autoScrollToggle = document.getElementById('autoScroll');
+        if (autoScrollToggle) {
+            autoScrollToggle.addEventListener('change', (e) => {
+                const logContainer = document.getElementById('activityLog');
+                if (e.target.checked && logContainer) {
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                }
+            });
+        }
+
+        // Camera feed selection
+        const cameraSelects = document.querySelectorAll('.camera-select');
+        cameraSelects.forEach(select => {
+            select.addEventListener('change', (e) => {
+                this.switchCameraFeed(e.target.dataset.feedId, e.target.value);
+            });
+        });
+
+        // Panel toggle functionality
+        this.setupPanelToggles();
+    },
+
+    /**
+     * Setup panel toggle functionality
+     */
+    setupPanelToggles() {
+        const toggleButtons = document.querySelectorAll('.panel-toggle');
+        toggleButtons.forEach(button => {
+            button.addEventListener('click', (e) => {
+                const panel = e.target.closest('.status-panel');
+                const content = panel.querySelector('.panel-content');
+                
+                if (content.style.display === 'none') {
+                    content.style.display = 'block';
+                    e.target.textContent = '−';
+                } else {
+                    content.style.display = 'none';
+                    e.target.textContent = '+';
+                }
+            });
+        });
+    },
+
+    /**
+     * Setup quick action buttons
+     */
+    setupQuickActions() {
+        // Home position button
+        const homeButton = document.getElementById('homePosition');
+        if (homeButton) {
+            homeButton.addEventListener('click', () => this.homePosition());
+        }
+
+        // Start scan button
+        const startScanButton = document.getElementById('startQuickScan');
+        if (startScanButton) {
+            startScanButton.addEventListener('click', () => this.startQuickScan());
+        }
+
+        // Test cameras button
+        const testCamerasButton = document.getElementById('testCameras');
+        if (testCamerasButton) {
+            testCamerasButton.addEventListener('click', () => this.testCameras());
+        }
+
+        // Toggle lighting button
+        const toggleLightingButton = document.getElementById('toggleLighting');
+        if (toggleLightingButton) {
+            toggleLightingButton.addEventListener('click', () => this.toggleLighting());
+        }
+    },
+
+    /**
+     * Setup system control buttons
+     */
+    setupControlButtons() {
+        // Initialize system button
+        const initButton = document.getElementById('initializeSystem');
+        if (initButton) {
+            initButton.addEventListener('click', () => this.initializeSystem());
+        }
+
+        // Shutdown system button
+        const shutdownButton = document.getElementById('shutdownSystem');
+        if (shutdownButton) {
+            shutdownButton.addEventListener('click', () => this.shutdownSystem());
+        }
+    },
+
+    /**
+     * Handle dashboard-specific status updates
+     */
+    handleStatusUpdate(status) {
+        // Update system metrics
+        this.updateSystemMetrics(status);
+        
+        // Update camera feeds
+        this.updateCameraFeeds(status);
+        
+        // Update scan summary
+        this.updateScanSummary(status);
+        
+        // Update quick action availability
+        this.updateQuickActionStates(status);
+    },
+
+    /**
+     * Update system metrics display
+     */
+    updateSystemMetrics(status) {
+        // Update uptime
+        if (status.system?.uptime) {
+            const uptimeElement = document.getElementById('systemUptime');
+            if (uptimeElement) {
+                uptimeElement.textContent = this.formatUptime(status.system.uptime);
+            }
+        }
+
+        // Update temperature
+        if (status.system?.temperature) {
+            const tempElement = document.getElementById('systemTemp');
+            if (tempElement) {
+                tempElement.textContent = `${parseFloat(status.system.temperature).toFixed(1)}°C`;
+            }
+        }
+
+        // Update memory usage
+        if (status.system?.memory) {
+            const memElement = document.getElementById('memoryUsage');
+            if (memElement) {
+                const usedPercent = (status.system.memory.used / status.system.memory.total) * 100;
+                memElement.textContent = `${usedPercent.toFixed(1)}%`;
+            }
+        }
+
+        // Update disk usage
+        if (status.system?.disk) {
+            const diskElement = document.getElementById('diskUsage');
+            if (diskElement) {
+                const usedPercent = (status.system.disk.used / status.system.disk.total) * 100;
+                diskElement.textContent = `${usedPercent.toFixed(1)}%`;
+            }
+        }
+    },
+
+    /**
+     * Update camera feed displays
+     */
+    updateCameraFeeds(status) {
+        if (!status.cameras) return;
+
+        // Update camera availability in selects
+        const cameraSelects = document.querySelectorAll('.camera-select');
+        cameraSelects.forEach(select => {
+            // Clear existing options except "Select Camera"
+            const defaultOption = select.querySelector('option[value=""]');
+            select.innerHTML = '';
+            if (defaultOption) {
+                select.appendChild(defaultOption);
+            } else {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'Select Camera';
+                select.appendChild(option);
+            }
+
+            // Add available cameras
+            if (status.cameras.available_cameras) {
+                status.cameras.available_cameras.forEach(camera => {
+                    const option = document.createElement('option');
+                    option.value = camera.id;
+                    option.textContent = `Camera ${camera.id} (${camera.resolution})`;
+                    select.appendChild(option);
+                });
+            }
+        });
+
+        // Update feed status indicators
+        const feedContainers = document.querySelectorAll('.camera-feed');
+        feedContainers.forEach(container => {
+            const statusElement = container.querySelector('.feed-status');
+            if (statusElement) {
+                const isActive = status.cameras.active?.length > 0;
+                statusElement.textContent = isActive ? 'Active' : 'Inactive';
+                statusElement.className = `feed-status ${isActive ? 'active' : 'inactive'}`;
+            }
+        });
+    },
+
+    /**
+     * Update scan summary display
+     */
+    updateScanSummary(status) {
+        if (!status.scan) return;
+
+        // Update scan count
+        const scanCountElement = document.getElementById('totalScans');
+        if (scanCountElement) {
+            scanCountElement.textContent = status.scan.total_scans || 0;
+        }
+
+        // Update completed scans
+        const completedElement = document.getElementById('completedScans');
+        if (completedElement) {
+            completedElement.textContent = status.scan.completed_scans || 0;
+        }
+
+        // Update scan time
+        const scanTimeElement = document.getElementById('scanTime');
+        if (scanTimeElement && status.scan.estimated_time) {
+            scanTimeElement.textContent = this.formatDuration(status.scan.estimated_time);
+        }
+
+        // Update current scan status
+        const currentScanElement = document.getElementById('currentScanStatus');
+        if (currentScanElement) {
+            if (status.scan.active) {
+                currentScanElement.textContent = `Running - ${status.scan.phase || 'Processing'}`;
+                currentScanElement.className = 'scan-status running';
+            } else {
+                currentScanElement.textContent = 'Idle';
+                currentScanElement.className = 'scan-status idle';
+            }
+        }
+    },
+
+    /**
+     * Update quick action button states
+     */
+    updateQuickActionStates(status) {
+        // Home position button
+        const homeButton = document.getElementById('homePosition');
+        if (homeButton) {
+            const canHome = status.motion?.connected && !status.scan?.active;
+            homeButton.disabled = !canHome;
+            homeButton.title = canHome ? 'Move all axes to home position' : 'Motion system not ready or scan active';
+        }
+
+        // Start scan button
+        const startScanButton = document.getElementById('startQuickScan');
+        if (startScanButton) {
+            const canScan = status.motion?.connected && status.cameras?.available > 0 && !status.scan?.active;
+            startScanButton.disabled = !canScan;
+            startScanButton.title = canScan ? 'Start a quick test scan' : 'System not ready for scanning';
+        }
+
+        // Test cameras button
+        const testCamerasButton = document.getElementById('testCameras');
+        if (testCamerasButton) {
+            const canTest = status.cameras?.available > 0 && !status.scan?.active;
+            testCamerasButton.disabled = !canTest;
+            testCamerasButton.title = canTest ? 'Test camera capture' : 'No cameras available or scan active';
+        }
+
+        // Toggle lighting button
+        const toggleLightingButton = document.getElementById('toggleLighting');
+        if (toggleLightingButton) {
+            const canToggle = status.lighting?.zones?.length > 0;
+            toggleLightingButton.disabled = !canToggle;
+            
+            if (canToggle) {
+                const allZonesOn = status.lighting.zones.every(zone => zone.intensity > 0);
+                toggleLightingButton.textContent = allZonesOn ? 'Turn Off Lights' : 'Turn On Lights';
+                toggleLightingButton.title = allZonesOn ? 'Turn off all lighting zones' : 'Turn on all lighting zones';
+            } else {
+                toggleLightingButton.textContent = 'Toggle Lighting';
+                toggleLightingButton.title = 'Lighting system not available';
+            }
+        }
+    },
+
+    /**
+     * Switch camera feed
+     */
+    async switchCameraFeed(feedId, cameraId) {
+        if (!cameraId) return;
+
+        try {
+            ScannerBase.showLoading('Switching camera feed...');
+            
+            const response = await ScannerBase.apiRequest('/api/camera/stream', {
+                method: 'POST',
+                body: JSON.stringify({
+                    camera_id: cameraId,
+                    feed_id: feedId
+                })
+            });
+
+            // Update feed URL
+            const feedElement = document.getElementById(feedId);
+            if (feedElement) {
+                feedElement.src = `/video_feed/${cameraId}`;
+            }
+
+            ScannerBase.showAlert(`Camera ${cameraId} feed activated`, 'success', 3000);
+            ScannerBase.addLogEntry(`Camera feed switched to Camera ${cameraId}`, 'info');
+
+        } catch (error) {
+            ScannerBase.showAlert(`Failed to switch camera feed: ${error.message}`, 'error');
+            ScannerBase.addLogEntry(`Camera feed switch failed: ${error.message}`, 'error');
+        } finally {
+            ScannerBase.hideLoading();
+        }
+    },
+
+    /**
+     * Home all axes to reference position
+     */
+    async homePosition() {
+        try {
+            ScannerBase.showLoading('Moving to home position...');
+            ScannerBase.addLogEntry('Homing all axes...', 'info');
+
+            const response = await ScannerBase.apiRequest('/api/home', {
+                method: 'POST'
+            });
+
+            ScannerBase.showAlert('Successfully moved to home position', 'success');
+            ScannerBase.addLogEntry('All axes homed successfully', 'success');
+
+        } catch (error) {
+            ScannerBase.showAlert(`Homing failed: ${error.message}`, 'error');
+            ScannerBase.addLogEntry(`Homing failed: ${error.message}`, 'error');
+        } finally {
+            ScannerBase.hideLoading();
+        }
+    },
+
+    /**
+     * Start a quick test scan
+     */
+    async startQuickScan() {
+        try {
+            ScannerBase.showLoading('Starting quick scan...');
+            ScannerBase.addLogEntry('Initiating quick test scan...', 'info');
+
+            const response = await ScannerBase.apiRequest('/api/scan/quick', {
+                method: 'POST',
+                body: JSON.stringify({
+                    scan_type: 'test',
+                    points: 10,
+                    speed: 'fast'
+                })
+            });
+
+            ScannerBase.showAlert('Quick scan started', 'success');
+            ScannerBase.addLogEntry(`Quick scan started - ID: ${response.scan_id}`, 'success');
+
+        } catch (error) {
+            ScannerBase.showAlert(`Failed to start scan: ${error.message}`, 'error');
+            ScannerBase.addLogEntry(`Quick scan failed: ${error.message}`, 'error');
+        } finally {
+            ScannerBase.hideLoading();
+        }
+    },
+
+    /**
+     * Test camera capture
+     */
+    async testCameras() {
+        try {
+            ScannerBase.showLoading('Testing cameras...');
+            ScannerBase.addLogEntry('Testing camera capture...', 'info');
+
+            const response = await ScannerBase.apiRequest('/api/camera/test', {
+                method: 'POST'
+            });
+
+            ScannerBase.showAlert(`Camera test completed - ${response.cameras_tested} cameras tested`, 'success');
+            ScannerBase.addLogEntry(`Camera test completed: ${response.results}`, 'success');
+
+        } catch (error) {
+            ScannerBase.showAlert(`Camera test failed: ${error.message}`, 'error');
+            ScannerBase.addLogEntry(`Camera test failed: ${error.message}`, 'error');
+        } finally {
+            ScannerBase.hideLoading();
+        }
+    },
+
+    /**
+     * Toggle all lighting zones
+     */
+    async toggleLighting() {
+        try {
+            ScannerBase.showLoading('Toggling lighting...');
+            ScannerBase.addLogEntry('Toggling lighting zones...', 'info');
+
+            const response = await ScannerBase.apiRequest('/api/lighting/toggle', {
+                method: 'POST'
+            });
+
+            const action = response.all_zones_on ? 'on' : 'off';
+            ScannerBase.showAlert(`All lighting zones turned ${action}`, 'success');
+            ScannerBase.addLogEntry(`Lighting zones turned ${action}`, 'info');
+
+        } catch (error) {
+            ScannerBase.showAlert(`Lighting toggle failed: ${error.message}`, 'error');
+            ScannerBase.addLogEntry(`Lighting toggle failed: ${error.message}`, 'error');
+        } finally {
+            ScannerBase.hideLoading();
+        }
+    },
+
+    /**
+     * Initialize system components
+     */
+    async initializeSystem() {
+        if (!confirm('Initialize all system components? This may take several minutes.')) {
+            return;
+        }
+
+        try {
+            ScannerBase.showLoading('Initializing system...');
+            ScannerBase.addLogEntry('System initialization started...', 'info');
+
+            const response = await ScannerBase.apiRequest('/api/system/initialize', {
+                method: 'POST'
+            });
+
+            ScannerBase.showAlert('System initialization completed', 'success');
+            ScannerBase.addLogEntry('System initialization completed successfully', 'success');
+
+        } catch (error) {
+            ScannerBase.showAlert(`System initialization failed: ${error.message}`, 'error');
+            ScannerBase.addLogEntry(`System initialization failed: ${error.message}`, 'error');
+        } finally {
+            ScannerBase.hideLoading();
+        }
+    },
+
+    /**
+     * Shutdown system safely
+     */
+    async shutdownSystem() {
+        if (!confirm('Shutdown the scanner system? This will stop all operations and power down the system.')) {
+            return;
+        }
+
+        try {
+            ScannerBase.showLoading('Shutting down system...');
+            ScannerBase.addLogEntry('System shutdown initiated...', 'warning');
+
+            const response = await ScannerBase.apiRequest('/api/system/shutdown', {
+                method: 'POST'
+            });
+
+            ScannerBase.showAlert('System shutdown initiated', 'warning');
+            ScannerBase.addLogEntry('System shutdown completed', 'warning');
+
+        } catch (error) {
+            ScannerBase.showAlert(`Shutdown failed: ${error.message}`, 'error');
+            ScannerBase.addLogEntry(`Shutdown failed: ${error.message}`, 'error');
+        } finally {
+            ScannerBase.hideLoading();
+        }
+    },
+
+    /**
+     * Format uptime string
+     */
+    formatUptime(seconds) {
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        
+        if (days > 0) {
+            return `${days}d ${hours}h ${minutes}m`;
+        } else if (hours > 0) {
+            return `${hours}h ${minutes}m`;
+        } else {
+            return `${minutes}m`;
+        }
+    },
+
+    /**
+     * Format duration string
+     */
+    formatDuration(seconds) {
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+        
+        if (hours > 0) {
+            return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        } else {
+            return `${minutes}:${secs.toString().padStart(2, '0')}`;
+        }
+    }
+};
+
+// Initialize dashboard when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    ScannerBase.init();
+    Dashboard.init();
+});
