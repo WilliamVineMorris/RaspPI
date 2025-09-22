@@ -75,7 +75,8 @@ motion:
       units: "degrees"
       min_limit: -90.0              # Servo range (180mm travel = 180 degrees)
       max_limit: 90.0               # From FluidNC max_travel_mm converted
-      home_position: 0.0            # Servo defaults to 0 degrees (not homing required)
+      home_position: 90.0           # Servo home position (center of range)
+      default_position: 0.0         # Default position when not homed
       max_feedrate: 5000            # From FluidNC max_rate_mm_per_min (very fast servo)
       steps_per_mm: 300             # From FluidNC configuration
       has_limits: false             # Soft limits only in FluidNC
