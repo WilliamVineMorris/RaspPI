@@ -125,10 +125,17 @@ class FluidNCController(MotionController):
             # Send initial configuration
             await self._send_startup_commands(auto_unlock=auto_unlock)
             
-            # Get current status
-            await self._update_status()
+            # Get current status (may fail in alarm state, that's OK)
+            try:
+                await self._update_status()
+            except Exception as e:
+                logger.warning(f"Status update failed during initialization (may be in alarm state): {e}")
+                # Continue initialization - status will be updated after homing
             
-            self.status = MotionStatus.IDLE
+            # Set status based on initialization success
+            # Don't force IDLE if we might be in alarm state
+            if self.status == MotionStatus.DISCONNECTED:
+                self.status = MotionStatus.IDLE
             self._notify_event("motion_initialized", {
                 "port": self.port,
                 "status": self.status.value
@@ -319,16 +326,12 @@ class FluidNCController(MotionController):
                 else:
                     logger.warning("System in alarm state - use homing ($H) or unlock ($X) to clear")
                     # Don't automatically unlock - let user decide
-                    # Continue with basic initialization but skip commands that require unlocked state
+                    # Skip motor commands as they will fail in alarm state
+                    logger.info("Basic FluidNC configuration complete - ready for homing")
+                    return
             
-            # Enable stepper motors - critical for movement
-            try:
-                logger.info("Enabling stepper motors...")
-                await self._send_command('M17')  # Enable steppers
-                await asyncio.sleep(0.2)
-            except FluidNCCommandError as e:
-                logger.warning(f"M17 command failed, trying alternative: {e}")
-                # Some FluidNC versions may not support M17
+            # Stepper motors are enabled by default in FluidNC - no need for M17
+            # Only send basic G-code mode commands that work in any state
             
             # Set basic G-code modes first (these should work even without homing)
             basic_commands = [
@@ -715,7 +718,7 @@ class FluidNCController(MotionController):
                         logger.info("Homing sequence actively running...")
                         homing_started = True
                         idle_stable_count = 0
-                        await asyncio.sleep(2.0)  # Check less frequently during active homing
+                        await asyncio.sleep(2.0)  # Check every 2 seconds during active homing
                         continue
                         
                     elif 'Alarm' in status_response:
@@ -758,7 +761,9 @@ class FluidNCController(MotionController):
                         if idle_stable_count > 0:
                             logger.info(f"Unexpected status during verification: {status_response}")
                         idle_stable_count = 0
-                        logger.debug(f"Waiting for homing completion... Current state: {status_response}")                    # Detect potential hanging
+                        logger.debug(f"Waiting for homing completion... Current state: {status_response}")
+                    
+                    # Detect potential hanging
                     if status_unchanged_count > 30:  # Status unchanged for 30+ checks
                         logger.warning(f"Homing may be hanging - status unchanged: {status_response}")
                         
@@ -773,6 +778,7 @@ class FluidNCController(MotionController):
                     logger.warning("No status response from FluidNC")
                     idle_stable_count = 0
                 
+                # Standard polling interval - check every 1 second to reduce FluidNC load
                 await asyncio.sleep(1.0)
                 
             except Exception as e:
