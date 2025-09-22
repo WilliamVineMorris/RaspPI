@@ -854,9 +854,15 @@ class FluidNCController(MotionController):
                         homing_started = True
                         homing_phase_start = current_time
                         
-                        # Check for completion messages
-                        if 'homing done' in message.lower() or 'homed:' in message.lower():
-                            logger.info("✅ Homing completion detected via message")
+                        # Track individual axis completion
+                        if 'homed:' in message.lower():
+                            axis = message.split(':')[-1].strip(' ]')
+                            logger.info(f"Axis {axis} homing completed")
+                            # Don't return yet - wait for all axes and final completion
+                        
+                        # Check for final completion messages (after all axes)
+                        elif 'homing done' in message.lower():
+                            logger.info("✅ Homing completion detected via final 'homing done' message")
                             return  # Homing complete!
                 
                 # If we received homing messages, continue monitoring messages
@@ -897,28 +903,27 @@ class FluidNCController(MotionController):
                         
                         # Check completion patterns when messages have stopped
                         
-                        # Pattern 1: Idle state with correct position
-                        if 'Idle' in status_response and current_position:
-                            if self._verify_home_position(current_position):
-                                logger.info(f"✅ Homing completed (Idle state): {current_position}")
-                                return  # Homing complete!
+                        # Pattern 1: Transition from Home to Idle state (most reliable)
+                        if 'Idle' in status_response and homing_started:
+                            logger.info("✅ Homing completed (Home→Idle transition detected)")
+                            return  # Homing complete!
                         
                         # Pattern 2: Alarm state with correct position (common after homing)
                         elif 'Alarm' in status_response and current_position:
-                            if self._verify_home_position(current_position):
+                            if self._verify_home_position(current_position) and position_stable_count >= 3:
                                 logger.info(f"✅ Homing completed (Alarm state with correct position): {current_position}")
                                 return  # Homing complete!
                         
-                        # Pattern 3: Position stable at home for extended time
-                        elif position_stable_count >= 3 and current_position:  # 3 * 2 seconds = 6 seconds stable
+                        # Pattern 3: Position stable at home for extended time in Home state
+                        elif 'Home' in status_response and position_stable_count >= 5 and current_position:  # 5 * 2 seconds = 10 seconds stable
                             if self._verify_home_position(current_position):
-                                logger.info(f"✅ Homing completed (position stable): {current_position}")
+                                logger.info(f"✅ Homing completed (Home state with stable position): {current_position}")
                                 return  # Homing complete!
                         
-                        # Pattern 4: Status unchanged for long time with correct position
-                        elif status_unchanged_count >= 5 and current_position:  # 5 * 2 seconds = 10 seconds
+                        # Pattern 4: Status unchanged for very long time (indicates completion lag)
+                        elif status_unchanged_count >= 8 and current_position:  # 8 * 2 seconds = 16 seconds
                             if self._verify_home_position(current_position):
-                                logger.info(f"✅ Homing completed (status stable): {current_position}")
+                                logger.info(f"✅ Homing completed (status lag pattern): {current_position}")
                                 return  # Homing complete!
                 
                 # If homing hasn't started yet, check status to detect start
