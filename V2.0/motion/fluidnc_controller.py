@@ -187,7 +187,7 @@ class FluidNCController(MotionController):
         """Establish serial connection to FluidNC"""
         try:
             # Try to find FluidNC device if port is auto
-            if self.port == 'auto':
+            if self.port.lower() == 'auto':
                 detected_port = await self._detect_fluidnc_port()
                 if not detected_port:
                     raise FluidNCConnectionError("Could not detect FluidNC device")
@@ -213,11 +213,20 @@ class FluidNCController(MotionController):
         """Auto-detect FluidNC device port"""
         ports = serial.tools.list_ports.comports()
         
+        # First check common FluidNC ports
+        common_ports = ['/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyACM0', '/dev/ttyACM1']
+        for port_name in common_ports:
+            if any(port.device == port_name for port in ports):
+                logger.info(f"Found FluidNC on common port: {port_name}")
+                return port_name
+        
+        # Then check by device description
         for port in ports:
             # Look for common FluidNC identifiers
-            if any(identifier in (port.description or '').lower() for identifier in 
-                   ['fluidnc', 'esp32', 'arduino', 'usb serial']):
-                logger.info(f"Detected potential FluidNC device: {port.device}")
+            description = (port.description or '').lower()
+            if any(identifier in description for identifier in 
+                   ['fluidnc', 'esp32', 'arduino', 'usb serial', 'ch340', 'cp210']):
+                logger.info(f"Detected potential FluidNC device: {port.device} ({port.description})")
                 return port.device
         
         logger.warning("No FluidNC device detected")

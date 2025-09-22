@@ -99,7 +99,7 @@ class IntegratedHardwareTest:
                     'debug_mode': True
                 },
                 'motion': {
-                    'port': 'AUTO',
+                    'port': '/dev/ttyUSB0',
                     'baud_rate': 115200
                 },
                 'cameras': {
