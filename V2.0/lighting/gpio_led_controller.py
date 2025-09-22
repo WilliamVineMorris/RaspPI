@@ -30,8 +30,9 @@ try:
     try:
         import lgpio
         
-        # Store original function
+        # Store original functions
         _original_tx_pwm = lgpio.tx_pwm
+        _original_gpio_write = lgpio.gpio_write
         
         def safe_tx_pwm(handle, gpio, pwm_frequency, pwm_duty_cycle, pwm_offset=0, pwm_cycles=0):
             """Safe version of tx_pwm that handles None handles gracefully"""
@@ -45,8 +46,43 @@ try:
                 # Silently ignore errors during cleanup
                 return 0
         
-        # Replace with safer version
+        def safe_gpio_write(handle, gpio, level):
+            """Safe version of gpio_write that handles None handles gracefully"""
+            try:
+                if handle is not None:
+                    return _original_gpio_write(handle, gpio, level)
+                else:
+                    # Handle is None (GPIO already cleaned up), silently ignore
+                    return 0
+            except (TypeError, AttributeError):
+                # Silently ignore errors during cleanup
+                return 0
+        
+        # Replace with safer versions
         lgpio.tx_pwm = safe_tx_pwm
+        lgpio.gpio_write = safe_gpio_write
+        
+        # Also patch internal _lgpio if available
+        try:
+            import _lgpio
+            _original_lgpio_gpio_write = _lgpio._gpio_write
+            
+            def safe_lgpio_gpio_write(handle, gpio, level):
+                """Safe version of _lgpio._gpio_write that handles None handles gracefully"""
+                try:
+                    if handle is not None:
+                        return _original_lgpio_gpio_write(handle, gpio, level)
+                    else:
+                        # Handle is None (GPIO already cleaned up), silently ignore
+                        return 0
+                except (TypeError, AttributeError):
+                    # Silently ignore errors during cleanup
+                    return 0
+            
+            _lgpio._gpio_write = safe_lgpio_gpio_write
+        except (ImportError, AttributeError):
+            # _lgpio not available or doesn't have _gpio_write, skip
+            pass
         
     except ImportError:
         # lgpio not available (not on Raspberry Pi), skip patching

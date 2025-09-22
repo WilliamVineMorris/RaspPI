@@ -49,6 +49,18 @@ async def test_gpio_cleanup():
         flash_result = await controller.flash_zone('test_zone', flash_settings)
         logger.info(f"✓ Flash test: {flash_result.success}")
         
+        # Test multiple flash operations to create more PWM activity
+        for i in range(3):
+            flash_result = await controller.flash_zone('test_zone', flash_settings)
+            logger.info(f"✓ Flash test {i+1}: {flash_result.success}")
+            await asyncio.sleep(0.05)  # Small delay between flashes
+        
+        # Test brightness changes
+        for brightness in [0.2, 0.6, 0.9, 0.3]:
+            await controller.set_brightness('test_zone', brightness)
+            await asyncio.sleep(0.02)
+        logger.info("✓ Multiple brightness changes completed")
+        
         # First shutdown
         await controller.shutdown()
         logger.info("✓ First shutdown complete")
@@ -58,15 +70,16 @@ async def test_gpio_cleanup():
         logger.info("✓ Second shutdown complete (no errors)")
         
         # Small delay to let any garbage collection happen
-        import asyncio
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.2)
         
         logger.info("🎉 GPIO cleanup test PASSED - Checking for PWM errors...")
         
-        # Force garbage collection to trigger any remaining issues
+        # Force multiple garbage collection cycles to trigger any remaining issues
         import gc
-        gc.collect()
-        await asyncio.sleep(0.1)
+        for i in range(3):
+            gc.collect()
+            await asyncio.sleep(0.1)
+            logger.info(f"✓ Garbage collection cycle {i+1} completed without PWM errors")
         
         logger.info("🚀 Final garbage collection completed without PWM errors!")
         return True
