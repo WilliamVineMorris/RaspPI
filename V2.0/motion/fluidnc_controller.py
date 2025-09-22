@@ -307,7 +307,7 @@ class FluidNCController(MotionController):
         """
         try:
             # First, check status and clear any alarms
-            status_response = await self._send_command('?', wait_for_response=True)
+            status_response = await self._get_status_response()
             logger.info(f"Initial status: {status_response}")
             
             # If in alarm state, handle based on auto_unlock setting
@@ -376,6 +376,67 @@ class FluidNCController(MotionController):
         except Exception as e:
             logger.error(f"Failed to unlock FluidNC: {e}")
             return False
+    
+    async def _get_status_response(self) -> Optional[str]:
+        """
+        Get status response from FluidNC, handling the ok acknowledgment properly
+        
+        FluidNC responds to ? queries with:
+        1. "ok" (command acknowledgment)
+        2. "<status>" (actual status)
+        
+        We want to return only the actual status line.
+        """
+        if not self.is_connected():
+            raise FluidNCConnectionError("Not connected to FluidNC")
+        
+        async with self.connection_lock:
+            try:
+                if not self.serial_connection:
+                    raise FluidNCConnectionError("Serial connection not established")
+                    
+                # Send status query
+                command = '?\n'
+                self.serial_connection.write(command.encode('utf-8'))
+                self.serial_connection.flush()
+                
+                logger.debug("Sent status query: ?")
+                
+                # Read response lines
+                response_lines = []
+                timeout = self.timeout
+                start_time = time.time()
+                
+                while time.time() - start_time < timeout:
+                    if self.serial_connection.in_waiting > 0:
+                        line = self.serial_connection.readline().decode('utf-8').strip()
+                        if line:
+                            response_lines.append(line)
+                            logger.debug(f"Received line: {line}")
+                            
+                            # Check for actual status response (starts with <)
+                            if line.startswith('<') and line.endswith('>'):
+                                logger.debug(f"Found status response: {line}")
+                                return line
+                            
+                            # If we get an error, return it
+                            if line.startswith('error:') or line == 'error':
+                                return line
+                                
+                            # Continue reading if we just got "ok" acknowledgment
+                            if line == 'ok':
+                                continue
+                    else:
+                        await asyncio.sleep(0.01)
+                
+                # If we got here, we didn't find a proper status response
+                all_response = '\n'.join(response_lines)
+                logger.warning(f"No status response found, got: {all_response}")
+                return all_response if all_response else None
+                
+            except Exception as e:
+                logger.error(f"Error reading status response: {e}")
+                raise FluidNCConnectionError(f"Failed to read status response: {e}")
     
     # Position and Movement
     async def move_to_position(self, position: Position4D, feedrate: Optional[float] = None) -> bool:
@@ -512,7 +573,7 @@ class FluidNCController(MotionController):
                 logger.warning(f"Motor enable command failed: {e}")
             
             # Check system status before homing
-            status_response = await self._send_command('?', wait_for_response=True)
+            status_response = await self._get_status_response()
             logger.info(f"Pre-homing status: {status_response}")
             
             if status_response and 'Alarm' in status_response:
@@ -576,7 +637,7 @@ class FluidNCController(MotionController):
         
         while time.time() - start_time < timeout:
             try:
-                status_response = await self._send_command('?', wait_for_response=True)
+                status_response = await self._get_status_response()
                 
                 if status_response:
                     # Log status changes
@@ -607,40 +668,36 @@ class FluidNCController(MotionController):
                     
                     # Check for completion - system should be idle with valid position
                     elif 'Idle' in status_response and 'MPos:' in status_response:
-                        # Increment stable count
-                        idle_stable_count += 1
-                        
-                        if idle_stable_count == 1:
+                        # We have an Idle status with position data
+                        if idle_stable_count == 0:
                             logger.info("System reports idle with position - starting verification...")
                         
-                        # Require multiple consecutive stable readings before declaring complete
-                        if idle_stable_count >= 5:  # 5 seconds of stable idle state
-                            logger.info("Verified stable idle state - checking final position...")
-                            
-                            # Parse position from status to verify homing worked
-                            position = self._parse_position_from_status(status_response)
-                            if position:
-                                logger.info(f"Final homed position: {position}")
+                        # Parse position immediately to check if it's valid
+                        position = self._parse_position_from_status(status_response)
+                        if position:
+                            # Verify positions are reasonable for homed state
+                            if self._verify_home_position(position):
+                                idle_stable_count += 1
+                                logger.info(f"Idle state verification with valid position: {idle_stable_count}/3")
                                 
-                                # Verify positions are reasonable for homed state
-                                if self._verify_home_position(position):
+                                # Require fewer consecutive readings since we have position verification
+                                if idle_stable_count >= 3:  # 3 seconds of stable idle with valid position
                                     logger.info("✅ Homing sequence completed successfully")
+                                    logger.info(f"Final homed position: {position}")
                                     return  # Homing complete
-                                else:
-                                    logger.warning("Position doesn't match expected home positions - continuing to wait")
-                                    idle_stable_count = 0  # Reset and continue waiting
                             else:
-                                logger.warning("Could not parse position from status - continuing to monitor")
-                                idle_stable_count = 0
+                                logger.warning("Position doesn't match expected home positions - continuing to wait")
+                                idle_stable_count = 0  # Reset and continue waiting
                         else:
-                            logger.info(f"Idle state verification: {idle_stable_count}/5")
+                            logger.warning("Could not parse position from status - continuing to monitor")
+                            idle_stable_count = 0
                             
                     else:
-                        # Unknown state
+                        # Unknown state - reset verification
+                        if idle_stable_count > 0:
+                            logger.info(f"Unexpected status during verification: {status_response}")
                         idle_stable_count = 0
-                        logger.info(f"Waiting for homing completion... Current state: {status_response}")
-                    
-                    # Detect potential hanging
+                        logger.debug(f"Waiting for homing completion... Current state: {status_response}")                    # Detect potential hanging
                     if status_unchanged_count > 30:  # Status unchanged for 30+ checks
                         logger.warning(f"Homing may be hanging - status unchanged: {status_response}")
                         
