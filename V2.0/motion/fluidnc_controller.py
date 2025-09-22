@@ -1,28 +1,3 @@
-    async def restart_fluidnc(self) -> bool:
-        """
-        Perform a true FluidNC controller restart using the documented command ($Bye).
-        Waits for the controller to reboot and reinitializes the connection.
-        Returns True if restart and reconnection succeed, False otherwise.
-        """
-        try:
-            logger.info("Issuing FluidNC restart command ($Bye)...")
-            await self._send_command('$Bye')
-            await asyncio.sleep(2.0)  # Wait for controller to begin reboot
-            if self.serial_connection and self.serial_connection.is_open:
-                self.serial_connection.close()
-                self.serial_connection = None
-            logger.info("Waiting for FluidNC to reboot...")
-            await asyncio.sleep(5.0)  # Wait for reboot to complete
-            logger.info("Reconnecting to FluidNC after restart...")
-            await self._connect_serial()
-            await asyncio.sleep(2.0)  # Wait for FluidNC to finish startup
-            # Optionally reinitialize controller state
-            await self._send_startup_commands(auto_unlock=True)
-            logger.info("FluidNC restart and reconnection complete")
-            return True
-        except Exception as e:
-            logger.error(f"FluidNC restart failed: {e}")
-            return False
 """
 FluidNC Motion Controller Implementation
 
@@ -1145,6 +1120,29 @@ class FluidNCController(MotionController):
             
         except Exception as e:
             logger.error(f"Controller reset failed: {e}")
+            return False
+    
+    async def restart_fluidnc(self) -> bool:
+        """Restart FluidNC to clear persistent work coordinate offsets"""
+        try:
+            logger.info("Restarting FluidNC to clear persistent coordinate offsets")
+            
+            # Send FluidNC-specific restart command
+            await self._send_command('$Bye')
+            await asyncio.sleep(0.5)
+            
+            # If $Bye doesn't work, try the system restart command
+            await self._send_command('$System/Control=RESTART')
+            await asyncio.sleep(2.0)
+            
+            # Reinitialize connection
+            await self._send_startup_commands()
+            
+            logger.info("FluidNC restart completed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"FluidNC restart failed: {e}")
             return False
     
     # Status Updates
