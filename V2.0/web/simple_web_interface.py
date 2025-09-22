@@ -78,7 +78,14 @@ class SimpleWebInterface:
         @self.app.route('/manual')
         def manual():
             status = get_mock_status()
-            return render_template('manual.html', status=status)
+            # Add position limits and other manual control data
+            position_limits = {
+                'x': [-100, 100],
+                'y': [-100, 100], 
+                'z': [0, 50],
+                'c': [-360, 360]
+            }
+            return render_template('manual.html', status=status, position_limits=position_limits)
         
         @self.app.route('/scans')
         def scans():
@@ -229,12 +236,13 @@ class SimpleWebInterface:
                 'message': f"Mock lighting flash: {data.get('zone', 'all')} zones"
             })
         
-        @self.app.route('/api/camera/preview/<camera_id>')
-        def get_camera_preview(camera_id):
+        # Add mock camera preview routes
+        @self.app.route('/camera/<camera_id>')
+        def camera_preview(camera_id):
             """Mock camera preview"""
             return jsonify({
                 'success': True,
-                'message': f"Mock preview for {camera_id}",
+                'message': f"Mock camera {camera_id} preview",
                 'preview_url': f'/static/mock_preview_{camera_id}.jpg'
             })
     

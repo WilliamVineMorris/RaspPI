@@ -792,6 +792,9 @@ class ScannerWebInterface:
         """Execute scan start command"""
         try:
             # Create scan pattern using orchestrator's methods
+            if not self.orchestrator:
+                raise ScannerSystemError("Scanner system not initialized")
+                
             if pattern_data['pattern_type'] == 'grid':
                 pattern = self.orchestrator.create_grid_pattern(
                     x_range=pattern_data['x_range'],
@@ -840,7 +843,7 @@ class ScannerWebInterface:
     def _execute_scan_stop(self) -> Dict[str, Any]:
         """Execute scan stop command"""
         try:
-            if not hasattr(self.orchestrator, 'current_scan') or not self.orchestrator.current_scan:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'current_scan') or not self.orchestrator.current_scan:
                 raise ScannerSystemError("No active scan to stop")
             
             # Stop the scan
@@ -861,7 +864,7 @@ class ScannerWebInterface:
     def _execute_scan_pause(self) -> Dict[str, Any]:
         """Execute scan pause/resume command"""
         try:
-            if not hasattr(self.orchestrator, 'current_scan') or not self.orchestrator.current_scan:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'current_scan') or not self.orchestrator.current_scan:
                 raise ScannerSystemError("No active scan to pause/resume")
             
             current_status = self.orchestrator.current_scan.status
@@ -890,7 +893,7 @@ class ScannerWebInterface:
     def _execute_camera_capture(self, camera_id: int) -> Dict[str, Any]:
         """Execute camera capture command"""
         try:
-            if not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
                 raise HardwareError("Camera manager not available")
             
             # Capture image
@@ -918,7 +921,7 @@ class ScannerWebInterface:
     def _execute_lighting_flash(self, zone: str, brightness: float, duration: int) -> Dict[str, Any]:
         """Execute lighting flash command"""
         try:
-            if not hasattr(self.orchestrator, 'lighting_controller') or not self.orchestrator.lighting_controller:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'lighting_controller') or not self.orchestrator.lighting_controller:
                 raise HardwareError("Lighting controller not available")
             
             # Execute flash
@@ -950,7 +953,7 @@ class ScannerWebInterface:
     def _generate_camera_stream(self, camera_id: int):
         """Generate MJPEG stream for camera"""
         try:
-            if not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
                 raise HardwareError("Camera manager not available")
             
             while self._running:
