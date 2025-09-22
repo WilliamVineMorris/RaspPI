@@ -480,43 +480,95 @@ class FluidNCController(MotionController):
             raise
     
     async def _wait_for_movement_complete(self):
-        """Wait for FluidNC to complete current movement"""
+        """
+        Wait for FluidNC to complete current movement
+        
+        This method properly waits for movement completion by:
+        1. Using _get_status_response() to avoid "ok" acknowledgment confusion
+        2. Monitoring for 'Idle' state which indicates movement completion
+        3. Handling intermediate states like 'Run' during movement execution
+        4. Providing detailed progress logging
+        """
         start_time = time.time()
         timeout = 60.0  # 60 second timeout for movements
+        last_status = None
+        
+        logger.info("Waiting for movement completion...")
         
         while time.time() - start_time < timeout:
-            # Check status
-            status_response = await self._send_command('?')
-            
-            # Parse status response
-            if status_response and 'Idle' in status_response:
-                return  # Movement complete
-            elif status_response and ('Run' in status_response or 'Jog' in status_response):
-                await asyncio.sleep(0.1)  # Still moving
-                continue
-            elif status_response and 'Alarm' in status_response:
-                raise MotionSafetyError("FluidNC in alarm state")
-            elif status_response and 'Error' in status_response:
-                raise FluidNCCommandError("FluidNC error during movement")
-            
-            await asyncio.sleep(0.1)
+            try:
+                # Get actual status (not just "ok" acknowledgment)
+                status_response = await self._get_status_response()
+                
+                if status_response:
+                    # Log status changes for debugging
+                    if status_response != last_status:
+                        logger.debug(f"Movement status: {status_response}")
+                        last_status = status_response
+                    
+                    # Check for completion - system idle
+                    if 'Idle' in status_response:
+                        logger.info("✅ Movement completed - system idle")
+                        return  # Movement complete
+                        
+                    # Check for active movement states
+                    elif 'Run' in status_response or 'Jog' in status_response:
+                        logger.debug("Movement in progress...")
+                        await asyncio.sleep(0.2)  # Check every 200ms during movement
+                        continue
+                        
+                    # Check for error conditions
+                    elif 'Alarm' in status_response:
+                        logger.error(f"Alarm during movement: {status_response}")
+                        raise MotionSafetyError(f"FluidNC in alarm state: {status_response}")
+                        
+                    elif 'Error' in status_response or 'error:' in status_response:
+                        logger.error(f"Error during movement: {status_response}")
+                        raise FluidNCCommandError(f"FluidNC error during movement: {status_response}")
+                        
+                    # Handle other states (Hold, etc.)
+                    elif 'Hold' in status_response:
+                        logger.warning(f"Hold state during movement: {status_response}")
+                        await asyncio.sleep(0.5)
+                        continue
+                        
+                    else:
+                        # Unknown state - log and continue monitoring
+                        logger.debug(f"Unknown movement state: {status_response}")
+                        await asyncio.sleep(0.2)
+                        continue
+                        
+                else:
+                    logger.warning("No status response during movement monitoring")
+                    await asyncio.sleep(0.5)
+                    
+            except Exception as e:
+                logger.error(f"Error monitoring movement completion: {e}")
+                await asyncio.sleep(0.5)
         
-        raise MotionTimeoutError("Movement timeout exceeded")
+        # Timeout reached
+        elapsed = time.time() - start_time
+        logger.error(f"Movement timeout after {elapsed:.1f} seconds")
+        raise MotionTimeoutError(f"Movement timeout exceeded ({elapsed:.1f}s)")
     
     async def get_current_position(self) -> Position4D:
         """Get current 4DOF position from FluidNC"""
         try:
-            # Send position query
-            response = await self._send_command('?')
+            # Get actual status response (not just "ok")
+            response = await self._get_status_response()
             
             # Parse position from status response
             if response:
                 position = self._parse_position_from_status(response)
                 if position:
                     self.current_position = position
+                    logger.debug(f"Current position: {position}")
                     return position
+                else:
+                    logger.warning(f"Could not parse position from: {response}")
             
             # Fallback to cached position
+            logger.debug(f"Using cached position: {self.current_position}")
             return self.current_position
             
         except Exception as e:
