@@ -37,9 +37,9 @@ async def test_hardware_homing():
         # Create controller
         controller = FluidNCController(motion_config)
         
-        # Test connection
+        # Test connection (without auto-unlock)
         print("\n--- Testing Connection ---")
-        if await controller.connect():
+        if await controller.connect(auto_unlock=False):
             print("✅ Connected to FluidNC successfully")
         else:
             print("❌ Failed to connect to FluidNC")

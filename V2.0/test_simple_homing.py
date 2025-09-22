@@ -14,7 +14,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from motion.fluidnc_controller import FluidNCController
-from motion.base import Position4D
+from motion.base import Position4D, MotionStatus
 from core.logging_setup import setup_logging
 
 async def simple_homing_test():
@@ -36,8 +36,8 @@ async def simple_homing_test():
         # Create controller
         controller = FluidNCController(motion_config)
         
-        # Connect
-        if await controller.connect():
+        # Connect (without auto-unlock - let user choose homing vs unlock)
+        if await controller.connect(auto_unlock=False):
             print("✅ Connected to FluidNC")
         else:
             print("❌ Failed to connect to FluidNC")
@@ -46,6 +46,14 @@ async def simple_homing_test():
         # Get initial status
         status = await controller.get_status()
         print(f"FluidNC Status: {status}")
+        
+        # Check if system is in alarm state
+        if status == MotionStatus.ALARM:
+            print("⚠️  System is in alarm state")
+            print("   This is normal - homing will clear the alarm")
+            print("   Alternative: call controller.unlock() to clear with $X")
+        else:
+            print("✅ System is ready")
         
         initial_position = await controller.get_current_position()
         if initial_position:

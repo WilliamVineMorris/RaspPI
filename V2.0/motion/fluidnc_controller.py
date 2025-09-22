@@ -104,8 +104,14 @@ class FluidNCController(MotionController):
             }
     
     # Connection Management
-    async def initialize(self) -> bool:
-        """Initialize FluidNC connection and configure axes"""
+    async def initialize(self, auto_unlock: bool = False) -> bool:
+        """
+        Initialize FluidNC connection and configure axes
+        
+        Args:
+            auto_unlock: If True, automatically unlock alarm states with $X.
+                        If False, leave alarm states for user to handle (recommended for homing)
+        """
         try:
             logger.info(f"Initializing FluidNC controller on {self.port}")
             
@@ -117,7 +123,7 @@ class FluidNCController(MotionController):
             await asyncio.sleep(2.0)
             
             # Send initial configuration
-            await self._send_startup_commands()
+            await self._send_startup_commands(auto_unlock=auto_unlock)
             
             # Get current status
             await self._update_status()
@@ -291,18 +297,29 @@ class FluidNCController(MotionController):
             logger.error(f"Error reading response: {e}")
             raise FluidNCConnectionError(f"Failed to read response: {e}")
     
-    async def _send_startup_commands(self):
-        """Send initial configuration commands to FluidNC"""
+    async def _send_startup_commands(self, auto_unlock: bool = False):
+        """
+        Send initial configuration commands to FluidNC
+        
+        Args:
+            auto_unlock: If True, automatically unlock alarm states with $X.
+                        If False, leave alarm states for user to handle.
+        """
         try:
             # First, check status and clear any alarms
             status_response = await self._send_command('?', wait_for_response=True)
             logger.info(f"Initial status: {status_response}")
             
-            # If in alarm state, unlock first
+            # If in alarm state, handle based on auto_unlock setting
             if status_response and 'Alarm' in status_response:
-                logger.info("System in alarm state, unlocking...")
-                await self._send_command('$X')  # Unlock
-                await asyncio.sleep(0.5)
+                if auto_unlock:
+                    logger.info("System in alarm state, auto-unlocking...")
+                    await self._send_command('$X')  # Unlock
+                    await asyncio.sleep(0.5)
+                else:
+                    logger.warning("System in alarm state - use homing ($H) or unlock ($X) to clear")
+                    # Don't automatically unlock - let user decide
+                    # Continue with basic initialization but skip commands that require unlocked state
             
             # Enable stepper motors - critical for movement
             try:
@@ -334,6 +351,31 @@ class FluidNCController(MotionController):
         except Exception as e:
             logger.error(f"Startup command sequence failed: {e}")
             raise
+    
+    async def unlock(self) -> bool:
+        """
+        Manually unlock FluidNC from alarm state using $X command
+        
+        Returns:
+            bool: True if unlock successful, False otherwise
+        """
+        try:
+            logger.info("Manually unlocking FluidNC from alarm state")
+            await self._send_command('$X')
+            await asyncio.sleep(0.5)
+            
+            # Check if unlock was successful
+            status_response = await self._send_command('?', wait_for_response=True)
+            if status_response and 'Alarm' not in status_response:
+                logger.info("FluidNC unlocked successfully")
+                return True
+            else:
+                logger.warning("FluidNC may still be in alarm state after unlock")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to unlock FluidNC: {e}")
+            return False
     
     # Position and Movement
     async def move_to_position(self, position: Position4D, feedrate: Optional[float] = None) -> bool:
@@ -474,8 +516,8 @@ class FluidNCController(MotionController):
             logger.info(f"Pre-homing status: {status_response}")
             
             if status_response and 'Alarm' in status_response:
-                logger.error("Cannot home - system in alarm state")
-                raise MotionSafetyError("System in alarm state before homing")
+                logger.info("System in alarm state - homing will clear alarms")
+                # FluidNC allows homing to clear alarm states, so we proceed
             
             # Send homing command
             logger.info("Sending homing command...")
@@ -696,9 +738,18 @@ class FluidNCController(MotionController):
             return "Communication error"
 
     # Additional abstract methods implementation
-    async def connect(self) -> None:
-        """Connect to the FluidNC controller."""
-        await self.initialize()
+    async def connect(self, auto_unlock: bool = False) -> bool:
+        """
+        Connect to the FluidNC controller.
+        
+        Args:
+            auto_unlock: If True, automatically unlock alarm states with $X.
+                        If False, leave alarm states for user to handle (recommended for homing)
+        
+        Returns:
+            bool: True if connection successful, False otherwise
+        """
+        return await self.initialize(auto_unlock=auto_unlock)
     
     async def disconnect(self) -> None:
         """Disconnect from the FluidNC controller."""
