@@ -657,25 +657,72 @@ class ProductionScanTestSuite:
             },
             'motion': {
                 'controller': {
+                    'type': 'fluidnc',
+                    'connection': 'usb',
                     'port': self.args.motion_port,
                     'baudrate': 115200,
                     'timeout': 10.0
                 },
                 'axes': {
-                    'x_axis': {'min_limit': -50.0, 'max_limit': 50.0, 'max_feedrate': 1500.0},
-                    'y_axis': {'min_limit': 0.0, 'max_limit': 100.0, 'max_feedrate': 1500.0},
-                    'z_axis': {'min_limit': -360.0, 'max_limit': 360.0, 'max_feedrate': 720.0},
-                    'c_axis': {'min_limit': -45.0, 'max_limit': 45.0, 'max_feedrate': 360.0}
+                    'x_axis': {
+                        'type': 'linear',
+                        'units': 'mm',
+                        'min_limit': -50.0, 
+                        'max_limit': 50.0, 
+                        'max_feedrate': 1500.0,
+                        'home_position': 0.0
+                    },
+                    'y_axis': {
+                        'type': 'linear',
+                        'units': 'mm',
+                        'min_limit': 0.0, 
+                        'max_limit': 100.0, 
+                        'max_feedrate': 1500.0,
+                        'home_position': 0.0
+                    },
+                    'z_axis': {
+                        'type': 'rotational',
+                        'units': 'degrees',
+                        'min_limit': -360.0, 
+                        'max_limit': 360.0, 
+                        'max_feedrate': 720.0,
+                        'home_position': 0.0,
+                        'continuous': True
+                    },
+                    'c_axis': {
+                        'type': 'rotational',
+                        'units': 'degrees',
+                        'min_limit': -45.0, 
+                        'max_limit': 45.0, 
+                        'max_feedrate': 360.0,
+                        'home_position': 0.0
+                    }
                 }
             },
             'cameras': {
-                'camera_1': {'port': 0, 'resolution': [1920, 1080]},
-                'camera_2': {'port': 1, 'resolution': [1920, 1080]}
+                'camera_1': {
+                    'port': 0, 
+                    'resolution': [1920, 1080],
+                    'name': 'main'
+                },
+                'camera_2': {
+                    'port': 1, 
+                    'resolution': [1920, 1080],
+                    'name': 'secondary'
+                }
             },
             'lighting': {
                 'led_zones': {
-                    'zone_1': {'gpio_pin': 18, 'max_intensity': 85.0},
-                    'zone_2': {'gpio_pin': 19, 'max_intensity': 85.0}
+                    'zone_1': {
+                        'gpio_pin': 18, 
+                        'name': 'main_light',
+                        'max_intensity': 85.0
+                    },
+                    'zone_2': {
+                        'gpio_pin': 19, 
+                        'name': 'secondary_light',
+                        'max_intensity': 85.0
+                    }
                 }
             }
         }
