@@ -165,12 +165,16 @@ class PiTestRunner:
                         'log_directory': '/tmp/test_logs'
                     },
                     'motion': {
-                        'controller_type': 'fluidnc',
-                        'port': self.args.motion_port or '/dev/ttyUSB0',
-                        'baudrate': 115200,
+                        'controller': {
+                            'type': 'fluidnc',
+                            'port': self.args.motion_port or '/dev/ttyUSB0',
+                            'baudrate': 115200
+                        },
                         'axes': {
                             'x_axis': {'type': 'linear', 'units': 'mm', 'min_limit': -150.0, 'max_limit': 150.0, 'home_position': 0.0, 'max_feedrate': 8000.0},
-                            'y_axis': {'type': 'linear', 'units': 'mm', 'min_limit': -100.0, 'max_limit': 100.0, 'home_position': 0.0, 'max_feedrate': 8000.0}
+                            'y_axis': {'type': 'linear', 'units': 'mm', 'min_limit': -100.0, 'max_limit': 100.0, 'home_position': 0.0, 'max_feedrate': 8000.0},
+                            'z_axis': {'type': 'linear', 'units': 'mm', 'min_limit': -180.0, 'max_limit': 180.0, 'home_position': 0.0, 'max_feedrate': 3600.0},
+                            'c_axis': {'type': 'rotary', 'units': 'degrees', 'min_limit': -45.0, 'max_limit': 45.0, 'home_position': 0.0, 'max_feedrate': 1800.0}
                         }
                     },
                     'cameras': {
