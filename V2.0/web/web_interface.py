@@ -18,6 +18,8 @@ Created: September 2025
 import asyncio
 import json
 import logging
+import os
+import sys
 import threading
 import time
 from datetime import datetime
@@ -25,14 +27,65 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from dataclasses import asdict
 
+# Add parent directory to Python path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 import cv2
 from flask import Flask, render_template, jsonify, request, Response, redirect, url_for
-from flask_socketio import SocketIO, emit
 from werkzeug.exceptions import BadRequest
 
-from core.exceptions import ScannerSystemError, HardwareError
-from scanning.scan_patterns import GridScanPattern, CylindricalScanPattern
-from scanning.scan_state import ScanStatus, ScanPhase
+# Import scanner modules
+try:
+    from core.exceptions import ScannerSystemError, HardwareError
+    from scanning.scan_patterns import GridScanPattern, CylindricalScanPattern
+    from scanning.scan_state import ScanStatus, ScanPhase
+    from scanning.scan_orchestrator import ScanOrchestrator
+    SCANNER_MODULES_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Could not import scanner modules: {e}")
+    print("Running in development mode without full scanner integration")
+    SCANNER_MODULES_AVAILABLE = False
+    
+    # Create mock classes for development
+    class ScannerSystemError(Exception):
+        pass
+    
+    class HardwareError(Exception):
+        pass
+    
+    class ScanStatus:
+        IDLE = "idle"
+        RUNNING = "running"
+        PAUSED = "paused"
+        COMPLETED = "completed"
+        ERROR = "error"
+    
+    class ScanPhase:
+        INITIALIZATION = "initialization"
+        SCANNING = "scanning"
+        PROCESSING = "processing"
+        COMPLETED = "completed"
+    
+    class GridScanPattern:
+        def __init__(self, *args, **kwargs):
+            pass
+    
+    class CylindricalScanPattern:
+        def __init__(self, *args, **kwargs):
+            pass
+    
+    class ScanOrchestrator:
+        def __init__(self, *args, **kwargs):
+            self.scan_status = ScanStatus.IDLE
+        
+        async def get_status(self):
+            return {"status": self.scan_status}
+        
+        async def initialize_system(self):
+            return True
+        
+        async def emergency_stop(self):
+            return True
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +239,7 @@ class ScannerWebInterface:
     with comprehensive error handling and real-time updates.
     """
     
-    def __init__(self, orchestrator):
+    def __init__(self, orchestrator=None):
         self.orchestrator = orchestrator
         self.logger = logging.getLogger(__name__)
         
@@ -196,18 +249,14 @@ class ScannerWebInterface:
                         static_folder=str(Path(__file__).parent / 'static'))
         self.app.config['SECRET_KEY'] = 'scanner_control_secret_key'
         
-        # SocketIO for real-time communication
-        self.socketio = SocketIO(self.app, cors_allowed_origins="*")
-        
-        # Web interface state
+        # Web interface state (simplified without SocketIO for now)
         self._connected_clients = set()
         self._last_status_update = None
         self._camera_streams = {}
         self._running = False
         
-        # Setup routes and event handlers
+        # Setup routes
         self._setup_routes()
-        self._setup_socketio_handlers()
         self._setup_orchestrator_integration()
         
         self.logger.info("Scanner web interface initialized")
@@ -476,31 +525,10 @@ class ScannerWebInterface:
                 self.logger.error(f"Camera stream error: {e}")
                 return Response("Camera not available", status=503)
     
-    def _setup_socketio_handlers(self):
-        """Setup SocketIO event handlers for real-time communication"""
-        
-        @self.socketio.on('connect')
-        def handle_connect():
-            self.logger.info(f"Client connected: {request.sid}")
-            self._connected_clients.add(request.sid)
-            
-            # Send initial status
-            emit('status_update', self._get_system_status())
-        
-        @self.socketio.on('disconnect')
-        def handle_disconnect():
-            self.logger.info(f"Client disconnected: {request.sid}")
-            self._connected_clients.discard(request.sid)
-        
-        @self.socketio.on('request_status')
-        def handle_status_request():
-            """Handle manual status request"""
-            emit('status_update', self._get_system_status())
-    
     def _setup_orchestrator_integration(self):
         """Setup integration with the scan orchestrator"""
         # This will be implemented to listen to orchestrator events
-        # and broadcast them to connected web clients
+        # Note: SocketIO functionality temporarily removed for simplified deployment
         pass
     
     # Core system interface methods
@@ -542,7 +570,7 @@ class ScannerWebInterface:
             }
             
             # Get motion controller status
-            if hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+            if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
                 try:
                     motion_status = self.orchestrator.motion_controller.get_status()
                     position = self.orchestrator.motion_controller.get_position()
@@ -556,7 +584,7 @@ class ScannerWebInterface:
                     status['system']['errors'].append(f"Motion controller error: {e}")
             
             # Get camera status
-            if hasattr(self.orchestrator, 'camera_manager') and self.orchestrator.camera_manager:
+            if self.orchestrator and hasattr(self.orchestrator, 'camera_manager') and self.orchestrator.camera_manager:
                 try:
                     camera_status = self.orchestrator.camera_manager.get_status()
                     status['cameras'].update({
@@ -568,7 +596,7 @@ class ScannerWebInterface:
                     status['system']['errors'].append(f"Camera manager error: {e}")
             
             # Get lighting status
-            if hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
+            if self.orchestrator and hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
                 try:
                     lighting_status = self.orchestrator.lighting_controller.get_status()
                     status['lighting'].update({
@@ -579,7 +607,7 @@ class ScannerWebInterface:
                     status['system']['errors'].append(f"Lighting controller error: {e}")
             
             # Get scan status
-            if hasattr(self.orchestrator, 'current_scan') and self.orchestrator.current_scan:
+            if self.orchestrator and hasattr(self.orchestrator, 'current_scan') and self.orchestrator.current_scan:
                 try:
                     scan = self.orchestrator.current_scan
                     status['scan'].update({
@@ -659,7 +687,7 @@ class ScannerWebInterface:
     def _execute_move_command(self, command: Dict[str, Any]) -> Dict[str, Any]:
         """Execute validated movement command"""
         try:
-            if not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
                 raise HardwareError("Motion controller not available")
             
             axis = command['axis']
@@ -687,7 +715,7 @@ class ScannerWebInterface:
     def _execute_position_command(self, position: Dict[str, Any]) -> Dict[str, Any]:
         """Execute validated position command"""
         try:
-            if not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
                 raise HardwareError("Motion controller not available")
             
             # Execute the position movement
@@ -711,7 +739,7 @@ class ScannerWebInterface:
     def _execute_home_command(self, axes: List[str]) -> Dict[str, Any]:
         """Execute homing command"""
         try:
-            if not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
                 raise HardwareError("Motion controller not available")
             
             # Execute homing
@@ -736,16 +764,16 @@ class ScannerWebInterface:
         """Execute emergency stop"""
         try:
             # Stop any active scan
-            if hasattr(self.orchestrator, 'current_scan') and self.orchestrator.current_scan:
+            if self.orchestrator and hasattr(self.orchestrator, 'current_scan') and self.orchestrator.current_scan:
                 if self.orchestrator.current_scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED]:
                     asyncio.create_task(self.orchestrator.stop_scan())
             
             # Emergency stop motion controller
-            if hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+            if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
                 self.orchestrator.motion_controller.emergency_stop()
             
             # Turn off lighting
-            if hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
+            if self.orchestrator and hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
                 asyncio.create_task(self.orchestrator.lighting_controller.turn_off_all())
             
             self.logger.warning("Emergency stop executed")
@@ -957,8 +985,8 @@ class ScannerWebInterface:
             # Start background thread for status updates
             self._start_status_updater()
             
-            # Run the Flask-SocketIO server
-            self.socketio.run(self.app, host=host, port=port, debug=debug, allow_unsafe_werkzeug=True)
+            # Run the Flask app directly (no SocketIO)
+            self.app.run(host=host, port=port, debug=debug)
             
         except Exception as e:
             self.logger.error(f"Failed to start web server: {e}")
@@ -970,18 +998,46 @@ class ScannerWebInterface:
         self.logger.info("Web interface stopped")
     
     def _start_status_updater(self):
-        """Start background thread for status updates"""
+        """Start background thread for status updates (simplified version without SocketIO)"""
         def status_updater():
             while self._running:
                 try:
-                    if self._connected_clients:
+                    # In simplified mode, just log status periodically
+                    if self.orchestrator:
                         status = self._get_system_status()
-                        self.socketio.emit('status_update', status)
-                    time.sleep(1.0)  # Update every second
+                        self.logger.debug(f"System status: {status['system']['status']}")
+                    time.sleep(5.0)  # Update every 5 seconds
                 except Exception as e:
                     self.logger.error(f"Status updater error: {e}")
-                    time.sleep(5.0)
+                    time.sleep(10.0)
         
         update_thread = threading.Thread(target=status_updater, daemon=True)
         update_thread.start()
         self.logger.info("Status updater started")
+
+
+if __name__ == "__main__":
+    """
+    Development mode entry point
+    Run the web interface without orchestrator for testing
+    """
+    import logging
+    
+    # Setup logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
+    # Create web interface without orchestrator (development mode)
+    web_interface = ScannerWebInterface(orchestrator=None)
+    
+    print("Starting Scanner Web Interface in development mode...")
+    print("Open http://localhost:5000 in your browser")
+    print("Press Ctrl+C to stop")
+    
+    try:
+        web_interface.start_web_server(host='0.0.0.0', port=5000, debug=True)
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+        web_interface.stop_web_server()
