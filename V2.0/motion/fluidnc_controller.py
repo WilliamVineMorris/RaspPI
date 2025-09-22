@@ -493,21 +493,24 @@ class FluidNCController(MotionController):
             if actual_position:
                 self.current_position = actual_position
                 logger.info(f"Actual home position from FluidNC: {actual_position}")
+                final_position = actual_position
             else:
-                # Fallback to configured home positions
-                logger.warning("Could not read position from FluidNC, using configured home positions")
+                # Fallback to known home positions (X=0, Y=200, Z=0, C=0)
+                logger.warning("Could not read position from FluidNC, using known home positions")
                 home_position = Position4D(
-                    x=self.axis_limits['x'].min_limit if 'x' in self.axis_limits else 0.0,
-                    y=self.axis_limits['y'].max_limit if 'y' in self.axis_limits else 0.0,  # Y homes to MAX
-                    z=0.0,  # Z-axis homes to 0 degrees
-                    c=90.0  # C-axis homes to center position (90 degrees)
+                    x=0.0,    # X homes to minimum limit
+                    y=200.0,  # Y homes to maximum limit
+                    z=0.0,    # Z-axis defaults to 0 degrees (doesn't actually home)
+                    c=0.0     # C-axis defaults to 0 degrees (doesn't home)
                 )
                 self.current_position = home_position
+                final_position = home_position
+                
             self.is_homed = True
             self.status = MotionStatus.IDLE
             
             self._notify_event("homing_complete", {
-                "home_position": home_position.to_dict()
+                "home_position": final_position.to_dict()
             })
             
             logger.info("Homing sequence completed")

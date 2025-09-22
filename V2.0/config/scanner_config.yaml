@@ -75,7 +75,7 @@ motion:
       units: "degrees"
       min_limit: -90.0              # Servo range (180mm travel = 180 degrees)
       max_limit: 90.0               # From FluidNC max_travel_mm converted
-      home_position: 90.0           # From FluidNC mpos_mm (servo center)
+      home_position: 0.0            # Servo defaults to 0 degrees (not homing required)
       max_feedrate: 5000            # From FluidNC max_rate_mm_per_min (very fast servo)
       steps_per_mm: 300             # From FluidNC configuration
       has_limits: false             # Soft limits only in FluidNC
@@ -89,7 +89,7 @@ motion:
     must_home: true               # From FluidNC start.must_home: true
     check_limits: true            # From FluidNC start.check_limits: true
     safe_height_z: 0.0            # Safe Z rotation position
-    safe_tilt_c: 90.0             # Safe camera tilt position (servo center)
+    safe_tilt_c: 0.0              # Safe camera tilt position (servo default)
     collision_detection: true
     emergency_stop_enabled: true
     
