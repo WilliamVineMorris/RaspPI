@@ -649,10 +649,10 @@ class ScanOrchestrator:
         if not await self.motion_controller.move_to(point.position.x, point.position.y):
             raise HardwareError(f"Failed to move to position ({point.position.x}, {point.position.y})")
         
-        # Set Z height if specified
+        # Set Z rotation angle if specified
         if point.position.z is not None:
             if not await self.motion_controller.move_z_to(point.position.z):
-                raise HardwareError(f"Failed to move to Z position {point.position.z}")
+                raise HardwareError(f"Failed to rotate Z-axis to {point.position.z} degrees")
         
         # Set rotation if specified
         if point.position.c is not None:
@@ -899,15 +899,23 @@ class ScanOrchestrator:
                            x_range: tuple[float, float],
                            y_range: tuple[float, float],
                            spacing: float,
-                           z_height: Optional[float] = None,
+                           z_rotation: Optional[float] = None,
                            rotations: Optional[List[float]] = None) -> GridScanPattern:
-        """Create a grid scan pattern"""
+        """Create a grid scan pattern
+        
+        Args:
+            x_range: Range of X-axis movement in mm
+            y_range: Range of Y-axis movement in mm  
+            spacing: Grid spacing in mm
+            z_rotation: Fixed Z-axis rotation angle in degrees (if single angle)
+            rotations: List of Z-axis rotation angles in degrees
+        """
         from .scan_patterns import GridPatternParameters
         
-        # Handle Z height - if single height provided, use small range
-        if z_height is not None:
-            min_z = z_height
-            max_z = z_height + 0.1  # Small increment to satisfy validation
+        # Handle Z rotation - if single rotation provided, use small range around it
+        if z_rotation is not None:
+            min_z = z_rotation
+            max_z = z_rotation + 0.1  # Small increment to satisfy validation
         else:
             min_z = 0.0
             max_z = 0.1

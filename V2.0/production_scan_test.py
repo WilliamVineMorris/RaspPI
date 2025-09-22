@@ -73,7 +73,7 @@ class ProductionScanTestSuite:
                     'x_range': (-15.0, 15.0),
                     'y_range': (-10.0, 10.0),
                     'spacing': 15.0,
-                    'z_height': 25.0,
+                    'z_rotation': 25.0,  # Z-axis rotation angle in degrees
                     'rotations': [0.0, 90.0]
                 }
             },
@@ -90,7 +90,7 @@ class ProductionScanTestSuite:
                     'x_range': (-25.0, 25.0),
                     'y_range': (-20.0, 20.0),
                     'spacing': 10.0,
-                    'z_height': 30.0,
+                    'z_rotation': 30.0,  # Z-axis rotation angle in degrees
                     'rotations': [0.0, 45.0, 90.0, 135.0]
                 }
             },
@@ -107,7 +107,7 @@ class ProductionScanTestSuite:
                     'x_range': (-40.0, 40.0),
                     'y_range': (-30.0, 30.0),
                     'spacing': 8.0,
-                    'z_height': 35.0,
+                    'z_rotation': 35.0,  # Z-axis rotation angle in degrees
                     'rotations': [0.0, 30.0, 60.0, 90.0, 120.0, 150.0]
                 }
             }
@@ -340,7 +340,7 @@ class ProductionScanTestSuite:
             self.logger.info(f"     X range: {scan_config['x_range']} mm")
             self.logger.info(f"     Y range: {scan_config['y_range']} mm")
             self.logger.info(f"     Grid spacing: {scan_config['spacing']} mm")
-            self.logger.info(f"     Z height: {scan_config['z_height']} mm")
+            self.logger.info(f"     Z rotation: {scan_config['z_rotation']}°")  # Z-axis rotation angle
             self.logger.info(f"     Rotations: {len(scan_config['rotations'])} angles")
             self.logger.info(f"   Total scan points: {len(points)}")
             

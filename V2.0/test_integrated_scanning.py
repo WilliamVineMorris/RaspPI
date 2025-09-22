@@ -200,7 +200,7 @@ class IntegratedScanningTestRunner:
                 x_range=(-20.0, 20.0),
                 y_range=(-15.0, 15.0),
                 spacing=10.0,
-                z_height=25.0,
+                z_rotation=25.0,  # Z-axis rotation angle in degrees
                 rotations=[0.0, 45.0]
             )
             

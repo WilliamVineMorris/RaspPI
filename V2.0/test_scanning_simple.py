@@ -369,7 +369,7 @@ web_interface:
                 x_range=(0.0, 10.0),
                 y_range=(0.0, 5.0),    # Smaller Y range 
                 spacing=10.0,           # Large spacing to minimize points
-                z_height=5.0
+                z_rotation=5.0  # Z-axis rotation angle in degrees
             )
             
             # Start scan

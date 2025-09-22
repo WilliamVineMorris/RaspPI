@@ -324,7 +324,7 @@ class TestScanOrchestrator:
             x_range=(-25.0, 25.0),
             y_range=(-15.0, 15.0),
             spacing=10.0,
-            z_height=20.0,
+            z_rotation=20.0,  # Z-axis rotation angle in degrees
             rotations=[0.0, 90.0]
         )
         
@@ -355,7 +355,7 @@ class TestScanOrchestrator:
                 x_range=(0.0, 10.0),
                 y_range=(0.0, 10.0), 
                 spacing=10.0,
-                z_height=5.0
+                z_rotation=5.0  # Z-axis rotation angle in degrees
             )
             
             # Start scan
@@ -500,7 +500,7 @@ class TestIntegration:
                     x_range=(-5.0, 5.0),
                     y_range=(-5.0, 5.0),
                     spacing=5.0,
-                    z_height=10.0
+                    z_rotation=10.0  # Z-axis rotation angle in degrees
                 )
                 
                 # Execute scan

@@ -19,53 +19,92 @@ motion:
   controller:
     type: "fluidnc"
     connection: "usb"
-    port: "/dev/ttyUSB0"  # Adjust as needed
-    baudrate: 115200
+    port: "/dev/ttyUSB0"  # Adjust as needed - may be /dev/ttyACM0
+    baudrate: 115200      # From FluidNC default
     timeout: 10.0
     
-  # Axis Configuration and Limits
+  # I2S Stepper Engine Configuration (From FluidNC)
+  hardware:
+    engine: "I2S_STREAM"  # From FluidNC stepping.engine
+    i2s_pins:
+      bck_pin: 22         # From FluidNC i2so.bck_pin: gpio.22
+      data_pin: 21        # From FluidNC i2so.data_pin: gpio.21  
+      ws_pin: 17          # From FluidNC i2so.ws_pin: gpio.17
+    pulse_timing:
+      pulse_us: 4         # From FluidNC stepping.pulse_us
+      min_pulse_us: 2     # From FluidNC i2so.min_pulse_us
+    
+  # Axis Configuration and Limits (Matching FluidNC hardware)
   axes:
     x_axis:
       type: "linear"
       units: "mm"
       min_limit: 0.0
-      max_limit: 200.0
+      max_limit: 200.0              # From FluidNC max_travel_mm
       home_position: 0.0
-      max_feedrate: 1000  # mm/min
+      max_feedrate: 1000            # From FluidNC max_rate_mm_per_min
+      steps_per_mm: 800             # From FluidNC configuration
+      has_limits: true              # Has limit switches (gpio.16)
+      homing_required: true         # Part of homing cycle 2
       
     y_axis:
       type: "linear" 
       units: "mm"
       min_limit: 0.0
-      max_limit: 200.0
-      home_position: 0.0
-      max_feedrate: 1000  # mm/min
+      max_limit: 200.0              # From FluidNC max_travel_mm
+      home_position: 200.0          # From FluidNC mpos_mm (homes to max)
+      max_feedrate: 1000            # From FluidNC max_rate_mm_per_min
+      steps_per_mm: 800             # From FluidNC configuration
+      has_limits: true              # Has both neg (gpio.13) and pos (gpio.4) limits
+      homing_required: true         # Part of homing cycle 1
       
     z_axis:
       type: "rotational"
       units: "degrees"
-      min_limit: -999999  # Continuous rotation
-      max_limit: 999999
+      min_limit: -180.0             # Practical limit for continuous rotation
+      max_limit: 180.0              # 360mm travel from FluidNC
       home_position: 0.0
-      max_feedrate: 360   # degrees/min
-      continuous: true
+      max_feedrate: 800             # From FluidNC max_rate_mm_per_min (converted to degrees/min)
+      steps_per_mm: 1422            # From FluidNC (actually steps per degree)
+      has_limits: false             # No limit switches in FluidNC config
+      homing_required: false        # Not part of homing cycles
+      continuous: true              # Continuous rotation capability
       
     c_axis:
       type: "rotational"
       units: "degrees"
-      min_limit: -90.0
-      max_limit: 90.0
-      home_position: 0.0
-      max_feedrate: 180   # degrees/min
-      continuous: false
+      min_limit: -90.0              # Servo range (180mm travel = 180 degrees)
+      max_limit: 90.0               # From FluidNC max_travel_mm converted
+      home_position: 90.0           # From FluidNC mpos_mm (servo center)
+      max_feedrate: 5000            # From FluidNC max_rate_mm_per_min (very fast servo)
+      steps_per_mm: 300             # From FluidNC configuration
+      has_limits: false             # Soft limits only in FluidNC
+      homing_required: false        # Homing cycle 0 (not used)
+      servo_controlled: true        # RC servo on gpio.26
+      continuous: false             # Limited range servo
   
-  # Safety Configuration
+  # Safety Configuration (Matching FluidNC requirements)
   safety:
     enable_limits: true
-    safe_height_z: 0.0    # Safe Z rotation position
-    safe_tilt_c: 0.0      # Safe camera tilt position
+    must_home: true               # From FluidNC start.must_home: true
+    check_limits: true            # From FluidNC start.check_limits: true
+    safe_height_z: 0.0            # Safe Z rotation position
+    safe_tilt_c: 90.0             # Safe camera tilt position (servo center)
     collision_detection: true
     emergency_stop_enabled: true
+    
+  # Homing Configuration (From FluidNC homing cycles)
+  homing:
+    enable: true
+    runs: 2                       # From FluidNC axes.homing_runs: 2
+    seek_rate: 500                # From FluidNC homing.seek_mm_per_min
+    feed_rate: 100                # From FluidNC homing.feed_mm_per_min
+    pulloff_distance: 5.0         # From FluidNC pulloff_mm
+    sequence:
+      - axis: "y"                 # Homing cycle 1
+        direction: "positive"     # mpos_mm: 200 (homes to max)
+      - axis: "x"                 # Homing cycle 2  
+        direction: "negative"     # positive_direction: false
     
 # Camera Configuration
 cameras:
@@ -104,14 +143,20 @@ lighting:
   
   led_zones:
     zone_1:
-      gpio_pin: 18  # PWM-capable pin
+      gpio_pin: 12        # PWM-capable pin (avoiding I2S pins 17,21,22)
       name: "Primary LED Array"
       max_intensity: 90.0  # Never exceed 90% for safety
       
     zone_2:
-      gpio_pin: 19  # PWM-capable pin  
+      gpio_pin: 13        # PWM-capable pin (avoiding I2S pins and FluidNC limit pins)
       name: "Secondary LED Array"
       max_intensity: 90.0  # Never exceed 90% for safety
+      
+  # Hardware Notes:
+  # - Avoid GPIO 17,21,22 (I2S stepper control)
+  # - Avoid GPIO 16 (X-axis limit), GPIO 13,4 (Y-axis limits) 
+  # - Avoid GPIO 26 (C-axis servo)
+  # - Use GPIO 12,13 or other PWM-capable pins
   
   flash_profiles:
     standard:

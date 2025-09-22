@@ -98,7 +98,7 @@ web_interface:
                 x_range=(0.0, 10.0),
                 y_range=(0.0, 10.0),
                 spacing=10.0,
-                z_height=5.0
+                z_rotation=5.0  # Z-axis rotation angle in degrees
             )
             
             print(f"Pattern has {len(pattern.generate_points())} points")
