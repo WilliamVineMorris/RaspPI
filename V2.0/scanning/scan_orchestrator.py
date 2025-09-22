@@ -123,17 +123,17 @@ class MockMotionController:
         return True
         
     async def move_to(self, x: float, y: float) -> bool:
-        await asyncio.sleep(0.1)  # Reduce movement time for tests
+        await asyncio.sleep(0.2)  # Slightly increase to allow pause testing
         self._position.update({'x': x, 'y': y})
         return True
         
     async def move_z_to(self, z: float) -> bool:
-        await asyncio.sleep(0.1)  # Reduce movement time for tests
+        await asyncio.sleep(0.15)  # Slightly increase to allow pause testing
         self._position['z'] = z
         return True
         
     async def rotate_to(self, rotation: float) -> bool:
-        await asyncio.sleep(0.1)  # Reduce rotation time for tests
+        await asyncio.sleep(0.15)  # Slightly increase to allow pause testing
         self._position['rotation'] = rotation
         return True
         
@@ -161,7 +161,7 @@ class MockCameraManager:
         return True
         
     async def capture_all(self, output_dir: Path, filename_base: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
-        await asyncio.sleep(0.2)  # Reduce capture time for tests
+        await asyncio.sleep(0.3)  # Slightly increase to allow pause testing
         
         # Create mock image files
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -227,6 +227,7 @@ class ScanOrchestrator:
         # Active scan state
         self.current_scan: Optional[ScanState] = None
         self.current_pattern: Optional[ScanPattern] = None
+        self.scan_task: Optional[asyncio.Task] = None  # Store task reference
         
         # Runtime flags
         self._stop_requested = False
@@ -387,8 +388,18 @@ class ScanOrchestrator:
         
         self.logger.info(f"Starting scan {scan_id} with {len(pattern.generate_points())} points")
         
-        # Start scanning in background task
-        asyncio.create_task(self._execute_scan())
+        # Start scanning in background task and store reference
+        self.scan_task = asyncio.create_task(self._execute_scan())
+        
+        # Add error callback to log any uncaught exceptions
+        def task_done_callback(task: asyncio.Task):
+            try:
+                if task.exception():
+                    self.logger.error(f"Scan task failed with exception: {task.exception()}")
+            except asyncio.CancelledError:
+                self.logger.info("Scan task was cancelled")
+        
+        self.scan_task.add_done_callback(task_done_callback)
         
         return self.current_scan
     
@@ -638,6 +649,32 @@ class ScanOrchestrator:
         except Exception as e:
             self.logger.error(f"Failed to save scan report: {e}")
     
+    async def wait_for_scan_completion(self, timeout: Optional[float] = None) -> bool:
+        """
+        Wait for the current scan to complete
+        
+        Args:
+            timeout: Maximum time to wait in seconds (None for no timeout)
+            
+        Returns:
+            True if scan completed, False if timeout or no scan active
+        """
+        if not self.scan_task:
+            return False
+        
+        try:
+            if timeout:
+                await asyncio.wait_for(self.scan_task, timeout=timeout)
+            else:
+                await self.scan_task
+            return True
+        except asyncio.TimeoutError:
+            self.logger.warning(f"Scan did not complete within {timeout} seconds")
+            return False
+        except Exception as e:
+            self.logger.error(f"Error waiting for scan completion: {e}")
+            return False
+
     # Control methods
     
     async def pause_scan(self) -> bool:

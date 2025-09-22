@@ -390,13 +390,9 @@ web_interface:
             assert status is not None, f"Orchestrator status is None"
             assert status['scan_id'] == "test_mock_scan", f"Expected scan_id 'test_mock_scan', got {status.get('scan_id', 'None')}"
             
-            # Wait for completion (with timeout adjusted for faster mock operations)
-            timeout = 5.0
-            start_time = asyncio.get_event_loop().time()
-            
-            while (scan_state.status in [ScanStatus.INITIALIZING, ScanStatus.RUNNING] 
-                   and asyncio.get_event_loop().time() - start_time < timeout):
-                await asyncio.sleep(0.1)
+            # Wait for scan to complete using the new method
+            completed = await orchestrator.wait_for_scan_completion(timeout=5.0)
+            assert completed, f"Scan did not complete within timeout"
             
             # Should complete or be stopped
             assert scan_state.status in [ScanStatus.COMPLETED, ScanStatus.CANCELLED], f"Expected scan to complete/cancel, got status: {scan_state.status}"
@@ -525,10 +521,10 @@ web_interface:
             orchestrator = ScanOrchestrator(config_manager)
             await orchestrator.initialize()
             
-            # Create pattern with multiple points
+            # Create pattern with more points to allow pause testing
             pattern = orchestrator.create_grid_pattern(
-                x_range=(0.0, 30.0),
-                y_range=(0.0, 30.0),
+                x_range=(0.0, 40.0),
+                y_range=(0.0, 40.0),
                 spacing=10.0
             )
             
