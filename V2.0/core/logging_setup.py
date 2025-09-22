@@ -43,14 +43,14 @@ class ScannerLogFilter(logging.Filter):
     """Custom filter for scanner-specific log formatting"""
     
     def filter(self, record):
-        # Add module information if not present
-        if not hasattr(record, 'module'):
+        # Add scanner module information if not present
+        if not hasattr(record, 'scanner_module'):
             # Extract module from logger name
             name_parts = record.name.split('.')
             if len(name_parts) >= 2:
-                record.module = name_parts[1]  # e.g., 'motion', 'camera', etc.
+                record.scanner_module = name_parts[1]  # e.g., 'motion', 'camera', etc.
             else:
-                record.module = 'system'
+                record.scanner_module = 'system'
         
         return True
 
@@ -96,12 +96,12 @@ def setup_logging(log_level: str = "INFO",
     
     # Create formatters
     detailed_formatter = logging.Formatter(
-        fmt='%(asctime)s | %(levelname)-8s | %(module)-8s | %(name)-20s | %(message)s',
+        fmt='%(asctime)s | %(levelname)-8s | %(scanner_module)-8s | %(name)-20s | %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
     
     console_formatter = ColoredFormatter(
-        fmt='%(asctime)s | %(levelname)-8s | %(module)-8s | %(message)s',
+        fmt='%(asctime)s | %(levelname)-8s | %(scanner_module)-8s | %(message)s',
         datefmt='%H:%M:%S'
     )
     

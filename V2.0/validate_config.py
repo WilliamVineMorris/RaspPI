@@ -48,11 +48,26 @@ def validate_configuration(config_file: str) -> bool:
         
         # Cameras
         cameras = config_manager.get('cameras', {})
-        print(f"   Cameras: {len(cameras)} configured")
+        camera_count = 0
+        print(f"   Cameras: ", end="")
         for cam_name, cam_config in cameras.items():
-            port = cam_config.get('port', 'unknown')
-            resolution = cam_config.get('resolution', [0, 0])
-            print(f"     {cam_name}: port {port}, {resolution[0]}x{resolution[1]}")
+            # Skip non-camera configuration sections
+            if cam_name in ['system_type', 'synchronization', 'streaming']:
+                continue
+            # Only count actual camera configurations (should have 'port' field)
+            if isinstance(cam_config, dict) and 'port' in cam_config:
+                camera_count += 1
+                port = cam_config.get('port', 'unknown')
+                resolution = cam_config.get('resolution', {})
+                if isinstance(resolution, dict) and 'capture' in resolution:
+                    res = resolution['capture']
+                    print(f"\n     {cam_name}: port {port}, {res[0]}x{res[1]}")
+                else:
+                    # Fallback for simple resolution format
+                    res = resolution if isinstance(resolution, list) else [0, 0]
+                    print(f"\n     {cam_name}: port {port}, {res[0]}x{res[1]}")
+        
+        print(f"{camera_count} configured")
         
         return True
         
