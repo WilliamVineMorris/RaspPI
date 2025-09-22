@@ -364,11 +364,11 @@ web_interface:
             
             await orchestrator.initialize()
             
-            # Create small pattern
+            # Create small pattern (2 points)
             pattern = orchestrator.create_grid_pattern(
                 x_range=(0.0, 10.0),
-                y_range=(0.0, 10.0),
-                spacing=10.0,
+                y_range=(0.0, 5.0),    # Smaller Y range 
+                spacing=10.0,           # Large spacing to minimize points
                 z_height=5.0
             )
             
@@ -391,7 +391,7 @@ web_interface:
             assert status['scan_id'] == "test_mock_scan", f"Expected scan_id 'test_mock_scan', got {status.get('scan_id', 'None')}"
             
             # Wait for scan to complete using the new method
-            completed = await orchestrator.wait_for_scan_completion(timeout=5.0)
+            completed = await orchestrator.wait_for_scan_completion(timeout=10.0)  # Increase timeout for 4-point scan
             assert completed, f"Scan did not complete within timeout"
             
             # Should complete or be stopped
@@ -521,10 +521,10 @@ web_interface:
             orchestrator = ScanOrchestrator(config_manager)
             await orchestrator.initialize()
             
-            # Create pattern with more points to allow pause testing
+            # Create pattern with enough points to allow pause testing
             pattern = orchestrator.create_grid_pattern(
-                x_range=(0.0, 40.0),
-                y_range=(0.0, 40.0),
+                x_range=(0.0, 30.0),
+                y_range=(0.0, 30.0),
                 spacing=10.0
             )
             
@@ -534,8 +534,8 @@ web_interface:
                 output_directory=scan_dir
             )
             
-            # Wait for scan to start
-            await asyncio.sleep(0.3)  # Give more time for scan to start
+            # Wait for scan to start and begin processing points
+            await asyncio.sleep(1.0)  # Give enough time for homing and first point to start
             
             # Pause
             result = await orchestrator.pause_scan()

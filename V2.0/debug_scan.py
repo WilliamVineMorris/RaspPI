@@ -126,7 +126,7 @@ web_interface:
             
             # Try to wait for completion
             print("Waiting for completion...")
-            completed = await orchestrator.wait_for_scan_completion(timeout=3.0)
+            completed = await orchestrator.wait_for_scan_completion(timeout=10.0)  # Increase timeout
             print(f"Completed: {completed}")
             print(f"Final status: {scan_state.status}")
             
