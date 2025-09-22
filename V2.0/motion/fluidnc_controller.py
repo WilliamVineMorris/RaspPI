@@ -462,16 +462,16 @@ class FluidNCController(MotionController):
             # Wait for movement completion
             await self._wait_for_movement_complete()
             
-            # Update current position
-            self.current_position = position
+            # Read actual position from FluidNC after movement
+            actual_position = await self.get_current_position()
             self.status = MotionStatus.IDLE
             
             self._notify_event("position_reached", {
-                "position": position.to_dict(),
+                "position": actual_position.to_dict(),
                 "feedrate": feedrate
             })
             
-            logger.info(f"Moved to position: {position}")
+            logger.info(f"Moved to position: {actual_position}")
             return True
             
         except Exception as e:
@@ -638,6 +638,15 @@ class FluidNCController(MotionController):
             
             # Wait for homing completion with better monitoring
             await self._wait_for_homing_complete()
+            
+            # Reset Z-axis position to 0 (continuous rotation axis)
+            logger.info("Resetting Z-axis position to 0° (continuous rotation axis)...")
+            try:
+                await self._send_command('G92 Z0')  # Set current Z position to 0
+                await asyncio.sleep(0.5)  # Give FluidNC time to process
+                logger.info("Z-axis position reset to 0°")
+            except Exception as e:
+                logger.warning(f"Failed to reset Z-axis position: {e}")
             
             # Get actual position from FluidNC after homing
             logger.info("Reading actual home position from FluidNC...")
