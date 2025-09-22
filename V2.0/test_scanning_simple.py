@@ -27,10 +27,10 @@ def run_test(test_name, test_func):
         return True
     except Exception as e:
         print(f"❌ FAIL: {e}")
-        # Print more detailed error information
+        # Print full traceback for debugging
         import traceback
-        tb_lines = traceback.format_exc().split('\n')
-        print(f"   Error details: {tb_lines[-3:-1]}")
+        print("   Full traceback:")
+        traceback.print_exc()
         return False
 
 def test_position4d():
@@ -379,31 +379,34 @@ web_interface:
                 scan_id="test_mock_scan"
             )
             
+            # Give scan time to start
+            await asyncio.sleep(0.2)
+            
             # Wait a bit for scan to start
             await asyncio.sleep(0.2)
             
             # Check status
             status = orchestrator.get_scan_status()
-            assert status is not None
-            assert status['scan_id'] == "test_mock_scan"
+            assert status is not None, f"Orchestrator status is None"
+            assert status['scan_id'] == "test_mock_scan", f"Expected scan_id 'test_mock_scan', got {status.get('scan_id', 'None')}"
             
-            # Wait for completion (with timeout)
-            timeout = 5.0
+            # Wait for completion (with longer timeout since we slowed down mock operations)
+            timeout = 10.0
             start_time = asyncio.get_event_loop().time()
             
             while (scan_state.status in [ScanStatus.INITIALIZING, ScanStatus.RUNNING] 
                    and asyncio.get_event_loop().time() - start_time < timeout):
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.2)
             
             # Should complete or be stopped
-            assert scan_state.status in [ScanStatus.COMPLETED, ScanStatus.CANCELLED]
+            assert scan_state.status in [ScanStatus.COMPLETED, ScanStatus.CANCELLED], f"Expected scan to complete/cancel, got status: {scan_state.status}"
             
             # Give time for report generation to complete
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
             
-            # Check that some files were created
+            # Check that some files were created (images and report)
             output_files = list(Path(scan_dir).glob("*"))
-            assert len(output_files) > 0
+            assert len(output_files) > 0, f"No output files created in {scan_dir}. Files found: {[f.name for f in output_files]}"
             
             await orchestrator.shutdown()
             
@@ -524,8 +527,8 @@ web_interface:
             
             # Create pattern with multiple points
             pattern = orchestrator.create_grid_pattern(
-                x_range=(0.0, 20.0),
-                y_range=(0.0, 10.0),
+                x_range=(0.0, 30.0),
+                y_range=(0.0, 30.0),
                 spacing=10.0
             )
             
@@ -536,19 +539,19 @@ web_interface:
             )
             
             # Wait for scan to start
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.3)  # Give more time for scan to start
             
             # Pause
             result = await orchestrator.pause_scan()
-            assert result is True
+            assert result is True, f"Pause scan failed, expected True, got {result}"
             
             # Wait for pause to take effect
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)  # Give more time for pause
             if scan_state.status != ScanStatus.COMPLETED:  # Might complete too fast
-                assert scan_state.status == ScanStatus.PAUSED
+                assert scan_state.status == ScanStatus.PAUSED, f"Expected PAUSED status (unless completed), got {scan_state.status}"
             
             # Give time for any report generation to complete
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.5)
             
             await orchestrator.shutdown()
             

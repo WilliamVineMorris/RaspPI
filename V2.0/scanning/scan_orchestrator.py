@@ -118,22 +118,22 @@ class MockMotionController:
         return True
         
     async def home(self) -> bool:
-        await asyncio.sleep(1.0)  # Simulate homing
+        await asyncio.sleep(0.5)  # Simulate longer homing
         self._position = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'rotation': 0.0}
         return True
         
     async def move_to(self, x: float, y: float) -> bool:
-        await asyncio.sleep(0.3)  # Simulate movement
+        await asyncio.sleep(0.5)  # Simulate longer movement
         self._position.update({'x': x, 'y': y})
         return True
         
     async def move_z_to(self, z: float) -> bool:
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.3)  # Simulate longer movement
         self._position['z'] = z
         return True
         
     async def rotate_to(self, rotation: float) -> bool:
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.5)  # Simulate longer rotation
         self._position['rotation'] = rotation
         return True
         
@@ -161,7 +161,7 @@ class MockCameraManager:
         return True
         
     async def capture_all(self, output_dir: Path, filename_base: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
-        await asyncio.sleep(0.5)  # Simulate capture
+        await asyncio.sleep(0.8)  # Simulate longer capture time
         
         # Create mock image files
         output_dir.mkdir(parents=True, exist_ok=True)
