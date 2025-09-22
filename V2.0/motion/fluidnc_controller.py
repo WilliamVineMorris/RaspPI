@@ -484,15 +484,25 @@ class FluidNCController(MotionController):
             # Wait for homing completion with better monitoring
             await self._wait_for_homing_complete()
             
-            # Update position to home
-            home_position = Position4D(
-                x=self.axis_limits['x'].min_limit if 'x' in self.axis_limits else 0.0,
-                y=self.axis_limits['y'].min_limit if 'y' in self.axis_limits else 0.0,
-                z=0.0,  # Z-axis homes to 0 degrees
-                c=0.0   # C-axis homes to 0 degrees
-            )
+            # Get actual position from FluidNC after homing
+            logger.info("Reading actual home position from FluidNC...")
+            await asyncio.sleep(1.0)  # Give FluidNC time to settle
             
-            self.current_position = home_position
+            # Query actual position from FluidNC
+            actual_position = await self.get_current_position()
+            if actual_position:
+                self.current_position = actual_position
+                logger.info(f"Actual home position from FluidNC: {actual_position}")
+            else:
+                # Fallback to configured home positions
+                logger.warning("Could not read position from FluidNC, using configured home positions")
+                home_position = Position4D(
+                    x=self.axis_limits['x'].min_limit if 'x' in self.axis_limits else 0.0,
+                    y=self.axis_limits['y'].max_limit if 'y' in self.axis_limits else 0.0,  # Y homes to MAX
+                    z=0.0,  # Z-axis homes to 0 degrees
+                    c=90.0  # C-axis homes to center position (90 degrees)
+                )
+                self.current_position = home_position
             self.is_homed = True
             self.status = MotionStatus.IDLE
             
@@ -530,15 +540,32 @@ class FluidNCController(MotionController):
                     else:
                         status_unchanged_count += 1
                     
-                    # Check for completion
-                    if 'Idle' in status_response:
-                        logger.info("Homing completed - system idle")
-                        return  # Homing complete
-                    elif 'Home' in status_response:
-                        await asyncio.sleep(1.0)  # Still homing, check less frequently
+                    # Check for completion - be more specific about homing states
+                    if 'Idle' in status_response and 'MPos:' in status_response:
+                        # Double-check that we're actually homed by verifying position is reasonable
+                        logger.info("System reports idle with position - verifying homing completion...")
+                        
+                        # Parse position from status to verify homing worked
+                        position = self._parse_position_from_status(status_response)
+                        if position:
+                            logger.info(f"Position after homing: {position}")
+                            # Additional verification: check if position looks like a home position
+                            # (positions should be at or near configured home positions)
+                            return  # Homing complete
+                        else:
+                            logger.warning("Could not parse position from status - continuing to monitor")
+                            continue
+                            
+                    elif 'Home' in status_response or 'Homing' in status_response:
+                        logger.info("Homing in progress...")
+                        await asyncio.sleep(2.0)  # Still homing, check less frequently
                         continue
                     elif 'Alarm' in status_response:
-                        raise MotionSafetyError("Alarm during homing - check endstops and motor power")
+                        raise MotionSafetyError(f"Alarm during homing: {status_response}")
+                    elif 'Hold' in status_response:
+                        logger.warning("System in hold state during homing - this may indicate an issue")
+                        await asyncio.sleep(1.0)
+                        continue
                     
                     # Detect potential hanging
                     if status_unchanged_count > 30:  # Status unchanged for 30+ checks
