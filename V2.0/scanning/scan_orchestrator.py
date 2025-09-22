@@ -307,6 +307,9 @@ class ScanOrchestrator:
         self.config_manager = config_manager
         self.config = config_manager  # ConfigManager itself has the config data
         
+        # Initialize logger first
+        self.logger = logging.getLogger(__name__)
+        
         # Initialize components - UPDATED: Using real hardware controllers
         # Check if simulation mode is enabled
         if config_manager.get('system.simulation_mode', False):
@@ -353,8 +356,6 @@ class ScanOrchestrator:
             'capture_time': 0.0,
             'processing_time': 0.0
         }
-        
-        self.logger = logging.getLogger(__name__)
         
         # Subscribe to events
         self._setup_event_handlers()
