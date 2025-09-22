@@ -1,3 +1,28 @@
+    async def restart_fluidnc(self) -> bool:
+        """
+        Perform a true FluidNC controller restart using the documented command ($Bye).
+        Waits for the controller to reboot and reinitializes the connection.
+        Returns True if restart and reconnection succeed, False otherwise.
+        """
+        try:
+            logger.info("Issuing FluidNC restart command ($Bye)...")
+            await self._send_command('$Bye')
+            await asyncio.sleep(2.0)  # Wait for controller to begin reboot
+            if self.serial_connection and self.serial_connection.is_open:
+                self.serial_connection.close()
+                self.serial_connection = None
+            logger.info("Waiting for FluidNC to reboot...")
+            await asyncio.sleep(5.0)  # Wait for reboot to complete
+            logger.info("Reconnecting to FluidNC after restart...")
+            await self._connect_serial()
+            await asyncio.sleep(2.0)  # Wait for FluidNC to finish startup
+            # Optionally reinitialize controller state
+            await self._send_startup_commands(auto_unlock=True)
+            logger.info("FluidNC restart and reconnection complete")
+            return True
+        except Exception as e:
+            logger.error(f"FluidNC restart failed: {e}")
+            return False
 """
 FluidNC Motion Controller Implementation
 
@@ -752,49 +777,33 @@ class FluidNCController(MotionController):
             # Reset Z-axis position to 0 (continuous rotation axis)
             logger.info("Resetting Z-axis position to 0° (continuous rotation axis)...")
             try:
-                # Check current state including all coordinate offsets
-                logger.debug("Checking current coordinate state before reset...")
-                await self._send_command('$#')  # Show current work coordinate offsets
-                await asyncio.sleep(0.5)
-                await self._send_command('$G')  # Show current G-code state
-                await asyncio.sleep(0.5)
+                # Use the aggressive work coordinate reset method
+                logger.info("Using aggressive coordinate reset approach...")
+                reset_success = await self.reset_work_coordinate_offsets()
                 
-                # FluidNC-specific complete coordinate system reset
-                # This is the most thorough reset available in FluidNC
-                logger.info("Performing FluidNC complete coordinate system reset...")
-                await self._send_command('$RST=#')  # Reset all work coordinate offsets to defaults
-                await asyncio.sleep(3.0)  # Give FluidNC time for complete reset
+                if reset_success:
+                    logger.info("✅ Z-axis coordinate reset successful")
+                else:
+                    logger.warning("⚠️  Z-axis coordinate reset had issues")
+                    logger.info("Manual power cycle of FluidNC may be required for complete reset")
                 
-                # After system reset, explicitly clear any remaining G92 offsets
-                logger.info("Clearing any remaining G92 offsets...")
-                await self._send_command('G92.1')  # Clear G92 offsets
-                await asyncio.sleep(1.0)
-                
-                # Ensure we're using the default coordinate system
-                await self._send_command('G54')  # Select coordinate system 1 (default)
-                await asyncio.sleep(0.5)
-                
-                # Verify complete reset worked
-                logger.debug("Verifying coordinate system reset...")
-                await self._send_command('$#')  # Should show all coordinate systems at zero
-                await asyncio.sleep(0.5)
-                
-                # Check current position after reset
-                status_response = await self._get_status_response()
-                if status_response:
-                    logger.info(f"Position after coordinate reset: {status_response}")
+                # Verify final state
+                final_status = await self._get_status_response()
+                if final_status:
+                    logger.info(f"Final position after coordinate reset: {final_status}")
                     
-                    # If Z is still not zero, this indicates the issue is from accumulated error
-                    # during testing, not configuration
-                    if "53.999" in status_response or "WCO:" in status_response:
-                        logger.warning("Z-axis offset persists after reset - likely accumulated from testing")
-                        logger.info("This suggests the 53.999° offset is accumulated error, not configuration issue")
-                    else:
-                        logger.info("✅ Coordinate system successfully reset - Z should now be 0°")
+                    if "WCO:0.000,0.000,0.000" in final_status:
+                        logger.info("✅ Work coordinate offsets successfully cleared")
+                    elif "53.999" in final_status or ("WCO:" in final_status and "0.000,0.000,0.000" not in final_status):
+                        logger.warning("⚠️  Work coordinate offsets persist")
+                        logger.info("RECOMMENDATION: Manual power cycle of FluidNC controller required")
+                        logger.info("WCO offsets are stored in non-volatile memory on some FluidNC versions")
                 
-                logger.info("Z-axis coordinate system reset completed using FluidNC-specific commands")
+                logger.info("Z-axis coordinate reset completed")
+                
             except Exception as e:
                 logger.warning(f"Failed to reset Z-axis coordinates: {e}")
+                logger.info("FALLBACK: Manual power cycle of FluidNC controller recommended")
                 # Continue anyway - Z-axis reset is not critical for basic operation
             
             # Get actual position from FluidNC after homing
@@ -1399,12 +1408,12 @@ class FluidNCController(MotionController):
 
     async def reset_work_coordinate_offsets(self) -> bool:
         """
-        Reset work coordinate offsets using FluidNC-specific commands.
+        Reset work coordinate offsets using aggressive FluidNC commands.
         
-        This method uses the most thorough FluidNC coordinate reset available:
-        1. Complete system reset ($RST=#) - FluidNC-specific
-        2. Clear any remaining G92 offsets (G92.1)
-        3. Verify reset worked
+        This method attempts multiple approaches to clear WCO offsets:
+        1. Software commands ($RST=#, G92.1)
+        2. Controller restart if software commands fail
+        3. Verification of success
         
         Returns:
             bool: True if reset was successful, False otherwise
@@ -1414,51 +1423,124 @@ class FluidNCController(MotionController):
             return False
             
         try:
-            logger.info("Resetting work coordinate offsets using FluidNC-specific commands...")
-            
-            # Show current state before reset
+            logger.info("Resetting work coordinate offsets using aggressive approach...")
+            # Phase 1: Document current state
             logger.debug("Current work coordinate state before reset:")
-            await self._send_command('$#')  # Show all work coordinate offsets
+            initial_status = await self._get_status_response()
+            if initial_status:
+                logger.info(f"Initial status: {initial_status}")
+                has_wco_offset = "WCO:" in initial_status and not "WCO:0.000,0.000,0.000" in initial_status
+            else:
+                has_wco_offset = True  # Assume offset exists if we can't check
+            await self._send_command('$#')
             await asyncio.sleep(0.5)
-            await self._send_command('$G')  # Show current coordinate system
-            await asyncio.sleep(0.5)
-            
-            # Use FluidNC-specific complete system reset first
-            # This is the most thorough reset available and should clear everything
-            logger.info("Performing FluidNC complete system reset ($RST=#)...")
-            await self._send_command('$RST=#')  # Reset all work coordinate offsets to defaults
-            await asyncio.sleep(3.0)  # Give more time for complete system reset
-            
-            # Follow up with G92 offset clearing for any remaining temporary offsets
-            logger.info("Clearing any remaining G92 coordinate offsets...")
-            await self._send_command('G92.1')  # Clear all G92 offsets
+            # Phase 2: Attempt software-based reset
+            logger.info("Phase 1: Attempting software-based coordinate reset...")
+            try:
+                logger.info("Sending $RST=# command...")
+                await self._send_command('$RST=#')
+                await asyncio.sleep(3.0)
+                logger.info("Sending G92.1 command...")
+                await self._send_command('G92.1')
+                await asyncio.sleep(1.0)
+                await self._send_command('G54')
+                await asyncio.sleep(0.5)
+                logger.info("Software commands completed successfully")
+            except Exception as e:
+                logger.warning(f"Software reset commands failed: {e}")
+                logger.info("Will proceed to verification and potential controller restart")
+            # Phase 3: Verify if software reset worked
+            logger.info("Phase 2: Verifying coordinate reset success...")
             await asyncio.sleep(1.0)
-            
-            # Ensure we're using G54 (default coordinate system)
-            await self._send_command('G54')
-            await asyncio.sleep(0.5)
-            
-            # Verify complete reset worked
-            logger.debug("Work coordinate state after FluidNC reset:")
-            await self._send_command('$#')  # Should show all offsets at zero
-            await asyncio.sleep(0.5)
-            
-            # Check if the reset was successful
-            status_response = await self._get_status_response()
-            if status_response:
-                if "WCO:0.000,0.000,0.000" in status_response:
-                    logger.info("✅ FluidNC coordinate reset successful - all offsets cleared")
-                elif "53.999" in status_response:
-                    logger.warning("⚠️  Z offset persists - this indicates accumulated error from testing")
-                    logger.info("The 53.999° offset appears to be accumulated error, not configuration issue")
+            verification_status = await self._get_status_response()
+            if verification_status:
+                logger.info(f"Status after software reset: {verification_status}")
+                wco_cleared = "WCO:0.000,0.000,0.000" in verification_status or "WCO:" not in verification_status
+                if wco_cleared:
+                    logger.info("✅ Software reset successful - WCO offsets cleared")
+                    await self._send_command('$#')
+                    await asyncio.sleep(0.5)
+                    return True
                 else:
-                    logger.info(f"Reset completed - current status: {status_response}")
-            
-            logger.info("Work coordinate reset completed using FluidNC-specific commands")
+                    logger.warning("⚠️  Software reset failed - WCO offsets persist")
+                    logger.info("Attempting true FluidNC restart using $Bye command...")
+                    restart_success = await self.restart_fluidnc()
+                    if restart_success:
+                        logger.info("✅ FluidNC restart successful - WCO offsets should be cleared")
+                        # Verify after restart
+                        await asyncio.sleep(2.0)
+                        post_restart_status = await self._get_status_response()
+                        if post_restart_status and ("WCO:0.000,0.000,0.000" in post_restart_status or "WCO:" not in post_restart_status):
+                            logger.info("✅ WCO offsets cleared after restart")
+                            return True
+                        else:
+                            logger.warning("❌ WCO offsets persist even after restart")
+                            return False
+                    else:
+                        logger.error("❌ FluidNC restart failed")
+                        return False
             return True
-            
         except Exception as e:
             logger.error(f"Failed to reset work coordinate offsets: {e}")
+            return False
+    
+    async def _restart_controller_for_wco_clear(self) -> bool:
+        """
+        Restart the FluidNC controller connection to clear persistent WCO offsets.
+        
+        This simulates a power cycle by:
+        1. Disconnecting from controller
+        2. Waiting for controller to reset
+        3. Reconnecting and reinitializing
+        4. Verifying WCO offsets are cleared
+        
+        Returns:
+            bool: True if restart successful and WCO cleared, False otherwise
+        """
+        try:
+            logger.info("Attempting controller restart to clear WCO offsets...")
+            
+            # Step 1: Disconnect from controller
+            logger.info("Disconnecting from FluidNC controller...")
+            await self.disconnect()
+            
+            # Step 2: Wait for controller to fully reset
+            logger.info("Waiting for controller reset (simulating power cycle)...")
+            await asyncio.sleep(5.0)  # Give controller time to reset
+            
+            # Step 3: Reconnect to controller
+            logger.info("Reconnecting to FluidNC controller...")
+            await self.connect()
+            
+            # Step 4: Verify WCO offsets are cleared
+            logger.info("Verifying WCO offsets after controller restart...")
+            await asyncio.sleep(2.0)  # Give controller time to stabilize
+            
+            final_status = await self._get_status_response()
+            if final_status:
+                logger.info(f"Status after controller restart: {final_status}")
+                
+                wco_cleared = "WCO:0.000,0.000,0.000" in final_status or "WCO:" not in final_status
+                
+                if wco_cleared:
+                    logger.info("✅ Controller restart cleared WCO offsets successfully")
+                    return True
+                else:
+                    logger.warning("⚠️  WCO offsets persist even after controller restart")
+                    logger.info("This may indicate a deeper configuration or hardware issue")
+                    return False
+            else:
+                logger.error("Could not verify status after controller restart")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Controller restart failed: {e}")
+            try:
+                # Attempt to reconnect even if restart failed
+                await self.connect()
+                logger.info("Reconnected to controller after restart failure")
+            except Exception as reconnect_error:
+                logger.error(f"Failed to reconnect after restart failure: {reconnect_error}")
             return False
     
     async def complete_system_reset(self) -> bool:
