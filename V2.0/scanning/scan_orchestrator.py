@@ -47,6 +47,15 @@ class CameraManagerProtocol(Protocol):
     async def shutdown(self) -> None: ...
     def get_current_settings(self) -> Dict[str, Any]: ...
 
+class LightingControllerProtocol(Protocol):
+    """Protocol for lighting controller interface"""
+    async def initialize(self) -> bool: ...
+    async def shutdown(self) -> bool: ...
+    def is_available(self) -> bool: ...
+    async def flash(self, zone_ids: List[str], settings: Any) -> Any: ...
+    async def turn_off_all(self) -> bool: ...
+    async def get_status(self, zone_id: Optional[str] = None) -> Any: ...
+
 # Hardware Adapter Classes
 
 # Mock implementations for testing/development
@@ -157,6 +166,45 @@ class MockCameraManager:
         
     def get_current_settings(self) -> Dict[str, Any]:
         return {'initialized': self._initialized}
+
+class MockLightingController:
+    """Mock lighting controller for testing"""
+    def __init__(self, config_manager: ConfigManager):
+        self.config_manager = config_manager
+        self._initialized = False
+        self._zones = ['top_ring', 'side_ring', 'flash_zone']  # Mock zones
+        
+    async def initialize(self) -> bool:
+        await asyncio.sleep(0.1)
+        self._initialized = True
+        return True
+        
+    async def shutdown(self) -> bool:
+        self._initialized = False
+        return True
+        
+    def is_available(self) -> bool:
+        return self._initialized
+        
+    async def flash(self, zone_ids: List[str], settings: Any) -> Any:
+        await asyncio.sleep(0.05)  # Simulate flash duration
+        # Mock flash result
+        return {
+            'success': True,
+            'zones_activated': zone_ids,
+            'actual_brightness': {zone_id: 0.8 for zone_id in zone_ids},
+            'duration_ms': 100
+        }
+        
+    async def turn_off_all(self) -> bool:
+        return True
+        
+    async def get_status(self, zone_id: Optional[str] = None) -> Any:
+        if zone_id:
+            return "ready" if self._initialized else "disconnected"
+        else:
+            return {zone_id: "ready" if self._initialized else "disconnected" 
+                   for zone_id in self._zones}
 class MotionControllerAdapter:
     """Adapter to make FluidNCController compatible with orchestrator protocol"""
     
@@ -301,6 +349,30 @@ class CameraManagerAdapter:
     def get_current_settings(self) -> Dict[str, Any]:
         return {'controller_type': 'PiCamera', 'is_connected': self.controller.is_connected()}
 
+class LightingControllerAdapter:
+    """Adapter to make GPIOLEDController compatible with orchestrator protocol"""
+    
+    def __init__(self, lighting_controller):
+        self.controller = lighting_controller
+        
+    async def initialize(self) -> bool:
+        return await self.controller.initialize()
+        
+    async def shutdown(self) -> bool:
+        return await self.controller.shutdown()
+        
+    def is_available(self) -> bool:
+        return self.controller.is_available()
+        
+    async def flash(self, zone_ids: List[str], settings: Any) -> Any:
+        return await self.controller.flash(zone_ids, settings)
+        
+    async def turn_off_all(self) -> bool:
+        return await self.controller.turn_off_all()
+        
+    async def get_status(self, zone_id: Optional[str] = None) -> Any:
+        return await self.controller.get_status(zone_id)
+
 class ScanOrchestrator:
     """
     Main orchestration engine for 3D scanning operations
@@ -328,28 +400,34 @@ class ScanOrchestrator:
             # Use mock controllers for simulation/testing
             self.motion_controller = MockMotionController(config_manager)
             self.camera_manager = MockCameraManager(config_manager)
+            self.lighting_controller = MockLightingController(config_manager)
             self.logger.info("Initialized with mock hardware (simulation mode)")
         else:
             # Import and use real hardware controllers with adapters
             try:
                 from motion.fluidnc_controller import FluidNCController
                 from camera.pi_camera_controller import PiCameraController
+                from lighting.gpio_led_controller import GPIOLEDController
                 
                 motion_config = config_manager.get('motion', {})
                 camera_config = config_manager.get('cameras', {})
+                lighting_config = config_manager.get('lighting', {})
                 
                 # Create hardware controllers
                 fluidnc_controller = FluidNCController(motion_config)
                 pi_camera_controller = PiCameraController(camera_config)
+                gpio_lighting_controller = GPIOLEDController(lighting_config)
                 
                 # Wrap with adapters to match protocol interface
                 self.motion_controller = MotionControllerAdapter(fluidnc_controller)
                 self.camera_manager = CameraManagerAdapter(pi_camera_controller, config_manager)
+                self.lighting_controller = LightingControllerAdapter(gpio_lighting_controller)
                 self.logger.info("Initialized with real hardware controllers")
             except ImportError as e:
                 self.logger.warning(f"Hardware modules not available, falling back to mocks: {e}")
                 self.motion_controller = MockMotionController(config_manager)
                 self.camera_manager = MockCameraManager(config_manager)
+                self.lighting_controller = MockLightingController(config_manager)
         self.event_bus = EventBus()
         
         # Active scan state
@@ -428,6 +506,11 @@ class ScanOrchestrator:
             # Initialize camera manager
             if not await self.camera_manager.initialize():
                 raise HardwareError("Failed to initialize camera manager")
+            
+            # Initialize lighting controller
+            if not await self.lighting_controller.initialize():
+                self.logger.warning("Failed to initialize lighting controller - continuing without lighting")
+                # Don't fail initialization if lighting fails - scans can work without lighting
             
             # Perform system health check
             if not await self._health_check():
@@ -678,6 +761,36 @@ class ScanOrchestrator:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename_base = f"scan_{self.current_scan.scan_id if self.current_scan else 'unknown'}_point_{point_index:04d}_{timestamp}"
             
+            # Apply lighting if configured and available
+            lighting_applied = False
+            if hasattr(point, 'lighting_settings') and point.lighting_settings and self.lighting_controller.is_available():
+                try:
+                    from lighting.base import LightingSettings
+                    
+                    # Convert lighting settings to proper format
+                    settings = LightingSettings(
+                        brightness=point.lighting_settings.get('brightness', 0.8),
+                        duration_ms=point.lighting_settings.get('duration_ms', 100),
+                        fade_time_ms=point.lighting_settings.get('fade_time_ms', 50)
+                    )
+                    
+                    # Get zones to activate
+                    zones = point.lighting_settings.get('zones', ['top_ring', 'side_ring'])
+                    
+                    # Flash lighting for capture
+                    flash_result = await self.lighting_controller.flash(zones, settings)
+                    lighting_applied = flash_result.get('success', False)
+                    
+                    if not lighting_applied:
+                        self.logger.warning(f"Lighting flash failed at point {point_index}")
+                    
+                except Exception as e:
+                    self.logger.warning(f"Failed to apply lighting at point {point_index}: {e}")
+            
+            # Small delay to allow lighting to stabilize before capture
+            if lighting_applied:
+                await asyncio.sleep(0.02)  # 20ms stabilization delay
+            
             # Capture from all cameras
             capture_results = await self.camera_manager.capture_all(
                 output_dir=self.current_scan.output_directory if self.current_scan else Path('.'),
@@ -691,7 +804,8 @@ class ScanOrchestrator:
                         'z': point.position.z
                     },
                     'rotation': point.position.c,
-                    'timestamp': timestamp
+                    'timestamp': timestamp,
+                    'lighting_applied': lighting_applied
                 }
             )
             

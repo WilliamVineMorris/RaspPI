@@ -8,4 +8,21 @@ Controls LED flash arrays including:
 - Safety features and monitoring
 """
 
-# Module will be implemented in Phase 6
+from .base import (
+    LightingController, LEDZone, LightingSettings, FlashResult, 
+    PowerMetrics, LightingStatus, FlashMode, LEDType
+)
+from .gpio_led_controller import GPIOLEDController, create_lighting_controller
+
+__all__ = [
+    'LightingController',
+    'GPIOLEDController', 
+    'LEDZone',
+    'LightingSettings',
+    'FlashResult',
+    'PowerMetrics',
+    'LightingStatus',
+    'FlashMode',
+    'LEDType',
+    'create_lighting_controller'
+]
