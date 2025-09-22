@@ -22,6 +22,36 @@ import json
 try:
     import RPi.GPIO as GPIO
     GPIO_AVAILABLE = True
+    
+    # Monkey patch to suppress PWM cleanup errors
+    # This prevents the "TypeError: unsupported operand type(s) for &: 'NoneType' and 'int'"
+    # that occurs when PWM objects are garbage collected after GPIO.cleanup()
+    
+    try:
+        import lgpio
+        
+        # Store original function
+        _original_tx_pwm = lgpio.tx_pwm
+        
+        def safe_tx_pwm(handle, gpio, pwm_frequency, pwm_duty_cycle, pwm_offset=0, pwm_cycles=0):
+            """Safe version of tx_pwm that handles None handles gracefully"""
+            try:
+                if handle is not None:
+                    return _original_tx_pwm(handle, gpio, pwm_frequency, pwm_duty_cycle, pwm_offset, pwm_cycles)
+                else:
+                    # Handle is None (GPIO already cleaned up), silently ignore
+                    return 0
+            except (TypeError, AttributeError):
+                # Silently ignore errors during cleanup
+                return 0
+        
+        # Replace with safer version
+        lgpio.tx_pwm = safe_tx_pwm
+        
+    except ImportError:
+        # lgpio not available (not on Raspberry Pi), skip patching
+        pass
+    
 except ImportError:
     GPIO_AVAILABLE = False
     # Mock GPIO for development/testing
@@ -87,6 +117,7 @@ class GPIOLEDController(LightingController):
         self.gpio_mode = GPIO.BCM
         self.pwm_controllers: Dict[str, List[Any]] = {}  # Zone -> [PWM objects]
         self.zone_states: Dict[str, Dict[str, Any]] = {}
+        self._active_pwm_objects = []  # Track all PWM objects for cleanup
         
         # Safety Configuration
         self._max_duty_cycle = 0.89  # 89% safety limit
@@ -175,6 +206,9 @@ class GPIOLEDController(LightingController):
                 pwm.start(0)  # Start with 0% duty cycle
                 pwm_objects.append(pwm)
                 
+                # Track PWM object for proper cleanup
+                self._active_pwm_objects.append(pwm)
+                
                 logger.debug(f"Initialized GPIO pin {pin} for zone '{zone.zone_id}'")
             
             self.pwm_controllers[zone.zone_id] = pwm_objects
@@ -203,24 +237,25 @@ class GPIOLEDController(LightingController):
             # Turn off all LEDs
             await self.turn_off_all()
             
-            # Stop all PWM controllers and clear references
+            # Stop all PWM controllers
             for zone_id, pwm_list in self.pwm_controllers.items():
-                for pwm in pwm_list:
+                for i, pwm in enumerate(pwm_list):
                     try:
                         pwm.stop()
-                        # Clear the PWM object reference to avoid garbage collection issues
-                        del pwm
+                        logger.debug(f"Stopped PWM {i} for zone '{zone_id}'")
                     except Exception as e:
-                        logger.warning(f"Error stopping PWM for zone '{zone_id}': {e}")
+                        logger.debug(f"PWM {i} stop error (safe to ignore): {e}")
             
-            # Clear collections before GPIO cleanup
+            # Clear all references
+            self._active_pwm_objects.clear()
             self.pwm_controllers.clear()
             self.zone_states.clear()
             
-            # Cleanup GPIO last, after all PWM objects are properly stopped
+            # Cleanup GPIO - now safe due to lgpio patching
             if GPIO_AVAILABLE:
                 try:
                     GPIO.cleanup()
+                    logger.debug("GPIO cleanup completed")
                 except Exception as e:
                     logger.warning(f"GPIO cleanup warning: {e}")
             

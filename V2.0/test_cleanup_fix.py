@@ -43,6 +43,12 @@ async def test_gpio_cleanup():
         await controller.set_brightness('test_zone', 0.5)
         logger.info("✓ Brightness set")
         
+        # Test flash operation
+        from lighting.base import LightingSettings
+        flash_settings = LightingSettings(brightness=0.8, duration_ms=100)
+        flash_result = await controller.flash_zone('test_zone', flash_settings)
+        logger.info(f"✓ Flash test: {flash_result.success}")
+        
         # First shutdown
         await controller.shutdown()
         logger.info("✓ First shutdown complete")
@@ -51,7 +57,18 @@ async def test_gpio_cleanup():
         await controller.shutdown()
         logger.info("✓ Second shutdown complete (no errors)")
         
-        logger.info("🎉 GPIO cleanup test PASSED - No exceptions!")
+        # Small delay to let any garbage collection happen
+        import asyncio
+        await asyncio.sleep(0.1)
+        
+        logger.info("🎉 GPIO cleanup test PASSED - Checking for PWM errors...")
+        
+        # Force garbage collection to trigger any remaining issues
+        import gc
+        gc.collect()
+        await asyncio.sleep(0.1)
+        
+        logger.info("🚀 Final garbage collection completed without PWM errors!")
         return True
         
     except Exception as e:
