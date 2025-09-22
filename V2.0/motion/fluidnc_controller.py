@@ -436,8 +436,27 @@ class FluidNCController(MotionController):
             return None
     
     # Homing Operations
+    async def home(self) -> bool:
+        """
+        Home all axes using the standard FluidNC $H command.
+        This executes the standard homing sequence defined in FluidNC configuration.
+        All axes home simultaneously according to the configured homing order.
+        """
+        return await self.home_all_axes()
+    
     async def home_all_axes(self) -> bool:
-        """Home all axes to their home positions"""
+        """
+        Home all axes to their home positions using standard FluidNC $H command.
+        
+        This method sends the $H command which:
+        - Homes all axes simultaneously according to FluidNC configuration
+        - Follows the homing sequence defined in the FluidNC YAML config
+        - Does NOT home axes individually
+        - Uses the standard G-code homing protocol
+        
+        Returns:
+            bool: True if homing completed successfully, False otherwise
+        """
         try:
             logger.info("Starting homing sequence")
             self.status = MotionStatus.HOMING
