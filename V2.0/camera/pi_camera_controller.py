@@ -85,7 +85,7 @@ class PiCameraController(CameraController):
         # Configuration
         self.config = config
         self.camera_count = config.get('camera_count', 2)
-        self.default_format = ImageFormat(config.get('default_format', 'JPEG'))
+        self.default_format = self._parse_image_format(config.get('default_format', 'jpeg'))
         
         # Camera instances
         self.cameras: Dict[int, Any] = {}  # Will hold Picamera2 instances when available
@@ -107,6 +107,15 @@ class PiCameraController(CameraController):
         
         # Initialize camera information
         self._initialize_camera_info()
+    
+    def _parse_image_format(self, format_str: str) -> ImageFormat:
+        """Parse image format string to ImageFormat enum"""
+        format_lower = format_str.lower()
+        for fmt in ImageFormat:
+            if fmt.value == format_lower:
+                return fmt
+        # Default to JPEG if unknown format
+        return ImageFormat.JPEG
     
     def _initialize_camera_info(self):
         """Initialize camera information"""

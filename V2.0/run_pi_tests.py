@@ -152,10 +152,22 @@ class PiTestRunner:
             # Test configuration loading
             self.logger.info("📋 Testing configuration system...")
             try:
-                config_manager = ConfigManager()
-                # Test with minimal config
-                test_config = {"test": True}
-                config_manager.load_from_dict(test_config)
+                from core.config_manager import ConfigManager
+                import tempfile
+                import yaml
+                
+                # Create temporary config file
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+                    yaml.dump({'test': True, 'system': {'name': 'test'}}, f)
+                    temp_config = f.name
+                
+                config_manager = ConfigManager(temp_config)
+                test_value = config_manager.get('test', False)
+                
+                # Clean up
+                import os
+                os.unlink(temp_config)
+                
                 self.logger.info("   ✅ Configuration system working")
             except Exception as e:
                 self.logger.error(f"   ❌ Configuration system failed: {e}")
@@ -164,8 +176,8 @@ class PiTestRunner:
             # Test event system
             self.logger.info("📋 Testing event system...")
             try:
+                from core.events import EventBus, ScannerEvent
                 event_bus = EventBus()
-                from core.events import ScannerEvent
                 test_event = ScannerEvent("test", {"data": "test"})
                 # Don't actually send event, just test creation
                 self.logger.info("   ✅ Event system working")

@@ -46,7 +46,7 @@ class SimpleCameraTest:
             'default_framerate': 30.0,
             'capture_timeout': 10.0,
             'video_codec': 'h264',
-            'image_format': 'jpeg'
+            'default_format': 'jpeg'
         }
         
     def cleanup(self):

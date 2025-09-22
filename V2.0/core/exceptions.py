@@ -324,3 +324,8 @@ ERROR_TYPE_MAP = {
 def get_error_class(error_type: str) -> type:
     """Get exception class by error type string"""
     return ERROR_TYPE_MAP.get(error_type, ScannerSystemError)
+
+
+# Convenient aliases for common usage
+ScannerError = ScannerSystemError
+MotionError = MotionControlError
