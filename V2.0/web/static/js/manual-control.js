@@ -708,8 +708,16 @@ const ManualControl = {
                     // Update progress display
                     ScannerBase.showLoading(`🏠 Homing in progress... (${elapsed}s)`);
                     
-                    // Check if homing is complete - need both idle status AND homed flag
-                    if (status.motion && status.motion.status === 'idle' && status.motion.is_homed === true) {
+                    // Check if homing is complete - need MINIMUM TIME + idle status + homed flag
+                    // Prevent premature completion detection by requiring at least 15 seconds
+                    const minimumHomingTime = 15; // seconds
+                    if (status.motion && status.motion.status === 'idle' && status.motion.is_homed === true && elapsed >= minimumHomingTime) {
+                        // Additional validation: ensure we've detected active homing before completion
+                        if (!homingDetected) {
+                            ScannerBase.addLogEntry(`⚠️ Premature completion detected (${elapsed}s) - waiting for actual homing sequence...`, 'warning');
+                            return; // Continue monitoring
+                        }
+                        
                         // Homing completed successfully
                         clearInterval(progressInterval);
                         progressInterval = null;

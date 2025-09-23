@@ -61,6 +61,7 @@ class FluidNCController(MotionController):
         self.current_position = Position4D()
         self.target_position = Position4D()
         self.is_homed = False
+        self.homing_in_progress = False  # Track active homing to prevent premature completion
         self.axis_limits: Dict[str, MotionLimits] = {}
         
         # Communication
@@ -734,6 +735,8 @@ class FluidNCController(MotionController):
         try:
             logger.info("Starting homing sequence")
             self.status = MotionStatus.HOMING
+            self.is_homed = False  # Explicitly clear homed flag at start
+            self.homing_in_progress = True  # Set homing in progress flag
             
             # Ensure motors are enabled before homing
             try:
@@ -828,6 +831,7 @@ class FluidNCController(MotionController):
                     # Don't fail homing - let user decide what to do
                     
             self.is_homed = True
+            self.homing_in_progress = False  # Clear homing in progress flag
             self.status = MotionStatus.IDLE
             
             self._notify_event("homing_complete", {
@@ -839,6 +843,7 @@ class FluidNCController(MotionController):
             
         except Exception as e:
             self.status = MotionStatus.ERROR
+            self.homing_in_progress = False  # Clear flag on error too
             logger.error(f"Homing failed: {e}")
             return False
     

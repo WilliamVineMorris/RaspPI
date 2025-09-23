@@ -242,7 +242,16 @@ class MotionControllerAdapter:
         return await self.controller.initialize()
         
     async def home(self) -> bool:
-        return await self.controller.home_all_axes()
+        """Asynchronous wrapper for homing all axes with progress tracking"""
+        try:
+            self._homing_in_progress = True
+            result = await self.controller.home_all_axes()
+            self._homing_in_progress = False
+            return result
+        except Exception as e:
+            self._homing_in_progress = False
+            self.logger.error(f"Home axes failed: {e}")
+            return False
         
     def home_axes(self, axes: List[str]) -> bool:
         """Synchronous wrapper for homing specific axes"""
@@ -321,9 +330,9 @@ class MotionControllerAdapter:
                     else:
                         position_dict = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
                     
-                    # Get homing status
+                    # Get homing status - don't report homed=True if homing is in progress
                     if hasattr(self.controller, 'is_homed'):
-                        is_homed = self.controller.is_homed
+                        is_homed = self.controller.is_homed and not self._homing_in_progress
                     
                     # Get raw status for debugging
                     if hasattr(self.controller, '_last_status'):
