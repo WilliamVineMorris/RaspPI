@@ -608,11 +608,11 @@
                         console.log('Homing started, backend will handle completion detection');
                         showNotification('🔄 Homing in progress... Backend handling detection', 'warning');
                         
-                        // Simple polling - trust the backend to detect completion
+                        // Simple polling with clearable interval
                         let checkCount = 0;
                         const maxChecks = 240; // 4 minutes max timeout
                         
-                        const checkCompletion = async () => {
+                        const checkInterval = setInterval(async () => {
                             try {
                                 checkCount++;
                                 const statusResponse = await fetch('/api/status');
@@ -622,6 +622,7 @@
                                 
                                 // Trust the backend's homed status completely
                                 if (status.motion && (status.motion.homed || status.motion.is_homed)) {
+                                    clearInterval(checkInterval); // Stop the interval
                                     console.log('✅ Backend reports homing complete!');
                                     showNotification('✅ All axes homed successfully!', 'success');
                                     await refreshStatus();
@@ -639,10 +640,9 @@
                                     showNotification(`🔄 Homing in progress... ${elapsed}s elapsed`, 'warning');
                                 }
                                 
-                                // Continue checking if not timed out
-                                if (checkCount < maxChecks) {
-                                    setTimeout(checkCompletion, 500);
-                                } else {
+                                // Timeout check
+                                if (checkCount >= maxChecks) {
+                                    clearInterval(checkInterval); // Stop the interval
                                     console.log('Homing timeout - backend did not report completion');
                                     showNotification('⚠️ Homing timeout - check system status', 'error');
                                     if (homeButton) {
@@ -651,16 +651,15 @@
                                     }
                                 }
                             } catch (error) {
+                                clearInterval(checkInterval); // Stop on error
                                 console.error('Homing status check error:', error);
                                 if (homeButton) {
                                     homeButton.disabled = false;
                                     homeButton.textContent = '🏠 Home All';
                                 }
                             }
-                        };
+                        }, 500); // Check every 500ms
                         
-                        // Start checking after 2 seconds
-                        setTimeout(checkCompletion, 2000);
                     } else {
                         console.error('Homing failed. Full response:', result);
                         const errorMsg = (result.data && result.data.error) || result.error || 'Unknown error';
