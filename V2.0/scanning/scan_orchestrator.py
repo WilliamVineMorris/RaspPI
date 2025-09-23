@@ -430,8 +430,10 @@ class CameraManagerAdapter:
             import time
             import io
             from PIL import Image
+            import threading
+            from typing import List, Union
             
-            self.logger.debug(f"get_preview_frame called for camera {camera_id} (type: {type(camera_id)})")
+            self.logger.info(f"get_preview_frame called for camera {camera_id} (type: {type(camera_id)})")
             
             # Check if we have access to the real camera controller
             if not hasattr(self.controller, 'cameras'):
@@ -439,7 +441,7 @@ class CameraManagerAdapter:
                 return None
                 
             cameras = self.controller.cameras
-            self.logger.debug(f"Available cameras: {list(cameras.keys()) if cameras else 'None'}")
+            self.logger.info(f"Available cameras: {list(cameras.keys()) if cameras else 'None'}")
             
             # Handle camera ID mapping - convert string IDs if necessary
             actual_camera_id = camera_id
@@ -449,7 +451,7 @@ class CameraManagerAdapter:
                     numeric_id = int(camera_id.split('_')[1]) - 1
                     if numeric_id in cameras:
                         actual_camera_id = numeric_id
-                        self.logger.debug(f"Mapped string ID {camera_id} to numeric ID {actual_camera_id}")
+                        self.logger.info(f"Mapped string ID {camera_id} to numeric ID {actual_camera_id}")
                 except (ValueError, IndexError):
                     self.logger.warning(f"Could not parse camera ID: {camera_id}")
             
@@ -462,56 +464,91 @@ class CameraManagerAdapter:
                 self.logger.warning(f"Camera {actual_camera_id} is None")
                 return None
             
-            self.logger.debug(f"Attempting to capture from camera {actual_camera_id}")
+            self.logger.info(f"Starting capture from camera {actual_camera_id}")
             
-            try:
-                # Simple approach first - try basic still capture
+            # Use threading for timeout
+            result: List[Union[np.ndarray, None]] = [None]  # Use list to allow modification in nested function
+            exception: List[Union[Exception, None]] = [None]
+            
+            def capture_frame():
                 try:
-                    # Use the simplest possible capture method
-                    stream = io.BytesIO()
-                    camera.capture_file(stream, format='jpeg')
-                    stream.seek(0)
+                    # Check camera state first
+                    if not hasattr(camera, 'started') or not camera.started:
+                        self.logger.info(f"Camera {actual_camera_id} not started, starting now...")
+                        camera.start()
+                        time.sleep(0.5)  # Give camera time to start
                     
-                    # Convert JPEG to opencv array
-                    image = Image.open(stream)
-                    frame_rgb = np.array(image)
+                    self.logger.info(f"Camera {actual_camera_id} is started, attempting capture...")
                     
-                    if len(frame_rgb.shape) == 3 and frame_rgb.shape[2] == 3:
-                        # Convert RGB to BGR for OpenCV
-                        frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
-                        self.logger.debug(f"Successfully captured frame from camera {actual_camera_id}: {frame_bgr.shape}")
-                        return frame_bgr
-                    else:
-                        self.logger.warning(f"Invalid frame shape from camera {actual_camera_id}: {frame_rgb.shape}")
-                        return None
-                        
-                except Exception as capture_error:
-                    self.logger.warning(f"Simple capture failed for camera {actual_camera_id}: {capture_error}")
-                    
-                    # Try array capture as fallback
+                    # Try array capture first (fastest method)
                     try:
                         array = camera.capture_array("main")
+                        self.logger.info(f"Array capture successful for camera {actual_camera_id}: {array.shape}")
                         
                         if array is not None and array.size > 0:
                             # Handle different array formats
                             if len(array.shape) == 3 and array.shape[2] == 3:
                                 # Assume RGB from camera, convert to BGR
                                 frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
-                                self.logger.debug(f"Array capture successful for camera {actual_camera_id}: {frame_bgr.shape}")
-                                return frame_bgr
+                                self.logger.info(f"Converted array to BGR for camera {actual_camera_id}: {frame_bgr.shape}")
+                                result[0] = frame_bgr
+                                return
                             else:
                                 self.logger.warning(f"Unexpected array shape from camera {actual_camera_id}: {array.shape}")
-                                return None
                         else:
                             self.logger.warning(f"Empty or invalid array from camera {actual_camera_id}")
-                            return None
-                            
+                    
                     except Exception as array_error:
-                        self.logger.error(f"Array capture also failed for camera {actual_camera_id}: {array_error}")
-                        return None
+                        self.logger.warning(f"Array capture failed for camera {actual_camera_id}: {array_error}")
+                        
+                        # Fallback to file capture
+                        try:
+                            self.logger.info(f"Trying file capture for camera {actual_camera_id}")
+                            stream = io.BytesIO()
+                            camera.capture_file(stream, format='jpeg')
+                            stream.seek(0)
+                            
+                            # Convert JPEG to opencv array
+                            image = Image.open(stream)
+                            frame_rgb = np.array(image)
+                            
+                            if len(frame_rgb.shape) == 3 and frame_rgb.shape[2] == 3:
+                                # Convert RGB to BGR for OpenCV
+                                frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+                                self.logger.info(f"File capture successful for camera {actual_camera_id}: {frame_bgr.shape}")
+                                result[0] = frame_bgr
+                                return
+                            else:
+                                self.logger.warning(f"Invalid frame shape from file capture {actual_camera_id}: {frame_rgb.shape}")
+                        
+                        except Exception as file_error:
+                            self.logger.error(f"File capture also failed for camera {actual_camera_id}: {file_error}")
                 
-            except Exception as setup_error:
-                self.logger.error(f"Camera setup failed for camera {actual_camera_id}: {setup_error}")
+                except Exception as e:
+                    self.logger.error(f"Exception in capture thread for camera {actual_camera_id}: {e}")
+                    exception[0] = e
+            
+            # Start capture in separate thread with timeout
+            capture_thread = threading.Thread(target=capture_frame)
+            capture_thread.daemon = True
+            capture_thread.start()
+            
+            # Wait for thread to complete with timeout
+            capture_thread.join(timeout=3.0)  # 3 second timeout
+            
+            if capture_thread.is_alive():
+                self.logger.error(f"Camera capture timed out for camera {actual_camera_id}")
+                return None
+            
+            if exception[0]:
+                self.logger.error(f"Camera capture failed with exception: {exception[0]}")
+                return None
+            
+            if result[0] is not None:
+                self.logger.info(f"Successfully captured frame for camera {actual_camera_id}")
+                return result[0]
+            else:
+                self.logger.warning(f"No frame captured for camera {actual_camera_id}")
                 return None
                 
         except Exception as e:
