@@ -351,6 +351,43 @@ const ManualControl = {
                 ScannerBase.log(`Element current${axis.toUpperCase()} not found`);
             }
         });
+        
+        // Update data freshness indicator if available
+        if (position.data_age_seconds !== undefined) {
+            const dataAge = position.data_age_seconds;
+            const monitorStatus = position.monitor_running;
+            
+            // Find or create data freshness display
+            let freshnessDisplay = document.getElementById('positionFreshness');
+            if (!freshnessDisplay) {
+                // Create freshness display if it doesn't exist
+                const positionSection = document.querySelector('.current-position, .position-display');
+                if (positionSection) {
+                    freshnessDisplay = document.createElement('div');
+                    freshnessDisplay.id = 'positionFreshness';
+                    freshnessDisplay.style.cssText = 'font-size: 0.8em; color: #666; margin-top: 5px;';
+                    positionSection.appendChild(freshnessDisplay);
+                }
+            }
+            
+            if (freshnessDisplay) {
+                let statusColor = 'green';
+                let statusText = '';
+                
+                if (dataAge > 2.0) {
+                    statusColor = 'red';
+                    statusText = `Data stale: ${dataAge.toFixed(1)}s`;
+                } else if (dataAge > 0.5) {
+                    statusColor = 'orange';
+                    statusText = `Data age: ${dataAge.toFixed(1)}s`;
+                } else {
+                    statusColor = 'green';
+                    statusText = `Data fresh: ${dataAge.toFixed(1)}s`;
+                }
+                
+                freshnessDisplay.innerHTML = `<span style="color: ${statusColor};">${statusText}</span> | Monitor: ${monitorStatus ? 'ON' : 'OFF'}`;
+            }
+        }
     },
 
     /**
