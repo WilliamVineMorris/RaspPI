@@ -46,9 +46,10 @@ def validate_web_interface_implementation():
         ("web/templates/manual.html", "Manual Control Template"),
         ("web/templates/scans.html", "Scans Template"),
         ("web/templates/settings.html", "Settings Template"),
-        ("web/static/css/style.css", "Main Stylesheet"),
+        ("web/static/css/scanner.css", "Main Stylesheet"),
         ("web/static/js/dashboard.js", "Dashboard JavaScript"),
-        ("web/static/js/manual.js", "Manual Control JavaScript"),
+        ("web/static/js/manual-control.js", "Manual Control JavaScript"),
+        ("web/static/js/scanner-base.js", "Scanner Base JavaScript"),
         ("run_web_interface.py", "Web Interface Launcher")
     ]
     
@@ -65,7 +66,7 @@ def validate_web_interface_implementation():
         ("motion.base", "Motion Controller Interface"),
         ("camera.base", "Camera Controller Interface"),
         ("lighting.base", "Lighting Controller Interface"),
-        ("scanning.base", "Scanning Controller Interface")
+        ("scanning.scan_orchestrator", "Scanning Orchestrator")
     ]
     
     core_modules_working = 0
@@ -80,9 +81,9 @@ def validate_web_interface_implementation():
     # Check Phase 5 enhancements
     print("\n🚀 Phase 5 Features:")
     phase5_files = [
-        ("web/templates/file_browser.html", "File Browser Template"),
-        ("web/static/js/file_browser.js", "File Browser JavaScript"),
-        ("demo_phase5_web_interface.py", "Phase 5 Demo Interface")
+        ("phase5_web_enhancements.py", "Phase 5 Web Enhancements"),
+        ("demo_phase5_web_interface.py", "Phase 5 Demo Interface"),
+        ("web/templates/base.html", "Base Template")
     ]
     
     phase5_exist = 0
@@ -109,7 +110,7 @@ def validate_web_interface_implementation():
     print(f"🚀 Phase 5: {phase5_exist}/{total_phase5} ({phase5_percentage:.0f}%)")
     
     # Overall status
-    if web_files_exist >= 6 and core_modules_working >= 4:  # Minimum viable
+    if web_files_exist >= 7 and core_modules_working >= 5:  # Minimum viable
         print("\n✅ IMPLEMENTATION STATUS: READY")
         print("✅ Web interface should be functional")
         print("✅ Core systems are available")
@@ -127,9 +128,9 @@ def validate_web_interface_implementation():
         print("\n❌ IMPLEMENTATION STATUS: INCOMPLETE")
         print("❌ Missing critical web interface components")
         
-        if web_files_exist < 6:
+        if web_files_exist < 7:
             print("   📁 Missing web interface files")
-        if core_modules_working < 4:
+        if core_modules_working < 5:
             print("   🔧 Core system modules not available")
         
         print("\n🔧 Required Actions:")
