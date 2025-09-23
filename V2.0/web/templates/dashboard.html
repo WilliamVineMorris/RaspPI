@@ -238,10 +238,23 @@
                         <!-- White Balance -->
                         <div class="control-group">
                             <label style="display: block; margin-bottom: 5px; font-weight: 500;">White Balance</label>
-                            <label style="display: flex; align-items: center; font-size: 14px;">
-                                <input type="checkbox" id="autoWhiteBalance" checked onchange="toggleAutoWhiteBalance(this.checked)">
-                                <span style="margin-left: 5px;">Auto White Balance</span>
-                            </label>
+                            <div style="margin-bottom: 8px;">
+                                <label style="display: flex; align-items: center; font-size: 14px;">
+                                    <input type="checkbox" id="autoWhiteBalance" checked onchange="toggleAutoWhiteBalance(this.checked)">
+                                    <span style="margin-left: 5px;">Auto White Balance</span>
+                                </label>
+                            </div>
+                            <div id="manualWhiteBalancePanel" style="display: none;">
+                                <label style="font-size: 12px; display: block; margin-bottom: 5px;">White Balance Mode</label>
+                                <select id="whiteBalanceMode" style="width: 100%; padding: 4px; margin-bottom: 8px;" onchange="setWhiteBalanceMode(this.value)">
+                                    <option value="indoor">🏠 Indoor (Neutral)</option>
+                                    <option value="daylight">☀️ Daylight (Cool)</option>
+                                    <option value="tungsten">💡 Tungsten (Warm)</option>
+                                </select>
+                                <button class="btn btn-sm btn-success" onclick="lockWhiteBalance()" style="width: 100%;">
+                                    🔒 Lock Current WB
+                                </button>
+                            </div>
                         </div>
                     </div>
                     
@@ -414,6 +427,41 @@
         function setISO(isoValue) {
             document.getElementById('isoValue').textContent = 'ISO ' + isoValue;
             setCameraControls({ iso: parseInt(isoValue) });
+        }
+        
+        function toggleAutoWhiteBalance(enabled) {
+            const panel = document.getElementById('manualWhiteBalancePanel');
+            panel.style.display = enabled ? 'none' : 'block';
+            setWhiteBalanceMode(enabled ? 'auto' : 'indoor');
+        }
+        
+        async function setWhiteBalanceMode(mode) {
+            try {
+                const response = await fetch('/api/camera/white_balance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        camera_id: 'camera_1',
+                        mode: mode
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    updateControlsStatus(`White balance set to ${mode}`, 'success');
+                } else {
+                    updateControlsStatus('White balance setting failed: ' + (result.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                updateControlsStatus('White balance error: ' + error.message, 'error');
+                console.error('White balance error:', error);
+            }
+        }
+        
+        async function lockWhiteBalance() {
+            const mode = document.getElementById('whiteBalanceMode').value;
+            await setWhiteBalanceMode(mode);
+            updateControlsStatus(`White balance locked to ${mode} mode`, 'info');
         }
         
         function toggleAutoWhiteBalance(enabled) {

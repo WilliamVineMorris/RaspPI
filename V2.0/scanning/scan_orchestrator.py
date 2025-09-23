@@ -769,12 +769,28 @@ class CameraManagerAdapter:
                     if 'stabilize_exposure' in controls_dict and controls_dict['stabilize_exposure']:
                         # Lock exposure to reduce flickering
                         picam_controls['AeEnable'] = False
-                        picam_controls['ExposureTime'] = 10000  # 10ms stable exposure
+                        picam_controls['ExposureTime'] = 15000  # 15ms stable exposure for low light
                         
                     if 'stabilize_awb' in controls_dict and controls_dict['stabilize_awb']:
-                        # Lock AWB to reduce color shifts
+                        # Lock AWB to reduce color shifts - neutral indoor balance
                         picam_controls['AwbEnable'] = False
-                        picam_controls['ColourGains'] = (1.4, 1.2)  # Stable daylight balance
+                        picam_controls['ColourGains'] = (1.3, 1.5)  # Neutral indoor balance
+                    
+                    # Quick white balance lock for color switching issues
+                    if 'lock_white_balance' in controls_dict and controls_dict['lock_white_balance']:
+                        picam_controls['AwbEnable'] = False
+                        # Use current lighting-appropriate gains
+                        if 'wb_mode' in controls_dict:
+                            if controls_dict['wb_mode'] == 'daylight':
+                                picam_controls['ColourGains'] = (1.4, 1.2)  # Cooler daylight
+                            elif controls_dict['wb_mode'] == 'tungsten':
+                                picam_controls['ColourGains'] = (1.0, 1.8)  # Warmer tungsten
+                            elif controls_dict['wb_mode'] == 'indoor':
+                                picam_controls['ColourGains'] = (1.2, 1.4)  # Neutral indoor
+                            else:
+                                picam_controls['ColourGains'] = (1.3, 1.5)  # Default neutral
+                        else:
+                            picam_controls['ColourGains'] = (1.3, 1.5)  # Default neutral
                     
                     # Apply controls
                     if picam_controls:

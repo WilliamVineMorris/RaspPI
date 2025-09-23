@@ -576,6 +576,35 @@ class ScannerWebInterface:
                 self.logger.error(f"Camera stabilization API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
+        @self.app.route('/api/camera/white_balance', methods=['POST'])
+        def api_camera_white_balance():
+            """Set white balance mode to fix color switching"""
+            try:
+                data = request.get_json() or {}
+                camera_id = data.get('camera_id', 'camera_1')
+                wb_mode = data.get('mode', 'auto')  # auto, daylight, tungsten, indoor, lock
+                
+                if wb_mode == 'auto':
+                    controls = {'auto_white_balance': True}
+                else:
+                    controls = {
+                        'lock_white_balance': True,
+                        'wb_mode': wb_mode
+                    }
+                
+                result = self._execute_camera_controls(camera_id, controls)
+                
+                return jsonify({
+                    'success': True,
+                    'data': result,
+                    'white_balance_mode': wb_mode,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"White balance API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
         @self.app.route('/api/camera/status', methods=['GET'])
         def api_camera_detailed_status():
             """Get detailed camera status including current controls"""
