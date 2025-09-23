@@ -37,6 +37,7 @@ def create_mock_orchestrator():
             self.current_scan = None
             self.motion_controller = MockMotionController()
             self.camera_manager = MockCameraManager()
+            self.camera_adapter = MockCameraAdapter()  # Add camera adapter
             self.lighting_controller = MockLightingController()
             
         def create_grid_pattern(self, **kwargs):
@@ -57,6 +58,90 @@ def create_mock_orchestrator():
             
         def resume_scan(self):
             print("Mock: Resuming scan")
+    
+    class MockCameraAdapter:
+        """Mock camera adapter that matches the real adapter interface"""
+        
+        def __init__(self):
+            self.controller = MockCameraController()
+            
+        def get_preview_frame(self, camera_id):
+            # Generate a proper mock frame
+            try:
+                import cv2
+                import numpy as np
+                import time
+                
+                # Handle both int and string camera IDs
+                display_id = camera_id
+                if isinstance(camera_id, str) and camera_id.startswith('camera_'):
+                    # Extract number from 'camera_1' for display
+                    try:
+                        display_id = int(camera_id.split('_')[1])
+                    except (ValueError, IndexError):
+                        display_id = camera_id
+                elif isinstance(camera_id, int):
+                    display_id = camera_id
+                
+                # Create a mock frame with camera info
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                
+                # Add gradient background based on camera ID
+                color_offset = hash(str(camera_id)) % 100
+                for y in range(frame.shape[0]):
+                    for x in range(frame.shape[1]):
+                        frame[y, x] = [
+                            int((255 - color_offset) * x / frame.shape[1]) % 256,  # Red gradient
+                            int((255 + color_offset) * y / frame.shape[0]) % 256,  # Green gradient
+                            (128 + color_offset) % 256  # Blue with offset
+                        ]
+                
+                # Add camera ID text
+                cv2.putText(frame, f'Camera {display_id} (Mock)', (50, 100), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
+                cv2.putText(frame, f'Camera {display_id} (Mock)', (48, 98), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 3)
+                
+                # Add ID type info
+                cv2.putText(frame, f'ID: {camera_id} ({type(camera_id).__name__})', (50, 150), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                
+                # Add timestamp
+                timestamp = time.strftime("%H:%M:%S.%f")[:-3]
+                cv2.putText(frame, timestamp, (50, 200), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+                
+                # Add some dynamic content (moving circle)
+                center_x = int(320 + 100 * np.sin(time.time() * 2 + hash(str(camera_id))))
+                center_y = int(240 + 50 * np.cos(time.time() * 3 + hash(str(camera_id))))
+                cv2.circle(frame, (center_x, center_y), 30, (0, 255, 255), -1)
+                
+                # Add frame counter
+                frame_count = int(time.time() * 10) % 1000
+                cv2.putText(frame, f'Frame: {frame_count}', (50, 250), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                
+                return frame
+                
+            except ImportError:
+                # If OpenCV not available, return None
+                return None
+        
+        def get_status(self):
+            return {
+                'cameras': ['camera_1', 'camera_2'], 
+                'active_cameras': ['camera_1', 'camera_2'], 
+                'initialized': True
+            }
+        
+        def set_scanning_mode(self, is_scanning):
+            print(f"Mock: Setting scanning mode to {is_scanning}")
+    
+    class MockCameraController:
+        """Mock camera controller with cameras dict"""
+        
+        def __init__(self):
+            self.cameras = {0: self, 1: self}  # Mock cameras for IDs 0 and 1
     
     class MockMotionController:
         def __init__(self):
@@ -90,17 +175,52 @@ def create_mock_orchestrator():
     class MockCameraManager:
         def get_status(self):
             return {
-                'cameras': ['camera_0', 'camera_1'],
-                'active_camera': 'camera_0',
-                'status': 'ready'
+                'cameras': ['camera_1', 'camera_2'],
+                'active_cameras': ['camera_1', 'camera_2'],
+                'initialized': True
             }
             
         def capture_image(self, camera_id, filename):
             print(f"Mock: Capturing image from {camera_id} to {filename}")
             
         def get_preview_frame(self, camera_id):
-            # Reduced logging for preview frames to avoid console spam
-            return None  # Would return actual frame data
+            # Generate a proper mock frame instead of returning None
+            try:
+                import cv2
+                import numpy as np
+                import time
+                
+                # Create a mock frame with camera info
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                
+                # Add gradient background
+                for y in range(frame.shape[0]):
+                    for x in range(frame.shape[1]):
+                        frame[y, x] = [
+                            int(255 * x / frame.shape[1]),  # Red gradient
+                            int(255 * y / frame.shape[0]),  # Green gradient
+                            128  # Blue constant
+                        ]
+                
+                # Add camera ID text
+                cv2.putText(frame, f'Mock Camera {camera_id}', (50, 100), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+                
+                # Add timestamp
+                timestamp = time.strftime("%H:%M:%S")
+                cv2.putText(frame, timestamp, (50, 200), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+                
+                # Add some dynamic content (moving circle)
+                center_x = int(320 + 100 * np.sin(time.time() * 2))
+                center_y = int(240 + 50 * np.cos(time.time() * 2))
+                cv2.circle(frame, (center_x, center_y), 30, (0, 255, 255), -1)
+                
+                return frame
+                
+            except ImportError:
+                # If OpenCV not available, return None
+                return None
     
     class MockLightingController:
         def get_status(self):
