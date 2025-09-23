@@ -155,23 +155,99 @@ body {
     width: 100%;
 }
 
-/* Alert container */
-.alert-container {
-    margin-bottom: 1rem;
-}
-
-/* Floating alerts positioning to avoid emergency stop */
+/* Alert container - improved positioning and stacking */
 .alert-container {
     position: fixed;
-    top: 90px;
+    top: 80px;
     right: 20px;
     z-index: 9999;
     pointer-events: none;
-    max-width: 350px;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: calc(100vh - 120px);
+    overflow: visible;
 }
 
 .alert-container > * {
     pointer-events: auto;
+}
+
+/* Individual alert styling */
+.floating-alert {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 2px 4px rgba(0, 0, 0, 0.1);
+    padding: 12px 16px;
+    margin: 0;
+    position: relative;
+    transform: translateX(100%);
+    transition: all 0.3s ease;
+    border-left: 4px solid;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
+}
+
+.floating-alert.show {
+    transform: translateX(0);
+}
+
+.floating-alert.success {
+    border-left-color: #22c55e;
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+    color: #166534;
+}
+
+.floating-alert.error {
+    border-left-color: #ef4444;
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    color: #991b1b;
+}
+
+.floating-alert.warning {
+    border-left-color: #f59e0b;
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+    color: #92400e;
+}
+
+.floating-alert.info {
+    border-left-color: #3b82f6;
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    color: #1e40af;
+}
+
+.floating-alert .alert-content {
+    flex: 1;
+    padding-right: 30px;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.floating-alert .alert-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: none;
+    border: none;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+    color: inherit;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+
+.floating-alert .alert-close:hover {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.1);
 }
 
 .alert {
@@ -875,6 +951,11 @@ body {
         right: 10px;
         left: 10px;
         max-width: none;
+    }
+    
+    .floating-alert {
+        font-size: 14px;
+        padding: 10px 12px;
     }
 }
 

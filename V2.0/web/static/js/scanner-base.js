@@ -443,58 +443,54 @@ window.ScannerBase = {
             return;
         }
 
-        const alertId = `alert_${Date.now()}`;
+        const alertId = `alert_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
         const alertElement = document.createElement('div');
         alertElement.id = alertId;
-        alertElement.className = `alert ${type}`;
-        
-        // Calculate position based on existing alerts to avoid overlap
-        const existingAlerts = alertContainer.querySelectorAll('.alert');
-        const topOffset = existingAlerts.length * 60; // Stack them vertically
-        
-        alertElement.style.cssText = `
-            margin-bottom: 10px;
-            padding: 12px 16px;
-            border-radius: 6px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            transform: translateX(100%);
-            transition: transform 0.3s ease;
-            position: relative;
-        `;
-        
-        // Set colors based on type
-        const colors = {
-            success: { bg: '#d4edda', border: '#c3e6cb', text: '#155724' },
-            error: { bg: '#f8d7da', border: '#f5c6cb', text: '#721c24' },
-            warning: { bg: '#fff3cd', border: '#ffeaa7', text: '#856404' },
-            info: { bg: '#d1ecf1', border: '#bee5eb', text: '#0c5460' }
-        };
-        
-        const color = colors[type] || colors.info;
-        alertElement.style.backgroundColor = color.bg;
-        alertElement.style.borderLeft = `4px solid ${color.border}`;
-        alertElement.style.color = color.text;
+        alertElement.className = `floating-alert ${type}`;
         
         alertElement.innerHTML = `
-            <span style="display: block; margin-right: 30px;">${message}</span>
-            <button onclick="ScannerBase.dismissAlert('${alertId}')" 
-                    style="position: absolute; top: 8px; right: 8px; background: none; border: none; font-size: 1.4rem; cursor: pointer; color: ${color.text}; opacity: 0.7;"
-                    onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">&times;</button>
+            <div class="alert-content">${message}</div>
+            <button class="alert-close" onclick="ScannerBase.dismissAlert('${alertId}')" title="Close">×</button>
         `;
 
-        // Add to container
-        alertContainer.appendChild(alertElement);
+        // Add to container at the beginning (newest on top)
+        if (alertContainer.firstChild) {
+            alertContainer.insertBefore(alertElement, alertContainer.firstChild);
+        } else {
+            alertContainer.appendChild(alertElement);
+        }
         
-        // Animate in
-        setTimeout(() => {
-            alertElement.style.transform = 'translateX(0)';
-        }, 10);
+        // Force reflow and animate in
+        requestAnimationFrame(() => {
+            alertElement.classList.add('show');
+        });
 
         // Auto-dismiss after duration
         if (duration > 0) {
             setTimeout(() => {
                 this.dismissAlert(alertId);
             }, duration);
+        }
+
+        // Manage alert limit (max 5 alerts)
+        this.manageAlertLimit();
+    },
+
+    /**
+     * Manage maximum number of alerts to prevent screen overflow
+     */
+    manageAlertLimit() {
+        const alertContainer = document.getElementById('alertContainer');
+        if (!alertContainer) return;
+
+        const alerts = alertContainer.querySelectorAll('.floating-alert');
+        const maxAlerts = 5;
+        
+        // Remove oldest alerts if we exceed the limit
+        if (alerts.length > maxAlerts) {
+            for (let i = maxAlerts; i < alerts.length; i++) {
+                this.dismissAlert(alerts[i].id);
+            }
         }
     },
 
@@ -508,7 +504,7 @@ window.ScannerBase = {
             alertElement.style.transform = 'translateX(100%)';
             alertElement.style.opacity = '0';
             
-            // Remove after animation
+            // Remove from DOM after animation
             setTimeout(() => {
                 if (alertElement.parentNode) {
                     alertElement.parentNode.removeChild(alertElement);

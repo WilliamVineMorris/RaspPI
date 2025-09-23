@@ -161,6 +161,9 @@
             <button class="action-btn secondary" onclick="testLighting()" id="lightTestBtn">
                 ⚡ Test Lighting
             </button>
+            <button class="action-btn secondary" onclick="testNotifications()" id="testNotifyBtn" title="Test notification stacking">
+                🔔 Test Alerts
+            </button>
             <button class="action-btn tertiary" onclick="window.location.href='/manual'">
                 🎮 Manual Control
             </button>
@@ -542,43 +545,26 @@
         }
         
         // Motion Control Functions
-        // Notification system
+        // Notification system - now uses the improved ScannerBase alert system
         function showNotification(message, type = 'info') {
-            const notification = document.createElement('div');
-            notification.className = `notification ${type}`;
-            notification.textContent = message;
-            notification.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                padding: 10px 20px;
-                border-radius: 5px;
-                color: white;
-                z-index: 10000;
-                opacity: 0;
-                transition: opacity 0.3s;
-            `;
+            // Use the new ScannerBase alert system which properly handles positioning and stacking
+            ScannerBase.showAlert(message, type, 5000, false);
+        }
+
+        // Test notification system to demonstrate proper stacking and positioning
+        function testNotifications() {
+            const messages = [
+                { msg: '✅ Test success notification', type: 'success' },
+                { msg: '⚠️ Test warning notification', type: 'warning' },
+                { msg: '❌ Test error notification', type: 'error' },
+                { msg: '🔔 Test info notification', type: 'info' }
+            ];
             
-            // Set background color based on type
-            if (type === 'success') notification.style.backgroundColor = '#4CAF50';
-            else if (type === 'error') notification.style.backgroundColor = '#f44336';
-            else if (type === 'warning') notification.style.backgroundColor = '#ff9800';
-            else notification.style.backgroundColor = '#2196F3';
-            
-            document.body.appendChild(notification);
-            
-            // Fade in
-            setTimeout(() => { notification.style.opacity = '1'; }, 10);
-            
-            // Auto remove after 3 seconds
-            setTimeout(() => {
-                notification.style.opacity = '0';
+            messages.forEach((notification, index) => {
                 setTimeout(() => {
-                    if (notification.parentNode) {
-                        notification.parentNode.removeChild(notification);
-                    }
-                }, 300);
-            }, 3000);
+                    showNotification(notification.msg, notification.type);
+                }, index * 500); // Stagger by 500ms each
+            });
         }
 
         async function homeAllAxes() {
