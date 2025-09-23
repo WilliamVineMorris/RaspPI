@@ -243,6 +243,18 @@ class MotionControllerAdapter:
     async def home(self) -> bool:
         return await self.controller.home_all_axes()
         
+    def home_axes(self, axes: List[str]) -> bool:
+        """Synchronous wrapper for homing specific axes"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(self.controller.home_all_axes())
+            loop.close()
+            return result
+        except Exception as e:
+            self.logger.error(f"Home axes failed: {e}")
+            return False
+        
     async def move_to(self, x: float, y: float) -> bool:
         from motion.base import Position4D
         current_pos = await self.controller.get_position()
@@ -285,7 +297,7 @@ class MotionControllerAdapter:
         """Get motion controller status"""
         try:
             is_connected = self.controller.is_connected()
-            self.logger.info(f"Motion controller connection status: {is_connected}")
+            self.logger.debug(f"Motion controller connection status: {is_connected}")
             return {
                 'state': 'idle' if is_connected else 'disconnected',
                 'connected': is_connected,

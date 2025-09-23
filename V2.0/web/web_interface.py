@@ -705,7 +705,7 @@ class ScannerWebInterface:
     
     def _get_system_status(self) -> Dict[str, Any]:
         """Get comprehensive system status"""
-        self.logger.info(f"_get_system_status called with orchestrator: {self.orchestrator is not None}")
+        self.logger.debug(f"_get_system_status called with orchestrator: {self.orchestrator is not None}")
         try:
             # Get status from orchestrator and components
             status = {
@@ -744,7 +744,7 @@ class ScannerWebInterface:
             
             # Get motion controller status
             if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
-                self.logger.info(f"Checking motion controller status...")
+                self.logger.debug(f"Checking motion controller status...")
                 try:
                     motion_status = self.orchestrator.motion_controller.get_status()
                     position = self.orchestrator.motion_controller.get_position()
@@ -765,7 +765,7 @@ class ScannerWebInterface:
             
             # Get camera status
             if self.orchestrator and hasattr(self.orchestrator, 'camera_manager') and self.orchestrator.camera_manager:
-                self.logger.info(f"Checking camera manager status...")
+                self.logger.debug(f"Checking camera manager status...")
                 try:
                     camera_status = self.orchestrator.camera_manager.get_status()
                     self.logger.info(f"Camera status from adapter: {camera_status}")
@@ -816,7 +816,7 @@ class ScannerWebInterface:
                     status['system']['errors'].append(f"Scan status error: {e}")
             
             status['system']['ready'] = len(status['system']['errors']) == 0
-            self.logger.info(f"Final status being returned: motion.connected={status['motion']['connected']}, cameras.available={status['cameras']['available']}")
+            self.logger.debug(f"Final status being returned: motion.connected={status['motion']['connected']}, cameras.available={status['cameras']['available']}")
             
             # Debug: Add a debug field to verify fresh data
             status['debug'] = {
@@ -1381,7 +1381,7 @@ class ScannerWebInterface:
                 time.sleep(0.1)  # 10 FPS for disabled camera
         
         # High-performance Camera 0 streaming
-        self.logger.info(f"STREAM START: Camera 0 optimized streaming initialized")
+        self.logger.debug(f"STREAM START: Camera 0 optimized streaming initialized")
         
         frame_counter = 0
         last_log_time = 0
@@ -1396,7 +1396,7 @@ class ScannerWebInterface:
             # Log every 20 seconds to reduce noise
             should_log = (current_time - last_log_time) > 20.0
             if should_log:
-                self.logger.info(f"STREAM STATUS: Camera 0 - Frame {frame_counter}")
+                self.logger.debug(f"STREAM STATUS: Camera 0 - Frame {frame_counter}")
                 last_log_time = current_time
             
             # Frame rate control
@@ -1418,7 +1418,7 @@ class ScannerWebInterface:
                         
                         if frame is not None and frame.size > 0:
                             if should_log:
-                                self.logger.info(f"STREAM SUCCESS: Native 1080p frame received, shape: {frame.shape}")
+                                self.logger.debug(f"STREAM SUCCESS: Native 1080p frame received, shape: {frame.shape}")
                             
                             # Frame is already optimized, just encode efficiently
                             # Use maximum quality JPEG encoding for crisp 1080p display
