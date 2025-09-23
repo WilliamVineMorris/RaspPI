@@ -339,9 +339,18 @@ class CameraManagerAdapter:
         self._last_camera_access = {0: 0, 1: 0}  # Track timing for staggered access
         self._camera_priority_order = [0, 1]  # Camera 0 gets priority, then Camera 1
         self._camera_startup_status = {0: False, 1: False}  # Track successful startups
+        self._streaming_mode = True  # Start in streaming-only mode (Camera 0 only)
         
     async def initialize(self) -> bool:
-        return await self.controller.initialize()
+        # Initialize controller but only activate Camera 0 for streaming to prevent interference
+        result = await self.controller.initialize()
+        
+        if result:
+            # Temporarily disable Camera 1 to prevent MJPEG interference
+            self.logger.info("CAMERA INIT: Only Camera 0 active for streaming, Camera 1 reserved for scanning")
+            self._streaming_mode = True  # Flag to indicate we're in streaming-only mode
+        
+        return result
         
     async def capture_all(self, output_dir: Path, filename_base: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Capture from all available cameras"""
@@ -500,14 +509,24 @@ class CameraManagerAdapter:
                     # Problem might be with color format - let's try different approach
                     
                     if len(array.shape) == 3 and array.shape[2] == 3:
-                        # Try direct BGR assignment instead of color conversion
-                        # Pi Camera might already be in correct format
+                        # The logs show Blue channel dominant: [41.x, 5.x, 8.x] indicates color channel issue
+                        # Let's fix the color format by trying no conversion first, then RGB->BGR if needed
+                        
+                        # Try without conversion first (camera might already be in BGR)
                         frame_bgr = array.copy()
                         
-                        # If it's RGB, convert to BGR
-                        if array.dtype == np.uint8:
-                            # Standard RGB to BGR conversion
+                        # Check color channel balance to determine if conversion is needed
+                        mean_values = np.mean(frame_bgr, axis=(0,1))
+                        
+                        # If Blue channel (index 0 in BGR) is much higher than Red/Green, we likely have RGB data
+                        if mean_values[0] > (mean_values[1] + mean_values[2]):
+                            # Blue dominant suggests RGB input - try different conversions
+                            self.logger.info(f"CAMERA DEBUG: Blue dominant ({mean_values[0]:.1f}), trying RGB->BGR conversion")
                             frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
+                        else:
+                            # Try direct copy or alternative color space
+                            self.logger.info(f"CAMERA DEBUG: Balanced channels ({mean_values}), using direct copy")
+                            frame_bgr = array.copy()
                         
                         # Validate frame data
                         if frame_bgr.shape[0] > 0 and frame_bgr.shape[1] > 0:
@@ -542,7 +561,12 @@ class CameraManagerAdapter:
     def set_scanning_mode(self, is_scanning: bool):
         """Set scanning mode to optimize camera usage"""
         self._is_scanning = is_scanning
-        self.logger.info(f"Camera mode set to: {'scanning' if is_scanning else 'live preview'}")
+        self._streaming_mode = not is_scanning  # Streaming mode is opposite of scanning mode
+        
+        if is_scanning:
+            self.logger.info("Camera mode set to: SCANNING (both cameras available)")
+        else:
+            self.logger.info("Camera mode set to: STREAMING (Camera 0 only for web interface)")
         
         # Reset camera configurations to force reconfiguration
         try:
@@ -560,13 +584,22 @@ class CameraManagerAdapter:
             self.logger.debug(f"Camera manager connection status: {is_connected}")
             
             if is_connected:
-                # If connected, report cameras as active
-                status = {
-                    'cameras': ['camera_1', 'camera_2'],  # Based on configuration
-                    'active_cameras': ['camera_1', 'camera_2'],  # Both cameras active when connected
-                    'initialized': True
-                }
-                self.logger.info(f"Camera status: {status}")
+                # If in streaming mode, only report Camera 0 as active to prevent interference
+                if getattr(self, '_streaming_mode', False):
+                    status = {
+                        'cameras': ['camera_1'],  # Only Camera 0 (camera_1) for streaming
+                        'active_cameras': ['camera_1'],  # Only Camera 0 active in streaming mode
+                        'initialized': True
+                    }
+                    self.logger.info(f"Camera status (streaming mode): {status}")
+                else:
+                    # Scanning mode - both cameras available
+                    status = {
+                        'cameras': ['camera_1', 'camera_2'],  # Both cameras available
+                        'active_cameras': ['camera_1', 'camera_2'],  # Both cameras active for scanning
+                        'initialized': True
+                    }
+                    self.logger.info(f"Camera status (scanning mode): {status}")
                 return status
             else:
                 status = {
