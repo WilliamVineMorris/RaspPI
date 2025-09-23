@@ -328,6 +328,12 @@ class CameraManagerAdapter:
         self.config_manager = config_manager
         self.logger = logging.getLogger(__name__)
         
+        # Camera resource locking to prevent simultaneous access
+        import threading
+        self._camera_locks = {0: threading.Lock(), 1: threading.Lock()}
+        self._global_camera_lock = threading.Lock()  # For camera list access
+        self._camera_access_count = {0: 0, 1: 0}  # Track simultaneous access attempts
+        
     async def initialize(self) -> bool:
         return await self.controller.initialize()
         
@@ -459,6 +465,10 @@ class CameraManagerAdapter:
                 return None
                 
             cameras = self.controller.cameras
+            if cameras is None:
+                self.logger.error(f"CAMERA ERROR: Controller cameras is None")
+                return None
+                
             if not hasattr(self, '_logged_cameras') or (current_time - getattr(self, '_last_camera_log', 0)) > 10.0:
                 self.logger.info(f"CAMERA DEBUG: Available cameras: {list(cameras.keys()) if cameras else 'None'}")
                 self._logged_cameras = True
@@ -496,18 +506,38 @@ class CameraManagerAdapter:
                 self.logger.info(f"CAMERA DEBUG: Starting capture from camera {mapped_camera_id}")
                 setattr(self, f'_last_capture_log_{mapped_camera_id}', current_time)
             
-            # Use threading for timeout
+            # Use threading for timeout with camera resource locking
             result: List[Union[np.ndarray, None]] = [None]
             exception: List[Union[Exception, None]] = [None]
             
             def capture_frame():
+                # Get camera-specific lock to prevent simultaneous access
+                camera_lock = self._camera_locks.get(mapped_camera_id)
+                if not camera_lock:
+                    self.logger.error(f"CAMERA ERROR: No lock available for camera {mapped_camera_id}")
+                    return
+                
+                # Try to acquire lock with timeout to prevent deadlock
+                lock_acquired = camera_lock.acquire(timeout=1.0)
+                if not lock_acquired:
+                    self.logger.warning(f"CAMERA WARNING: Could not acquire lock for camera {mapped_camera_id}")
+                    return
+                
                 try:
+                    # Track access count
+                    self._camera_access_count[mapped_camera_id] = self._camera_access_count.get(mapped_camera_id, 0) + 1
+                    
+                    # Rate-limited access count logging
+                    if not hasattr(self, f'_last_access_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_access_log_{mapped_camera_id}', 0)) > 10.0:
+                        self.logger.info(f"CAMERA DEBUG: Camera {mapped_camera_id} access count: {self._camera_access_count[mapped_camera_id]}")
+                        setattr(self, f'_last_access_log_{mapped_camera_id}', current_time)
+                    
                     # Check camera state first
                     if not hasattr(camera, 'started') or not camera.started:
                         self.logger.warning(f"CAMERA WARNING: Camera {mapped_camera_id} not started, attempting to start...")
                         try:
                             camera.start()
-                            time.sleep(0.5)  # Reduced startup time
+                            time.sleep(0.3)  # Reduced startup time for better responsiveness
                             self.logger.info(f"CAMERA SUCCESS: Camera {mapped_camera_id} started")
                         except Exception as start_error:
                             self.logger.error(f"CAMERA ERROR: Failed to start camera {mapped_camera_id}: {start_error}")
@@ -544,14 +574,18 @@ class CameraManagerAdapter:
                 except Exception as e:
                     self.logger.error(f"CAMERA ERROR: Exception in capture thread for camera {mapped_camera_id}: {e}")
                     exception[0] = e
+                finally:
+                    # Always release the camera lock
+                    camera_lock.release()
+                    self._camera_access_count[mapped_camera_id] = max(0, self._camera_access_count.get(mapped_camera_id, 0) - 1)
             
             # Start capture in separate thread with timeout
             capture_thread = threading.Thread(target=capture_frame)
             capture_thread.daemon = True
             capture_thread.start()
             
-            # Use shorter timeout to reduce blocking
-            timeout_duration = 2.0  # Reduced from 3.0/5.0 seconds
+            # Use optimized timeout to reduce blocking while allowing camera startup
+            timeout_duration = 3.0  # Increased from 2.0 to allow for V4L2 buffer recovery
             
             # Wait for thread to complete with timeout
             capture_thread.join(timeout=timeout_duration)
