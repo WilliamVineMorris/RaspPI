@@ -165,6 +165,11 @@ window.ScannerBase = {
      * Update system status in UI
      */
     updateSystemStatus(status) {
+        console.log('updateSystemStatus called with:', status);
+        console.log('Motion connected:', status.motion?.connected);
+        console.log('Cameras available:', status.cameras?.available);
+        console.log('Cameras available > 0:', status.cameras?.available > 0);
+        
         // Update main status indicators
         this.updateStatusIndicator('motionStatus', status.motion?.connected, status.motion?.status);
         this.updateStatusIndicator('cameraStatus', status.cameras?.available > 0, status.cameras?.status);
@@ -189,14 +194,21 @@ window.ScannerBase = {
      * Update individual status indicator
      */
     updateStatusIndicator(elementId, isReady, statusText) {
+        console.log(`updateStatusIndicator: ${elementId}, isReady=${isReady}, statusText=${statusText}`);
         const element = document.getElementById(elementId);
         if (element) {
             element.className = `status-indicator ${isReady ? 'ready' : 'error'}`;
+            console.log(`Updated ${elementId} className to:`, element.className);
+        } else {
+            console.log(`Element ${elementId} not found!`);
         }
 
         const textElement = document.getElementById(elementId.replace('Status', 'State'));
         if (textElement) {
             textElement.textContent = statusText || 'Unknown';
+            console.log(`Updated ${elementId.replace('Status', 'State')} text to:`, textElement.textContent);
+        } else {
+            console.log(`Text element ${elementId.replace('Status', 'State')} not found!`);
         }
     },
 

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Status API Test</title>
+</head>
+<body>
+    <h1>Status API Test</h1>
+    <button onclick="fetchStatus()">Fetch Status</button>
+    <pre id="result"></pre>
+    
+    <script>
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+                
+                // Test the JavaScript logic
+                console.log('Motion connected:', data.motion?.connected);
+                console.log('Camera available > 0:', data.cameras?.available > 0);
+                console.log('Camera available:', data.cameras?.available);
+                console.log('Camera active:', data.cameras?.active);
+                console.log('Raw response:', data);
+            } catch (error) {
+                document.getElementById('result').textContent = 'Error: ' + error.message;
+            }
+        }
+        
+        // Auto-fetch on load
+        window.onload = fetchStatus;
+    </script>
+</body>
+</html>

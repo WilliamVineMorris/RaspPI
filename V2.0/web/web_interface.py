@@ -513,6 +513,11 @@ class ScannerWebInterface:
                 return jsonify({'success': False, 'error': str(e)}), 500
         
         # Camera streaming endpoints
+        @self.app.route('/debug-status')
+        def debug_status():
+            """Debug page to test status API"""
+            return render_template('debug_status.html')
+        
         @self.app.route('/camera/<int:camera_id>')
         def camera_stream(camera_id):
             """MJPEG camera stream"""
@@ -647,6 +652,15 @@ class ScannerWebInterface:
             
             status['system']['ready'] = len(status['system']['errors']) == 0
             self.logger.info(f"Final status being returned: motion.connected={status['motion']['connected']}, cameras.available={status['cameras']['available']}")
+            
+            # Debug: Add a debug field to verify fresh data
+            status['debug'] = {
+                'backend_timestamp': datetime.now().isoformat(),
+                'motion_connected': status['motion']['connected'],
+                'cameras_available': status['cameras']['available'],
+                'cameras_active': status['cameras']['active']
+            }
+            
             return status
             
         except Exception as e:
