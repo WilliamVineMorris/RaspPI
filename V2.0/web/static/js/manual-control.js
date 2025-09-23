@@ -51,7 +51,7 @@ const ManualControl = {
      * Start periodic position updates to keep UI synchronized
      */
     startPositionUpdateTimer() {
-        // Update position display every 2 seconds when not actively jogging
+        // Update position display every 500ms to match FluidNC's 200ms auto-report capability
         setInterval(async () => {
             if (!this.state.isJogging) {
                 try {
@@ -64,7 +64,7 @@ const ManualControl = {
                     ScannerBase.log('Periodic position update failed: ' + error.message);
                 }
             }
-        }, 2000);
+        }, 500); // Reduced from 2000ms to 500ms for more responsive updates
     },
 
     /**
@@ -708,6 +708,18 @@ const ManualControl = {
                 method: 'POST',
                 body: JSON.stringify(payload)
             });
+
+            // Immediately request updated position after jog command
+            setTimeout(async () => {
+                try {
+                    const status = await ScannerBase.apiRequest('/api/status');
+                    if (status.motion && status.motion.position) {
+                        this.updatePositionDisplays(status.motion.position);
+                    }
+                } catch (error) {
+                    // Ignore errors for immediate updates
+                }
+            }, 100); // Wait 100ms for command to execute
 
         } catch (error) {
             ScannerBase.showAlert(`Jog command failed: ${error.message}`, 'error');

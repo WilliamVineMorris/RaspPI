@@ -69,6 +69,11 @@ class FluidNCController(MotionController):
         self.response_cache: Dict[str, str] = {}
         self.status_update_interval = 0.1  # seconds
         
+        # Background monitoring
+        self.background_monitor_task = None
+        self.monitor_running = False
+        self.last_position_update = 0
+        
         # Load axis configuration from config
         self._load_axis_config()
     
@@ -154,6 +159,18 @@ class FluidNCController(MotionController):
         """Shutdown FluidNC connection"""
         try:
             logger.info("Shutting down FluidNC controller")
+            
+            # Stop background monitoring task
+            if self.background_monitor_task:
+                self.monitor_running = False
+                try:
+                    self.background_monitor_task.cancel()
+                    await asyncio.wait_for(self.background_monitor_task, timeout=2.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Background monitor task did not stop cleanly")
+                except asyncio.CancelledError:
+                    pass  # Expected
+                self.background_monitor_task = None
             
             # Stop any ongoing motion
             if self.status == MotionStatus.MOVING:
@@ -362,6 +379,12 @@ class FluidNCController(MotionController):
                 logger.info("Enabling auto-report interval for status updates...")
                 await self._send_command('$Report/Interval=200')  # 200ms auto-report for responsive monitoring
                 await asyncio.sleep(0.2)
+                
+                # Start background monitoring task to continuously process auto-reports
+                self.monitor_running = True
+                self.background_monitor_task = asyncio.create_task(self._background_status_monitor())
+                logger.info("Started background status monitoring task")
+                
             except FluidNCCommandError as e:
                 logger.warning(f"Auto-report setup failed: {e}")
                 # Continue without auto-report - fall back to polling
@@ -1206,6 +1229,71 @@ class FluidNCController(MotionController):
         except Exception as e:
             logger.error(f"Status update failed: {e}")
             self.status = MotionStatus.ERROR
+
+    async def _background_status_monitor(self):
+        """Background task to continuously process FluidNC auto-reports"""
+        logger.info("Background status monitor started")
+        
+        try:
+            while self.monitor_running and self.is_connected():
+                try:
+                    # Read any available messages from FluidNC (including auto-reports)
+                    messages = await self._read_all_messages()
+                    
+                    current_time = time.time()
+                    
+                    for message in messages:
+                        # Process status reports that contain position information
+                        if '<' in message and '>' in message and ('MPos:' in message or 'WPos:' in message):
+                            position = self._parse_position_from_status(message)
+                            if position:
+                                # Always update position immediately during movement
+                                old_position = self.current_position
+                                position_changed = position != old_position
+                                
+                                # Update more frequently during active movement
+                                is_moving = self.status == MotionStatus.MOVING
+                                should_update = (
+                                    position_changed or  # Always update if position changed
+                                    is_moving or  # Always update during movement
+                                    current_time - self.last_position_update > 0.5  # Force update every 500ms
+                                )
+                                
+                                if should_update:
+                                    self.current_position = position
+                                    self.last_position_update = current_time
+                                    
+                                    if position_changed:
+                                        logger.debug(f"Background monitor updated position: {old_position} → {position}")
+                                    else:
+                                        logger.debug(f"Background monitor refreshed position: {position}")
+                            
+                            # Update status from the same message
+                            if 'Idle' in message:
+                                self.status = MotionStatus.IDLE
+                            elif 'Run' in message or 'Jog' in message:
+                                self.status = MotionStatus.MOVING
+                            elif 'Home' in message:
+                                self.status = MotionStatus.HOMING
+                            elif 'Alarm' in message:
+                                self.status = MotionStatus.ALARM
+                            elif 'Error' in message:
+                                self.status = MotionStatus.ERROR
+                    
+                    # Sleep briefly to avoid overwhelming the system
+                    await asyncio.sleep(0.05)  # 50ms intervals for processing
+                    
+                except Exception as e:
+                    logger.debug(f"Background monitor processing error: {e}")
+                    await asyncio.sleep(0.2)  # Back off on errors
+                    
+        except asyncio.CancelledError:
+            logger.info("Background status monitor cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Background status monitor error: {e}")
+        finally:
+            logger.info("Background status monitor stopped")
     
     async def get_status(self) -> MotionStatus:
         """Get current motion controller status"""
