@@ -491,6 +491,83 @@ class ScannerWebInterface:
                 self.logger.error(f"Camera capture API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
+        @self.app.route('/api/camera/controls', methods=['POST'])
+        def api_camera_controls():
+            """Set camera controls (autofocus, exposure, etc.)"""
+            try:
+                data = request.get_json() or {}
+                camera_id = data.get('camera_id', 'camera_1')
+                controls = data.get('controls', {})
+                
+                result = self._execute_camera_controls(camera_id, controls)
+                
+                return jsonify({
+                    'success': True,
+                    'data': result,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Camera controls API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/camera/autofocus', methods=['POST'])
+        def api_camera_autofocus():
+            """Trigger autofocus on camera"""
+            try:
+                data = request.get_json() or {}
+                camera_id = data.get('camera_id', 'camera_1')
+                
+                result = self._execute_camera_autofocus(camera_id)
+                
+                return jsonify({
+                    'success': True,
+                    'data': result,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Camera autofocus API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/camera/focus', methods=['POST'])
+        def api_camera_manual_focus():
+            """Set manual focus position"""
+            try:
+                data = request.get_json() or {}
+                camera_id = data.get('camera_id', 'camera_1')
+                focus_position = float(data.get('focus_position', 5.0))
+                
+                result = self._execute_manual_focus(camera_id, focus_position)
+                
+                return jsonify({
+                    'success': True,
+                    'data': result,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Manual focus API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/camera/status', methods=['GET'])
+        def api_camera_detailed_status():
+            """Get detailed camera status including current controls"""
+            try:
+                camera_id = request.args.get('camera_id', 'camera_1')
+                
+                result = self._get_camera_detailed_status(camera_id)
+                
+                return jsonify({
+                    'success': True,
+                    'data': result,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Camera detailed status API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
         @self.app.route('/api/lighting/flash', methods=['POST'])
         def api_lighting_flash():
             """Trigger lighting flash"""
@@ -996,6 +1073,111 @@ class ScannerWebInterface:
         except Exception as e:
             self.logger.error(f"Camera capture execution failed: {e}")
             raise HardwareError(f"Failed to capture image: {e}")
+    
+    def _execute_camera_controls(self, camera_id: str, controls: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute camera control settings"""
+        try:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
+                raise HardwareError("Camera manager not available")
+            
+            # Apply camera controls asynchronously
+            import asyncio
+            result = asyncio.create_task(
+                self.orchestrator.camera_manager.set_camera_controls(camera_id, controls)
+            )
+            
+            self.logger.info(f"Camera controls applied: Camera {camera_id}, Controls: {controls}")
+            
+            return {
+                'camera_id': camera_id,
+                'controls': controls,
+                'success': True,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Camera controls execution failed: {e}")
+            raise HardwareError(f"Failed to set camera controls: {e}")
+    
+    def _execute_camera_autofocus(self, camera_id: str) -> Dict[str, Any]:
+        """Execute autofocus trigger"""
+        try:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
+                raise HardwareError("Camera manager not available")
+            
+            # Trigger autofocus
+            import asyncio
+            result = asyncio.create_task(
+                self.orchestrator.camera_manager.trigger_autofocus(camera_id)
+            )
+            
+            self.logger.info(f"Autofocus triggered: Camera {camera_id}")
+            
+            return {
+                'camera_id': camera_id,
+                'action': 'autofocus',
+                'success': True,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Autofocus execution failed: {e}")
+            raise HardwareError(f"Failed to trigger autofocus: {e}")
+    
+    def _execute_manual_focus(self, camera_id: str, focus_position: float) -> Dict[str, Any]:
+        """Execute manual focus setting"""
+        try:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
+                raise HardwareError("Camera manager not available")
+            
+            # Set manual focus
+            import asyncio
+            result = asyncio.create_task(
+                self.orchestrator.camera_manager.set_manual_focus(camera_id, focus_position)
+            )
+            
+            self.logger.info(f"Manual focus set: Camera {camera_id}, Position: {focus_position}")
+            
+            return {
+                'camera_id': camera_id,
+                'focus_position': focus_position,
+                'success': True,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Manual focus execution failed: {e}")
+            raise HardwareError(f"Failed to set manual focus: {e}")
+    
+    def _get_camera_detailed_status(self, camera_id: str) -> Dict[str, Any]:
+        """Get detailed camera status including controls"""
+        try:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
+                raise HardwareError("Camera manager not available")
+            
+            # Get current camera controls
+            import asyncio
+            controls = asyncio.create_task(
+                self.orchestrator.camera_manager.get_camera_controls(camera_id)
+            )
+            
+            # Get basic status
+            basic_status = self.orchestrator.camera_manager.get_status()
+            
+            return {
+                'camera_id': camera_id,
+                'basic_status': basic_status,
+                'controls': controls.result() if hasattr(controls, 'result') else {},
+                'timestamp': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Camera detailed status failed: {e}")
+            return {
+                'camera_id': camera_id,
+                'error': str(e),
+                'timestamp': datetime.now().isoformat()
+            }
     
     def _execute_lighting_flash(self, zone: str, brightness: float, duration: int) -> Dict[str, Any]:
         """Execute lighting flash command"""

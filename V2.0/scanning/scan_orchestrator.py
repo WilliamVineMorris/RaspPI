@@ -446,78 +446,72 @@ class CameraManagerAdapter:
             return False
         
     async def capture_all(self, output_dir: Path, filename_base: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Capture from all available cameras"""
+        """Capture from all available cameras with autofocus and optimization"""
         results = []
         
-        # Get list of available cameras
-        cameras = await self.controller.list_cameras()
-        
-        for camera_id in cameras:
+        try:
+            # Switch to capture mode for high-resolution images
+            await self._switch_camera_mode("capture")
+            
+            # Trigger autofocus before capture for optimal sharpness
+            self.logger.info("CAMERA: Triggering autofocus before capture")
+            await self.trigger_autofocus('camera_1')
+            
+            # Brief wait for autofocus to complete
+            await asyncio.sleep(1.0)
+            
+            # Capture high-resolution image from Camera 0
             try:
-                # Use synchronized capture for all cameras
-                sync_result = await self.controller.capture_synchronized()
+                # Use high-resolution capture method
+                high_res_image = await self.capture_high_resolution('camera_1', metadata.get('camera_settings'))
                 
-                # Process results for each camera
-                if sync_result.success:
-                    for cam_result in sync_result.results:
-                        if cam_result.success and cam_result.filepath:
-                            # Move file to desired location
-                            import shutil
-                            src_path = Path(cam_result.filepath)
-                            dst_path = output_dir / f"{filename_base}_{cam_result.camera_id}.jpg"
-                            shutil.move(str(src_path), str(dst_path))
-                            
-                            results.append({
-                                'camera_id': cam_result.camera_id,
-                                'success': True,
-                                'filepath': str(dst_path),
-                                'metadata': metadata
-                            })
-                        else:
-                            results.append({
-                                'camera_id': cam_result.camera_id,
-                                'success': False,
-                                'error': cam_result.error_message or 'Unknown error'
-                            })
+                if high_res_image is not None:
+                    # Save the high-resolution image
+                    output_path = output_dir / f"{filename_base}_camera_1.jpg"
+                    
+                    # Encode and save
+                    import cv2
+                    success = cv2.imwrite(str(output_path), high_res_image, [
+                        cv2.IMWRITE_JPEG_QUALITY, 95,  # High quality for scanning
+                        cv2.IMWRITE_JPEG_OPTIMIZE, 1
+                    ])
+                    
+                    if success:
+                        results.append({
+                            'camera_id': 'camera_1',
+                            'filepath': str(output_path),
+                            'resolution': high_res_image.shape,
+                            'success': True,
+                            'metadata': {
+                                'autofocus_used': True,
+                                'capture_mode': 'high_resolution',
+                                **metadata
+                            }
+                        })
+                        self.logger.info(f"CAMERA: High-res capture saved: {output_path}, shape: {high_res_image.shape}")
+                    else:
+                        self.logger.error(f"CAMERA: Failed to save high-res image to {output_path}")
                 else:
-                    # Fallback to individual captures
-                    for camera_id in cameras:
-                        try:
-                            result = await self.controller.capture_photo(camera_id)
-                            if result.success and result.filepath:
-                                import shutil
-                                src_path = Path(result.filepath)
-                                dst_path = output_dir / f"{filename_base}_{result.camera_id}.jpg"
-                                shutil.move(str(src_path), str(dst_path))
-                                
-                                results.append({
-                                    'camera_id': result.camera_id,
-                                    'success': True,
-                                    'filepath': str(dst_path),
-                                    'metadata': metadata
-                                })
-                            else:
-                                results.append({
-                                    'camera_id': camera_id,
-                                    'success': False,
-                                    'error': result.error_message or 'Capture failed'
-                                })
-                        except Exception as e:
-                            results.append({
-                                'camera_id': camera_id,
-                                'success': False,
-                                'error': str(e)
-                            })
-                            
-            except Exception as e:
-                # Handle complete failure
-                for camera_id in cameras:
-                    results.append({
-                        'camera_id': camera_id,
-                        'success': False,
-                        'error': str(e)
-                    })
-                break
+                    self.logger.error("CAMERA: High-resolution capture returned None")
+                    
+            except Exception as capture_error:
+                self.logger.error(f"CAMERA: High-resolution capture failed: {capture_error}")
+                results.append({
+                    'camera_id': 'camera_1',
+                    'success': False,
+                    'error': str(capture_error)
+                })
+            
+            # Switch back to streaming mode
+            await self._switch_camera_mode("streaming")
+            
+        except Exception as e:
+            self.logger.error(f"CAMERA: Capture all failed: {e}")
+            # Ensure we return to streaming mode on error
+            try:
+                await self._switch_camera_mode("streaming")
+            except:
+                pass
                 
         return results
         
@@ -580,8 +574,32 @@ class CameraManagerAdapter:
                         frame_array = camera.capture_array("main")
                         
                         if frame_array is not None and frame_array.size > 0:
-                            # Convert RGB to BGR for web display (minimal processing)
-                            frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
+                            # CRITICAL FIX: Check if we need color conversion
+                            # Test a small sample to determine color format
+                            sample_mean = np.mean(frame_array[:100, :100], axis=(0,1))
+                            
+                            # If blue channel (index 2 in RGB) is much higher, we have correct RGB
+                            # If blue channel (index 0 in BGR) is much higher, we have BGR already
+                            if len(sample_mean) == 3:
+                                blue_rgb = sample_mean[2]  # Blue in RGB
+                                blue_bgr = sample_mean[0]  # Blue in BGR position
+                                red_green_avg = (sample_mean[1] + sample_mean[2] if blue_bgr > blue_rgb else sample_mean[0] + sample_mean[1]) / 2
+                                
+                                # If blue is dominant in position 0, data is already BGR
+                                if blue_bgr > (red_green_avg * 1.5):
+                                    frame_bgr = frame_array.copy()  # Already BGR
+                                    if not hasattr(self, '_color_format_logged'):
+                                        self.logger.info("CAMERA: Frame already in BGR format")
+                                        self._color_format_logged = True
+                                else:
+                                    # Convert RGB to BGR
+                                    frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
+                                    if not hasattr(self, '_color_format_logged'):
+                                        self.logger.info("CAMERA: Converting RGB to BGR format")
+                                        self._color_format_logged = True
+                            else:
+                                # Fallback: assume RGB and convert
+                                frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
                             
                             # Optional: Apply minimal enhancement for better web display
                             # Only if the frame appears too dark/flat
@@ -680,6 +698,142 @@ class CameraManagerAdapter:
                 pass
                 
         return None
+    
+    async def set_camera_controls(self, camera_id, controls_dict):
+        """
+        Set camera controls for autofocus, exposure, etc.
+        
+        Args:
+            camera_id: Camera identifier
+            controls_dict: Dictionary of control settings
+                          e.g., {'autofocus': True, 'exposure_time': 10000, 'iso': 400}
+        """
+        try:
+            # Map camera ID
+            mapped_camera_id = 0
+            if isinstance(camera_id, str) and camera_id.startswith('camera_'):
+                try:
+                    mapped_camera_id = int(camera_id.split('_')[1]) - 1
+                except (ValueError, IndexError):
+                    return False
+            
+            if hasattr(self.controller, 'cameras') and mapped_camera_id in self.controller.cameras:
+                camera = self.controller.cameras[mapped_camera_id]
+                
+                if camera and hasattr(camera, 'set_controls'):
+                    # Convert common controls to Picamera2 format
+                    picam_controls = {}
+                    
+                    # Autofocus control
+                    if 'autofocus' in controls_dict:
+                        if controls_dict['autofocus']:
+                            picam_controls['AfMode'] = 1  # Auto focus
+                            picam_controls['AfTrigger'] = 0  # Trigger autofocus
+                        else:
+                            picam_controls['AfMode'] = 0  # Manual focus
+                    
+                    # Manual focus control
+                    if 'focus_position' in controls_dict:
+                        picam_controls['LensPosition'] = float(controls_dict['focus_position'])
+                    
+                    # Exposure controls
+                    if 'exposure_time' in controls_dict:
+                        # Convert milliseconds to microseconds
+                        picam_controls['ExposureTime'] = int(controls_dict['exposure_time'] * 1000)
+                    
+                    if 'auto_exposure' in controls_dict:
+                        if controls_dict['auto_exposure']:
+                            picam_controls['AeEnable'] = True
+                        else:
+                            picam_controls['AeEnable'] = False
+                    
+                    # ISO/Gain control
+                    if 'iso' in controls_dict:
+                        picam_controls['AnalogueGain'] = controls_dict['iso'] / 100.0
+                    
+                    # White balance
+                    if 'auto_white_balance' in controls_dict:
+                        if controls_dict['auto_white_balance']:
+                            picam_controls['AwbEnable'] = True
+                        else:
+                            picam_controls['AwbEnable'] = False
+                    
+                    if 'white_balance_gains' in controls_dict:
+                        gains = controls_dict['white_balance_gains']
+                        if isinstance(gains, (list, tuple)) and len(gains) == 2:
+                            picam_controls['ColourGains'] = gains
+                    
+                    # Apply controls
+                    if picam_controls:
+                        camera.set_controls(picam_controls)
+                        self.logger.info(f"CAMERA: Applied controls {picam_controls} to camera {camera_id}")
+                        return True
+                    else:
+                        self.logger.warning(f"CAMERA: No valid controls provided for camera {camera_id}")
+                        
+        except Exception as e:
+            self.logger.error(f"CAMERA: Failed to set controls for camera {camera_id}: {e}")
+            
+        return False
+    
+    async def trigger_autofocus(self, camera_id):
+        """Trigger autofocus on camera"""
+        try:
+            return await self.set_camera_controls(camera_id, {'autofocus': True})
+        except Exception as e:
+            self.logger.error(f"CAMERA: Autofocus trigger failed for {camera_id}: {e}")
+            return False
+    
+    async def set_manual_focus(self, camera_id, focus_position):
+        """
+        Set manual focus position
+        
+        Args:
+            camera_id: Camera identifier
+            focus_position: Focus position (0.0 to 10.0, where 0 is near, 10 is far)
+        """
+        try:
+            return await self.set_camera_controls(camera_id, {
+                'autofocus': False,
+                'focus_position': focus_position
+            })
+        except Exception as e:
+            self.logger.error(f"CAMERA: Manual focus failed for {camera_id}: {e}")
+            return False
+    
+    async def get_camera_controls(self, camera_id):
+        """Get current camera control values"""
+        try:
+            # Map camera ID
+            mapped_camera_id = 0
+            if isinstance(camera_id, str) and camera_id.startswith('camera_'):
+                try:
+                    mapped_camera_id = int(camera_id.split('_')[1]) - 1
+                except (ValueError, IndexError):
+                    return {}
+            
+            if hasattr(self.controller, 'cameras') and mapped_camera_id in self.controller.cameras:
+                camera = self.controller.cameras[mapped_camera_id]
+                
+                if camera and hasattr(camera, 'capture_metadata'):
+                    # Get current metadata which includes control values
+                    metadata = camera.capture_metadata()
+                    
+                    # Extract useful control information
+                    controls = {
+                        'exposure_time': metadata.get('ExposureTime', 0) / 1000,  # Convert to ms
+                        'analog_gain': metadata.get('AnalogueGain', 1.0),
+                        'digital_gain': metadata.get('DigitalGain', 1.0),
+                        'focus_position': metadata.get('LensPosition', 0.0),
+                        'color_gains': metadata.get('ColourGains', [1.0, 1.0])
+                    }
+                    
+                    return controls
+                    
+        except Exception as e:
+            self.logger.error(f"CAMERA: Failed to get controls for camera {camera_id}: {e}")
+            
+        return {}
     
     def set_scanning_mode(self, is_scanning: bool):
         """Set scanning mode to optimize camera usage"""

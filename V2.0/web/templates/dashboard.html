@@ -2,6 +2,92 @@
 
 {% block title %}Dashboard - 3D Scanner Control{% endblock %}
 
+{% block head %}
+<style>
+    .camera-controls-panel {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border: 1px solid #dee2e6;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .control-group {
+        background: white;
+        padding: 12px;
+        border-radius: 6px;
+        border: 1px solid #e9ecef;
+    }
+    
+    .control-group label {
+        color: #495057;
+        font-weight: 600;
+    }
+    
+    .btn {
+        padding: 6px 12px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        transition: all 0.2s;
+    }
+    
+    .btn-primary {
+        background: #007bff;
+        color: white;
+    }
+    
+    .btn-primary:hover {
+        background: #0056b3;
+    }
+    
+    .btn-secondary {
+        background: #6c757d;
+        color: white;
+    }
+    
+    .btn-secondary:hover {
+        background: #545b62;
+    }
+    
+    .btn-sm {
+        padding: 4px 8px;
+        font-size: 12px;
+    }
+    
+    input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        height: 6px;
+        background: #ddd;
+        border-radius: 3px;
+        outline: none;
+    }
+    
+    input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        background: #007bff;
+        border-radius: 50%;
+        cursor: pointer;
+    }
+    
+    input[type="range"]::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        background: #007bff;
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
+    }
+    
+    .status-info { color: #17a2b8; }
+    .status-success { color: #28a745; }
+    .status-error { color: #dc3545; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="dashboard-grid">
     <!-- System Status Panel -->
@@ -103,6 +189,66 @@
                 <div class="camera-info">
                     <small>🎥 Live 1080p stream • 📸 High-res capture available during scanning</small>
                 </div>
+                
+                <!-- Camera Controls -->
+                <div class="camera-controls-panel" style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                    <h4>Camera Controls</h4>
+                    <div class="controls-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                        <!-- Focus Controls -->
+                        <div class="control-group">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Focus Control</label>
+                            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                                <button class="btn btn-sm btn-primary" onclick="triggerAutofocus()">🎯 Auto Focus</button>
+                                <button class="btn btn-sm btn-secondary" onclick="toggleManualFocus()">⚙️ Manual</button>
+                            </div>
+                            <div id="manualFocusPanel" style="display: none;">
+                                <label for="focusSlider" style="font-size: 12px;">Focus Position (0=Near, 10=Far)</label>
+                                <input type="range" id="focusSlider" min="0" max="10" step="0.1" value="5" 
+                                       style="width: 100%;" onchange="setManualFocus(this.value)">
+                                <span id="focusValue" style="font-size: 12px;">5.0</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Exposure Controls -->
+                        <div class="control-group">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Exposure Control</label>
+                            <div style="margin-bottom: 10px;">
+                                <label style="display: flex; align-items: center; font-size: 14px;">
+                                    <input type="checkbox" id="autoExposure" checked onchange="toggleAutoExposure(this.checked)">
+                                    <span style="margin-left: 5px;">Auto Exposure</span>
+                                </label>
+                            </div>
+                            <div id="manualExposurePanel" style="display: none;">
+                                <label for="exposureSlider" style="font-size: 12px;">Exposure Time (ms)</label>
+                                <input type="range" id="exposureSlider" min="1" max="100" value="10" 
+                                       style="width: 100%;" onchange="setExposureTime(this.value)">
+                                <span id="exposureValue" style="font-size: 12px;">10ms</span>
+                            </div>
+                        </div>
+                        
+                        <!-- ISO Controls -->
+                        <div class="control-group">
+                            <label for="isoSlider" style="display: block; margin-bottom: 5px; font-weight: 500;">ISO Setting</label>
+                            <input type="range" id="isoSlider" min="100" max="1600" step="100" value="400" 
+                                   style="width: 100%;" onchange="setISO(this.value)">
+                            <span id="isoValue" style="font-size: 12px;">ISO 400</span>
+                        </div>
+                        
+                        <!-- White Balance -->
+                        <div class="control-group">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">White Balance</label>
+                            <label style="display: flex; align-items: center; font-size: 14px;">
+                                <input type="checkbox" id="autoWhiteBalance" checked onchange="toggleAutoWhiteBalance(this.checked)">
+                                <span style="margin-left: 5px;">Auto White Balance</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Status Display -->
+                    <div id="controlsStatus" style="margin-top: 10px; padding: 8px; background: #e9ecef; border-radius: 4px; font-size: 12px;">
+                        Status: Ready
+                    </div>
+                </div>
             </div>
         </div>
     </section>
@@ -159,6 +305,129 @@
         
         // Stop refresh when page unloads
         window.addEventListener('beforeunload', stopCameraRefresh);
+        
+        // Camera Control Functions
+        async function triggerAutofocus() {
+            try {
+                updateControlsStatus('Triggering autofocus...', 'info');
+                
+                const response = await fetch('/api/camera/autofocus', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ camera_id: 'camera_1' })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    updateControlsStatus('Autofocus triggered successfully', 'success');
+                } else {
+                    updateControlsStatus('Autofocus failed: ' + (result.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                updateControlsStatus('Autofocus error: ' + error.message, 'error');
+                console.error('Autofocus error:', error);
+            }
+        }
+        
+        function toggleManualFocus() {
+            const panel = document.getElementById('manualFocusPanel');
+            const isVisible = panel.style.display !== 'none';
+            panel.style.display = isVisible ? 'none' : 'block';
+            
+            if (!isVisible) {
+                // Disable autofocus when switching to manual
+                setCameraControls({ autofocus: false });
+            }
+        }
+        
+        async function setManualFocus(position) {
+            try {
+                document.getElementById('focusValue').textContent = parseFloat(position).toFixed(1);
+                
+                const response = await fetch('/api/camera/focus', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        camera_id: 'camera_1',
+                        focus_position: parseFloat(position)
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    updateControlsStatus(`Manual focus set to ${position}`, 'success');
+                } else {
+                    updateControlsStatus('Focus setting failed: ' + (result.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                updateControlsStatus('Focus setting error: ' + error.message, 'error');
+                console.error('Manual focus error:', error);
+            }
+        }
+        
+        function toggleAutoExposure(enabled) {
+            const panel = document.getElementById('manualExposurePanel');
+            panel.style.display = enabled ? 'none' : 'block';
+            setCameraControls({ auto_exposure: enabled });
+        }
+        
+        function setExposureTime(timeMs) {
+            document.getElementById('exposureValue').textContent = timeMs + 'ms';
+            setCameraControls({ 
+                auto_exposure: false,
+                exposure_time: parseInt(timeMs)
+            });
+        }
+        
+        function setISO(isoValue) {
+            document.getElementById('isoValue').textContent = 'ISO ' + isoValue;
+            setCameraControls({ iso: parseInt(isoValue) });
+        }
+        
+        function toggleAutoWhiteBalance(enabled) {
+            setCameraControls({ auto_white_balance: enabled });
+        }
+        
+        async function setCameraControls(controls) {
+            try {
+                updateControlsStatus('Applying camera settings...', 'info');
+                
+                const response = await fetch('/api/camera/controls', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        camera_id: 'camera_1',
+                        controls: controls
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    updateControlsStatus('Settings applied successfully', 'success');
+                } else {
+                    updateControlsStatus('Settings failed: ' + (result.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                updateControlsStatus('Settings error: ' + error.message, 'error');
+                console.error('Camera controls error:', error);
+            }
+        }
+        
+        function updateControlsStatus(message, type) {
+            const statusElement = document.getElementById('controlsStatus');
+            if (statusElement) {
+                statusElement.textContent = 'Status: ' + message;
+                statusElement.className = 'status-' + type;
+                
+                // Clear status after 3 seconds for non-error messages
+                if (type !== 'error') {
+                    setTimeout(() => {
+                        statusElement.textContent = 'Status: Ready';
+                        statusElement.className = '';
+                    }, 3000);
+                }
+            }
+        }
     </script>
 
     <!-- Activity Log Panel -->
