@@ -155,12 +155,37 @@ motion:
       min_limit: 0.0
       max_limit: 200.0
       home_position: 0.0
+      max_feedrate: 1000.0
+      steps_per_mm: 800.0
+      has_limits: true
+      homing_required: true
     y_axis:
       type: "linear"
       units: "mm"
       min_limit: 0.0
       max_limit: 200.0
       home_position: 0.0
+      max_feedrate: 1000.0
+      steps_per_mm: 800.0
+      has_limits: true
+      homing_required: true
+    z_axis:
+      type: "rotational"
+      units: "degrees"
+      min_limit: -360.0
+      max_limit: 360.0
+      home_position: 0.0
+      max_feedrate: 500.0
+      steps_per_degree: 10.0
+      continuous_rotation: true
+    c_axis:
+      type: "linear"
+      units: "degrees"
+      min_limit: -90.0
+      max_limit: 90.0
+      home_position: 0.0
+      max_feedrate: 300.0
+      steps_per_degree: 5.0
 
 cameras:
   primary:
@@ -168,16 +193,22 @@ cameras:
     device_id: 0
     interface: "libcamera"
     resolution: [1920, 1080]
+    enabled: true
   secondary:
     type: "pi_camera"
     device_id: 1
     interface: "libcamera"
     resolution: [1920, 1080]
+    enabled: true
 
 lighting:
   controller:
     type: "gpio_pwm"
     enabled: false  # Disabled for initial testing
+    
+storage:
+  base_path: "/home/user/scanner_data"
+  backup_enabled: true
 """)
         
         config_manager = ConfigManager(config_file)
