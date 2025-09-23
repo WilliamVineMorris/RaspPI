@@ -210,6 +210,7 @@ class MotionControllerAdapter:
     
     def __init__(self, fluidnc_controller):
         self.controller = fluidnc_controller
+        self.logger = logging.getLogger(__name__)
         
     async def initialize(self) -> bool:
         return await self.controller.initialize()
@@ -259,12 +260,14 @@ class MotionControllerAdapter:
         """Get motion controller status"""
         try:
             is_connected = self.controller.is_connected()
+            self.logger.debug(f"Motion controller connection status: {is_connected}")
             return {
                 'state': 'idle' if is_connected else 'disconnected',
                 'connected': is_connected,
                 'initialized': is_connected
             }
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"Error getting motion controller status: {e}")
             return {
                 'state': 'error',
                 'connected': False,
@@ -300,6 +303,7 @@ class CameraManagerAdapter:
     def __init__(self, pi_camera_controller, config_manager):
         self.controller = pi_camera_controller
         self.config_manager = config_manager
+        self.logger = logging.getLogger(__name__)
         
     async def initialize(self) -> bool:
         return await self.controller.initialize()
@@ -406,21 +410,27 @@ class CameraManagerAdapter:
         try:
             # Check if cameras are initialized and connected
             is_connected = self.controller.is_connected() if hasattr(self.controller, 'is_connected') else True
+            self.logger.debug(f"Camera manager connection status: {is_connected}")
             
             if is_connected:
                 # If connected, report cameras as active
-                return {
+                status = {
                     'cameras': ['camera_1', 'camera_2'],  # Based on configuration
                     'active_cameras': ['camera_1', 'camera_2'],  # Both cameras active when connected
                     'initialized': True
                 }
+                self.logger.debug(f"Camera status: {status}")
+                return status
             else:
-                return {
+                status = {
                     'cameras': ['camera_1', 'camera_2'],  # Still available but not active
                     'active_cameras': [],
                     'initialized': False
                 }
-        except Exception:
+                self.logger.debug(f"Camera status (disconnected): {status}")
+                return status
+        except Exception as e:
+            self.logger.error(f"Error getting camera status: {e}")
             return {
                 'cameras': [],
                 'active_cameras': [],

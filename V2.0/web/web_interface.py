@@ -577,24 +577,31 @@ class ScannerWebInterface:
                     motion_status = self.orchestrator.motion_controller.get_status()
                     position = self.orchestrator.motion_controller.get_position()
                     
+                    self.logger.debug(f"Motion status from adapter: {motion_status}")
+                    self.logger.debug(f"Motion position from adapter: {position}")
+                    
                     status['motion'].update({
                         'connected': True,
                         'status': motion_status.get('state', 'unknown'),
                         'position': position
                     })
                 except Exception as e:
+                    self.logger.error(f"Motion controller status error: {e}")
                     status['system']['errors'].append(f"Motion controller error: {e}")
             
             # Get camera status
             if self.orchestrator and hasattr(self.orchestrator, 'camera_manager') and self.orchestrator.camera_manager:
                 try:
                     camera_status = self.orchestrator.camera_manager.get_status()
+                    self.logger.debug(f"Camera status from adapter: {camera_status}")
+                    
                     status['cameras'].update({
                         'available': len(camera_status.get('cameras', [])),
-                        'active': camera_status.get('active_cameras', []),
+                        'active': camera_status.get('active_cameras', []),  # Frontend expects 'active' not 'active_cameras'
                         'status': 'ready' if camera_status.get('cameras') else 'unavailable'
                     })
                 except Exception as e:
+                    self.logger.error(f"Camera manager status error: {e}")
                     status['system']['errors'].append(f"Camera manager error: {e}")
             
             # Get lighting status
@@ -975,6 +982,9 @@ class ScannerWebInterface:
             if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
                 raise HardwareError("Camera manager not available")
             
+            # For real hardware, create a placeholder stream instead of failing
+            import numpy as np
+            
             while self._running:
                 try:
                     # Get frame from camera manager
@@ -984,9 +994,6 @@ class ScannerWebInterface:
                     if hasattr(self.orchestrator.camera_manager, 'get_preview_frame'):
                         frame = self.orchestrator.camera_manager.get_preview_frame(camera_id)
                     
-                    # For real hardware, we'd need a sync version or different approach
-                    # Real camera streaming would be handled differently in production
-                    
                     if frame is not None:
                         # Encode frame as JPEG (for mock data)
                         ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
@@ -994,12 +1001,28 @@ class ScannerWebInterface:
                             yield (b'--frame\r\n'
                                    b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
                     else:
-                        # No frame available - send placeholder
-                        yield (b'--frame\r\n'
-                               b'Content-Type: text/plain\r\n\r\n'
-                               b'Camera stream not available\r\n')
+                        # For real hardware, create a placeholder image instead of text
+                        # Create a simple placeholder image
+                        img = np.zeros((240, 320, 3), dtype=np.uint8)
+                        img[:] = (64, 64, 64)  # Dark gray background
+                        
+                        # Add camera text
+                        cv2.putText(img, f'Camera {camera_id}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                        cv2.putText(img, 'Hardware Mode', (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                        cv2.putText(img, 'Live Preview', (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                        cv2.putText(img, 'Not Available', (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                        
+                        # Add timestamp
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        cv2.putText(img, timestamp, (10, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+                        
+                        # Encode as JPEG
+                        ret, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                        if ret:
+                            yield (b'--frame\r\n'
+                                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
                     
-                    time.sleep(0.1)  # 10 FPS
+                    time.sleep(0.5)  # 2 FPS for placeholder
                     
                 except Exception as e:
                     self.logger.warning(f"Camera stream error: {e}")
