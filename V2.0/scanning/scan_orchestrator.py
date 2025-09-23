@@ -475,13 +475,19 @@ class CameraManagerAdapter:
                     # Check camera state first
                     if not hasattr(camera, 'started') or not camera.started:
                         self.logger.info(f"Camera {actual_camera_id} not started, starting now...")
-                        camera.start()
-                        time.sleep(0.5)  # Give camera time to start
+                        try:
+                            camera.start()
+                            time.sleep(1.0)  # Give camera more time to start
+                            self.logger.info(f"Camera {actual_camera_id} started successfully")
+                        except Exception as start_error:
+                            self.logger.error(f"Failed to start camera {actual_camera_id}: {start_error}")
+                            return
                     
                     self.logger.info(f"Camera {actual_camera_id} is started, attempting capture...")
                     
                     # Try array capture first (fastest method)
                     try:
+                        self.logger.debug(f"Attempting array capture for camera {actual_camera_id}")
                         array = camera.capture_array("main")
                         self.logger.info(f"Array capture successful for camera {actual_camera_id}: {array.shape}")
                         
@@ -533,11 +539,14 @@ class CameraManagerAdapter:
             capture_thread.daemon = True
             capture_thread.start()
             
+            # Use longer timeout for camera 1 as it seems to need more time
+            timeout_duration = 5.0 if actual_camera_id == 1 else 3.0
+            
             # Wait for thread to complete with timeout
-            capture_thread.join(timeout=3.0)  # 3 second timeout
+            capture_thread.join(timeout=timeout_duration)
             
             if capture_thread.is_alive():
-                self.logger.error(f"Camera capture timed out for camera {actual_camera_id}")
+                self.logger.error(f"Camera capture timed out for camera {actual_camera_id} after {timeout_duration}s")
                 return None
             
             if exception[0]:

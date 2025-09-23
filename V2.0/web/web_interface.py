@@ -1162,35 +1162,97 @@ class ScannerWebInterface:
                                 self.logger.error(f"Full traceback: {traceback.format_exc()}")
                         error_count += 1
                 
-                # Error handling
+                # Error handling - Enhanced fallback system
                 if last_frame and (current_time - frame_cache_time) < 5.0:  # Use cache for 5 seconds
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n'
                            b'Content-Length: ' + str(len(last_frame)).encode() + b'\r\n\r\n' +
                            last_frame + b'\r\n')
                 else:
-                    # Generate error frame
+                    # Try to get a frame from the working camera as fallback
+                    fallback_frame = None
+                    
+                    if orchestrator and hasattr(orchestrator, 'camera_manager'):
+                        # Try to get frame from the other camera
+                        try:
+                            fallback_camera_id = 0 if camera_id != 0 else 1  # Switch to the other camera
+                            fallback_mapped_id = f"camera_{fallback_camera_id + 1}"
+                            
+                            if frame_counter <= 3:
+                                self.logger.info(f"Attempting fallback from camera {fallback_mapped_id} for failed camera {camera_id}")
+                            
+                            fallback_frame = orchestrator.camera_manager.get_preview_frame(fallback_mapped_id)
+                            
+                            if fallback_frame is not None and fallback_frame.size > 0:
+                                # Add overlay to show this is a fallback
+                                height, width = fallback_frame.shape[:2]
+                                
+                                # Resize if needed
+                                max_width = 800
+                                if width > max_width:
+                                    scale = max_width / width
+                                    new_width = int(width * scale)
+                                    new_height = int(height * scale)
+                                    fallback_frame = cv2.resize(fallback_frame, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+                                
+                                # Add fallback overlay
+                                overlay_height = 60
+                                overlay = np.zeros((overlay_height, fallback_frame.shape[1], 3), dtype=np.uint8)
+                                overlay[:] = (0, 100, 200)  # Orange background
+                                
+                                cv2.putText(overlay, f'Camera {camera_id} OFFLINE - Showing Camera {fallback_camera_id}', 
+                                           (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                                cv2.putText(overlay, f'Errors: {error_count}', 
+                                           (10, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+                                
+                                # Combine overlay with frame
+                                fallback_frame = np.vstack([overlay, fallback_frame])
+                                
+                                # Encode and yield the fallback frame
+                                encode_param = [cv2.IMWRITE_JPEG_QUALITY, 85]
+                                ret, jpeg_buffer = cv2.imencode('.jpg', fallback_frame, encode_param)
+                                
+                                if ret and len(jpeg_buffer) > 0:
+                                    jpeg_data = jpeg_buffer.tobytes()
+                                    yield (b'--frame\r\n'
+                                           b'Content-Type: image/jpeg\r\n'
+                                           b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
+                                           jpeg_data + b'\r\n')
+                                    continue
+                        
+                        except Exception as fallback_error:
+                            if frame_counter <= 5:
+                                self.logger.warning(f"Fallback camera failed for camera {camera_id}: {fallback_error}")
+                    
+                    # If fallback also failed, generate error frame
                     error_img = np.zeros((240, 320, 3), dtype=np.uint8)
                     error_img[:] = (40, 40, 40)  # Dark background
                     
-                    cv2.putText(error_img, f'Camera {camera_id} Error', (10, 50), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                    cv2.putText(error_img, f'Attempts: {error_count}', (10, 100), 
+                    cv2.putText(error_img, f'Camera {camera_id} TIMEOUT', (10, 40), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                    cv2.putText(error_img, f'Attempts: {error_count}', (10, 70), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                    cv2.putText(error_img, f'Time: {int(current_time)}', (10, 100), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
                     
                     # Add debug info
                     if orchestrator:
-                        cv2.putText(error_img, 'Orchestrator: OK', (10, 150), 
+                        cv2.putText(error_img, 'Orchestrator: OK', (10, 130), 
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
                         if hasattr(orchestrator, 'camera_manager'):
-                            cv2.putText(error_img, 'Camera Mgr: OK', (10, 170), 
+                            cv2.putText(error_img, 'Camera Mgr: OK', (10, 150), 
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
                         else:
-                            cv2.putText(error_img, 'No Camera Mgr', (10, 170), 
+                            cv2.putText(error_img, 'No Camera Mgr', (10, 150), 
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
                     else:
-                        cv2.putText(error_img, 'No Orchestrator', (10, 150), 
+                        cv2.putText(error_img, 'No Orchestrator', (10, 130), 
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
+                    
+                    cv2.putText(error_img, 'Check camera connections', (10, 180), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 0), 1)
+                    cv2.putText(error_img, 'and hardware setup', (10, 200), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 0), 1)
                     
                     ret, error_buffer = cv2.imencode('.jpg', error_img)
                     if ret:
