@@ -388,16 +388,21 @@ class FluidNCController(MotionController):
                     # Ensure we have a proper event loop
                     try:
                         loop = asyncio.get_running_loop()
-                        logger.debug(f"📍 Using running event loop: {id(loop)}")
+                        logger.info(f"📍 Using running event loop: {id(loop)}")
                     except RuntimeError:
                         logger.warning("⚠️  No running event loop detected, attempting to get event loop")
                         loop = asyncio.get_event_loop()
-                        logger.debug(f"📍 Using event loop: {id(loop)}")
+                        logger.info(f"📍 Using event loop: {id(loop)}")
                     
                     # Create the background task
                     self.background_monitor_task = loop.create_task(self._background_status_monitor())
                     task_id = id(self.background_monitor_task)
                     logger.info(f"✅ Background monitor task created successfully: {task_id}")
+                    logger.info(f"🔍 Task state: done={self.background_monitor_task.done()}, cancelled={self.background_monitor_task.cancelled()}")
+                    
+                    # Check task status immediately after creation
+                    await asyncio.sleep(0.1)  # Give task a moment to start
+                    logger.info(f"🔍 Task state after 100ms: done={self.background_monitor_task.done()}, cancelled={self.background_monitor_task.cancelled()}")
                     
                     # Add done callback for debugging
                     def task_done_callback(task):
@@ -405,6 +410,7 @@ class FluidNCController(MotionController):
                             logger.info("🛑 Background monitor task was cancelled")
                         elif task.exception():
                             logger.error(f"💥 Background monitor task failed: {task.exception()}")
+                            logger.exception("Background monitor exception details:")
                         else:
                             logger.info("✅ Background monitor task completed successfully")
                     
@@ -1285,9 +1291,38 @@ class FluidNCController(MotionController):
 
     def is_background_monitor_running(self) -> bool:
         """Check if background monitoring task is running"""
-        return (self.monitor_running and 
+        is_running = (self.monitor_running and 
                 self.background_monitor_task is not None and 
                 not self.background_monitor_task.done())
+        logger.debug(f"Background monitor status: monitor_running={self.monitor_running}, task_exists={self.background_monitor_task is not None}, task_done={self.background_monitor_task.done() if self.background_monitor_task else 'N/A'}, overall_running={is_running}")
+        return is_running
+    
+    async def restart_background_monitor(self):
+        """Restart the background monitor if it's not running"""
+        logger.info("🔄 Attempting to restart background monitor...")
+        
+        # Stop existing monitor if running
+        if self.background_monitor_task and not self.background_monitor_task.done():
+            logger.info("Stopping existing background monitor...")
+            self.monitor_running = False
+            self.background_monitor_task.cancel()
+            try:
+                await asyncio.wait_for(self.background_monitor_task, timeout=2.0)
+            except:
+                pass  # Ignore timeout or cancellation errors
+            
+        # Start new monitor
+        if self.is_connected():
+            self.monitor_running = True
+            try:
+                loop = asyncio.get_running_loop()
+                self.background_monitor_task = loop.create_task(self._background_status_monitor())
+                logger.info(f"✅ Background monitor restarted: {id(self.background_monitor_task)}")
+            except Exception as e:
+                logger.error(f"❌ Failed to restart background monitor: {e}")
+                self.monitor_running = False
+        else:
+            logger.warning("⚠️  Cannot restart monitor - not connected to FluidNC")
 
     async def _background_status_monitor(self):
         """Background task to continuously process FluidNC auto-reports"""

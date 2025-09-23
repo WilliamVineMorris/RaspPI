@@ -429,6 +429,90 @@ class ScannerWebInterface:
                 self.logger.error(f"Debug position API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
+        @self.app.route('/api/debug/monitor')
+        def api_debug_monitor():
+            """Debug endpoint for background monitor status"""
+            try:
+                debug_info = {}
+                
+                if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+                    motion_controller = self.orchestrator.motion_controller
+                    
+                    if hasattr(motion_controller, 'controller'):
+                        controller = motion_controller.controller
+                        
+                        # Get background monitor status
+                        debug_info['monitor_running'] = getattr(controller, 'monitor_running', False)
+                        debug_info['background_task_exists'] = controller.background_monitor_task is not None
+                        debug_info['background_task_done'] = controller.background_monitor_task.done() if controller.background_monitor_task else None
+                        debug_info['background_task_cancelled'] = controller.background_monitor_task.cancelled() if controller.background_monitor_task else None
+                        debug_info['is_monitor_running'] = controller.is_background_monitor_running() if hasattr(controller, 'is_background_monitor_running') else False
+                        debug_info['last_position_update'] = getattr(controller, 'last_position_update', 0)
+                        debug_info['current_time'] = time.time()
+                        debug_info['data_age'] = time.time() - getattr(controller, 'last_position_update', 0)
+                        debug_info['is_connected'] = controller.is_connected() if hasattr(controller, 'is_connected') else False
+                        
+                        # Get task details if available
+                        if controller.background_monitor_task:
+                            task = controller.background_monitor_task
+                            debug_info['task_id'] = id(task)
+                            try:
+                                if task.done():
+                                    if task.cancelled():
+                                        debug_info['task_result'] = 'CANCELLED'
+                                    elif task.exception():
+                                        debug_info['task_result'] = f'EXCEPTION: {task.exception()}'
+                                    else:
+                                        debug_info['task_result'] = 'COMPLETED'
+                                else:
+                                    debug_info['task_result'] = 'RUNNING'
+                            except Exception as task_e:
+                                debug_info['task_result'] = f'ERROR_CHECKING: {task_e}'
+                
+                return jsonify({
+                    'success': True,
+                    'monitor_status': debug_info,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Debug monitor API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/debug/restart-monitor', methods=['POST'])
+        def api_restart_monitor():
+            """Restart the background monitor"""
+            try:
+                if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+                    motion_controller = self.orchestrator.motion_controller
+                    
+                    if hasattr(motion_controller, 'controller') and hasattr(motion_controller.controller, 'restart_background_monitor'):
+                        controller = motion_controller.controller
+                        
+                        # Run the restart in an async task
+                        import asyncio
+                        loop = asyncio.get_event_loop()
+                        
+                        async def restart_task():
+                            await controller.restart_background_monitor()
+                        
+                        # Create task to restart monitor
+                        task = loop.create_task(restart_task())
+                        
+                        return jsonify({
+                            'success': True,
+                            'message': 'Background monitor restart initiated',
+                            'timestamp': datetime.now().isoformat()
+                        })
+                    else:
+                        return jsonify({'success': False, 'error': 'Controller does not support monitor restart'}), 400
+                else:
+                    return jsonify({'success': False, 'error': 'Motion controller not available'}), 400
+                
+            except Exception as e:
+                self.logger.error(f"Restart monitor API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
         @self.app.route('/api/jog', methods=['POST'])
         def api_jog():
             """Handle jog movement commands"""
