@@ -12,7 +12,7 @@
     
     .control-group {
         background: white;
-        padding: 12px;
+        padding: 6px;
         border-radius: 6px;
         border: 1px solid #e9ecef;
     }
@@ -20,14 +20,15 @@
     .control-group label {
         color: #495057;
         font-weight: 600;
+        font-size: 0.8rem;
     }
     
     .btn {
-        padding: 6px 12px;
+        padding: 3px 6px;
         border: none;
         border-radius: 4px;
         cursor: pointer;
-        font-size: 13px;
+        font-size: 0.7rem;
         transition: all 0.2s;
     }
     
@@ -50,8 +51,8 @@
     }
     
     .btn-sm {
-        padding: 4px 8px;
-        font-size: 12px;
+        padding: 2px 4px;
+        font-size: 0.65rem;
     }
     
     input[type="range"] {
@@ -172,86 +173,86 @@
     <section class="camera-panel">
         <h2>Live Camera Feed</h2>
         <div class="camera-grid">
-            <div class="camera-container" style="grid-column: 1 / -1; max-width: 800px; margin: 0 auto;">
-                <h3>Camera 0 - Native 1080p Stream</h3>
+            <div class="camera-container">
+                <h3 style="font-size: 0.9rem; margin-bottom: 0.5rem;">Camera 0 - Native 1080p Stream</h3>
                 <div class="camera-feed-wrapper">
                     <img id="camera0Feed" 
                          src="/camera/0?t=0" 
                          alt="Camera 0 - 1080p Stream" 
                          class="camera-feed"
-                         style="width: 100%; height: auto; border-radius: 8px; max-width: 1080px;"
+                         style="width: 100%; height: auto; border-radius: 8px; max-width: 600px;"
                          onload="cameraStreamWorking = true; console.log('Camera 0 native 1080p stream loaded');"
                          onerror="console.log('Camera 0 stream error, retrying...'); setTimeout(() => { const timestamp = Date.now(); this.src = '/camera/0?t=' + timestamp; }, 2000);">
                     <div class="camera-overlay">
-                        <button class="camera-control" onclick="captureFromCamera(0)">📸 Capture High-Res</button>
+                        <button class="camera-control" onclick="captureFromCamera(0)" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;">📸 Capture High-Res</button>
                     </div>
                 </div>
                 <div class="camera-info">
-                    <small>🎥 Live 1080p stream • 📸 High-res capture available during scanning</small>
+                    <small style="font-size: 0.75rem;">🎥 Live 1080p stream • 📸 High-res capture available during scanning</small>
                 </div>
                 
-                <!-- Camera Controls -->
-                <div class="camera-controls-panel" style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-                    <h4>Camera Controls</h4>
-                    <div class="controls-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <!-- Camera Controls - Compact -->
+                <div class="camera-controls-panel" style="margin-top: 0.75rem; padding: 0.75rem; background: #f8f9fa; border-radius: 8px;">
+                    <h4 style="font-size: 0.9rem; margin-bottom: 0.5rem;">Camera Controls</h4>
+                    <div class="controls-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
                         <!-- Focus Controls -->
-                        <div class="control-group">
-                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Focus Control</label>
-                            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                                <button class="btn btn-sm btn-primary" onclick="triggerAutofocus()">🎯 Auto Focus</button>
-                                <button class="btn btn-sm btn-secondary" onclick="toggleManualFocus()">⚙️ Manual</button>
-                                <button id="stabilizeBtn" class="btn btn-sm btn-warning" onclick="toggleStabilization()">🔧 Stabilize</button>
+                        <div class="control-group" style="padding: 0.5rem;">
+                            <label style="display: block; margin-bottom: 0.3rem; font-weight: 500; font-size: 0.8rem;">Focus Control</label>
+                            <div style="display: flex; gap: 0.3rem; margin-bottom: 0.5rem;">
+                                <button class="btn btn-sm btn-primary" onclick="triggerAutofocus()" style="padding: 0.2rem 0.4rem; font-size: 0.7rem;">🎯 Auto</button>
+                                <button class="btn btn-sm btn-secondary" onclick="toggleManualFocus()" style="padding: 0.2rem 0.4rem; font-size: 0.7rem;">⚙️ Manual</button>
+                                <button id="stabilizeBtn" class="btn btn-sm btn-warning" onclick="toggleStabilization()" style="padding: 0.2rem 0.4rem; font-size: 0.7rem;">🔧 Stab</button>
                             </div>
                             <div id="manualFocusPanel" style="display: none;">
-                                <label for="focusSlider" style="font-size: 12px;">Focus Position (0=Near, 10=Far)</label>
+                                <label for="focusSlider" style="font-size: 0.7rem;">Focus Position (0=Near, 10=Far)</label>
                                 <input type="range" id="focusSlider" min="0" max="10" step="0.1" value="5" 
                                        style="width: 100%;" onchange="setManualFocus(this.value)">
-                                <span id="focusValue" style="font-size: 12px;">5.0</span>
+                                <span id="focusValue" style="font-size: 0.7rem;">5.0</span>
                             </div>
                         </div>
                         
                         <!-- Exposure Controls -->
-                        <div class="control-group">
-                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Exposure Control</label>
-                            <div style="margin-bottom: 10px;">
-                                <label style="display: flex; align-items: center; font-size: 14px;">
+                        <div class="control-group" style="padding: 0.5rem;">
+                            <label style="display: block; margin-bottom: 0.3rem; font-weight: 500; font-size: 0.8rem;">Exposure Control</label>
+                            <div style="margin-bottom: 0.5rem;">
+                                <label style="display: flex; align-items: center; font-size: 0.75rem;">
                                     <input type="checkbox" id="autoExposure" checked onchange="toggleAutoExposure(this.checked)">
-                                    <span style="margin-left: 5px;">Auto Exposure</span>
+                                    <span style="margin-left: 0.3rem;">Auto Exposure</span>
                                 </label>
                             </div>
                             <div id="manualExposurePanel" style="display: none;">
-                                <label for="exposureSlider" style="font-size: 12px;">Exposure Time (ms)</label>
+                                <label for="exposureSlider" style="font-size: 0.7rem;">Exposure Time (ms)</label>
                                 <input type="range" id="exposureSlider" min="1" max="100" value="10" 
                                        style="width: 100%;" onchange="setExposureTime(this.value)">
-                                <span id="exposureValue" style="font-size: 12px;">10ms</span>
+                                <span id="exposureValue" style="font-size: 0.7rem;">10ms</span>
                             </div>
                         </div>
                         
                         <!-- ISO Controls -->
-                        <div class="control-group">
-                            <label for="isoSlider" style="display: block; margin-bottom: 5px; font-weight: 500;">ISO Setting</label>
+                        <div class="control-group" style="padding: 0.5rem;">
+                            <label for="isoSlider" style="display: block; margin-bottom: 0.3rem; font-weight: 500; font-size: 0.8rem;">ISO Setting</label>
                             <input type="range" id="isoSlider" min="100" max="1600" step="100" value="400" 
                                    style="width: 100%;" onchange="setISO(this.value)">
-                            <span id="isoValue" style="font-size: 12px;">ISO 400</span>
+                            <span id="isoValue" style="font-size: 0.7rem;">ISO 400</span>
                         </div>
                         
                         <!-- White Balance -->
-                        <div class="control-group">
-                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">White Balance</label>
-                            <div style="margin-bottom: 8px;">
-                                <label style="display: flex; align-items: center; font-size: 14px;">
+                        <div class="control-group" style="padding: 0.5rem;">
+                            <label style="display: block; margin-bottom: 0.3rem; font-weight: 500; font-size: 0.8rem;">White Balance</label>
+                            <div style="margin-bottom: 0.4rem;">
+                                <label style="display: flex; align-items: center; font-size: 0.75rem;">
                                     <input type="checkbox" id="autoWhiteBalance" checked onchange="toggleAutoWhiteBalance(this.checked)">
-                                    <span style="margin-left: 5px;">Auto White Balance</span>
+                                    <span style="margin-left: 0.3rem;">Auto White Balance</span>
                                 </label>
                             </div>
                             <div id="manualWhiteBalancePanel" style="display: none;">
-                                <label style="font-size: 12px; display: block; margin-bottom: 5px;">White Balance Mode</label>
-                                <select id="whiteBalanceMode" style="width: 100%; padding: 4px; margin-bottom: 8px;" onchange="setWhiteBalanceMode(this.value)">
-                                    <option value="indoor">🏠 Indoor (Neutral)</option>
-                                    <option value="daylight">☀️ Daylight (Cool)</option>
-                                    <option value="tungsten">💡 Tungsten (Warm)</option>
+                                <label style="font-size: 0.7rem; display: block; margin-bottom: 0.3rem;">White Balance Mode</label>
+                                <select id="whiteBalanceMode" style="width: 100%; padding: 0.2rem; margin-bottom: 0.4rem; font-size: 0.7rem;" onchange="setWhiteBalanceMode(this.value)">
+                                    <option value="indoor">🏠 Indoor</option>
+                                    <option value="daylight">☀️ Daylight</option>
+                                    <option value="tungsten">💡 Tungsten</option>
                                 </select>
-                                <button class="btn btn-sm btn-success" onclick="lockWhiteBalance()" style="width: 100%;">
+                                <button class="btn btn-sm btn-success" onclick="lockWhiteBalance()" style="width: 100%; padding: 0.2rem; font-size: 0.7rem;">
                                     🔒 Lock Current WB
                                 </button>
                             </div>
@@ -259,11 +260,20 @@
                     </div>
                     
                     <!-- Status Display -->
-                    <div id="controlsStatus" style="margin-top: 10px; padding: 8px; background: #e9ecef; border-radius: 4px; font-size: 12px;">
+                    <div id="controlsStatus" style="margin-top: 0.5rem; padding: 0.4rem; background: #e9ecef; border-radius: 4px; font-size: 0.7rem;">
                         Status: Ready
                     </div>
                 </div>
             </div>
+        </div>
+    </section>
+
+    <!-- Reserved Space for Future Visual -->
+    <section class="reserved-panel" style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); border: 2px dashed #cbd5e1; display: flex; align-items: center; justify-content: center; min-height: 200px;">
+        <div style="text-align: center; color: #64748b;">
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">📊</div>
+            <div style="font-weight: 600; margin-bottom: 0.25rem;">Reserved Space</div>
+            <div style="font-size: 0.8rem;">Future visualization will be placed here</div>
         </div>
     </section>
 
