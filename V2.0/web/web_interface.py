@@ -601,10 +601,18 @@ class ScannerWebInterface:
             if self.orchestrator and hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
                 try:
                     lighting_status = self.orchestrator.lighting_controller.get_status()
-                    status['lighting'].update({
-                        'zones': list(lighting_status.get('zones', {}).keys()),
-                        'status': 'ready' if lighting_status.get('initialized') else 'unavailable'
-                    })
+                    # Handle async get_status if needed
+                    if hasattr(lighting_status, '__await__'):
+                        # Skip async status for now in sync context
+                        status['lighting'].update({
+                            'zones': [],
+                            'status': 'async_status_skipped'
+                        })
+                    else:
+                        status['lighting'].update({
+                            'zones': list(lighting_status.get('zones', {}).keys()),
+                            'status': 'ready' if lighting_status.get('initialized') else 'unavailable'
+                        })
                 except Exception as e:
                     status['system']['errors'].append(f"Lighting controller error: {e}")
             
@@ -981,7 +989,7 @@ class ScannerWebInterface:
             self.logger.error(f"Camera stream setup failed: {e}")
             yield b'--frame\r\nContent-Type: text/plain\r\n\r\nCamera not available\r\n'
     
-    def start_web_server(self, host='0.0.0.0', port=8080, debug=False):
+    def start_web_server(self, host='0.0.0.0', port=8080, debug=False, use_reloader=None):
         """Start the Flask web server"""
         try:
             self._running = True
@@ -990,8 +998,12 @@ class ScannerWebInterface:
             # Start background thread for status updates
             self._start_status_updater()
             
+            # Determine reloader setting
+            if use_reloader is None:
+                use_reloader = debug
+            
             # Run the Flask app directly (no SocketIO)
-            self.app.run(host=host, port=port, debug=debug)
+            self.app.run(host=host, port=port, debug=debug, use_reloader=use_reloader)
             
         except Exception as e:
             self.logger.error(f"Failed to start web server: {e}")

@@ -123,6 +123,13 @@ def create_mock_orchestrator():
 
 def initialize_real_orchestrator():
     """Initialize the real scanner orchestrator with optional GPIO"""
+    import os
+    
+    # Skip hardware initialization if this is Flask's debug reloader process
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        print("⚠️  Skipping hardware initialization in debug reloader process")
+        return create_mock_orchestrator()
+    
     try:
         from scanning.scan_orchestrator import ScanOrchestrator
         from core.config_manager import ConfigManager
@@ -262,9 +269,17 @@ def start_web_interface(
         # Create web interface
         web_interface = ScannerWebInterface(orchestrator=orchestrator)
         
+        # For hardware mode, disable Flask's auto-reloader to prevent camera conflicts
+        use_reloader = debug and orchestrator.__class__.__name__ == 'MockOrchestrator'
+        
         # Start server
         print(f"🚀 Starting web interface on http://{host}:{port}")
-        web_interface.start_web_server(host=host, port=port, debug=debug)
+        if use_reloader:
+            print("🔄 Debug mode with auto-reloader enabled (mock mode)")
+        else:
+            print("🔧 Debug mode without auto-reloader (hardware mode)")
+            
+        web_interface.start_web_server(host=host, port=port, debug=debug, use_reloader=use_reloader)
         
     except KeyboardInterrupt:
         print("\n🛑 Shutting down web interface...")
