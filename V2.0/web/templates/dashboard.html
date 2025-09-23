@@ -192,6 +192,7 @@
                          onerror="console.log('Camera 0 stream error, retrying...'); setTimeout(() => { const timestamp = Date.now(); this.src = '/camera/0?t=' + timestamp; }, 2000);">
                     <div class="camera-overlay">
                         <button class="camera-control" onclick="captureFromCamera(0)" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;">📸 Capture High-Res</button>
+                        <button class="camera-control" onclick="manualRefreshCamera()" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; margin-left: 0.5rem;">🔄 Refresh Stream</button>
                     </div>
                 </div>
                 <div class="camera-info">
@@ -312,13 +313,10 @@
         let streamCheckInterval = null;
         
         function startCameraRefresh() {
-            // Initial load with immediate refresh
+            // Initial load only - no automatic refresh
             refreshCameraStream();
             
-            // Original refresh interval for smooth streaming
-            refreshInterval = setInterval(refreshCameraStream, 15000);  // Every 15 seconds
-            
-            // Original stream health monitoring
+            // Only monitor stream health for error recovery
             streamCheckInterval = setInterval(checkStreamHealth, 5000);  // Every 5 seconds
         }
         
@@ -326,7 +324,7 @@
             const camera0Feed = document.getElementById('camera0Feed');
             if (camera0Feed) {
                 const timestamp = Date.now();
-                console.log('Refreshing Camera 0 high-performance stream...');
+                console.log('Refreshing Camera 0 stream...');
                 camera0Feed.src = '/camera/0?t=' + timestamp;
             }
         }
@@ -334,18 +332,20 @@
         function checkStreamHealth() {
             const camera0Feed = document.getElementById('camera0Feed');
             if (camera0Feed && !cameraStreamWorking) {
-                console.log('Camera stream health check - refreshing...');
+                console.log('Camera stream health check failed - refreshing for error recovery...');
                 refreshCameraStream();
             }
             // Reset flag for next check
             cameraStreamWorking = false;
         }
         
+        function manualRefreshCamera() {
+            console.log('Manual camera refresh requested by user');
+            refreshCameraStream();
+        }
+        
         function stopCameraRefresh() {
-            if (refreshInterval) {
-                clearInterval(refreshInterval);
-                refreshInterval = null;
-            }
+            // Only need to stop health check interval (no automatic refresh anymore)
             if (streamCheckInterval) {
                 clearInterval(streamCheckInterval);
                 streamCheckInterval = null;
