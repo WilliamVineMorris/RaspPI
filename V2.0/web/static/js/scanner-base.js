@@ -166,6 +166,13 @@ window.ScannerBase = {
      */
     updateSystemStatus(status) {
         console.log('updateSystemStatus called with:', JSON.stringify(status, null, 2));
+        
+        // Detailed debugging of each property access
+        console.log('Raw status.motion:', status.motion);
+        console.log('Raw status.motion?.connected:', status.motion?.connected);
+        console.log('Raw status.cameras:', status.cameras);
+        console.log('Raw status.cameras?.available:', status.cameras?.available);
+        
         console.log('Motion connected:', status.motion?.connected);
         console.log('Motion connected type:', typeof status.motion?.connected);
         console.log('Cameras available:', status.cameras?.available);
@@ -174,9 +181,16 @@ window.ScannerBase = {
         console.log('Boolean(status.cameras?.available):', Boolean(status.cameras?.available));
         console.log('Number(status.cameras?.available):', Number(status.cameras?.available));
         
+        // Step by step boolean evaluation
+        const motionConnected = status.motion?.connected;
+        const camerasAvailable = status.cameras?.available;
+        
+        console.log('Extracted motionConnected:', motionConnected, 'type:', typeof motionConnected);
+        console.log('Extracted camerasAvailable:', camerasAvailable, 'type:', typeof camerasAvailable);
+        
         // More robust boolean checks
-        const motionReady = Boolean(status.motion?.connected);
-        const cameraReady = Boolean(status.cameras?.available) && Number(status.cameras?.available) > 0;
+        const motionReady = Boolean(motionConnected);
+        const cameraReady = Boolean(camerasAvailable) && Number(camerasAvailable) > 0;
         const lightingReady = Boolean(status.lighting?.zones?.length) && status.lighting.zones.length > 0;
         const scanActive = Boolean(status.scan?.active);
         
