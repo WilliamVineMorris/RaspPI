@@ -90,7 +90,7 @@
 {% endblock %}
 
 {% block content %}
-<main class="main-content" style="flex: 1; padding: 0.5rem; overflow: hidden;">
+<main class="main-content" style="flex: 1; padding: 0.5rem; width: 100%; max-width: none; margin: 0;">
 <div class="dashboard-grid">
     <!-- System Status Panel -->
     <section class="status-panel">
@@ -192,8 +192,14 @@
                          onload="cameraStreamWorking = true; console.log('Camera 0 native 1080p stream loaded');"
                          onerror="console.log('Camera 0 stream error, retrying...'); setTimeout(() => { const timestamp = Date.now(); this.src = '/camera/0?t=' + timestamp; }, 2000);">
                     <div class="camera-overlay">
-                        <button class="camera-control" onclick="captureFromCamera(0)" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;">📸 Capture High-Res</button>
-                        <button class="camera-control" onclick="manualRefreshCamera()" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; margin-left: 0.5rem;">🔄 Refresh Stream</button>
+                        <button class="camera-control modern-btn capture-btn" onclick="captureFromCamera(0)" title="Capture High-Resolution Photo">
+                            <span class="btn-icon">📸</span>
+                            <span class="btn-text">Capture</span>
+                        </button>
+                        <button class="camera-control modern-btn refresh-btn" onclick="manualRefreshCamera()" title="Refresh Camera Stream">
+                            <span class="btn-icon">🔄</span>
+                            <span class="btn-text">Refresh</span>
+                        </button>
                     </div>
                 </div>
                 <div class="camera-info">
