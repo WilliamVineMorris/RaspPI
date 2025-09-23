@@ -349,17 +349,17 @@ class CameraManagerAdapter:
         self._mode_lock = threading.Lock()  # Lock for mode switching
         self._capture_lock = threading.Lock()  # Lock for captures
         
-        # TEST MODE: No color conversion - testing raw camera output
+        # OPTIMAL CONFIGURATION: Camera native output used directly
         try:
             camera_config = self.config_manager.get_section('cameras')
             color_config = camera_config.get('color_format', {})
-            default_mode = color_config.get('default_mode', 'raw_test')
+            default_mode = color_config.get('default_mode', 'native_direct')
             self._force_color_conversion = default_mode
-            self.logger.info(f"CAMERA: TEST MODE - Raw camera output testing: {default_mode}")
+            self.logger.info(f"CAMERA: Optimal configuration - native camera output: {default_mode}")
         except Exception as e:
-            # Fallback to raw testing
-            self._force_color_conversion = 'raw_test'
-            self.logger.info(f"CAMERA: Config read failed ({e}), using raw camera output for testing")
+            # Fallback to native direct since it provides correct colors
+            self._force_color_conversion = 'native_direct'
+            self.logger.info(f"CAMERA: Config read failed ({e}), using optimal native camera output")
             
         self.logger.info("CAMERA: Camera adapter initialized with color format configuration")
         
@@ -394,15 +394,14 @@ class CameraManagerAdapter:
                 camera = self.controller.cameras[camera_id]
                 
                 if camera:
-                    # TEST: Use RGB888 format to test what camera actually outputs
-                    # This will help determine if camera data is RGB or BGR natively
+                    # OPTIMAL: RGB888 format with direct output provides correct colors
                     self._stream_config = camera.create_video_configuration(
                         main={"size": (1920, 1080), "format": "RGB888"},
                         lores={"size": (640, 480), "format": "YUV420"},  # Thumbnail for processing
                         display="lores"  # Use low-res for display efficiency
                     )
                     
-                    # TEST: Use RGB888 format for high-res capture testing
+                    # OPTIMAL: RGB888 format for high-res capture
                     self._capture_config = camera.create_still_configuration(
                         main={"size": (4608, 2592), "format": "RGB888"},  # Full sensor resolution
                         lores={"size": (1920, 1080), "format": "YUV420"},  # Preview
@@ -414,7 +413,7 @@ class CameraManagerAdapter:
                     camera.start()
                     
                     self._current_mode = "streaming"
-                    self.logger.info("CAMERA: TEST MODE - RGB888 format configured, using RAW output to determine native camera format")
+                    self.logger.info("CAMERA: OPTIMAL CONFIGURATION - RGB888 native output provides perfect colors")
                     
         except Exception as e:
             self.logger.error(f"CAMERA: Failed to setup dual-mode configurations: {e}")
@@ -589,28 +588,14 @@ class CameraManagerAdapter:
                         frame_array = camera.capture_array("main")
                         
                         if frame_array is not None and frame_array.size > 0:
-                            # TEST: Use direct camera output without any color conversion
-                            # This will help determine the true native camera format
-                            frame_bgr = frame_array.copy()  # Direct use - no conversion at all
-                            
-                            # DEBUG: Analyze raw camera data to understand format
-                            if not hasattr(self, '_format_analyzed'):
-                                sample = frame_array[100:200, 100:200]  # Sample region
-                                if len(sample.shape) == 3 and sample.shape[2] == 3:
-                                    mean_ch0 = np.mean(sample[:, :, 0])  # First channel
-                                    mean_ch1 = np.mean(sample[:, :, 1])  # Second channel  
-                                    mean_ch2 = np.mean(sample[:, :, 2])  # Third channel
-                                    
-                                    self.logger.info(f"CAMERA RAW ANALYSIS - Channel means: [0]={mean_ch0:.1f} [1]={mean_ch1:.1f} [2]={mean_ch2:.1f}")
-                                    self.logger.info(f"CAMERA RAW ANALYSIS - Frame shape: {frame_array.shape}, dtype: {frame_array.dtype}")
-                                    self.logger.info("CAMERA RAW ANALYSIS - If colors appear correct, this is the native format")
-                                    self._format_analyzed = True
+                            # OPTIMAL: Use camera RGB888 output directly - provides perfect colors
+                            frame_bgr = frame_array.copy()  # Direct use - optimal performance
                             
                             if not hasattr(self, '_color_format_logged'):
-                                self.logger.info("CAMERA: Using RAW camera output directly (no color conversion) - testing native format")
+                                self.logger.info("CAMERA: Using native RGB888 output directly - optimal configuration (no conversion overhead)")
                                 self._color_format_logged = True
                                 
-                            # Ensure no further conversions happen to this frame
+                            # Frame is ready for OpenCV JPEG encoding
                             
                             # Optional: Apply minimal enhancement for better web display
                             # Only if the frame appears too dark/flat
@@ -689,12 +674,11 @@ class CameraManagerAdapter:
                         image_array = camera.capture_array("main")
                         
                         if image_array is not None and image_array.size > 0:
-                            # TEST: Use direct camera output without any color conversion
-                            # This will help determine the true native camera format for high-res captures
-                            image_bgr = image_array.copy()  # Direct use - no conversion at all
+                            # OPTIMAL: Use camera RGB888 output directly for high-res captures
+                            image_bgr = image_array.copy()  # Direct use - optimal performance
                             
-                            # Ensure no further conversions happen to this high-res image
-                            self.logger.info(f"CAMERA: High-res capture using RAW camera output directly (no conversion): {image_bgr.shape}, dtype: {image_bgr.dtype}")
+                            # No conversions needed - camera provides perfect format
+                            self.logger.info(f"CAMERA: High-res capture using optimal native RGB888 format: {image_bgr.shape}, dtype: {image_bgr.dtype}")
                             return image_bgr
                         else:
                             self.logger.error("CAMERA: High-res capture returned empty array")
