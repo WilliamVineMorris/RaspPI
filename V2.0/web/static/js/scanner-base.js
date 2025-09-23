@@ -312,8 +312,12 @@ window.ScannerBase = {
         const motionDetails = document.getElementById('motionDetails');
         if (motionDetails && data.motion) {
             motionDetails.innerHTML = `
+                <div>Connection: <span id="motionConnection" class="status-value">${data.motion.connected ? 'Connected' : 'Disconnected'}</span></div>
+                <div>Homed: <span id="motionHomed" class="status-value">${data.motion.homed ? 'Yes' : 'No'}</span></div>
                 <div>Position: <span id="currentPosition">X:${parseFloat(data.motion.position?.x || 0).toFixed(1)} Y:${parseFloat(data.motion.position?.y || 0).toFixed(1)} Z:${parseFloat(data.motion.position?.z || 0).toFixed(1)} C:${parseFloat(data.motion.position?.c || 0).toFixed(1)}</span></div>
                 <div>State: <span id="motionState">${data.motion.status || 'Unknown'}</span></div>
+                <div>Activity: <span id="motionActivity" class="status-value">${data.motion.activity || 'idle'}</span></div>
+                <div>FluidNC: <span id="fluidncStatus" class="status-value">${data.motion.fluidnc_status || 'Unknown'}</span></div>
             `;
         }
 
