@@ -512,123 +512,64 @@ class CameraManagerAdapter:
                 self.logger.info(f"CAMERA DEBUG: Starting capture from camera {mapped_camera_id}")
                 setattr(self, f'_last_capture_log_{mapped_camera_id}', current_time)
             
-            # Priority check: Camera 1 should wait for Camera 0 to be stable
+            # Priority check: DISABLE Camera 1 completely until Camera 0 is stable
             if mapped_camera_id == 1:
-                camera_0_status = self._camera_startup_status.get(0, False)
-                if not camera_0_status:
-                    self.logger.warning(f"CAMERA PRIORITY: Camera 1 waiting for Camera 0 to be stable")
-                    return None
-                # Add extra delay for Camera 1
-                time.sleep(0.2)
+                self.logger.warning(f"CAMERA DISABLED: Camera 1 temporarily disabled until Camera 0 is fully stable")
+                return None
             
             # Use threading for timeout with camera resource locking
             result: List[Union[np.ndarray, None]] = [None]
             exception: List[Union[Exception, None]] = [None]
             
             def capture_frame():
-                # CRITICAL: Use global lock to prevent simultaneous camera access 
-                # This addresses the V4L2 buffer queue failures
-                global_lock_acquired = self._global_access_lock.acquire(timeout=8.0)
-                if not global_lock_acquired:
-                    self.logger.warning(f"CAMERA WARNING: Could not acquire global camera lock for camera {mapped_camera_id}")
-                    return
-                
                 try:
-                    # Add small delay for camera switching to prevent hardware conflicts
-                    current_time_inner = time.time()
-                    time_since_last_access = current_time_inner - self._last_camera_access.get(mapped_camera_id, 0.0)
-                    if time_since_last_access < 0.5:  # Minimum 500ms between camera operations
-                        delay_needed = 0.5 - time_since_last_access
-                        time.sleep(delay_needed)
+                    # Simple capture without complex locking for now
+                    # Focus on getting Camera 0 working first
                     
-                    self._last_camera_access[mapped_camera_id] = time.time()
+                    self.logger.info(f"CAMERA SIMPLE: Starting simple capture for camera {mapped_camera_id}")
                     
-                    # Get camera-specific lock for resource tracking
-                    camera_lock = self._camera_locks.get(mapped_camera_id)
-                    if not camera_lock:
-                        self.logger.error(f"CAMERA ERROR: No lock available for camera {mapped_camera_id}")
-                        return
-                    
-                    # Try to acquire camera lock with longer timeout
-                    lock_acquired = camera_lock.acquire(timeout=5.0)
-                    if not lock_acquired:
-                        self.logger.warning(f"CAMERA WARNING: Could not acquire camera lock for camera {mapped_camera_id}")
-                        return
-                    
-                    try:
-                        # Track access count
-                        self._camera_access_count[mapped_camera_id] = self._camera_access_count.get(mapped_camera_id, 0) + 1
-                        
-                        # Rate-limited access count logging
-                        if not hasattr(self, f'_last_access_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_access_log_{mapped_camera_id}', 0)) > 10.0:
-                            self.logger.info(f"CAMERA DEBUG: Camera {mapped_camera_id} access count: {self._camera_access_count[mapped_camera_id]}")
-                            setattr(self, f'_last_access_log_{mapped_camera_id}', current_time)
-                        
-                        # Check camera state first with priority-based startup
-                        if not hasattr(camera, 'started') or not camera.started:
-                            # Check if this is Camera 1 and Camera 0 isn't running yet
-                            if mapped_camera_id == 1 and not self._camera_startup_status.get(0, False):
-                                self.logger.warning(f"CAMERA WARNING: Delaying Camera 1 startup until Camera 0 is stable")
-                                return
-                            
-                            self.logger.warning(f"CAMERA WARNING: Camera {mapped_camera_id} not started, attempting to start...")
-                            try:
-                                camera.start()
-                                time.sleep(0.5 if mapped_camera_id == 0 else 1.0)  # Longer delay for Camera 1
-                                self.logger.info(f"CAMERA SUCCESS: Camera {mapped_camera_id} started")
-                                self._camera_startup_status[mapped_camera_id] = True
-                            except Exception as start_error:
-                                self.logger.error(f"CAMERA ERROR: Failed to start camera {mapped_camera_id}: {start_error}")
-                                self._camera_startup_status[mapped_camera_id] = False
-                                return
-                        
-                        # Try array capture (fastest method)
+                    # Check camera state first
+                    if not hasattr(camera, 'started') or not camera.started:
+                        self.logger.warning(f"CAMERA WARNING: Camera {mapped_camera_id} not started, attempting to start...")
                         try:
-                            array = camera.capture_array("main")
-                            
-                            if array is not None and array.size > 0:
-                                # Handle different array formats
-                                if len(array.shape) == 3 and array.shape[2] == 3:
-                                    # Assume RGB from camera, convert to BGR
-                                    frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
-                                    
-                                    # Rate-limited success logging
-                                    if not hasattr(self, f'_last_success_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_success_log_{mapped_camera_id}', 0)) > 5.0:
-                                        self.logger.info(f"CAMERA SUCCESS: Captured frame from camera {mapped_camera_id}: {frame_bgr.shape}")
-                                        setattr(self, f'_last_success_log_{mapped_camera_id}', current_time)
-                                    
-                                    # Mark camera as stable after successful capture
-                                    if not self._camera_startup_status.get(mapped_camera_id, False):
-                                        self._camera_startup_status[mapped_camera_id] = True
-                                        self.logger.info(f"CAMERA PRIORITY: Camera {mapped_camera_id} marked as stable")
-                                    
-                                    result[0] = frame_bgr
-                                    return
-                                else:
-                                    self.logger.warning(f"CAMERA WARNING: Unexpected array shape from camera {mapped_camera_id}: {array.shape}")
-                            else:
-                                self.logger.warning(f"CAMERA WARNING: Empty or invalid array from camera {mapped_camera_id}")
-                        
-                        except Exception as array_error:
-                            # Rate-limited error logging
-                            if not hasattr(self, f'_last_error_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_error_log_{mapped_camera_id}', 0)) > 5.0:
-                                self.logger.warning(f"CAMERA ERROR: Array capture failed for camera {mapped_camera_id}: {array_error}")
-                                setattr(self, f'_last_error_log_{mapped_camera_id}', current_time)
+                            camera.start()
+                            time.sleep(0.5)  # Give camera time to start
+                            self.logger.info(f"CAMERA SUCCESS: Camera {mapped_camera_id} started")
+                            self._camera_startup_status[mapped_camera_id] = True
+                        except Exception as start_error:
+                            self.logger.error(f"CAMERA ERROR: Failed to start camera {mapped_camera_id}: {start_error}")
+                            self._camera_startup_status[mapped_camera_id] = False
+                            return
                     
-                    except Exception as e:
-                        self.logger.error(f"CAMERA ERROR: Exception in capture thread for camera {mapped_camera_id}: {e}")
-                        # Mark camera as unstable on errors
-                        self._camera_startup_status[mapped_camera_id] = False
-                        exception[0] = e
-                    finally:
-                        # Always release the camera lock
-                        if 'camera_lock' in locals() and 'lock_acquired' in locals() and lock_acquired:
-                            camera_lock.release()
-                            self._camera_access_count[mapped_camera_id] = max(0, self._camera_access_count.get(mapped_camera_id, 0) - 1)
+                    # Simple array capture
+                    self.logger.info(f"CAMERA SIMPLE: Attempting capture_array for camera {mapped_camera_id}")
+                    array = camera.capture_array("main")
+                    
+                    if array is not None and array.size > 0:
+                        # Handle different array formats
+                        if len(array.shape) == 3 and array.shape[2] == 3:
+                            # Assume RGB from camera, convert to BGR
+                            frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
+                            
+                            self.logger.info(f"CAMERA SUCCESS: Simple capture successful for camera {mapped_camera_id}: {frame_bgr.shape}")
+                            
+                            # Mark camera as stable after successful capture
+                            if not self._camera_startup_status.get(mapped_camera_id, False):
+                                self._camera_startup_status[mapped_camera_id] = True
+                                self.logger.info(f"CAMERA PRIORITY: Camera {mapped_camera_id} marked as stable")
+                            
+                            result[0] = frame_bgr
+                            return
+                        else:
+                            self.logger.warning(f"CAMERA WARNING: Unexpected array shape from camera {mapped_camera_id}: {array.shape}")
+                    else:
+                        self.logger.warning(f"CAMERA WARNING: Empty or invalid array from camera {mapped_camera_id}")
                 
-                finally:
-                    # Always release the global lock
-                    self._global_access_lock.release()
+                except Exception as e:
+                    self.logger.error(f"CAMERA ERROR: Simple capture failed for camera {mapped_camera_id}: {e}")
+                    # Mark camera as unstable on errors
+                    self._camera_startup_status[mapped_camera_id] = False
+                    exception[0] = e
             
             # Start capture in separate thread with timeout
             capture_thread = threading.Thread(target=capture_frame)
