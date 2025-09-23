@@ -130,11 +130,11 @@ def initialize_real_orchestrator():
         
         # Create config manager with default config
         config_file = Path(__file__).parent.parent / "config" / "hardware_config.yaml"
-        if not config_file.exists():
-            # Create minimal config matching the expected structure
-            config_file.parent.mkdir(exist_ok=True)
-            with open(config_file, 'w') as f:
-                f.write("""
+        
+        # Always recreate the config file to ensure it has all required fields
+        config_file.parent.mkdir(exist_ok=True)
+        with open(config_file, 'w') as f:
+            f.write("""
 # Hardware Configuration for 3D Scanner
 system:
   name: "3D Scanner Hardware Mode"
