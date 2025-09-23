@@ -827,53 +827,62 @@
         
         function updateBasicMotionStatus(status) {
             // Enhanced fallback motion status updates for all 6 fields
-            if (status.motion) {
-                console.log('Updating motion status with fallback:', status.motion);
+            // Handle both API response format {data: {motion: ...}} and direct format {motion: ...}
+            const motionData = status.data?.motion || status.motion;
+            
+            if (motionData) {
+                console.log('Updating motion status with fallback:', motionData);
                 
                 // Update connection status
                 const connectionElement = document.getElementById('motionConnection');
                 if (connectionElement) {
-                    const connected = status.motion.connected || false;
+                    const connected = motionData.connected || false;
                     connectionElement.textContent = connected ? 'Connected' : 'Disconnected';
                     connectionElement.className = `status-value ${connected ? 'connected' : 'disconnected'}`;
+                    console.log('Fallback updated motionConnection:', connected);
                 }
                 
                 // Update homed status
                 const homedElement = document.getElementById('motionHomed');
                 if (homedElement) {
-                    const homed = status.motion.homed || status.motion.is_homed || false;
+                    const homed = motionData.homed || motionData.is_homed || false;
                     homedElement.textContent = homed ? 'Yes' : 'No';
                     homedElement.className = `status-value ${homed ? 'homed' : 'not-homed'}`;
+                    console.log('Fallback updated motionHomed:', homed);
                 }
                 
                 // Update position
                 const posElement = document.getElementById('currentPosition');
-                if (posElement && status.motion.position) {
-                    const pos = status.motion.position;
+                if (posElement && motionData.position) {
+                    const pos = motionData.position;
                     posElement.textContent = 
                         `X:${parseFloat(pos.x || 0).toFixed(1)} Y:${parseFloat(pos.y || 0).toFixed(1)} Z:${parseFloat(pos.z || 0).toFixed(1)} C:${parseFloat(pos.c || 0).toFixed(1)}`;
+                    console.log('Fallback updated currentPosition:', posElement.textContent);
                 }
                 
                 // Update state
                 const stateElement = document.getElementById('motionState');
                 if (stateElement) {
-                    const state = status.motion.status || status.motion.state || 'unknown';
+                    const state = motionData.status || motionData.state || 'unknown';
                     stateElement.textContent = formatMotionState(state);
+                    console.log('Fallback updated motionState:', state);
                 }
                 
                 // Update activity
                 const activityElement = document.getElementById('motionActivity');
                 if (activityElement) {
-                    const activity = status.motion.activity || 'idle';
+                    const activity = motionData.activity || 'idle';
                     activityElement.textContent = formatMotionActivity(activity);
                     activityElement.className = `status-value ${getActivityClass(activity)}`;
+                    console.log('Fallback updated motionActivity:', activity);
                 }
                 
                 // Update FluidNC status
                 const fluidncElement = document.getElementById('fluidncStatus');
                 if (fluidncElement) {
-                    const fluidncStatus = status.motion.fluidnc_status || 'Unknown';
+                    const fluidncStatus = motionData.fluidnc_status || 'Unknown';
                     fluidncElement.textContent = fluidncStatus;
+                    console.log('Fallback updated fluidncStatus:', fluidncStatus);
                     
                     // Color code FluidNC status
                     let statusClass = 'idle';
