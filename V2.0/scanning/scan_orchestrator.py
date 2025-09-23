@@ -337,6 +337,14 @@ class MotionControllerAdapter:
         new_pos = Position4D(x=current_pos.x, y=current_pos.y, z=current_pos.z, c=rotation)
         return await self.controller.move_to_position(new_pos)
         
+    async def move_relative(self, delta, feedrate: Optional[float] = None) -> bool:
+        """Asynchronous wrapper for relative movement"""
+        return await self.controller.move_relative(delta, feedrate)
+    
+    async def move_to_position(self, position, feedrate: Optional[float] = None) -> bool:
+        """Asynchronous wrapper for absolute position movement"""
+        return await self.controller.move_to_position(position, feedrate)
+        
     async def emergency_stop(self) -> bool:
         return await self.controller.emergency_stop()
         
@@ -356,6 +364,32 @@ class MotionControllerAdapter:
         
     def is_connected(self) -> bool:
         return self.controller.is_connected()
+    
+    @property
+    def current_position(self):
+        """Access the cached current position from the underlying controller"""
+        if hasattr(self.controller, 'current_position'):
+            return self.controller.current_position
+        else:
+            # Fallback - create a basic position object
+            from core.types import Position4D
+            return Position4D(x=0.0, y=0.0, z=0.0, c=0.0)
+    
+    @property 
+    def status(self):
+        """Access the current status from the underlying controller"""
+        if hasattr(self.controller, 'status'):
+            return self.controller.status
+        else:
+            return 'unknown'
+    
+    @property
+    def is_homed(self) -> bool:
+        """Access the homing status from the underlying controller"""
+        if hasattr(self.controller, 'is_homed'):
+            return self.controller.is_homed and not self._homing_in_progress
+        else:
+            return False
         
     def get_status(self) -> Dict[str, Any]:
         """Get motion controller status with enhanced FluidNC information"""
@@ -372,7 +406,17 @@ class MotionControllerAdapter:
             
             if is_connected:
                 try:
-                    if hasattr(self.controller, 'get_position_sync'):
+                    # Get position from controller's cached current_position
+                    if hasattr(self.controller, 'current_position'):
+                        position = self.controller.current_position
+                        position_dict = {
+                            'x': getattr(position, 'x', 0.0),
+                            'y': getattr(position, 'y', 0.0), 
+                            'z': getattr(position, 'z', 0.0),
+                            'c': getattr(position, 'c', 0.0)
+                        }
+                        self.logger.debug(f"Retrieved cached position from FluidNC controller: {position_dict}")
+                    elif hasattr(self.controller, 'get_position_sync'):
                         position = self.controller.get_position_sync()
                         position_dict = {
                             'x': position.x,
@@ -381,6 +425,7 @@ class MotionControllerAdapter:
                             'c': position.c
                         }
                     else:
+                        self.logger.warning("Controller has no current_position or get_position_sync, using defaults")
                         position_dict = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
                     
                     # Get enhanced FluidNC status information
@@ -481,20 +526,29 @@ class MotionControllerAdapter:
     def get_position(self) -> Dict[str, float]:
         """Get current position in a dict format"""
         try:
-            if hasattr(self.controller, 'get_position_sync'):
+            # Use cached current_position from the controller
+            if hasattr(self.controller, 'current_position'):
+                pos = self.controller.current_position
+                return {
+                    'x': getattr(pos, 'x', 0.0),
+                    'y': getattr(pos, 'y', 0.0), 
+                    'z': getattr(pos, 'z', 0.0),
+                    'c': getattr(pos, 'c', 0.0)
+                }
+            elif hasattr(self.controller, 'get_position_sync'):
                 # Use synchronous method if available
                 pos = self.controller.get_position_sync()
+                return {
+                    'x': pos.x if hasattr(pos, 'x') else 0.0,
+                    'y': pos.y if hasattr(pos, 'y') else 0.0, 
+                    'z': pos.z if hasattr(pos, 'z') else 0.0,
+                    'c': pos.c if hasattr(pos, 'c') else 0.0
+                }
             else:
                 # Fallback to basic position if no sync method
                 return {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
-                
-            return {
-                'x': pos.x if hasattr(pos, 'x') else 0.0,
-                'y': pos.y if hasattr(pos, 'y') else 0.0, 
-                'z': pos.z if hasattr(pos, 'z') else 0.0,
-                'c': pos.c if hasattr(pos, 'c') else 0.0
-            }
-        except Exception:
+        except Exception as e:
+            self.logger.debug(f"Error getting position: {e}")
             return {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
         
     def get_current_settings(self) -> Dict[str, Any]:
