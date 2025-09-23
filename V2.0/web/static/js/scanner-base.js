@@ -443,22 +443,66 @@ window.ScannerBase = {
     },
 
     /**
-     * Show alert message to user
+     * Show alert message to user with improved placement options
      */
-    showAlert(message, type = 'info', duration = 5000) {
+    showAlert(message, type = 'info', duration = 5000, useLogOnly = false) {
+        // For non-critical messages, just use the activity log to avoid UI displacement
+        if (useLogOnly || type === 'info') {
+            this.addLogEntry(message, type);
+            return;
+        }
+
         const alertContainer = document.getElementById('alertContainer');
-        if (!alertContainer) return;
+        if (!alertContainer) {
+            // Fallback to activity log if no alert container
+            this.addLogEntry(message, type);
+            return;
+        }
 
         const alertId = `alert_${Date.now()}`;
         const alertElement = document.createElement('div');
         alertElement.id = alertId;
         alertElement.className = `alert ${type}`;
+        alertElement.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+            max-width: 400px;
+            padding: 12px 16px;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        `;
+        
+        // Set colors based on type
+        const colors = {
+            success: { bg: '#d4edda', border: '#c3e6cb', text: '#155724' },
+            error: { bg: '#f8d7da', border: '#f5c6cb', text: '#721c24' },
+            warning: { bg: '#fff3cd', border: '#ffeaa7', text: '#856404' },
+            info: { bg: '#d1ecf1', border: '#bee5eb', text: '#0c5460' }
+        };
+        
+        const color = colors[type] || colors.info;
+        alertElement.style.backgroundColor = color.bg;
+        alertElement.style.borderLeft = `4px solid ${color.border}`;
+        alertElement.style.color = color.text;
+        
         alertElement.innerHTML = `
-            <span>${message}</span>
-            <button onclick="ScannerBase.dismissAlert('${alertId}')" style="margin-left: auto; background: none; border: none; font-size: 1.2rem; cursor: pointer;">&times;</button>
+            <span style="display: block; margin-right: 30px;">${message}</span>
+            <button onclick="ScannerBase.dismissAlert('${alertId}')" 
+                    style="position: absolute; top: 8px; right: 8px; background: none; border: none; font-size: 1.4rem; cursor: pointer; color: ${color.text}; opacity: 0.7;"
+                    onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">&times;</button>
         `;
 
+        // Add to container (this should be positioned to not displace content)
         alertContainer.appendChild(alertElement);
+        
+        // Animate in
+        setTimeout(() => {
+            alertElement.style.transform = 'translateX(0)';
+        }, 10);
 
         // Auto-dismiss after duration
         if (duration > 0) {
@@ -469,12 +513,21 @@ window.ScannerBase = {
     },
 
     /**
-     * Dismiss alert by ID
+     * Dismiss alert by ID with animation
      */
     dismissAlert(alertId) {
         const alertElement = document.getElementById(alertId);
         if (alertElement) {
-            alertElement.remove();
+            // Animate out
+            alertElement.style.transform = 'translateX(100%)';
+            alertElement.style.opacity = '0';
+            
+            // Remove after animation
+            setTimeout(() => {
+                if (alertElement.parentNode) {
+                    alertElement.parentNode.removeChild(alertElement);
+                }
+            }, 300);
         }
     },
 
@@ -565,40 +618,43 @@ window.ScannerBase = {
 window.emergencyStop = async function() {
     try {
         ScannerBase.showLoading('Emergency stop...');
-        ScannerBase.addLogEntry('Emergency stop initiated', 'warning');
+        ScannerBase.addLogEntry('🚨 Emergency stop initiated', 'warning');
         
         const response = await ScannerBase.apiRequest('/api/emergency_stop', {
             method: 'POST'
         });
         
-        ScannerBase.showAlert('Emergency stop executed', 'warning');
-        ScannerBase.addLogEntry('Emergency stop completed', 'warning');
+        // Show overlay alert for emergency stop (critical message)
+        ScannerBase.showAlert('🚨 Emergency stop executed', 'warning', 5000, false);
+        ScannerBase.addLogEntry('✅ Emergency stop completed successfully', 'warning');
         
     } catch (error) {
-        ScannerBase.showAlert(`Emergency stop failed: ${error.message}`, 'error');
-        ScannerBase.addLogEntry(`Emergency stop failed: ${error.message}`, 'error');
+        ScannerBase.showAlert(`🚨 Emergency stop failed: ${error.message}`, 'error', 7000, false);
+        ScannerBase.addLogEntry(`❌ Emergency stop failed: ${error.message}`, 'error');
     } finally {
         ScannerBase.hideLoading();
     }
 };
 
-window.refreshStatus = function() {
+window.refreshStatus = async function() {
     try {
         ScannerBase.log('Manual status refresh requested');
         
-        // Show loading feedback
-        ScannerBase.showAlert('Refreshing status...', 'info', 1000);
+        // Show loading feedback in activity log (non-intrusive)
+        ScannerBase.addLogEntry('🔄 Refreshing system status...', 'info');
         
-        // Use the existing polling mechanism
-        ScannerBase.pollStatus();
+        // Perform the actual refresh and wait for completion
+        await ScannerBase.pollStatus();
         
-        // Additional feedback after a short delay
+        // Wait a moment for the status to be processed and displayed
         setTimeout(() => {
-            ScannerBase.showAlert('Status refreshed', 'success', 2000);
+            ScannerBase.addLogEntry('✅ System status refreshed successfully', 'success');
         }, 500);
         
     } catch (error) {
         ScannerBase.log('Status refresh error:', error);
+        ScannerBase.addLogEntry(`❌ Status refresh failed: ${error.message}`, 'error');
+        // For errors, still show an overlay alert since they're important
         ScannerBase.showAlert(`Cannot refresh status: ${error.message}`, 'error');
     }
 };

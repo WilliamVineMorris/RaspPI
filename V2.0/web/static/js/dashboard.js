@@ -538,16 +538,14 @@ const Dashboard = {
 
             ScannerBase.showLoading('🏠 Initializing homing sequence...');
             ScannerBase.addLogEntry('🚀 Starting homing sequence for all axes...', 'info');
-            ScannerBase.showAlert('🏠 Homing sequence started - please wait...', 'info', 3000);
 
             // Start the homing request (this returns immediately due to threading)
             const response = await ScannerBase.apiRequest('/api/home', {
                 method: 'POST'
             });
 
-            // Show immediate confirmation that homing started
+            // Show immediate confirmation that homing started (activity log only)
             ScannerBase.addLogEntry('✅ Homing request sent - monitoring progress...', 'success');
-            ScannerBase.showAlert('⚡ Homing in progress - monitoring status...', 'info', 2000);
 
             // Start progress monitoring
             let checkCount = 0;
@@ -586,7 +584,8 @@ const Dashboard = {
                             progressInterval = null;
                             
                             ScannerBase.hideLoading();
-                            ScannerBase.showAlert('🎉 All axes homed successfully!', 'success', 5000);
+                            // Use overlay alert only for final success (important message)
+                            ScannerBase.showAlert('🎉 All axes homed successfully!', 'success', 5000, false);
                             ScannerBase.addLogEntry(`✅ Homing completed successfully in ${elapsed + 2} seconds`, 'success');
                             
                             // Re-enable button
@@ -606,7 +605,6 @@ const Dashboard = {
                         if (!homingDetected) {
                             homingDetected = true;
                             ScannerBase.addLogEntry(`🔄 Homing sequence detected (FluidNC: ${status.motion.fluidnc_status || 'Unknown'})`, 'info');
-                            ScannerBase.showAlert('⚡ Physical homing in progress...', 'info', 2000);
                         }
                         ScannerBase.showLoading(`🏠 Physical homing in progress... (${elapsed}s)`);
                         
