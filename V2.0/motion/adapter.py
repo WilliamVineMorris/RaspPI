@@ -178,15 +178,16 @@ class StandardMotionAdapter(ABC):
             z_degrees: Raw Z position in degrees
             
         Returns:
-            Normalized Z position in range [-180, 180]
+            Normalized Z position in range (-180, 180]
         """
         if not self.axes['z'].continuous:
             return z_degrees
             
-        # Normalize to [-180, 180] range for continuous rotation
+        # Normalize to (-180, 180] range for continuous rotation
+        # This ensures -180 becomes 180 (equivalent angles)
         while z_degrees > 180.0:
             z_degrees -= 360.0
-        while z_degrees < -180.0:
+        while z_degrees <= -180.0:
             z_degrees += 360.0
             
         return z_degrees
