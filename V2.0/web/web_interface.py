@@ -600,33 +600,18 @@ class ScannerWebInterface:
             # Get lighting status
             if self.orchestrator and hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
                 try:
-                    # Check if get_status is async or sync
-                    get_status_method = getattr(self.orchestrator.lighting_controller, 'get_status', None)
-                    if get_status_method:
-                        try:
-                            # Try to call it - if it's async, it will return a coroutine
-                            lighting_status = get_status_method()
-                            
-                            # Check if it's a coroutine (async)
-                            if hasattr(lighting_status, '__await__'):
-                                # Skip async status for now in sync context
-                                status['lighting'].update({
-                                    'zones': [],
-                                    'status': 'async_method_skipped'
-                                })
-                            else:
-                                # It's sync, process normally
-                                status['lighting'].update({
-                                    'zones': list(lighting_status.get('zones', {}).keys()) if lighting_status else [],
-                                    'status': 'ready' if lighting_status and lighting_status.get('initialized') else 'unavailable'
-                                })
-                        except Exception as inner_e:
-                            status['system']['errors'].append(f"Lighting status call error: {inner_e}")
+                    # Use synchronous status method if available
+                    if hasattr(self.orchestrator.lighting_controller, 'get_sync_status'):
+                        lighting_status = self.orchestrator.lighting_controller.get_sync_status()
+                        status['lighting'].update({
+                            'zones': list(lighting_status.get('zones', {}).keys()),
+                            'status': lighting_status.get('status', 'unknown')
+                        })
                     else:
-                        # No get_status method
+                        # Fallback for other lighting controllers
                         status['lighting'].update({
                             'zones': [],
-                            'status': 'no_status_method'
+                            'status': 'sync_method_unavailable'
                         })
                 except Exception as e:
                     status['system']['errors'].append(f"Lighting controller error: {e}")

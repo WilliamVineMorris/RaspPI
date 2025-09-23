@@ -394,6 +394,22 @@ class LightingControllerAdapter:
         
     async def get_status(self, zone_id: Optional[str] = None) -> Any:
         return await self.controller.get_status(zone_id)
+    
+    def get_sync_status(self, zone_id: Optional[str] = None) -> Any:
+        """Synchronous wrapper for status - safe for web interface"""
+        try:
+            # Return basic status without async calls
+            return {
+                'zones': {},
+                'initialized': self.controller.is_available() if hasattr(self.controller, 'is_available') else False,
+                'status': 'available' if hasattr(self.controller, 'is_available') and self.controller.is_available() else 'unavailable'
+            }
+        except Exception:
+            return {
+                'zones': {},
+                'initialized': False,
+                'status': 'error'
+            }
 
 class ScanOrchestrator:
     """

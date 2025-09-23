@@ -109,6 +109,14 @@ def create_mock_orchestrator():
                 'status': 'ready',
                 'initialized': True
             }
+        
+        def get_sync_status(self, zone_id=None):
+            """Synchronous status method for web interface compatibility"""
+            return {
+                'zones': {'zone_1': {}, 'zone_2': {}, 'zone_3': {}, 'zone_4': {}},
+                'status': 'ready',
+                'initialized': True
+            }
             
         def flash_all_zones(self, settings):
             print(f"Mock: Flashing all zones with settings {settings}")
