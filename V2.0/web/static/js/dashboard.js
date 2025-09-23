@@ -782,8 +782,5 @@ const Dashboard = {
     }
 };
 
-// Initialize dashboard when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-    ScannerBase.init();
-    Dashboard.init();
-});
+// Make Dashboard available globally
+window.Dashboard = Dashboard;

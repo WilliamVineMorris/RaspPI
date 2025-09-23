@@ -764,10 +764,14 @@
                 const response = await fetch('/api/status');
                 const status = await response.json();
                 
-                // Use Dashboard.js motion status update if available
-                if (window.Dashboard && Dashboard.updateMotionStatus) {
-                    Dashboard.updateMotionStatus(status);
+                console.log('Status received:', status);
+                
+                // Trigger status update through Dashboard.js if available
+                if (window.Dashboard && Dashboard.handleStatusUpdate) {
+                    console.log('Using Dashboard.handleStatusUpdate');
+                    Dashboard.handleStatusUpdate(status);
                 } else {
+                    console.log('Dashboard not available, using fallback');
                     // Fallback to basic updates
                     updateBasicMotionStatus(status);
                 }
@@ -822,24 +826,110 @@
         }
         
         function updateBasicMotionStatus(status) {
-            // Basic fallback motion status updates
+            // Enhanced fallback motion status updates for all 6 fields
             if (status.motion) {
-                const posElement = document.getElementById('currentPosition');
-                if (posElement) {
-                    posElement.textContent = 
-                        `X:${status.motion.position.x.toFixed(1)} Y:${status.motion.position.y.toFixed(1)} Z:${status.motion.position.z.toFixed(1)} C:${status.motion.position.c.toFixed(1)}`;
+                console.log('Updating motion status with fallback:', status.motion);
+                
+                // Update connection status
+                const connectionElement = document.getElementById('motionConnection');
+                if (connectionElement) {
+                    const connected = status.motion.connected || false;
+                    connectionElement.textContent = connected ? 'Connected' : 'Disconnected';
+                    connectionElement.className = `status-value ${connected ? 'connected' : 'disconnected'}`;
                 }
                 
+                // Update homed status
+                const homedElement = document.getElementById('motionHomed');
+                if (homedElement) {
+                    const homed = status.motion.homed || status.motion.is_homed || false;
+                    homedElement.textContent = homed ? 'Yes' : 'No';
+                    homedElement.className = `status-value ${homed ? 'homed' : 'not-homed'}`;
+                }
+                
+                // Update position
+                const posElement = document.getElementById('currentPosition');
+                if (posElement && status.motion.position) {
+                    const pos = status.motion.position;
+                    posElement.textContent = 
+                        `X:${parseFloat(pos.x || 0).toFixed(1)} Y:${parseFloat(pos.y || 0).toFixed(1)} Z:${parseFloat(pos.z || 0).toFixed(1)} C:${parseFloat(pos.c || 0).toFixed(1)}`;
+                }
+                
+                // Update state
                 const stateElement = document.getElementById('motionState');
                 if (stateElement) {
-                    stateElement.textContent = status.motion.status;
+                    const state = status.motion.status || status.motion.state || 'unknown';
+                    stateElement.textContent = formatMotionState(state);
                 }
                 
+                // Update activity
+                const activityElement = document.getElementById('motionActivity');
+                if (activityElement) {
+                    const activity = status.motion.activity || 'idle';
+                    activityElement.textContent = formatMotionActivity(activity);
+                    activityElement.className = `status-value ${getActivityClass(activity)}`;
+                }
+                
+                // Update FluidNC status
+                const fluidncElement = document.getElementById('fluidncStatus');
+                if (fluidncElement) {
+                    const fluidncStatus = status.motion.fluidnc_status || 'Unknown';
+                    fluidncElement.textContent = fluidncStatus;
+                    
+                    // Color code FluidNC status
+                    let statusClass = 'idle';
+                    switch(fluidncStatus.toLowerCase()) {
+                        case 'idle': statusClass = 'idle'; break;
+                        case 'run':
+                        case 'jogging': statusClass = 'busy'; break;
+                        case 'homing': statusClass = 'busy'; break;
+                        case 'alarm':
+                        case 'error': statusClass = 'error'; break;
+                        default: statusClass = 'idle';
+                    }
+                    fluidncElement.className = `status-value ${statusClass}`;
+                }
+                
+                // Update main status indicator
                 const statusElement = document.getElementById('motionStatus');
                 if (statusElement) {
-                    statusElement.className = 
-                        'status-indicator ' + (status.motion.connected ? 'ready' : 'error');
+                    const isConnected = status.motion.connected || false;
+                    statusElement.className = `status-indicator ${isConnected ? 'ready' : 'error'}`;
                 }
+            }
+        }
+        
+        // Helper functions for fallback status formatting
+        function formatMotionState(state) {
+            const stateMap = {
+                'idle': 'Idle',
+                'busy': 'Busy',
+                'homing': 'Homing',
+                'error': 'Error',
+                'alarm': 'Alarm',
+                'unknown': 'Unknown'
+            };
+            return stateMap[state] || state;
+        }
+        
+        function formatMotionActivity(activity) {
+            const activityMap = {
+                'idle': 'Idle',
+                'homing': 'Homing',
+                'moving': 'Moving',
+                'positioning': 'Positioning',
+                'unknown': 'Unknown'
+            };
+            return activityMap[activity] || activity;
+        }
+        
+        function getActivityClass(activity) {
+            switch(activity) {
+                case 'idle': return 'idle';
+                case 'homing':
+                case 'moving':
+                case 'positioning': return 'busy';
+                case 'error': return 'error';
+                default: return 'idle';
             }
         }
         
@@ -849,13 +939,31 @@
         
         // Initialize Dashboard when page loads
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('Dashboard page loaded, initializing...');
+            
+            // Check if all motion status elements exist
+            const motionElements = [
+                'motionConnection', 'motionHomed', 'currentPosition', 
+                'motionState', 'motionActivity', 'fluidncStatus'
+            ];
+            
+            console.log('Checking motion status elements:');
+            motionElements.forEach(id => {
+                const element = document.getElementById(id);
+                console.log(`${id}: ${element ? 'Found' : 'MISSING'}`);
+            });
+            
             // Initialize ScannerBase first
             if (window.ScannerBase) {
+                console.log('Initializing ScannerBase...');
                 ScannerBase.init();
+            } else {
+                console.warn('ScannerBase not available');
             }
             
             // Initialize Dashboard
             if (window.Dashboard) {
+                console.log('Initializing Dashboard...');
                 Dashboard.init();
                 console.log('Dashboard initialized successfully');
             } else {
@@ -864,6 +972,12 @@
             
             // Start camera refresh
             startCameraRefresh();
+            
+            // Initial status refresh after a short delay to ensure everything is loaded
+            setTimeout(() => {
+                console.log('Triggering initial status refresh...');
+                refreshStatus();
+            }, 1000);
             
             // Enable autofocus by default after page loads
             setTimeout(() => {

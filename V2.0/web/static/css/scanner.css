@@ -322,38 +322,53 @@ body {
     background-color: var(--bg-primary);
 }
 
+.status-value {
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    background-color: var(--bg-primary);
+}
+
 /* Motion Status Value Colors */
-.motion-status-value.connected {
+.motion-status-value.connected,
+.status-value.connected {
     color: var(--success-color);
     background-color: rgba(34, 197, 94, 0.1);
 }
 
-.motion-status-value.disconnected {
+.motion-status-value.disconnected,
+.status-value.disconnected {
     color: var(--error-color);
     background-color: rgba(239, 68, 68, 0.1);
 }
 
-.motion-status-value.homed {
+.motion-status-value.homed,
+.status-value.homed {
     color: var(--success-color);
     background-color: rgba(34, 197, 94, 0.1);
 }
 
-.motion-status-value.not-homed {
+.motion-status-value.not-homed,
+.status-value.not-homed {
     color: var(--warning-color);
     background-color: rgba(251, 191, 36, 0.1);
 }
 
-.motion-status-value.idle {
+.motion-status-value.idle,
+.status-value.idle {
     color: var(--text-primary);
     background-color: var(--bg-tertiary);
 }
 
-.motion-status-value.busy {
+.motion-status-value.busy,
+.status-value.busy {
     color: var(--warning-color);
     background-color: rgba(251, 191, 36, 0.1);
 }
 
-.motion-status-value.error {
+.motion-status-value.error,
+.status-value.error {
     color: var(--error-color);
     background-color: rgba(239, 68, 68, 0.1);
 }
