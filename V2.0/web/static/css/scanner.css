@@ -192,11 +192,12 @@ body {
 .dashboard-grid {
     display: grid;
     grid-template-columns: 300px 200px 1fr;
-    grid-template-rows: auto auto;
+    grid-template-rows: auto auto auto;
     gap: 0.75rem;
     grid-template-areas:
         "status actions cameras"
-        "reserved reserved cameras";
+        "reserved reserved cameras"
+        "log log log";
 }
 
 /* Responsive adjustments */
@@ -213,7 +214,8 @@ body {
             "status"
             "actions"
             "cameras"
-            "reserved";
+            "reserved"
+            "log";
     }
 }
 
@@ -401,30 +403,31 @@ body {
     transform: scale(1.1);
 }
 
-/* Activity log */
+/* Activity log - Compact Full Width */
 .log-container {
     display: flex;
     flex-direction: column;
-    height: 300px;
+    height: 120px;
 }
 
 .log-content {
     flex: 1;
     background-color: #1e293b;
     color: #e2e8f0;
-    padding: 1rem;
+    padding: 0.5rem;
     border-radius: var(--border-radius);
     overflow-y: auto;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-    font-size: 0.8rem;
-    line-height: 1.4;
+    font-size: 0.7rem;
+    line-height: 1.3;
+    max-height: 90px;
 }
 
 .log-entry {
     display: flex;
     gap: 0.5rem;
-    margin-bottom: 0.25rem;
-    padding: 0.25rem;
+    margin-bottom: 0.15rem;
+    padding: 0.15rem;
     border-radius: 3px;
 }
 
@@ -436,28 +439,30 @@ body {
     color: #94a3b8;
     font-weight: 600;
     white-space: nowrap;
+    font-size: 0.65rem;
 }
 
 .log-message {
     color: #e2e8f0;
+    font-size: 0.7rem;
 }
 
 .log-controls {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-top: 0.5rem;
-    padding-top: 0.5rem;
+    margin-top: 0.3rem;
+    padding-top: 0.3rem;
     border-top: 1px solid var(--border-color);
 }
 
 .log-control-btn {
-    padding: 0.25rem 0.75rem;
+    padding: 0.2rem 0.5rem;
     background-color: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius);
     cursor: pointer;
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     transition: all 0.2s;
 }
 
@@ -468,8 +473,8 @@ body {
 .log-control-checkbox {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.8rem;
+    gap: 0.3rem;
+    font-size: 0.7rem;
     color: var(--text-secondary);
 }
 
