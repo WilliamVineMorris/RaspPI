@@ -535,6 +535,7 @@ class ScannerWebInterface:
     
     def _get_system_status(self) -> Dict[str, Any]:
         """Get comprehensive system status"""
+        self.logger.info(f"_get_system_status called with orchestrator: {self.orchestrator is not None}")
         try:
             # Get status from orchestrator and components
             status = {
@@ -573,12 +574,13 @@ class ScannerWebInterface:
             
             # Get motion controller status
             if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+                self.logger.info(f"Checking motion controller status...")
                 try:
                     motion_status = self.orchestrator.motion_controller.get_status()
                     position = self.orchestrator.motion_controller.get_position()
                     
-                    self.logger.debug(f"Motion status from adapter: {motion_status}")
-                    self.logger.debug(f"Motion position from adapter: {position}")
+                    self.logger.info(f"Motion status from adapter: {motion_status}")
+                    self.logger.info(f"Motion position from adapter: {position}")
                     
                     status['motion'].update({
                         'connected': True,
@@ -588,12 +590,15 @@ class ScannerWebInterface:
                 except Exception as e:
                     self.logger.error(f"Motion controller status error: {e}")
                     status['system']['errors'].append(f"Motion controller error: {e}")
+            else:
+                self.logger.warning(f"Motion controller not available: orchestrator={self.orchestrator is not None}, has_attr={hasattr(self.orchestrator, 'motion_controller') if self.orchestrator else False}, controller={getattr(self.orchestrator, 'motion_controller', None) is not None if self.orchestrator else False}")
             
             # Get camera status
             if self.orchestrator and hasattr(self.orchestrator, 'camera_manager') and self.orchestrator.camera_manager:
+                self.logger.info(f"Checking camera manager status...")
                 try:
                     camera_status = self.orchestrator.camera_manager.get_status()
-                    self.logger.debug(f"Camera status from adapter: {camera_status}")
+                    self.logger.info(f"Camera status from adapter: {camera_status}")
                     
                     status['cameras'].update({
                         'available': len(camera_status.get('cameras', [])),
@@ -603,6 +608,8 @@ class ScannerWebInterface:
                 except Exception as e:
                     self.logger.error(f"Camera manager status error: {e}")
                     status['system']['errors'].append(f"Camera manager error: {e}")
+            else:
+                self.logger.warning(f"Camera manager not available: orchestrator={self.orchestrator is not None}, has_attr={hasattr(self.orchestrator, 'camera_manager') if self.orchestrator else False}, manager={getattr(self.orchestrator, 'camera_manager', None) is not None if self.orchestrator else False}")
             
             # Get lighting status
             if self.orchestrator and hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
@@ -639,6 +646,7 @@ class ScannerWebInterface:
                     status['system']['errors'].append(f"Scan status error: {e}")
             
             status['system']['ready'] = len(status['system']['errors']) == 0
+            self.logger.info(f"Final status being returned: motion.connected={status['motion']['connected']}, cameras.available={status['cameras']['available']}")
             return status
             
         except Exception as e:

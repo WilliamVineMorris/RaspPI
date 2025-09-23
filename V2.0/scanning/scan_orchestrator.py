@@ -260,7 +260,7 @@ class MotionControllerAdapter:
         """Get motion controller status"""
         try:
             is_connected = self.controller.is_connected()
-            self.logger.debug(f"Motion controller connection status: {is_connected}")
+            self.logger.info(f"Motion controller connection status: {is_connected}")
             return {
                 'state': 'idle' if is_connected else 'disconnected',
                 'connected': is_connected,
@@ -419,7 +419,7 @@ class CameraManagerAdapter:
                     'active_cameras': ['camera_1', 'camera_2'],  # Both cameras active when connected
                     'initialized': True
                 }
-                self.logger.debug(f"Camera status: {status}")
+                self.logger.info(f"Camera status: {status}")
                 return status
             else:
                 status = {
@@ -427,7 +427,7 @@ class CameraManagerAdapter:
                     'active_cameras': [],
                     'initialized': False
                 }
-                self.logger.debug(f"Camera status (disconnected): {status}")
+                self.logger.info(f"Camera status (disconnected): {status}")
                 return status
         except Exception as e:
             self.logger.error(f"Error getting camera status: {e}")
