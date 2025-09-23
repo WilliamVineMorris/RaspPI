@@ -1301,6 +1301,68 @@ const ManualControl = {
         } catch (error) {
             ScannerBase.showAlert(`Zone toggle failed: ${error.message}`, 'error');
         }
+    },
+
+    /**
+     * Debug function to check background monitor status
+     */
+    async checkBackgroundMonitor() {
+        try {
+            const response = await ScannerBase.apiRequest('/api/debug/monitor');
+            console.log('🔍 Background Monitor Status:', response);
+            
+            const monitorStatus = response.monitor_status;
+            if (monitorStatus) {
+                const running = monitorStatus.monitor_running;
+                const dataAge = monitorStatus.data_age;
+                const taskResult = monitorStatus.task_result;
+                
+                console.log(`Monitor Running: ${running}`);
+                console.log(`Data Age: ${dataAge?.toFixed(1)}s`);
+                console.log(`Task Status: ${taskResult}`);
+                
+                // Alert user if monitor seems stuck
+                if (!running || dataAge > 10 || taskResult !== 'RUNNING') {
+                    console.warn('⚠️ Background monitor appears to have issues');
+                    
+                    if (confirm('Background monitor appears stuck. Try restarting it?')) {
+                        await this.restartBackgroundMonitor();
+                    }
+                }
+            }
+            
+            return response;
+        } catch (error) {
+            console.error('Failed to check background monitor:', error);
+            return null;
+        }
+    },
+
+    /**
+     * Restart the background monitor
+     */
+    async restartBackgroundMonitor() {
+        try {
+            const response = await fetch('/api/debug/restart-monitor', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                ScannerBase.showAlert('Background monitor restart initiated', 'success');
+                console.log('✅ Background monitor restart successful');
+            } else {
+                ScannerBase.showAlert(`Restart failed: ${result.error}`, 'error');
+            }
+            
+            return result;
+        } catch (error) {
+            console.error('Failed to restart background monitor:', error);
+            ScannerBase.showAlert(`Restart error: ${error.message}`, 'error');
+            return null;
+        }
     }
 };
 
