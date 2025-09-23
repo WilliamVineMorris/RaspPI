@@ -165,7 +165,7 @@ window.ScannerBase = {
      * Update system status in UI
      */
     updateSystemStatus(status) {
-        console.log('updateSystemStatus called with:', status);
+        console.log('updateSystemStatus called with:', JSON.stringify(status, null, 2));
         console.log('Motion connected:', status.motion?.connected);
         console.log('Cameras available:', status.cameras?.available);
         console.log('Cameras available > 0:', status.cameras?.available > 0);
@@ -197,8 +197,11 @@ window.ScannerBase = {
         console.log(`updateStatusIndicator: ${elementId}, isReady=${isReady}, statusText=${statusText}`);
         const element = document.getElementById(elementId);
         if (element) {
-            element.className = `status-indicator ${isReady ? 'ready' : 'error'}`;
-            console.log(`Updated ${elementId} className to:`, element.className);
+            const newClassName = `status-indicator ${isReady ? 'ready' : 'error'}`;
+            element.className = newClassName;
+            console.log(`Updated ${elementId} className to: ${newClassName}`);
+            console.log(`Element current className is now: ${element.className}`);
+            console.log(`Element current style: color=${element.style.color}`);
         } else {
             console.log(`Element ${elementId} not found!`);
         }
@@ -206,7 +209,7 @@ window.ScannerBase = {
         const textElement = document.getElementById(elementId.replace('Status', 'State'));
         if (textElement) {
             textElement.textContent = statusText || 'Unknown';
-            console.log(`Updated ${elementId.replace('Status', 'State')} text to:`, textElement.textContent);
+            console.log(`Updated ${elementId.replace('Status', 'State')} text to: ${textElement.textContent}`);
         } else {
             console.log(`Text element ${elementId.replace('Status', 'State')} not found!`);
         }
