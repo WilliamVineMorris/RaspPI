@@ -560,13 +560,34 @@ const Dashboard = {
                     // Get current status
                     const status = await ScannerBase.apiRequest('/api/status');
                     
-                    // Update progress display
-                    ScannerBase.showLoading(`🏠 Homing in progress... (${elapsed}s)`);
+                    // Log current motion status for tracking phases
+                    const motionState = status.motion?.status || 'unknown';
+                    const fluidncState = status.motion?.fluidnc_status || 'unknown';
+                    const isHomed = status.motion?.homed || status.motion?.is_homed || false;
+                    
+                    // Show detailed status every 5 seconds during active homing
+                    if (checkCount % 5 === 0 || homingDetected) {
+                        ScannerBase.addLogEntry(`📊 Status: Motion=${motionState}, FluidNC=${fluidncState}, Homed=${isHomed}, Time=${elapsed}s`, 'info');
+                    }
+                    
+                    // Update progress display based on detected phase
+                    if (homingDetected) {
+                        if (motionState === 'homing') {
+                            ScannerBase.showLoading(`🏠 Physical homing active... (${elapsed}s)`);
+                        } else if (motionState === 'idle' && !isHomed) {
+                            ScannerBase.showLoading(`🔄 Clearing axes and setting coordinates... (${elapsed}s)`);
+                        } else if (motionState === 'idle' && isHomed) {
+                            ScannerBase.showLoading(`✅ Finalizing homing sequence... (${elapsed}s)`);
+                        } else {
+                            ScannerBase.showLoading(`🏠 Homing in progress... (${elapsed}s)`);
+                        }
+                    } else {
+                        ScannerBase.showLoading(`⏳ Waiting for homing to start... (${elapsed}s)`);
+                    }
                     
                     // Check if homing is complete - need MINIMUM TIME + idle status + homed flag + confirmed homing was detected
                     // Prevent premature completion detection by requiring at least 20 seconds and confirmed homing sequence
                     const minimumHomingTime = 20; // seconds - increased for better reliability
-                    const isHomed = status.motion.homed || status.motion.is_homed || false;
                     if (status.motion && status.motion.status === 'idle' && isHomed && elapsed >= minimumHomingTime && homingDetected) {
                         // Additional validation: check if we've had enough time for real homing
                         if (elapsed < 15) {
