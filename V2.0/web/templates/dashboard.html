@@ -605,64 +605,56 @@
                     console.log('Homing API response:', result); // Debug logging
                     
                     if (result.success && result.data && result.data.status === 'in_progress') {
-                        console.log('Homing started, backend will handle completion detection');
-                        showNotification('🔄 Homing in progress... Backend handling detection', 'warning');
+                        console.log('Homing started, will listen for completion via status updates');
+                        showNotification('🔄 Homing in progress...', 'warning');
                         
-                        // Simple polling with clearable interval
-                        let checkCount = 0;
-                        const maxChecks = 240; // 4 minutes max timeout
+                        // Use existing status update system instead of separate polling
+                        let homingStartTime = Date.now();
+                        let homingTimeout = null;
+                        let isWaitingForHoming = true;
                         
-                        const checkInterval = setInterval(async () => {
-                            try {
-                                checkCount++;
-                                const statusResponse = await fetch('/api/status');
-                                const status = await statusResponse.json();
-                                
-                                // Only log status changes, not every check
-                                const homedStatus = status.motion?.homed || status.motion?.is_homed;
-                                if (checkCount === 1 || (checkCount % 20 === 0) || homedStatus === true) {
-                                    console.log(`Check ${checkCount}: Backend reports homed = ${homedStatus || 'unknown'}`);
-                                }
-                                
-                                // Trust the backend's homed status completely
-                                if (status.motion && (status.motion.homed === true || status.motion.is_homed === true)) {
-                                    clearInterval(checkInterval); // Stop the interval
-                                    console.log('✅ Backend reports homing complete!');
-                                    showNotification('✅ All axes homed successfully!', 'success');
-                                    await refreshStatus();
-                                    
-                                    if (homeButton) {
-                                        homeButton.disabled = false;
-                                        homeButton.textContent = '🏠 Home All';
-                                    }
-                                    return;
-                                }
-                                
-                                // Show progress every 10 checks (5 seconds)
-                                if (checkCount % 10 === 0) {
-                                    const elapsed = Math.floor(checkCount / 2);
-                                    showNotification(`🔄 Homing in progress... ${elapsed}s elapsed`, 'warning');
-                                }
-                                
-                                // Timeout check
-                                if (checkCount >= maxChecks) {
-                                    clearInterval(checkInterval); // Stop the interval
-                                    console.log('Homing timeout - backend did not report completion');
-                                    showNotification('⚠️ Homing timeout - check system status', 'error');
-                                    if (homeButton) {
-                                        homeButton.disabled = false;
-                                        homeButton.textContent = '🏠 Home All';
-                                    }
-                                }
-                            } catch (error) {
-                                clearInterval(checkInterval); // Stop on error
-                                console.error('Homing status check error:', error);
+                        // Set a maximum timeout (4 minutes)
+                        homingTimeout = setTimeout(() => {
+                            if (isWaitingForHoming) {
+                                isWaitingForHoming = false;
+                                console.log('Homing timeout - no completion detected');
+                                showNotification('⚠️ Homing timeout - check system status', 'error');
                                 if (homeButton) {
                                     homeButton.disabled = false;
                                     homeButton.textContent = '🏠 Home All';
                                 }
                             }
-                        }, 500); // Check every 500ms
+                        }, 240000); // 4 minutes
+                        
+                        // Listen for the next status update that shows homing complete
+                        const homingCompleteHandler = (event) => {
+                            if (!isWaitingForHoming) return;
+                            
+                            const status = event.detail.status;
+                            if (status.motion && (status.motion.homed === true || status.motion.is_homed === true)) {
+                                isWaitingForHoming = false;
+                                clearTimeout(homingTimeout);
+                                document.removeEventListener('scanner:statusUpdate', homingCompleteHandler);
+                                
+                                const elapsed = Math.round((Date.now() - homingStartTime) / 1000);
+                                console.log(`✅ Homing completed in ${elapsed}s via status update!`);
+                                showNotification(`✅ All axes homed successfully! (${elapsed}s)`, 'success');
+                                
+                                if (homeButton) {
+                                    homeButton.disabled = false;
+                                    homeButton.textContent = '🏠 Home All';
+                                }
+                            } else {
+                                // Show progress every 10 seconds
+                                const elapsed = Math.round((Date.now() - homingStartTime) / 1000);
+                                if (elapsed > 0 && elapsed % 10 === 0) {
+                                    showNotification(`🔄 Homing in progress... ${elapsed}s elapsed`, 'warning');
+                                }
+                            }
+                        };
+                        
+                        // Listen for status updates instead of polling
+                        document.addEventListener('scanner:statusUpdate', homingCompleteHandler);
                         
                     } else {
                         console.error('Homing failed. Full response:', result);

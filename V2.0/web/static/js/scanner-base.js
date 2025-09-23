@@ -11,7 +11,8 @@ window.ScannerBase = {
     config: {
         updateInterval: 2000,           // Status update interval (ms) - increased for HTTP polling
         requestTimeout: 10000,          // API request timeout (ms)
-        showDebugLogs: false            // Enable debug logging
+        showDebugLogs: false,           // Enable debug logging
+        debug: false                    // Master debug flag
     },
 
     // State management
@@ -167,32 +168,17 @@ window.ScannerBase = {
      * Update system status in UI
      */
     updateSystemStatus(status) {
-        console.log('updateSystemStatus called with:', JSON.stringify(status, null, 2));
+        // Only log status updates in debug mode or when there are errors
+        if (this.config.debug || status.system?.errors?.length > 0) {
+            console.log('System status update:', status);
+        }
         
         // Extract the data object from the API response
         const data = status.data || status;
         
-        // Detailed debugging of each property access
-        console.log('Extracted data object:', data);
-        console.log('Raw data.motion:', data.motion);
-        console.log('Raw data.motion?.connected:', data.motion?.connected);
-        console.log('Raw data.cameras:', data.cameras);
-        console.log('Raw data.cameras?.available:', data.cameras?.available);
-        
-        console.log('Motion connected:', data.motion?.connected);
-        console.log('Motion connected type:', typeof data.motion?.connected);
-        console.log('Cameras available:', data.cameras?.available);
-        console.log('Cameras available type:', typeof data.cameras?.available);
-        console.log('Cameras available > 0:', data.cameras?.available > 0);
-        console.log('Boolean(data.cameras?.available):', Boolean(data.cameras?.available));
-        console.log('Number(data.cameras?.available):', Number(data.cameras?.available));
-        
         // Step by step boolean evaluation
         const motionConnected = data.motion?.connected;
         const camerasAvailable = data.cameras?.available;
-        
-        console.log('Extracted motionConnected:', motionConnected, 'type:', typeof motionConnected);
-        console.log('Extracted camerasAvailable:', camerasAvailable, 'type:', typeof camerasAvailable);
         
         // More robust boolean checks
         const motionReady = Boolean(motionConnected);
@@ -200,11 +186,10 @@ window.ScannerBase = {
         const lightingReady = Boolean(data.lighting?.zones?.length) && data.lighting.zones.length > 0;
         const scanActive = Boolean(data.scan?.active);
         
-        console.log('Calculated ready states:');
-        console.log('  motionReady:', motionReady);
-        console.log('  cameraReady:', cameraReady);
-        console.log('  lightingReady:', lightingReady);
-        console.log('  scanActive:', scanActive);
+        // Only log ready states in debug mode
+        if (this.config.debug) {
+            console.log('Ready states:', { motionReady, cameraReady, lightingReady, scanActive });
+        }
         
         // Update main status indicators
         this.updateStatusIndicator('motionStatus', motionReady, data.motion?.status);
@@ -226,36 +211,35 @@ window.ScannerBase = {
         this.updateDetailedStatus(data);
         
         // Dispatch status update event for Dashboard and other listeners
-        // Always dispatch the extracted data object (not the raw API response)
         const statusEvent = new CustomEvent('scanner:statusUpdate', {
-            detail: { status: data }  // data is always the extracted object here
+            detail: { status: data }
         });
         document.dispatchEvent(statusEvent);
-        console.log('Dispatched scanner:statusUpdate event with extracted data:', data);
+        
+        // Only log dispatch in debug mode
+        if (this.config.debug) {
+            console.log('Dispatched scanner:statusUpdate event');
+        }
     },
 
     /**
      * Update individual status indicator
      */
     updateStatusIndicator(elementId, isReady, statusText) {
-        console.log(`updateStatusIndicator: ${elementId}, isReady=${isReady}, statusText=${statusText}`);
         const element = document.getElementById(elementId);
         if (element) {
             const newClassName = `status-indicator ${isReady ? 'ready' : 'error'}`;
             element.className = newClassName;
-            console.log(`Updated ${elementId} className to: ${newClassName}`);
-            console.log(`Element current className is now: ${element.className}`);
-            console.log(`Element current style: color=${element.style.color}`);
-        } else {
-            console.log(`Element ${elementId} not found!`);
+            
+            // Only log in debug mode
+            if (this.config.debug) {
+                console.log(`Updated ${elementId}: ${newClassName}`);
+            }
         }
 
         const textElement = document.getElementById(elementId.replace('Status', 'State'));
         if (textElement) {
             textElement.textContent = statusText || 'Unknown';
-            console.log(`Updated ${elementId.replace('Status', 'State')} text to: ${textElement.textContent}`);
-        } else {
-            console.log(`Text element ${elementId.replace('Status', 'State')} not found!`);
         }
     },
 
