@@ -167,23 +167,27 @@ window.ScannerBase = {
     updateSystemStatus(status) {
         console.log('updateSystemStatus called with:', JSON.stringify(status, null, 2));
         
-        // Detailed debugging of each property access
-        console.log('Raw status.motion:', status.motion);
-        console.log('Raw status.motion?.connected:', status.motion?.connected);
-        console.log('Raw status.cameras:', status.cameras);
-        console.log('Raw status.cameras?.available:', status.cameras?.available);
+        // Extract the data object from the API response
+        const data = status.data || status;
         
-        console.log('Motion connected:', status.motion?.connected);
-        console.log('Motion connected type:', typeof status.motion?.connected);
-        console.log('Cameras available:', status.cameras?.available);
-        console.log('Cameras available type:', typeof status.cameras?.available);
-        console.log('Cameras available > 0:', status.cameras?.available > 0);
-        console.log('Boolean(status.cameras?.available):', Boolean(status.cameras?.available));
-        console.log('Number(status.cameras?.available):', Number(status.cameras?.available));
+        // Detailed debugging of each property access
+        console.log('Extracted data object:', data);
+        console.log('Raw data.motion:', data.motion);
+        console.log('Raw data.motion?.connected:', data.motion?.connected);
+        console.log('Raw data.cameras:', data.cameras);
+        console.log('Raw data.cameras?.available:', data.cameras?.available);
+        
+        console.log('Motion connected:', data.motion?.connected);
+        console.log('Motion connected type:', typeof data.motion?.connected);
+        console.log('Cameras available:', data.cameras?.available);
+        console.log('Cameras available type:', typeof data.cameras?.available);
+        console.log('Cameras available > 0:', data.cameras?.available > 0);
+        console.log('Boolean(data.cameras?.available):', Boolean(data.cameras?.available));
+        console.log('Number(data.cameras?.available):', Number(data.cameras?.available));
         
         // Step by step boolean evaluation
-        const motionConnected = status.motion?.connected;
-        const camerasAvailable = status.cameras?.available;
+        const motionConnected = data.motion?.connected;
+        const camerasAvailable = data.cameras?.available;
         
         console.log('Extracted motionConnected:', motionConnected, 'type:', typeof motionConnected);
         console.log('Extracted camerasAvailable:', camerasAvailable, 'type:', typeof camerasAvailable);
@@ -191,8 +195,8 @@ window.ScannerBase = {
         // More robust boolean checks
         const motionReady = Boolean(motionConnected);
         const cameraReady = Boolean(camerasAvailable) && Number(camerasAvailable) > 0;
-        const lightingReady = Boolean(status.lighting?.zones?.length) && status.lighting.zones.length > 0;
-        const scanActive = Boolean(status.scan?.active);
+        const lightingReady = Boolean(data.lighting?.zones?.length) && data.lighting.zones.length > 0;
+        const scanActive = Boolean(data.scan?.active);
         
         console.log('Calculated ready states:');
         console.log('  motionReady:', motionReady);
@@ -201,23 +205,23 @@ window.ScannerBase = {
         console.log('  scanActive:', scanActive);
         
         // Update main status indicators
-        this.updateStatusIndicator('motionStatus', motionReady, status.motion?.status);
-        this.updateStatusIndicator('cameraStatus', cameraReady, status.cameras?.status);
-        this.updateStatusIndicator('lightingStatus', lightingReady, status.lighting?.status);
-        this.updateStatusIndicator('scanStatus', scanActive, status.scan?.status);
+        this.updateStatusIndicator('motionStatus', motionReady, data.motion?.status);
+        this.updateStatusIndicator('cameraStatus', cameraReady, data.cameras?.status);
+        this.updateStatusIndicator('lightingStatus', lightingReady, data.lighting?.status);
+        this.updateStatusIndicator('scanStatus', scanActive, data.scan?.status);
 
         // Update position display
-        if (status.motion?.position) {
-            this.updatePosition(status.motion.position);
+        if (data.motion?.position) {
+            this.updatePosition(data.motion.position);
         }
 
         // Update scan progress
-        if (status.scan) {
-            this.updateScanProgress(status.scan);
+        if (data.scan) {
+            this.updateScanProgress(data.scan);
         }
 
         // Update detailed status
-        this.updateDetailedStatus(status);
+        this.updateDetailedStatus(data);
     },
 
     /**
@@ -293,43 +297,43 @@ window.ScannerBase = {
     /**
      * Update detailed status displays
      */
-    updateDetailedStatus(status) {
+    updateDetailedStatus(data) {
         // Motion details
         const motionDetails = document.getElementById('motionDetails');
-        if (motionDetails && status.motion) {
+        if (motionDetails && data.motion) {
             motionDetails.innerHTML = `
-                <div>Position: <span id="currentPosition">X:${parseFloat(status.motion.position?.x || 0).toFixed(1)} Y:${parseFloat(status.motion.position?.y || 0).toFixed(1)} Z:${parseFloat(status.motion.position?.z || 0).toFixed(1)} C:${parseFloat(status.motion.position?.c || 0).toFixed(1)}</span></div>
-                <div>State: <span id="motionState">${status.motion.status || 'Unknown'}</span></div>
+                <div>Position: <span id="currentPosition">X:${parseFloat(data.motion.position?.x || 0).toFixed(1)} Y:${parseFloat(data.motion.position?.y || 0).toFixed(1)} Z:${parseFloat(data.motion.position?.z || 0).toFixed(1)} C:${parseFloat(data.motion.position?.c || 0).toFixed(1)}</span></div>
+                <div>State: <span id="motionState">${data.motion.status || 'Unknown'}</span></div>
             `;
         }
 
         // Camera details
         const cameraDetails = document.getElementById('cameraDetails');
-        if (cameraDetails && status.cameras) {
+        if (cameraDetails && data.cameras) {
             cameraDetails.innerHTML = `
-                <div>Available: <span id="cameraCount">${status.cameras.available || 0}</span></div>
-                <div>Active: <span id="activeCameras">${status.cameras.active?.join(', ') || 'None'}</span></div>
-                <div>State: <span id="cameraState">${status.cameras.status || 'Unknown'}</span></div>
+                <div>Available: <span id="cameraCount">${data.cameras.available || 0}</span></div>
+                <div>Active: <span id="activeCameras">${data.cameras.active?.join(', ') || 'None'}</span></div>
+                <div>State: <span id="cameraState">${data.cameras.status || 'Unknown'}</span></div>
             `;
         }
 
         // Lighting details
         const lightingDetails = document.getElementById('lightingDetails');
-        if (lightingDetails && status.lighting) {
+        if (lightingDetails && data.lighting) {
             lightingDetails.innerHTML = `
-                <div>Zones: <span id="lightingZones">${status.lighting.zones?.length || 0}</span></div>
-                <div>Status: <span id="lightingState">${status.lighting.status || 'Unknown'}</span></div>
+                <div>Zones: <span id="lightingZones">${data.lighting.zones?.length || 0}</span></div>
+                <div>Status: <span id="lightingState">${data.lighting.status || 'Unknown'}</span></div>
             `;
         }
 
         // Scan details
         const scanDetails = document.getElementById('scanDetails');
-        if (scanDetails && status.scan) {
+        if (scanDetails && data.scan) {
             scanDetails.innerHTML = `
-                <div>Progress: <span id="scanProgress">${parseFloat(status.scan.progress || 0).toFixed(1)}%</span></div>
-                <div>Points: <span id="scanPoints">${status.scan.current_point || 0}/${status.scan.total_points || 0}</span></div>
-                <div>Phase: <span id="scanPhase">${status.scan.phase || 'Idle'}</span></div>
-                <div>State: <span id="scanState">${status.scan.status || 'Unknown'}</span></div>
+                <div>Progress: <span id="scanProgress">${parseFloat(data.scan.progress || 0).toFixed(1)}%</span></div>
+                <div>Points: <span id="scanPoints">${data.scan.current_point || 0}/${data.scan.total_points || 0}</span></div>
+                <div>Phase: <span id="scanPhase">${data.scan.phase || 'Idle'}</span></div>
+                <div>State: <span id="scanState">${data.scan.status || 'Unknown'}</span></div>
             `;
         }
     },
