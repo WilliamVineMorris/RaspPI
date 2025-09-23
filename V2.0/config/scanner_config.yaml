@@ -111,11 +111,6 @@ motion:
 cameras:
   system_type: "dual_camera"
   
-  # Color Format Configuration
-  color_format:
-    default_mode: "native_direct"  # Camera RGB888 output used directly - optimal performance
-    # Available modes: auto, rgb_to_bgr, bgr_direct, bgr_to_rgb, native_direct
-    
   camera_1:
     port: 0
     name: "Primary Camera"

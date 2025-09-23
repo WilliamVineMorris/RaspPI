@@ -350,16 +350,8 @@ class CameraManagerAdapter:
         self._capture_lock = threading.Lock()  # Lock for captures
         
         # OPTIMAL CONFIGURATION: Camera native output used directly
-        try:
-            camera_config = self.config_manager.get_section('cameras')
-            color_config = camera_config.get('color_format', {})
-            default_mode = color_config.get('default_mode', 'native_direct')
-            self._force_color_conversion = default_mode
-            self.logger.info(f"CAMERA: Optimal configuration - native camera output: {default_mode}")
-        except Exception as e:
-            # Fallback to native direct since it provides correct colors
-            self._force_color_conversion = 'native_direct'
-            self.logger.info(f"CAMERA: Config read failed ({e}), using optimal native camera output")
+        self._force_color_conversion = 'native_direct'  # Fixed optimal mode
+        self.logger.info("CAMERA: Initialized with optimal native RGB888 output (no conversion needed)")
             
         self.logger.info("CAMERA: Camera adapter initialized with color format configuration")
         
@@ -826,31 +818,6 @@ class CameraManagerAdapter:
         except Exception as e:
             self.logger.error(f"CAMERA: Manual focus failed for {camera_id}: {e}")
             return False
-    
-    async def set_color_conversion_mode(self, mode: str):
-        """Set color conversion mode for debugging color issues
-        
-        Args:
-            mode: 'auto', 'rgb_to_bgr', 'bgr_direct', 'bgr_to_rgb'
-        """
-        valid_modes = ['auto', 'rgb_to_bgr', 'bgr_direct', 'bgr_to_rgb']
-        if mode not in valid_modes:
-            self.logger.error(f"CAMERA: Invalid color mode '{mode}'. Valid modes: {valid_modes}")
-            return False
-            
-        if mode == 'auto':
-            if hasattr(self, '_force_color_conversion'):
-                delattr(self, '_force_color_conversion')
-            self.logger.info("CAMERA: Color conversion set to AUTO detection")
-        else:
-            self._force_color_conversion = mode
-            self.logger.info(f"CAMERA: Color conversion FORCED to {mode}")
-        
-        # Reset the color format logging flag to see new conversion messages
-        if hasattr(self, '_color_format_logged'):
-            delattr(self, '_color_format_logged')
-            
-        return True
     
     async def get_camera_controls(self, camera_id):
         """Get current camera control values"""

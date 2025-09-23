@@ -605,27 +605,6 @@ class ScannerWebInterface:
                 self.logger.error(f"White balance API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
-        @self.app.route('/api/camera/color_format', methods=['POST'])
-        def api_camera_color_format():
-            """Set color format conversion mode for debugging"""
-            try:
-                data = request.get_json() or {}
-                camera_id = data.get('camera_id', 'camera_1')
-                mode = data.get('mode', 'auto')  # auto, rgb_to_bgr, bgr_direct, bgr_to_rgb
-                
-                result = self._execute_color_format_change(camera_id, mode)
-                
-                return jsonify({
-                    'success': True,
-                    'data': result,
-                    'color_mode': mode,
-                    'timestamp': datetime.now().isoformat()
-                })
-                
-            except Exception as e:
-                self.logger.error(f"Color format API error: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
-        
         @self.app.route('/api/camera/status', methods=['GET'])
         def api_camera_detailed_status():
             """Get detailed camera status including current controls"""
@@ -1278,49 +1257,6 @@ class ScannerWebInterface:
         except Exception as e:
             self.logger.error(f"Manual focus execution failed: {e}")
             raise HardwareError(f"Failed to set manual focus: {e}")
-    
-    def _execute_color_format_change(self, camera_id: str, mode: str) -> Dict[str, Any]:
-        """Execute color format conversion mode change"""
-        try:
-            if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
-                raise HardwareError("Camera manager not available")
-            
-            # Set color conversion mode
-            import asyncio
-            try:
-                # Run the async method in a new event loop
-                result = asyncio.run(
-                    self.orchestrator.camera_manager.set_color_conversion_mode(mode)
-                )
-            except RuntimeError:
-                # If there's already an event loop, handle it
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # Use run_in_executor for thread safety
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(
-                            asyncio.run,
-                            self.orchestrator.camera_manager.set_color_conversion_mode(mode)
-                        )
-                        result = future.result(timeout=5.0)
-                else:
-                    result = loop.run_until_complete(
-                        self.orchestrator.camera_manager.set_color_conversion_mode(mode)
-                    )
-            
-            self.logger.info(f"Color format mode set: Camera {camera_id}, Mode: {mode}")
-            
-            return {
-                'camera_id': camera_id,
-                'color_mode': mode,
-                'success': True,
-                'timestamp': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Color format execution failed: {e}")
-            raise HardwareError(f"Failed to set color format: {e}")
     
     def _get_camera_detailed_status(self, camera_id: str) -> Dict[str, Any]:
         """Get detailed camera status including controls"""
