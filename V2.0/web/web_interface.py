@@ -809,6 +809,14 @@ class ScannerWebInterface:
                 try:
                     motion_controller = self.orchestrator.motion_controller
                     
+                    # Force a fresh position update to ensure we have current coordinates
+                    try:
+                        # Get fresh position data before returning status
+                        fresh_position = asyncio.run(motion_controller.get_current_position())
+                        self.logger.debug(f"Fresh position retrieved: {fresh_position}")
+                    except Exception as pos_e:
+                        self.logger.warning(f"Could not get fresh position: {pos_e}")
+                    
                     # Get cached position directly from controller (updated by async methods)
                     position = motion_controller.current_position
                     

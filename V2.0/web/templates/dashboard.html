@@ -654,11 +654,7 @@
                                     homeButton.textContent = '🏠 Home All';
                                 }
                             } else {
-                                // Show progress every 10 seconds
-                                const elapsed = Math.round((Date.now() - homingStartTime) / 1000);
-                                if (elapsed > 0 && elapsed % 10 === 0) {
-                                    showNotification(`🔄 Homing in progress... ${elapsed}s elapsed`, 'warning');
-                                }
+                                // Progress tracking is handled by dashboard.js, no need for duplicate messages
                             }
                         };
                         

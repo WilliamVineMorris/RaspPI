@@ -41,7 +41,30 @@ const ManualControl = {
             this.handleStatusUpdate(event.detail.status);
         });
 
+        // Start periodic position updates to ensure UI stays synchronized
+        this.startPositionUpdateTimer();
+
         ScannerBase.log('Manual control initialized');
+    },
+
+    /**
+     * Start periodic position updates to keep UI synchronized
+     */
+    startPositionUpdateTimer() {
+        // Update position display every 2 seconds when not actively jogging
+        setInterval(async () => {
+            if (!this.state.isJogging) {
+                try {
+                    const status = await ScannerBase.apiRequest('/api/status');
+                    if (status.motion && status.motion.position) {
+                        this.updatePositionDisplays(status.motion.position);
+                    }
+                } catch (error) {
+                    // Don't spam errors for periodic updates - just log quietly
+                    ScannerBase.log('Periodic position update failed: ' + error.message);
+                }
+            }
+        }, 2000);
     },
 
     /**

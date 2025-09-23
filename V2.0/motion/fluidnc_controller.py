@@ -612,7 +612,7 @@ class FluidNCController(MotionController):
     async def get_current_position(self) -> Position4D:
         """Get current 4DOF position from FluidNC"""
         try:
-            # Get actual status response (not just "ok")
+            # Always try to get fresh position from FluidNC
             response = await self._get_status_response()
             logger.debug(f"Status response for position: {response}")
             
@@ -620,14 +620,23 @@ class FluidNCController(MotionController):
             if response:
                 position = self._parse_position_from_status(response)
                 if position:
+                    # Only update cached position if parsing succeeds and values seem reasonable
+                    # Before homing, FluidNC may report arbitrary values, but we still want to show them
                     self.current_position = position
-                    logger.debug(f"Current position: {position}")
+                    logger.debug(f"Updated current position from FluidNC: {position}")
                     return position
                 else:
                     logger.warning(f"Could not parse position from: {response}")
-            
-            # Fallback to cached position
-            logger.warning(f"Using cached position: {self.current_position}")
+            else:
+                logger.warning("No status response received from FluidNC")
+                
+            # If FluidNC is connected but we can't parse position, 
+            # still return cached position rather than failing completely
+            if self.is_connected():
+                logger.debug(f"Using cached position (FluidNC connected): {self.current_position}")
+            else:
+                logger.warning(f"Using cached position (FluidNC disconnected): {self.current_position}")
+                
             return self.current_position
             
         except Exception as e:
@@ -643,35 +652,30 @@ class FluidNCController(MotionController):
             mpos_match = re.search(r'MPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,[\d\.-]+,[\d\.-]+)?', status_response)
             wpos_match = re.search(r'WPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,[\d\.-]+,[\d\.-]+)?', status_response)
             
-            if not (mpos_match and wpos_match):
-                # Fallback to machine coordinates only if we can't get both
-                if mpos_match:
-                    x, y, z, c = map(float, mpos_match.groups())
-                    logger.debug(f"Parsed machine position only: X={x}, Y={y}, Z={z}, C={c}")
-                    return Position4D(x=x, y=y, z=z, c=c)
+            # Before homing, work coordinates may not be reliable, so prioritize machine coordinates
+            if mpos_match:
+                mx, my, mz, mc = map(float, mpos_match.groups())
+                
+                if wpos_match:
+                    # If we have both, use work coordinates for X, Y, C but machine for Z
+                    wx, wy, wz, wc = map(float, wpos_match.groups())
+                    position = Position4D(
+                        x=wx,    # Work coordinate for X
+                        y=wy,    # Work coordinate for Y  
+                        z=mz,    # Machine coordinate for Z (prevents accumulation)
+                        c=wc     # Work coordinate for C
+                    )
+                    logger.debug(f"Parsed hybrid position - Work X,Y,C: ({wx},{wy},{wc}), Machine Z: {mz}")
                 else:
-                    logger.warning(f"Could not match position pattern in: {status_response}")
-                    return None
-            
-            # Parse machine coordinates
-            mx, my, mz, mc = map(float, mpos_match.groups())
-            
-            # Parse work coordinates  
-            wx, wy, wz, wc = map(float, wpos_match.groups())
-            
-            # Use work coordinates for X, Y, C but machine coordinates for Z
-            # This prevents Z-axis coordinate accumulation issues while maintaining
-            # proper work coordinate system behavior for other axes
-            position = Position4D(
-                x=wx,    # Work coordinate for X
-                y=wy,    # Work coordinate for Y
-                z=mz,    # Machine coordinate for Z (prevents accumulation)
-                c=wc     # Work coordinate for C
-            )
-            
-            logger.debug(f"Parsed hybrid position - Work X,Y,C: ({wx},{wy},{wc}), Machine Z: {mz}")
-            return position
-            
+                    # Only machine coordinates available (likely before homing)
+                    position = Position4D(x=mx, y=my, z=mz, c=mc)
+                    logger.debug(f"Parsed machine position only: X={mx}, Y={my}, Z={mz}, C={mc}")
+                
+                return position
+            else:
+                logger.warning(f"Could not match any position pattern in: {status_response}")
+                return None
+                
         except Exception as e:
             logger.error(f"Failed to parse position from status: {e}")
             logger.error(f"Status response was: {status_response}")
@@ -1165,10 +1169,12 @@ class FluidNCController(MotionController):
         try:
             if not self.is_connected():
                 self.status = MotionStatus.DISCONNECTED
+                logger.debug("Status update: disconnected")
                 return
             
             # Get status from FluidNC
             response = await self._send_command('?')
+            logger.debug(f"Status response: {response}")
             
             # Parse status
             if response and 'Idle' in response:
@@ -1181,12 +1187,21 @@ class FluidNCController(MotionController):
                 self.status = MotionStatus.ALARM
             elif response and 'Error' in response:
                 self.status = MotionStatus.ERROR
+            else:
+                # If we can't parse status but have a response, assume connected but unknown
+                if response:
+                    logger.warning(f"Unknown status format: {response}")
+                else:
+                    logger.warning("No status response received")
             
-            # Update position if available
+            # Always attempt to update position if we have a response, even before homing
             if response:
                 position = self._parse_position_from_status(response)
                 if position:
                     self.current_position = position
+                    logger.debug(f"Position updated in status: {position}")
+                else:
+                    logger.debug("Could not parse position from status response")
                 
         except Exception as e:
             logger.error(f"Status update failed: {e}")

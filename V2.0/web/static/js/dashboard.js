@@ -547,8 +547,8 @@ const Dashboard = {
                         ScannerBase.addLogEntry(`📋 Initial state: Motion=${motionState}, FluidNC=${fluidncState}, Homed=${isHomed}`, 'info');
                     }
                     
-                    // Show detailed status every 5 seconds during active homing
-                    if (checkCount % 5 === 0 || homingDetected) {
+                    // Show detailed status every 10 seconds during active homing (reduced from 5)
+                    if (checkCount % 10 === 0 || (homingDetected && checkCount % 5 === 0)) {
                         ScannerBase.addLogEntry(`📊 Status: Motion=${motionState}, FluidNC=${fluidncState}, Homed=${isHomed}, Time=${elapsed}s`, 'info');
                     }
                     
