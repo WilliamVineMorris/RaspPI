@@ -143,6 +143,9 @@ const Dashboard = {
         // Update system metrics
         this.updateSystemMetrics(status);
         
+        // Update motion controller status
+        this.updateMotionStatus(status);
+        
         // Update camera feeds
         this.updateCameraFeeds(status);
         
@@ -189,6 +192,103 @@ const Dashboard = {
                 const usedPercent = (status.system.disk.used / status.system.disk.total) * 100;
                 diskElement.textContent = `${usedPercent.toFixed(1)}%`;
             }
+        }
+    },
+
+    /**
+     * Update motion controller status display
+     */
+    updateMotionStatus(status) {
+        if (!status.motion) return;
+
+        // Update motion status indicator
+        const motionStatusElement = document.getElementById('motionStatus');
+        if (motionStatusElement) {
+            const isConnected = status.motion.connected;
+            motionStatusElement.className = `status-indicator ${isConnected ? 'ready' : 'error'}`;
+        }
+
+        // Update connection status
+        const connectionElement = document.getElementById('motionConnection');
+        if (connectionElement) {
+            const connected = status.motion.connected || false;
+            connectionElement.textContent = connected ? 'Connected' : 'Disconnected';
+            connectionElement.className = `status-value ${connected ? 'connected' : 'disconnected'}`;
+        }
+
+        // Update homed status
+        const homedElement = document.getElementById('motionHomed');
+        if (homedElement) {
+            const homed = status.motion.homed || false;
+            homedElement.textContent = homed ? 'Yes' : 'No';
+            homedElement.className = `status-value ${homed ? 'homed' : 'not-homed'}`;
+        }
+
+        // Update position display
+        if (status.motion.position) {
+            const positionElement = document.getElementById('currentPosition');
+            if (positionElement) {
+                const pos = status.motion.position;
+                positionElement.textContent = `X:${parseFloat(pos.x || 0).toFixed(1)} Y:${parseFloat(pos.y || 0).toFixed(1)} Z:${parseFloat(pos.z || 0).toFixed(1)} C:${parseFloat(pos.c || 0).toFixed(1)}`;
+            }
+        }
+
+        // Update state
+        const stateElement = document.getElementById('motionState');
+        if (stateElement) {
+            const state = status.motion.status || 'unknown';
+            stateElement.textContent = this.formatMotionState(state);
+        }
+
+        // Update activity
+        const activityElement = document.getElementById('motionActivity');
+        if (activityElement) {
+            const activity = status.motion.activity || 'idle';
+            activityElement.textContent = this.formatMotionActivity(activity);
+            activityElement.className = `status-value ${this.getActivityClass(activity)}`;
+        }
+    },
+
+    /**
+     * Format motion state for display
+     */
+    formatMotionState(state) {
+        const stateMap = {
+            'idle': 'Idle',
+            'busy': 'Busy',
+            'homing': 'Homing',
+            'error': 'Error',
+            'alarm': 'Alarm',
+            'unknown': 'Unknown'
+        };
+        return stateMap[state] || state;
+    },
+
+    /**
+     * Format motion activity for display
+     */
+    formatMotionActivity(activity) {
+        const activityMap = {
+            'idle': 'Idle',
+            'homing': 'Homing',
+            'moving': 'Moving',
+            'positioning': 'Positioning',
+            'unknown': 'Unknown'
+        };
+        return activityMap[activity] || activity;
+    },
+
+    /**
+     * Get CSS class for activity status
+     */
+    getActivityClass(activity) {
+        switch(activity) {
+            case 'idle': return 'idle';
+            case 'homing':
+            case 'moving':
+            case 'positioning': return 'busy';
+            case 'error': return 'error';
+            default: return 'idle';
         }
     },
 
