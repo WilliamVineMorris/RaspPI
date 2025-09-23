@@ -169,6 +169,26 @@ class MockCameraManager:
         
     def get_current_settings(self) -> Dict[str, Any]:
         return {'initialized': self._initialized}
+    
+    def get_preview_frame(self, camera_id: int) -> Optional[Any]:
+        """Mock preview frame for testing"""
+        import numpy as np
+        # Return a simple test pattern
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        frame[:] = (64, 128, 192)  # Blue-ish mock color
+        return frame
+    
+    def set_scanning_mode(self, is_scanning: bool):
+        """Mock scanning mode setting"""
+        self._scanning_mode = is_scanning
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Mock status for testing"""
+        return {
+            'cameras': ['camera_1', 'camera_2'],
+            'active_cameras': ['camera_1', 'camera_2'] if self._initialized else [],
+            'initialized': self._initialized
+        }
 
 class MockLightingController:
     """Mock lighting controller for testing"""
@@ -422,65 +442,74 @@ class CameraManagerAdapter:
                 return None
             
             try:
-                # Create a temporary file for capture
-                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
-                    temp_path = Path(temp_file.name)
+                # Check current camera state to determine capture method
+                is_scanning = getattr(self, '_is_scanning', False)
                 
-                # Use the picamera2 direct capture for streaming
-                # This is more efficient than the async queue system
+                if not is_scanning:
+                    # Live streaming mode - optimized for speed and efficiency
+                    try:
+                        # Use preview configuration for streaming (much faster)
+                        preview_config = camera.create_preview_configuration(
+                            main={"size": (800, 600), "format": "RGB888"},
+                            buffer_count=2,
+                            queue=False  # Disable queue for real-time streaming
+                        )
+                        
+                        # Only reconfigure if not already in preview mode
+                        current_config = getattr(camera, '_current_config_type', None)
+                        if current_config != 'preview':
+                            camera.stop()
+                            camera.configure(preview_config)
+                            camera.start()
+                            camera._current_config_type = 'preview'
+                            time.sleep(0.05)  # Brief stabilization
+                        
+                        # Capture frame directly from buffer (fastest method)
+                        array = camera.capture_array("main")
+                        
+                        if array is not None and len(array.shape) == 3:
+                            # Fix color inversion: RGB to BGR conversion for OpenCV
+                            frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
+                            self.logger.debug(f"Live preview frame captured from camera {camera_id}: {frame_bgr.shape}")
+                            return frame_bgr
+                        else:
+                            self.logger.warning(f"Invalid preview array from camera {camera_id}")
+                            return None
+                            
+                    except Exception as preview_error:
+                        self.logger.warning(f"Preview mode failed for camera {camera_id}: {preview_error}")
+                        # Fall through to still capture mode
+                
+                # Scanning mode or preview fallback - use still capture
                 try:
-                    # Configure for preview (lower resolution)
-                    preview_config = camera.create_still_configuration(
+                    still_config = camera.create_still_configuration(
                         main={"size": (640, 480), "format": "RGB888"},
                         buffer_count=1
                     )
                     
-                    # Switch to preview config temporarily
-                    camera.stop()
-                    camera.configure(preview_config)
-                    camera.start()
+                    current_config = getattr(camera, '_current_config_type', None)
+                    if current_config != 'still':
+                        camera.stop()
+                        camera.configure(still_config)
+                        camera.start()
+                        camera._current_config_type = 'still'
+                        time.sleep(0.1)  # Stabilization for still mode
                     
-                    # Capture frame directly
-                    time.sleep(0.1)  # Brief stabilization
+                    # Capture still frame
                     array = camera.capture_array("main")
                     
-                    # Convert RGB to BGR for OpenCV
                     if array is not None and len(array.shape) == 3:
+                        # Fix color inversion: RGB to BGR conversion
                         frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
-                        self.logger.debug(f"Successfully captured preview frame from camera {camera_id}: {frame_bgr.shape}")
+                        self.logger.debug(f"Still frame captured from camera {camera_id}: {frame_bgr.shape}")
                         return frame_bgr
                     else:
-                        self.logger.warning(f"Invalid array captured from camera {camera_id}: {array.shape if array is not None else 'None'}")
+                        self.logger.warning(f"Invalid still array from camera {camera_id}")
                         return None
                         
-                except Exception as capture_error:
-                    self.logger.error(f"Direct capture failed for camera {camera_id}: {capture_error}")
-                    
-                    # Fallback: try capture to file method
-                    try:
-                        camera.capture_file(str(temp_path))
-                        
-                        if temp_path.exists() and temp_path.stat().st_size > 0:
-                            frame = cv2.imread(str(temp_path))
-                            temp_path.unlink()  # Clean up
-                            
-                            if frame is not None:
-                                self.logger.debug(f"Successfully captured preview frame via file from camera {camera_id}")
-                                return frame
-                            else:
-                                self.logger.warning(f"Failed to read captured file from camera {camera_id}")
-                                return None
-                        else:
-                            self.logger.warning(f"Capture file not created or empty for camera {camera_id}")
-                            return None
-                            
-                    except Exception as file_error:
-                        self.logger.error(f"File capture fallback failed for camera {camera_id}: {file_error}")
-                        return None
-                    finally:
-                        # Ensure temp file cleanup
-                        if temp_path.exists():
-                            temp_path.unlink()
+                except Exception as still_error:
+                    self.logger.error(f"Still capture failed for camera {camera_id}: {still_error}")
+                    return None
                 
             except Exception as setup_error:
                 self.logger.error(f"Camera setup failed for camera {camera_id}: {setup_error}")
@@ -489,6 +518,19 @@ class CameraManagerAdapter:
         except Exception as e:
             self.logger.error(f"Error in get_preview_frame for camera {camera_id}: {e}")
             return None
+    
+    def set_scanning_mode(self, is_scanning: bool):
+        """Set scanning mode to optimize camera usage"""
+        self._is_scanning = is_scanning
+        self.logger.info(f"Camera mode set to: {'scanning' if is_scanning else 'live preview'}")
+        
+        # Reset camera configurations to force reconfiguration
+        try:
+            for camera_id, camera in self.controller.cameras.items():
+                if camera and hasattr(camera, '_current_config_type'):
+                    delattr(camera, '_current_config_type')
+        except Exception as e:
+            self.logger.warning(f"Error resetting camera configs: {e}")
     
     def get_status(self) -> Dict[str, Any]:
         """Get camera manager status"""
@@ -837,6 +879,11 @@ class ScanOrchestrator:
             return
         
         try:
+            # Switch camera to scanning mode for optimal scan performance
+            if hasattr(self.camera_manager, 'set_scanning_mode'):
+                self.camera_manager.set_scanning_mode(True)
+                self.logger.info("Camera switched to scanning mode")
+            
             # Start the scan
             self.current_scan.start()
             self.logger.info(f"Scan {self.current_scan.scan_id} started")
@@ -867,6 +914,10 @@ class ScanOrchestrator:
                 self.current_scan.fail(str(e), {'exception_type': type(e).__name__})
         
         finally:
+            # Always switch camera back to live streaming mode
+            if hasattr(self.camera_manager, 'set_scanning_mode'):
+                self.camera_manager.set_scanning_mode(False)
+                self.logger.info("Camera switched back to live streaming mode")
             await self._cleanup_scan()
     
     async def _home_system(self):

@@ -999,60 +999,103 @@ class ScannerWebInterface:
             raise HardwareError(f"Failed to execute lighting flash: {e}")
     
     def _generate_camera_stream(self, camera_id: int):
-        """Generate MJPEG stream for camera"""
+        """Generate optimized MJPEG stream for camera"""
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
                 raise HardwareError("Camera manager not available")
             
-            # For real hardware, create a placeholder stream instead of failing
             import numpy as np
+            import time
+            
+            # Initialize streaming parameters
+            target_fps = 15  # Higher frame rate for live streaming
+            frame_interval = 1.0 / target_fps
+            last_frame_time = 0
+            
+            # JPEG encoding parameters for better quality/speed balance
+            encode_params = [
+                cv2.IMWRITE_JPEG_QUALITY, 85,  # Higher quality than before
+                cv2.IMWRITE_JPEG_OPTIMIZE, 1,  # Optimize for smaller size
+                cv2.IMWRITE_JPEG_PROGRESSIVE, 1  # Progressive JPEG for faster loading
+            ]
             
             while self._running:
                 try:
+                    current_time = time.time()
+                    
+                    # Frame rate limiting
+                    if current_time - last_frame_time < frame_interval:
+                        time.sleep(0.01)  # Small sleep to prevent CPU spinning
+                        continue
+                    
                     # Get frame from camera manager
                     frame = None
                     
-                    # Try the mock method for development (sync)
                     if hasattr(self.orchestrator.camera_manager, 'get_preview_frame'):
                         frame = self.orchestrator.camera_manager.get_preview_frame(camera_id)
                     
                     if frame is not None:
-                        # Encode frame as JPEG (for mock data)
-                        ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                        if ret:
-                            yield (b'--frame\r\n'
-                                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                    else:
-                        # For real hardware, create a placeholder image instead of text
-                        # Create a simple placeholder image
-                        img = np.zeros((240, 320, 3), dtype=np.uint8)
-                        img[:] = (64, 64, 64)  # Dark gray background
+                        # Optimize frame for streaming
+                        height, width = frame.shape[:2]
                         
-                        # Add camera text
-                        cv2.putText(img, f'Camera {camera_id}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                        cv2.putText(img, 'Hardware Mode', (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        cv2.putText(img, 'Live Preview', (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                        cv2.putText(img, 'Not Available', (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                        # Resize if too large (optimize bandwidth)
+                        max_width = 800
+                        if width > max_width:
+                            scale = max_width / width
+                            new_width = int(width * scale)
+                            new_height = int(height * scale)
+                            frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+                        
+                        # Encode with optimized parameters
+                        ret, buffer = cv2.imencode('.jpg', frame, encode_params)
+                        
+                        if ret:
+                            # Create MJPEG frame
+                            yield (b'--frame\r\n'
+                                   b'Content-Type: image/jpeg\r\n'
+                                   b'Content-Length: ' + str(len(buffer)).encode() + b'\r\n\r\n' + 
+                                   buffer.tobytes() + b'\r\n')
+                            
+                            last_frame_time = current_time
+                        else:
+                            self.logger.warning(f"Failed to encode frame for camera {camera_id}")
+                            time.sleep(0.1)
+                    else:
+                        # Create optimized placeholder for when camera is not available
+                        img = np.zeros((480, 640, 3), dtype=np.uint8)
+                        img[:] = (32, 32, 32)  # Dark background
+                        
+                        # Add status information
+                        cv2.putText(img, f'Camera {camera_id}', (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
+                        cv2.putText(img, 'Initializing...', (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
                         
                         # Add timestamp
                         timestamp = datetime.now().strftime("%H:%M:%S")
-                        cv2.putText(img, timestamp, (10, 220), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+                        cv2.putText(img, timestamp, (20, 450), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 1)
                         
-                        # Encode as JPEG
-                        ret, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                        # Encode placeholder
+                        ret, buffer = cv2.imencode('.jpg', img, encode_params)
                         if ret:
                             yield (b'--frame\r\n'
-                                   b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-                    
-                    time.sleep(0.5)  # 2 FPS for placeholder
+                                   b'Content-Type: image/jpeg\r\n'
+                                   b'Content-Length: ' + str(len(buffer)).encode() + b'\r\n\r\n' + 
+                                   buffer.tobytes() + b'\r\n')
+                        
+                        time.sleep(0.2)  # Slower rate for placeholder
                     
                 except Exception as e:
                     self.logger.warning(f"Camera stream error: {e}")
-                    time.sleep(1.0)  # Wait before retry
+                    time.sleep(0.5)  # Wait before retry
                     
         except Exception as e:
             self.logger.error(f"Camera stream setup failed: {e}")
-            yield b'--frame\r\nContent-Type: text/plain\r\n\r\nCamera not available\r\n'
+            # Emergency fallback
+            error_img = np.zeros((240, 320, 3), dtype=np.uint8)
+            cv2.putText(error_img, 'Camera Error', (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            ret, buffer = cv2.imencode('.jpg', error_img)
+            if ret:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
     
     def start_web_server(self, host='0.0.0.0', port=8080, debug=False, use_reloader=None):
         """Start the Flask web server"""
