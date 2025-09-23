@@ -276,6 +276,7 @@ window.ScannerBase = {
             cameraDetails.innerHTML = `
                 <div>Available: <span id="cameraCount">${status.cameras.available || 0}</span></div>
                 <div>Active: <span id="activeCameras">${status.cameras.active?.join(', ') || 'None'}</span></div>
+                <div>State: <span id="cameraState">${status.cameras.status || 'Unknown'}</span></div>
             `;
         }
 
@@ -295,6 +296,7 @@ window.ScannerBase = {
                 <div>Progress: <span id="scanProgress">${parseFloat(status.scan.progress || 0).toFixed(1)}%</span></div>
                 <div>Points: <span id="scanPoints">${status.scan.current_point || 0}/${status.scan.total_points || 0}</span></div>
                 <div>Phase: <span id="scanPhase">${status.scan.phase || 'Idle'}</span></div>
+                <div>State: <span id="scanState">${status.scan.status || 'Unknown'}</span></div>
             `;
         }
     },
