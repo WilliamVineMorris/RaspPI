@@ -785,7 +785,9 @@ const ManualControl = {
             // Start progress monitoring
             let checkCount = 0;
             let homingDetected = false;
-            const maxChecks = 120; // 2 minutes timeout (120 * 1000ms)
+            let homingStartTime = null;
+            let initialHomedState = null;
+            const maxChecks = 180; // 3 minutes timeout (180 * 1000ms)
             
             progressInterval = setInterval(async () => {
                 checkCount++;
@@ -800,6 +802,12 @@ const ManualControl = {
                     const fluidncState = status.motion?.fluidnc_status || 'unknown';
                     const isHomed = status.motion?.homed || status.motion?.is_homed || false;
                     
+                    // Record initial homed state to detect transitions
+                    if (initialHomedState === null) {
+                        initialHomedState = isHomed;
+                        ScannerBase.addLogEntry(`📋 Initial state: Motion=${motionState}, FluidNC=${fluidncState}, Homed=${isHomed}`, 'info');
+                    }
+                    
                     // Show detailed status every 5 seconds during active homing
                     if (checkCount % 5 === 0 || homingDetected) {
                         ScannerBase.addLogEntry(`📊 Status: Motion=${motionState}, FluidNC=${fluidncState}, Homed=${isHomed}, Time=${elapsed}s`, 'info');
@@ -807,33 +815,53 @@ const ManualControl = {
                     
                     // Update progress display based on detected phase
                     if (homingDetected) {
+                        const homingElapsed = homingStartTime ? Math.round((Date.now() - homingStartTime) / 1000) : 0;
                         if (motionState === 'homing') {
-                            ScannerBase.showLoading(`🏠 Physical homing active... (${elapsed}s)`);
+                            ScannerBase.showLoading(`🏠 Physical homing active... (${elapsed}s total, ${homingElapsed}s homing)`);
                         } else if (motionState === 'idle' && !isHomed) {
-                            ScannerBase.showLoading(`🔄 Clearing axes and setting coordinates... (${elapsed}s)`);
+                            ScannerBase.showLoading(`🔄 Clearing axes and setting coordinates... (${elapsed}s total, ${homingElapsed}s since homing)`);
                         } else if (motionState === 'idle' && isHomed) {
-                            ScannerBase.showLoading(`✅ Finalizing homing sequence... (${elapsed}s)`);
+                            ScannerBase.showLoading(`✅ Finalizing homing sequence... (${elapsed}s total, ${homingElapsed}s since homing)`);
                         } else {
-                            ScannerBase.showLoading(`🏠 Homing in progress... (${elapsed}s)`);
+                            ScannerBase.showLoading(`🏠 Homing in progress... (${elapsed}s total)`);
                         }
                     } else {
                         ScannerBase.showLoading(`⏳ Waiting for homing to start... (${elapsed}s)`);
                     }
                     
-                    // Check if homing is complete - need MINIMUM TIME + idle status + homed flag + confirmed homing was detected
-                    // Prevent premature completion detection by requiring at least 20 seconds and confirmed homing sequence
-                    const minimumHomingTime = 20; // seconds - increased for better reliability
-                    if (status.motion && status.motion.status === 'idle' && isHomed && elapsed >= minimumHomingTime && homingDetected) {
-                        // Additional validation: check if we've had enough time for real homing
-                        if (elapsed < 15) {
-                            ScannerBase.addLogEntry(`⚠️ Completion too quick (${elapsed}s) - continuing to monitor...`, 'warning');
-                            return; // Continue monitoring
+                    // STRICT completion criteria - all must be true:
+                    // 1. Homing was actually detected (not initial state)
+                    // 2. At least 30 seconds since homing was detected
+                    // 3. Motion is idle AND homed
+                    // 4. At least 45 seconds total elapsed time
+                    // 5. State transition from not-homed to homed occurred
+                    const homingElapsed = homingStartTime ? Math.round((Date.now() - homingStartTime) / 1000) : 0;
+                    const minimumHomingTime = 30; // seconds since homing detection
+                    const minimumTotalTime = 45; // seconds total
+                    
+                    if (homingDetected && 
+                        homingElapsed >= minimumHomingTime && 
+                        elapsed >= minimumTotalTime &&
+                        status.motion && 
+                        status.motion.status === 'idle' && 
+                        isHomed &&
+                        initialHomedState !== null) {
+                        
+                        // Additional safety check: ensure we had a state transition
+                        if (initialHomedState === true && isHomed === true) {
+                            ScannerBase.addLogEntry(`⚠️ No state transition detected - may have been already homed. Continuing to monitor...`, 'warning');
+                            if (elapsed < 60) { // Give it more time
+                                return;
+                            }
                         }
                         
-                        // Add a delay to ensure coordinates are properly set
-                        ScannerBase.showLoading(`✅ Homing complete - finalizing coordinates... (${elapsed}s)`);
+                        // Final validation before completion
+                        ScannerBase.addLogEntry(`🔍 Final validation: homingDetected=${homingDetected}, homingElapsed=${homingElapsed}s, totalElapsed=${elapsed}s, motionIdle=${status.motion.status === 'idle'}, isHomed=${isHomed}`, 'info');
                         
-                        // Wait 3 seconds before declaring completion
+                        // Add a delay to ensure coordinates are properly set
+                        ScannerBase.showLoading(`✅ Homing complete - finalizing coordinates... (${elapsed}s total)`);
+                        
+                        // Wait 5 seconds before declaring completion
                         setTimeout(() => {
                             // Homing completed successfully
                             clearInterval(progressInterval);
@@ -842,7 +870,7 @@ const ManualControl = {
                             ScannerBase.hideLoading();
                             // Use overlay alert only for final success (important message)
                             ScannerBase.showAlert('🎉 All axes homed successfully!', 'success', 5000, false);
-                            ScannerBase.addLogEntry(`✅ Homing completed successfully in ${elapsed + 3} seconds`, 'success');
+                            ScannerBase.addLogEntry(`✅ Homing completed successfully in ${elapsed + 5} seconds (${homingElapsed + 5}s since detection)`, 'success');
                             
                             // Re-enable button with original text
                             if (homeButton) {
@@ -853,7 +881,7 @@ const ManualControl = {
                             
                             // Update position displays
                             this.updatePositionDisplays(status.motion.position);
-                        }, 3000);
+                        }, 5000);
                         return;
                     }
                     
@@ -863,9 +891,9 @@ const ManualControl = {
                         (status.motion.raw_status && status.motion.raw_status.includes('<Home|')))) {
                         if (!homingDetected) {
                             homingDetected = true;
+                            homingStartTime = Date.now(); // Record when homing actually started
                             ScannerBase.addLogEntry(`🔄 Homing sequence started (FluidNC: ${status.motion.fluidnc_status || 'Homing'})`, 'info');
                         }
-                        ScannerBase.showLoading(`🏠 Physical homing in progress... (${elapsed}s)`);
                         
                         // Log detailed status for debugging
                         ScannerBase.log(`Active homing: state=${status.motion.status}, fluidnc=${status.motion.fluidnc_status}, homed=${status.motion.homed || status.motion.is_homed}, elapsed=${elapsed}s`);
@@ -874,9 +902,9 @@ const ManualControl = {
                     
                     // Check if we're in coordinate reset phase (idle but not homed yet)
                     if (homingDetected && status.motion && status.motion.status === 'idle' && 
-                        !(status.motion.homed || status.motion.is_homed) && elapsed < minimumHomingTime) {
-                        ScannerBase.showLoading(`🔄 Resetting coordinates... (${elapsed}s)`);
-                        ScannerBase.log(`Coordinate reset phase: state=${status.motion.status}, fluidnc=${status.motion.fluidnc_status}, homed=${status.motion.homed || status.motion.is_homed}, elapsed=${elapsed}s`);
+                        !isHomed && elapsed < 90) { // Extended time for coordinate reset
+                        const homingElapsed = homingStartTime ? Math.round((Date.now() - homingStartTime) / 1000) : 0;
+                        ScannerBase.log(`Coordinate reset phase: state=${status.motion.status}, fluidnc=${status.motion.fluidnc_status}, homed=${isHomed}, homingElapsed=${homingElapsed}s`);
                         return; // Continue monitoring
                     }
                     
