@@ -194,11 +194,11 @@ def test_settings_api():
         
         # Test getting settings
         response = client.get('/api/settings/get')
-        assert response.status_code == 200
+        assert response.status_code == 200, f"Settings get failed with status {response.status_code}"
         data = json.loads(response.data)
-        assert data['success'] == True
-        assert 'motion' in data['data']
-        assert 'camera' in data['data']
+        assert data['success'] == True, f"Settings get returned success=False: {data}"
+        assert 'motion' in data['data'], f"Motion config missing from: {data['data'].keys()}"
+        assert 'camera' in data['data'], f"Camera config missing from: {data['data'].keys()}"
         logger.info("✅ Get settings working")
         
         # Test updating settings
@@ -210,16 +210,16 @@ def test_settings_api():
         response = client.post('/api/settings/update',
                              data=json.dumps(update_data),
                              content_type='application/json')
-        assert response.status_code == 200
+        assert response.status_code == 200, f"Settings update failed with status {response.status_code}"
         data = json.loads(response.data)
-        assert data['success'] == True
-        assert 'restart_required' in data['data']
+        assert data['success'] == True, f"Settings update returned success=False: {data}"
+        assert 'restart_required' in data['data'], f"restart_required missing from: {data['data'].keys()}"
         logger.info("✅ Update settings working")
         
         # Test backup creation
         response = client.post('/api/settings/backup')
-        assert response.status_code == 200
-        assert response.content_type == 'application/json'
+        # Note: backup returns a file download, not JSON
+        assert response.status_code == 200, f"Settings backup failed with status {response.status_code}"
         logger.info("✅ Settings backup working")
         
         logger.info("✅ Settings API tests passed")
@@ -227,6 +227,8 @@ def test_settings_api():
         
     except Exception as e:
         logger.error(f"❌ Settings API test failed: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
 
@@ -239,38 +241,42 @@ def test_integration_compatibility():
         mock_orchestrator = create_mock_orchestrator()
         web_interface = ScannerWebInterface(orchestrator=mock_orchestrator)
         
-        # Test original functionality still works
+        # Test original functionality still works BEFORE enhancement
         client = web_interface.app.test_client()
         
         # Test dashboard
         response = client.get('/')
-        assert response.status_code == 200
+        assert response.status_code == 200, f"Dashboard failed with status {response.status_code}"
         logger.info("✅ Original dashboard still working")
         
         # Test API status
         response = client.get('/api/status')
-        assert response.status_code == 200
+        assert response.status_code == 200, f"API status failed with status {response.status_code}"
         logger.info("✅ Original API status still working")
         
-        # Enhance with Phase 5 functionality
-        enhanced_interface = enhance_web_interface(web_interface)
+        # NOW enhance with Phase 5 functionality (on fresh instance to avoid Flask route conflicts)
+        mock_orchestrator2 = create_mock_orchestrator()
+        web_interface2 = ScannerWebInterface(orchestrator=mock_orchestrator2)
+        enhanced_interface = enhance_web_interface(web_interface2)
         
         # Test original functionality still works after enhancement
-        response = client.get('/')
-        assert response.status_code == 200
+        client2 = enhanced_interface.app.test_client()
+        
+        response = client2.get('/')
+        assert response.status_code == 200, f"Dashboard failed after enhancement with status {response.status_code}"
         logger.info("✅ Dashboard working after enhancement")
         
-        response = client.get('/api/status')
-        assert response.status_code == 200
+        response = client2.get('/api/status')
+        assert response.status_code == 200, f"API status failed after enhancement with status {response.status_code}"
         logger.info("✅ API status working after enhancement")
         
         # Test new functionality works
-        response = client.get('/api/storage/sessions')
-        assert response.status_code == 200
+        response = client2.get('/api/storage/sessions')
+        assert response.status_code == 200, f"New storage endpoints failed with status {response.status_code}"
         logger.info("✅ New storage endpoints working")
         
-        response = client.get('/api/scan/queue')
-        assert response.status_code == 200
+        response = client2.get('/api/scan/queue')
+        assert response.status_code == 200, f"New queue endpoints failed with status {response.status_code}"
         logger.info("✅ New queue endpoints working")
         
         logger.info("✅ Integration compatibility tests passed")
@@ -278,6 +284,8 @@ def test_integration_compatibility():
         
     except Exception as e:
         logger.error(f"❌ Integration compatibility test failed: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
 
@@ -293,28 +301,28 @@ def test_error_handling():
         
         client = enhanced_interface.app.test_client()
         
-        # Test invalid file path
+        # Test invalid file path - expect 404
         response = client.get('/api/files/download/nonexistent/file.txt')
-        assert response.status_code == 404
+        assert response.status_code == 404, f"Expected 404 for non-existent file, got {response.status_code}"
         logger.info("✅ File not found error handling working")
         
-        # Test invalid session export
+        # Test invalid session export - expect 404
         response = client.get('/api/files/export/nonexistent_session')
-        assert response.status_code == 404
+        assert response.status_code == 404, f"Expected 404 for non-existent session, got {response.status_code}"
         logger.info("✅ Session not found error handling working")
         
-        # Test malformed queue add request
+        # Test malformed queue add request - expect 400
         response = client.post('/api/scan/queue/add',
                              data="invalid json",
                              content_type='application/json')
-        assert response.status_code == 400
+        assert response.status_code == 400, f"Expected 400 for malformed JSON, got {response.status_code}"
         logger.info("✅ Malformed request error handling working")
         
-        # Test missing queue ID
+        # Test missing queue ID - expect 400
         response = client.post('/api/scan/queue/remove',
                              data=json.dumps({}),
                              content_type='application/json')
-        assert response.status_code == 400
+        assert response.status_code == 400, f"Expected 400 for missing queue ID, got {response.status_code}"
         logger.info("✅ Missing parameter error handling working")
         
         logger.info("✅ Error handling tests passed")
@@ -322,6 +330,8 @@ def test_error_handling():
         
     except Exception as e:
         logger.error(f"❌ Error handling test failed: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
 
