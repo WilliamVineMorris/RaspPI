@@ -1371,6 +1371,27 @@ class ScannerWebInterface:
             self.logger.error(f"Lighting flash execution failed: {e}")
             raise HardwareError(f"Failed to execute lighting flash: {e}")
     
+    def _create_fallback_frame(self, message: str):
+        """Create a lightweight fallback frame for camera streaming"""
+        import cv2
+        import numpy as np
+        
+        # Create smaller frame for better performance
+        frame = np.full((360, 640, 3), 32, dtype=np.uint8)  # Dark frame
+        
+        # Add message text
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.7
+        thickness = 2
+        
+        text_size = cv2.getTextSize(message, font, font_scale, thickness)[0]
+        text_x = (640 - text_size[0]) // 2
+        text_y = (360 + text_size[1]) // 2
+        
+        cv2.putText(frame, message, (text_x, text_y), font, font_scale, (128, 128, 128), thickness, cv2.LINE_AA)
+        
+        return frame
+    
     def _generate_camera_stream(self, camera_id):
         """Simplified camera stream focused on Camera 0 only"""
         import time
@@ -1408,14 +1429,17 @@ class ScannerWebInterface:
                 
                 time.sleep(0.1)  # 10 FPS for disabled camera
         
-        # High-performance Camera 0 streaming
-        self.logger.debug(f"STREAM START: Camera 0 optimized streaming initialized")
+        # Optimized Camera 0 streaming for Pi performance
+        self.logger.debug(f"STREAM START: Camera 0 performance-optimized streaming initialized")
         
         frame_counter = 0
         last_log_time = 0
-        fps_target = 20  # Increased FPS with optimizations
+        fps_target = 8  # Reduced FPS for Pi performance (was 20)
         frame_interval = 1.0 / fps_target
         last_frame_time = 0
+        frame_cache = None  # Add frame caching
+        cache_duration = 0.5  # Cache frames for 500ms
+        last_cache_time = 0
         
         while True:
             frame_counter += 1
@@ -1439,63 +1463,65 @@ class ScannerWebInterface:
                 orchestrator = getattr(self, 'orchestrator', None)
                 
                 if orchestrator and hasattr(orchestrator, 'camera_manager'):
-                    # Native 1080p streaming with minimal processing
-                    try:
-                        # Always use 'camera_1' for Camera 0 hardware
-                        frame = orchestrator.camera_manager.get_preview_frame('camera_1')
-                        
-                        if frame is not None and frame.size > 0:
-                            if should_log:
-                                self.logger.debug(f"STREAM SUCCESS: Native 1080p frame received, shape: {frame.shape}")
+                    # Use frame caching to reduce Pi CPU load
+                    current_cache_time = time.time()
+                    
+                    # Only get new frame if cache expired
+                    if frame_cache is None or (current_cache_time - last_cache_time) > cache_duration:
+                        try:
+                            # Always use 'camera_1' for Camera 0 hardware
+                            fresh_frame = orchestrator.camera_manager.get_preview_frame('camera_1')
                             
-                            # Frame is already optimized, just encode efficiently
-                            # Use maximum quality JPEG encoding for crisp 1080p display
-                            encode_params = [
-                                cv2.IMWRITE_JPEG_QUALITY, 90,  # High quality for 1080p
-                                cv2.IMWRITE_JPEG_OPTIMIZE, 1,  # Optimize file size
-                                cv2.IMWRITE_JPEG_PROGRESSIVE, 1  # Progressive JPEG for faster loading
-                            ]
-                            ret, jpeg_buffer = cv2.imencode('.jpg', frame, encode_params)
-                            
-                            if ret and len(jpeg_buffer) > 0:
-                                jpeg_data = jpeg_buffer.tobytes()
-                                
-                                yield (b'--frame\r\n'
-                                       b'Content-Type: image/jpeg\r\n'
-                                       b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
-                                       jpeg_data + b'\r\n')
-                                continue
-                            else:
+                            if fresh_frame is not None and fresh_frame.size > 0:
+                                frame_cache = fresh_frame
+                                last_cache_time = current_cache_time
                                 if should_log:
-                                    self.logger.warning("STREAM WARNING: JPEG encoding failed for native 1080p")
+                                    self.logger.debug(f"STREAM CACHE: Fresh frame cached, shape: {fresh_frame.shape}")
+                            elif frame_cache is None:
+                                # First time - create fallback
+                                frame_cache = self._create_fallback_frame("Camera 0 - Initializing")
+                                last_cache_time = current_cache_time
+                        except Exception as e:
+                            if should_log:
+                                self.logger.error(f"STREAM ERROR: Frame capture failed: {e}")
+                            if frame_cache is None:
+                                frame_cache = self._create_fallback_frame("Camera 0 - Error")
+                    
+                    # Use cached frame for encoding
+                    frame = frame_cache
+                    
+                    if frame is not None and frame.size > 0:
+                        # Optimized encoding for Pi performance
+                        encode_params = [
+                            cv2.IMWRITE_JPEG_QUALITY, 70,  # Reduced quality for performance (was 90)
+                            cv2.IMWRITE_JPEG_OPTIMIZE, 1
+                        ]
+                        ret, jpeg_buffer = cv2.imencode('.jpg', frame, encode_params)
+                        
+                        if ret and len(jpeg_buffer) > 0:
+                            jpeg_data = jpeg_buffer.tobytes()
+                            
+                            yield (b'--frame\r\n'
+                                   b'Content-Type: image/jpeg\r\n'
+                                   b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
+                                   jpeg_data + b'\r\n')
+                            continue
                         else:
                             if should_log:
-                                self.logger.warning("STREAM WARNING: No native frame data received")
+                                self.logger.warning("STREAM WARNING: JPEG encoding failed")
                     
-                    except Exception as e:
-                        if should_log:
-                            self.logger.error(f"STREAM ERROR: Native 1080p capture failed: {e}")
+                    if should_log:
+                        self.logger.warning("STREAM WARNING: No frame data available")
                 else:
                     if should_log:
                         self.logger.warning("STREAM WARNING: No orchestrator available")
                 
-                # Simple fallback - generate a "No Signal" frame
-                fallback_frame = np.full((480, 640, 3), 32, dtype=np.uint8)  # Dark frame
+                # Lightweight fallback for unavailable camera
+                if frame_cache is None:
+                    frame_cache = self._create_fallback_frame("Camera 0 - No Signal")
                 
-                # Add "No Signal" text
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                text = "Camera 0 - No Signal"
-                font_scale = 0.8
-                thickness = 2
-                
-                text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
-                text_x = (640 - text_size[0]) // 2
-                text_y = (480 + text_size[1]) // 2
-                
-                cv2.putText(fallback_frame, text, (text_x, text_y), font, font_scale, (128, 128, 128), thickness, cv2.LINE_AA)
-                
-                # Encode fallback frame
-                ret, jpeg_buffer = cv2.imencode('.jpg', fallback_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                # Encode cached fallback frame
+                ret, jpeg_buffer = cv2.imencode('.jpg', frame_cache, [cv2.IMWRITE_JPEG_QUALITY, 50])
                 if ret:
                     jpeg_data = jpeg_buffer.tobytes()
                     yield (b'--frame\r\n'
