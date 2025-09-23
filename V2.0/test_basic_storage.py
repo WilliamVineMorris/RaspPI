@@ -63,19 +63,33 @@ lighting:
             
             print("1. Created test configuration")
             
+            # Initialize config manager first
+            print("2. Initializing config manager...")
+            config_manager = ConfigManager(str(config_path))
+            print("✅ Config manager created")
+            
             # Test MockStorageManager directly
-            print("2. Testing MockStorageManager...")
-            mock_storage = MockStorageManager()
+            print("3. Testing MockStorageManager...")
+            mock_storage = MockStorageManager(config_manager)
             await mock_storage.initialize()
             print("✅ MockStorageManager works!")
             
             # Test session creation
-            session = await mock_storage.start_session("Test Scan", "Test description")
-            print(f"✅ Session created: {session.session_id}")
+            session_metadata = {
+                'scan_name': 'Test Scan',
+                'description': 'Test description',
+                'operator': 'Test User'
+            }
+            session_id = await mock_storage.create_session(session_metadata)
+            print(f"✅ Session created: {session_id}")
             
-            # Test file storage (basic)
-            sessions = await mock_storage.list_sessions()
-            print(f"✅ Listed sessions: {len(sessions)} found")
+            # Test session finalization
+            success = await mock_storage.finalize_session(session_id)
+            print(f"✅ Session finalized: {success}")
+            
+            # Test availability check
+            available = mock_storage.is_available()
+            print(f"✅ Storage available: {available}")
             
             print("\n🎉 Basic storage functionality test passed!")
             return True
