@@ -1032,13 +1032,19 @@ class ScannerWebInterface:
             raise HardwareError(f"Failed to execute lighting flash: {e}")
     
     def _generate_camera_stream(self, camera_id):
-        """Generate MJPEG stream with optimized Picamera2 methods - accepts int or string camera IDs"""
+        """Generate MJPEG stream with rate-limited logging"""
         import time
         import cv2
         import numpy as np
         from io import BytesIO
         
-        self.logger.info(f"=== _generate_camera_stream ENTRY for camera_id: {camera_id} (type: {type(camera_id)}) ===")
+        # Rate-limited logging setup
+        current_time = time.time()
+        if not hasattr(self, '_stream_start_logged') or camera_id not in self._stream_start_logged:
+            if not hasattr(self, '_stream_start_logged'):
+                self._stream_start_logged = {}
+            self.logger.info(f"STREAM START: Camera {camera_id} stream initialized")
+            self._stream_start_logged[camera_id] = current_time
         
         # Cache for error recovery
         last_frame = None
@@ -1051,15 +1057,18 @@ class ScannerWebInterface:
         frame_interval = 1.0 / fps_target
         last_frame_time = 0
         
-        self.logger.info(f"Starting camera stream for camera {camera_id} (type: {type(camera_id)})")
-        
         frame_counter = 0
+        last_log_time = 0
+        
         while True:
             frame_counter += 1
             current_time = time.time()
             
-            if frame_counter <= 5:  # Log first 5 iterations
-                self.logger.info(f"Camera {camera_id} stream iteration {frame_counter}")
+            # Log only every 10 seconds
+            should_log = (current_time - last_log_time) > 10.0
+            if should_log:
+                self.logger.info(f"STREAM STATUS: Camera {camera_id} - Frame {frame_counter}, Errors: {error_count}")
+                last_log_time = current_time
             
             # Frame rate control
             time_since_last = current_time - last_frame_time
@@ -1073,18 +1082,12 @@ class ScannerWebInterface:
                 frame = None
                 orchestrator = getattr(self, 'orchestrator', None)
                 
-                if frame_counter <= 3:  # Log first 3 iterations
-                    self.logger.info(f"Orchestrator available: {orchestrator is not None}")
-                    if orchestrator:
-                        self.logger.info(f"Orchestrator type: {type(orchestrator).__name__}")
-                        self.logger.info(f"Has camera_manager: {hasattr(orchestrator, 'camera_manager')}")
+                if should_log:
+                    self.logger.info(f"STREAM DEBUG: Orchestrator available: {orchestrator is not None}")
                 
                 if orchestrator and hasattr(orchestrator, 'camera_manager'):
                     # Use the camera manager's get_preview_frame method
                     try:
-                        if frame_counter <= 3:  # Log first 3 attempts
-                            self.logger.info(f"Calling orchestrator.camera_manager.get_preview_frame({camera_id})")
-                        
                         # Check if we need to map camera ID
                         mapped_camera_id = camera_id
                         if isinstance(camera_id, int):
@@ -1092,26 +1095,22 @@ class ScannerWebInterface:
                             try:
                                 camera_status = orchestrator.get_camera_status()
                                 available_cameras = camera_status.get('cameras', [])
-                                if frame_counter <= 2:  # Log first 2 attempts
-                                    self.logger.info(f"Available cameras: {available_cameras}")
                                 
                                 # If backend uses 'camera_X' format, map integer IDs
                                 if available_cameras and all(isinstance(cam, str) and cam.startswith('camera_') for cam in available_cameras):
                                     mapped_camera_id = f"camera_{camera_id + 1}"  # Map 0->camera_1, 1->camera_2
-                                    if frame_counter <= 2:  # Log first 2 attempts
-                                        self.logger.info(f"Mapped camera ID {camera_id} to {mapped_camera_id}")
+                                    
+                                    if should_log:
+                                        self.logger.info(f"STREAM DEBUG: Mapped camera ID {camera_id} to {mapped_camera_id}")
                             except Exception as mapping_error:
-                                if frame_counter <= 2:
-                                    self.logger.warning(f"Camera ID mapping failed: {mapping_error}")
+                                if should_log:
+                                    self.logger.warning(f"STREAM WARNING: Camera ID mapping failed: {mapping_error}")
                         
                         frame = orchestrator.camera_manager.get_preview_frame(mapped_camera_id)
                         
-                        if frame_counter <= 5:  # Log first 5 attempts
-                            self.logger.info(f"get_preview_frame returned: {type(frame)} {frame.shape if frame is not None and hasattr(frame, 'shape') else 'None/Invalid'}")
-                        
                         if frame is not None and frame.size > 0:
-                            if frame_counter <= 3:  # Log first 3 successful frames
-                                self.logger.info(f"SUCCESS: Got valid frame for camera {camera_id}, shape: {frame.shape}")
+                            if should_log:
+                                self.logger.info(f"STREAM SUCCESS: Got valid frame for camera {camera_id}, shape: {frame.shape}")
                             
                             # Optimize frame size if too large
                             height, width = frame.shape[:2]
@@ -1124,18 +1123,15 @@ class ScannerWebInterface:
                             
                             # High-quality JPEG encoding
                             encode_param = [
-                                cv2.IMWRITE_JPEG_QUALITY, 85,  # Good quality/speed balance
-                                cv2.IMWRITE_JPEG_OPTIMIZE, 1,   # Optimize encoding
-                                cv2.IMWRITE_JPEG_PROGRESSIVE, 0  # Disable progressive for speed
+                                cv2.IMWRITE_JPEG_QUALITY, 85,
+                                cv2.IMWRITE_JPEG_OPTIMIZE, 1,
+                                cv2.IMWRITE_JPEG_PROGRESSIVE, 0
                             ]
                             
                             ret, jpeg_buffer = cv2.imencode('.jpg', frame, encode_param)
                             
                             if ret and len(jpeg_buffer) > 0:
                                 jpeg_data = jpeg_buffer.tobytes()
-                                
-                                if frame_counter <= 2:  # Log first 2 successful encodes
-                                    self.logger.info(f"SUCCESS: Encoded JPEG for camera {camera_id}, size: {len(jpeg_data)} bytes")
                                 
                                 # Cache successful frame
                                 last_frame = jpeg_data
@@ -1148,133 +1144,131 @@ class ScannerWebInterface:
                                        jpeg_data + b'\r\n')
                                 continue
                             else:
-                                if frame_counter <= 5:
-                                    self.logger.warning(f"JPEG encoding failed for camera {camera_id}")
+                                if should_log:
+                                    self.logger.warning(f"STREAM WARNING: JPEG encoding failed for camera {camera_id}")
                         else:
-                            if frame_counter <= 5:
-                                self.logger.warning(f"No valid frame data for camera {camera_id}: {type(frame)}")
+                            if should_log:
+                                self.logger.warning(f"STREAM WARNING: No valid frame data for camera {camera_id}")
                     
                     except Exception as adapter_error:
-                        if frame_counter <= 10:  # Log first 10 errors
-                            self.logger.error(f"Camera adapter error for camera {camera_id} (iteration {frame_counter}): {adapter_error}")
-                            if frame_counter <= 3:  # Full traceback for first 3 errors
-                                import traceback
-                                self.logger.error(f"Full traceback: {traceback.format_exc()}")
+                        if should_log:  # Only log errors every 10 seconds
+                            self.logger.error(f"STREAM ERROR: Camera adapter error for camera {camera_id}: {adapter_error}")
                         error_count += 1
+                else:
+                    if should_log:
+                        self.logger.warning(f"STREAM WARNING: No orchestrator or camera_manager available for camera {camera_id}")
+                    error_count += 1
                 
-                # Error handling - Enhanced fallback system
-                if last_frame and (current_time - frame_cache_time) < 5.0:  # Use cache for 5 seconds
+                # Enhanced fallback system with rate-limited logging
+                if error_count >= max_errors:
+                    # Log fallback attempt only every 10 seconds
+                    if should_log:
+                        self.logger.info(f"STREAM FALLBACK: Attempting fallback for camera {camera_id} after {max_errors} errors")
+                    
+                    # Try fallback - check if other camera is working
+                    fallback_frame = None
+                    try:
+                        if camera_id in [0, '0', 'camera_1']:
+                            # Try camera 1 as fallback
+                            fallback_id = 1 if isinstance(camera_id, int) else 'camera_2'
+                            if orchestrator:
+                                fallback_frame = orchestrator.camera_manager.get_preview_frame(fallback_id)
+                        elif camera_id in [1, '1', 'camera_2']:
+                            # Try camera 0 as fallback
+                            fallback_id = 0 if isinstance(camera_id, int) else 'camera_1'
+                            if orchestrator:
+                                fallback_frame = orchestrator.camera_manager.get_preview_frame(fallback_id)
+                        
+                        if fallback_frame is not None and fallback_frame.size > 0:
+                            if should_log:
+                                self.logger.info(f"STREAM FALLBACK: Using fallback camera for camera {camera_id}")
+                            
+                            # Add "CAMERA OFFLINE" overlay
+                            height, width = fallback_frame.shape[:2]
+                            overlay_frame = fallback_frame.copy()
+                            
+                            # Add semi-transparent red overlay
+                            red_overlay = np.zeros_like(overlay_frame)
+                            red_overlay[:, :] = [0, 0, 128]  # Red in BGR
+                            overlay_frame = cv2.addWeighted(overlay_frame, 0.7, red_overlay, 0.3, 0)
+                            
+                            # Add text overlay
+                            font = cv2.FONT_HERSHEY_SIMPLEX
+                            text = f"CAMERA {camera_id} OFFLINE"
+                            font_scale = min(width, height) / 400.0
+                            thickness = max(1, int(font_scale * 2))
+                            
+                            text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+                            text_x = (width - text_size[0]) // 2
+                            text_y = (height + text_size[1]) // 2
+                            
+                            cv2.putText(overlay_frame, text, (text_x, text_y), font, font_scale, (255, 255, 255), thickness + 1, cv2.LINE_AA)
+                            cv2.putText(overlay_frame, text, (text_x, text_y), font, font_scale, (0, 0, 255), thickness, cv2.LINE_AA)
+                            
+                            # Encode and yield
+                            ret, jpeg_buffer = cv2.imencode('.jpg', overlay_frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                            if ret and len(jpeg_buffer) > 0:
+                                jpeg_data = jpeg_buffer.tobytes()
+                                yield (b'--frame\r\n'
+                                       b'Content-Type: image/jpeg\r\n'
+                                       b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
+                                       jpeg_data + b'\r\n')
+                                continue
+                    except Exception as fallback_error:
+                        if should_log:  # Only log fallback errors every 10 seconds
+                            self.logger.error(f"STREAM ERROR: Fallback failed for camera {camera_id}: {fallback_error}")
+                
+                # Use cached frame if available and recent
+                if last_frame and (current_time - frame_cache_time) < 5.0:
+                    if should_log:
+                        self.logger.info(f"STREAM CACHE: Using cached frame for camera {camera_id}")
                     yield (b'--frame\r\n'
                            b'Content-Type: image/jpeg\r\n'
                            b'Content-Length: ' + str(len(last_frame)).encode() + b'\r\n\r\n' +
                            last_frame + b'\r\n')
-                else:
-                    # Try to get a frame from the working camera as fallback
-                    fallback_frame = None
-                    
-                    if orchestrator and hasattr(orchestrator, 'camera_manager'):
-                        # Try to get frame from the other camera
-                        try:
-                            fallback_camera_id = 0 if camera_id != 0 else 1  # Switch to the other camera
-                            fallback_mapped_id = f"camera_{fallback_camera_id + 1}"
-                            
-                            if frame_counter <= 3:
-                                self.logger.info(f"Attempting fallback from camera {fallback_mapped_id} for failed camera {camera_id}")
-                            
-                            fallback_frame = orchestrator.camera_manager.get_preview_frame(fallback_mapped_id)
-                            
-                            if fallback_frame is not None and fallback_frame.size > 0:
-                                # Add overlay to show this is a fallback
-                                height, width = fallback_frame.shape[:2]
-                                
-                                # Resize if needed
-                                max_width = 800
-                                if width > max_width:
-                                    scale = max_width / width
-                                    new_width = int(width * scale)
-                                    new_height = int(height * scale)
-                                    fallback_frame = cv2.resize(fallback_frame, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-                                
-                                # Add fallback overlay
-                                overlay_height = 60
-                                overlay = np.zeros((overlay_height, fallback_frame.shape[1], 3), dtype=np.uint8)
-                                overlay[:] = (0, 100, 200)  # Orange background
-                                
-                                cv2.putText(overlay, f'Camera {camera_id} OFFLINE - Showing Camera {fallback_camera_id}', 
-                                           (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                                cv2.putText(overlay, f'Errors: {error_count}', 
-                                           (10, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-                                
-                                # Combine overlay with frame
-                                fallback_frame = np.vstack([overlay, fallback_frame])
-                                
-                                # Encode and yield the fallback frame
-                                encode_param = [cv2.IMWRITE_JPEG_QUALITY, 85]
-                                ret, jpeg_buffer = cv2.imencode('.jpg', fallback_frame, encode_param)
-                                
-                                if ret and len(jpeg_buffer) > 0:
-                                    jpeg_data = jpeg_buffer.tobytes()
-                                    yield (b'--frame\r\n'
-                                           b'Content-Type: image/jpeg\r\n'
-                                           b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
-                                           jpeg_data + b'\r\n')
-                                    continue
-                        
-                        except Exception as fallback_error:
-                            if frame_counter <= 5:
-                                self.logger.warning(f"Fallback camera failed for camera {camera_id}: {fallback_error}")
-                    
-                    # If fallback also failed, generate error frame
-                    error_img = np.zeros((240, 320, 3), dtype=np.uint8)
-                    error_img[:] = (40, 40, 40)  # Dark background
-                    
-                    cv2.putText(error_img, f'Camera {camera_id} TIMEOUT', (10, 40), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-                    cv2.putText(error_img, f'Attempts: {error_count}', (10, 70), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-                    cv2.putText(error_img, f'Time: {int(current_time)}', (10, 100), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-                    
-                    # Add debug info
-                    if orchestrator:
-                        cv2.putText(error_img, 'Orchestrator: OK', (10, 130), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-                        if hasattr(orchestrator, 'camera_manager'):
-                            cv2.putText(error_img, 'Camera Mgr: OK', (10, 150), 
-                                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-                        else:
-                            cv2.putText(error_img, 'No Camera Mgr', (10, 150), 
-                                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
-                    else:
-                        cv2.putText(error_img, 'No Orchestrator', (10, 130), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
-                    
-                    cv2.putText(error_img, 'Check camera connections', (10, 180), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 0), 1)
-                    cv2.putText(error_img, 'and hardware setup', (10, 200), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 255, 0), 1)
-                    
-                    ret, error_buffer = cv2.imencode('.jpg', error_img)
-                    if ret:
-                        error_frame = error_buffer.tobytes()
-                        yield (b'--frame\r\n'
-                               b'Content-Type: image/jpeg\r\n'
-                               b'Content-Length: ' + str(len(error_frame)).encode() + b'\r\n\r\n' +
-                               error_frame + b'\r\n')
+                    continue
                 
-                # Stop if too many consecutive errors
-                if error_count >= max_errors:
-                    self.logger.error(f"Camera {camera_id} stream failed after {max_errors} errors")
-                    break
-                    
+                # Generate placeholder frame as last resort
+                if should_log:
+                    self.logger.warning(f"STREAM PLACEHOLDER: Generating placeholder frame for camera {camera_id}")
+                
+                # Create error placeholder
+                placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+                placeholder[:, :] = [50, 50, 50]  # Dark gray
+                
+                # Add text
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                text = f"Camera {camera_id}"
+                font_scale = 1.5
+                thickness = 2
+                
+                text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+                text_x = (640 - text_size[0]) // 2
+                text_y = (480 + text_size[1]) // 2
+                
+                cv2.putText(placeholder, text, (text_x, text_y), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+                
+                # Error message
+                error_text = "STREAM ERROR"
+                error_size = cv2.getTextSize(error_text, font, 0.8, 1)[0]
+                error_x = (640 - error_size[0]) // 2
+                error_y = text_y + 50
+                
+                cv2.putText(placeholder, error_text, (error_x, error_y), font, 0.8, (0, 0, 255), 1, cv2.LINE_AA)
+                
+                ret, jpeg_buffer = cv2.imencode('.jpg', placeholder, [cv2.IMWRITE_JPEG_QUALITY, 75])
+                if ret:
+                    jpeg_data = jpeg_buffer.tobytes()
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n'
+                           b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
+                           jpeg_data + b'\r\n')
+                
             except Exception as e:
-                self.logger.error(f"Stream generation error for camera {camera_id}: {e}")
-                error_count += 1
+                if should_log:  # Only log general errors every 10 seconds
+                    self.logger.error(f"STREAM ERROR: General error in camera stream for camera {camera_id}: {e}")
                 
-                if error_count >= max_errors:
-                    break
-                
-                # Brief pause before retry
+                # Brief pause to prevent overwhelming
                 time.sleep(0.1)
     
     def start_web_server(self, host='0.0.0.0', port=8080, debug=False, use_reloader=None):
