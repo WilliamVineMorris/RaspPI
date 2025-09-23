@@ -396,6 +396,64 @@ class ScannerWebInterface:
             except Exception as e:
                 self.logger.error(f"Home API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
+
+        @self.app.route('/api/jog', methods=['POST'])
+        def api_jog():
+            """Handle jog movement commands"""
+            try:
+                data = request.get_json() or {}
+                
+                # Validate jog parameters
+                axis = data.get('axis', '').lower()
+                direction = data.get('direction', '')
+                mode = data.get('mode', 'step')
+                distance = data.get('distance', 1.0)
+                speed = data.get('speed', 10.0)
+                
+                if axis not in ['x', 'y', 'z', 'c']:
+                    return jsonify({"success": False, "error": "Invalid axis"}), 400
+                
+                if direction not in ['+', '-']:
+                    return jsonify({"success": False, "error": "Invalid direction"}), 400
+                
+                # Convert to move command format
+                move_data = {}
+                move_distance = distance if direction == '+' else -distance
+                move_data[axis] = move_distance
+                
+                if mode == 'continuous':
+                    # For continuous jog, use smaller increments
+                    move_data[axis] = 0.5 if direction == '+' else -0.5
+                
+                # Execute the movement using existing move logic
+                result = self._execute_move_command(move_data)
+                
+                return jsonify({
+                    'success': True,
+                    'data': result,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                logger.error(f"Jog command error: {e}")
+                return jsonify({"success": False, "error": str(e)}), 500
+
+        @self.app.route('/api/stop', methods=['POST'])
+        def api_stop():
+            """Handle motion stop commands"""
+            try:
+                # Use the existing emergency stop endpoint logic
+                result = self._execute_emergency_stop()
+                
+                return jsonify({
+                    "success": True, 
+                    "message": "Motion stopped",
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                logger.error(f"Stop command error: {e}")
+                return jsonify({"success": False, "error": str(e)}), 500
         
         @self.app.route('/api/emergency_stop', methods=['POST'])
         def api_emergency_stop():

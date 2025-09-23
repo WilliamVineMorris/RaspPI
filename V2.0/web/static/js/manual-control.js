@@ -1193,6 +1193,172 @@ const ManualControl = {
     }
 };
 
+// Initialize when the page loads
+document.addEventListener('DOMContentLoaded', () => {
+    if (typeof ScannerBase !== 'undefined') {
+        ManualControl.init();
+    }
+});
+
+// Simple global functions for onclick handlers in HTML
+function jogAxis(axis, distance) {
+    console.log(`Jogging ${axis} by ${distance}`);
+    
+    const data = {
+        axis: axis.toLowerCase(),
+        direction: distance > 0 ? '+' : '-',
+        mode: 'step',
+        distance: Math.abs(distance)
+    };
+    
+    fetch('/api/jog', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log(`${axis} jogged successfully`);
+        } else {
+            console.error(`Jog failed: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Jog error:', error);
+    });
+}
+
+function getStepSize() {
+    const stepSelect = document.getElementById('stepSize');
+    return parseFloat(stepSelect ? stepSelect.value : 1.0);
+}
+
+function homeAxes(axes) {
+    console.log(`Homing axes: ${axes}`);
+    
+    fetch('/api/home', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({axes: axes})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('Homing started');
+        } else {
+            console.error(`Homing failed: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Homing error:', error);
+    });
+}
+
+function homeAllAxes() {
+    if (ManualControl && ManualControl.homeAllAxes) {
+        ManualControl.homeAllAxes();
+    } else {
+        homeAxes(['x', 'y', 'z', 'c']);
+    }
+}
+
+function gotoPosition() {
+    const x = document.getElementById('targetX')?.value;
+    const y = document.getElementById('targetY')?.value;
+    const z = document.getElementById('targetZ')?.value;
+    const c = document.getElementById('targetC')?.value;
+    
+    const position = {};
+    if (x) position.x = parseFloat(x);
+    if (y) position.y = parseFloat(y);
+    if (z) position.z = parseFloat(z);
+    if (c) position.c = parseFloat(c);
+    
+    console.log('Going to position:', position);
+    
+    fetch('/api/position', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(position)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('Position command sent');
+        } else {
+            console.error(`Position move failed: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Position error:', error);
+    });
+}
+
+function capturePhoto() {
+    console.log('Capturing photo');
+    
+    fetch('/api/camera/capture', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({camera_id: 'camera_1'})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log('Photo captured');
+        } else {
+            console.error(`Capture failed: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Capture error:', error);
+    });
+}
+
+function captureFromCamera(cameraId) {
+    console.log(`Capturing from camera ${cameraId}`);
+    
+    fetch('/api/camera/capture', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({camera_id: `camera_${cameraId + 1}`})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            console.log(`Photo captured from camera ${cameraId}`);
+        } else {
+            console.error(`Capture failed: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Capture error:', error);
+    });
+}
+
+// Auto-refresh camera preview
+document.addEventListener('DOMContentLoaded', function() {
+    const cameraImg = document.getElementById('activePreview');
+    if (cameraImg) {
+        setInterval(() => {
+            const timestamp = new Date().getTime();
+            const currentSrc = cameraImg.src.split('?')[0];
+            cameraImg.src = currentSrc + '?t=' + timestamp;
+        }, 5000);
+    }
+});
+
 // Initialize manual control when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     ScannerBase.init();

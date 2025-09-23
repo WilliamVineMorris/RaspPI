@@ -57,13 +57,13 @@
                 </div>
             </div>
 
-            <!-- Z Control -->
+            <!-- Z (Rotation) Control -->
             <div class="z-control">
-                <h4>Z Movement</h4>
+                <h4>Z Rotation</h4>
                 <div class="z-buttons">
-                    <button class="jog-btn z-up" onclick="jogAxis('z', getStepSize())">Z ↑</button>
+                    <button class="jog-btn z-up" onclick="jogAxis('z', getStepSize())">Z ↻</button>
                     <button class="home-btn" onclick="homeAxes(['z'])">🏠 Z</button>
-                    <button class="jog-btn z-down" onclick="jogAxis('z', -getStepSize())">Z ↓</button>
+                    <button class="jog-btn z-down" onclick="jogAxis('z', -getStepSize())">Z ↺</button>
                 </div>
             </div>
 
@@ -100,11 +100,11 @@
                 </div>
                 <div class="input-group">
                     <label for="targetZ">Z:</label>
-                    <input type="number" id="targetZ" step="0.1" 
+                    <input type="number" id="targetZ" step="1" 
                            min="{{ position_limits.z[0] }}" 
                            max="{{ position_limits.z[1] }}" 
-                           value="25.0">
-                    <span>mm</span>
+                           value="0.0">
+                    <span>°</span>
                 </div>
                 <div class="input-group">
                     <label for="targetC">C:</label>
