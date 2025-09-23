@@ -111,6 +111,11 @@ motion:
 cameras:
   system_type: "dual_camera"
   
+  # Color Format Configuration
+  color_format:
+    default_mode: "bgr_direct"  # Direct BGR format (no conversion needed)
+    # Available modes: auto, rgb_to_bgr, bgr_direct, bgr_to_rgb
+    
   camera_1:
     port: 0
     name: "Primary Camera"

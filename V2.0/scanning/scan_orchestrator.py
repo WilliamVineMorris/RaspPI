@@ -349,6 +349,20 @@ class CameraManagerAdapter:
         self._mode_lock = threading.Lock()  # Lock for mode switching
         self._capture_lock = threading.Lock()  # Lock for captures
         
+        # Color format configuration - read from config or default to direct BGR
+        try:
+            camera_config = self.config_manager.get_section('cameras')
+            color_config = camera_config.get('color_format', {})
+            default_mode = color_config.get('default_mode', 'bgr_direct')
+            self._force_color_conversion = default_mode
+            self.logger.info(f"CAMERA: Initialized with color format from config: {default_mode}")
+        except Exception as e:
+            # Fallback to direct BGR if config read fails
+            self._force_color_conversion = 'bgr_direct'
+            self.logger.info(f"CAMERA: Config read failed ({e}), defaulting to direct BGR")
+            
+        self.logger.info("CAMERA: Camera adapter initialized with color format configuration")
+        
         self.logger.info("CAMERA: Dual-mode system initialized (1080p streaming + high-res capture)")
         
     async def initialize(self) -> bool:
@@ -380,16 +394,16 @@ class CameraManagerAdapter:
                 camera = self.controller.cameras[camera_id]
                 
                 if camera:
-                    # Create 1080p streaming configuration (optimized for speed)
+                    # Create 1080p streaming configuration (optimized for speed) - BGR format for direct use
                     self._stream_config = camera.create_video_configuration(
-                        main={"size": (1920, 1080), "format": "RGB888"},
+                        main={"size": (1920, 1080), "format": "BGR888"},
                         lores={"size": (640, 480), "format": "YUV420"},  # Thumbnail for processing
                         display="lores"  # Use low-res for display efficiency
                     )
                     
-                    # Create high-resolution capture configuration (optimized for quality)
+                    # Create high-resolution capture configuration (optimized for quality) - BGR format for direct use
                     self._capture_config = camera.create_still_configuration(
-                        main={"size": (4608, 2592), "format": "RGB888"},  # Full sensor resolution
+                        main={"size": (4608, 2592), "format": "BGR888"},  # Full sensor resolution
                         lores={"size": (1920, 1080), "format": "YUV420"},  # Preview
                         display="lores"
                     )
@@ -399,7 +413,7 @@ class CameraManagerAdapter:
                     camera.start()
                     
                     self._current_mode = "streaming"
-                    self.logger.info("CAMERA: Dual-mode configurations created - 1080p stream / 4K capture")
+                    self.logger.info("CAMERA: Dual-mode configurations created with BGR888 format - 1080p stream / 4K capture")
                     
         except Exception as e:
             self.logger.error(f"CAMERA: Failed to setup dual-mode configurations: {e}")
@@ -594,10 +608,10 @@ class CameraManagerAdapter:
                                         self.logger.info("CAMERA: FORCED RGB to BGR conversion")
                                         self._color_format_logged = True
                                 elif force_conversion == 'bgr_direct':
-                                    # Force direct BGR (no conversion)
+                                    # Force direct BGR (no conversion) - camera already outputs BGR888
                                     frame_bgr = frame_array.copy()
                                     if not hasattr(self, '_color_format_logged'):
-                                        self.logger.info("CAMERA: FORCED direct BGR (no conversion)")
+                                        self.logger.info("CAMERA: Using direct BGR888 format from camera (no conversion needed)")
                                         self._color_format_logged = True
                                 elif force_conversion == 'bgr_to_rgb':
                                     # Force BGR to RGB conversion
