@@ -999,135 +999,194 @@ class ScannerWebInterface:
             raise HardwareError(f"Failed to execute lighting flash: {e}")
     
     def _generate_camera_stream(self, camera_id: int):
-        """Generate ultra-optimized MJPEG stream for camera with minimal overhead"""
-        try:
-            if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
-                raise HardwareError("Camera manager not available")
+        """Generate MJPEG stream using Picamera2's native streaming capabilities"""
+        import time
+        import cv2
+        import threading
+        from io import BytesIO
+        
+        # Cache for error recovery
+        last_frame = None
+        frame_cache_time = 0
+        error_count = 0
+        max_errors = 10
+        
+        # Performance timing
+        fps_target = 25  # Increased target FPS
+        frame_interval = 1.0 / fps_target
+        last_frame_time = 0
+        
+        self.logger.info(f"Starting optimized native stream for camera {camera_id} at {fps_target} FPS")
+        
+        while True:
+            current_time = time.time()
             
-            import numpy as np
-            import time
+            # Frame rate control - precise timing
+            time_since_last = current_time - last_frame_time
+            if time_since_last < frame_interval:
+                time.sleep(frame_interval - time_since_last)
+                current_time = time.time()
             
-            # Streaming parameters optimized for performance
-            target_fps = 20  # Even higher frame rate
-            frame_interval = 1.0 / target_fps
-            last_frame_time = 0
+            last_frame_time = current_time
             
-            # Ultra-fast JPEG encoding parameters
-            encode_params = [
-                cv2.IMWRITE_JPEG_QUALITY, 90,  # High quality for color accuracy
-                cv2.IMWRITE_JPEG_OPTIMIZE, 1,
-                cv2.IMWRITE_JPEG_PROGRESSIVE, 0,  # Disable progressive for faster encoding
-                cv2.IMWRITE_JPEG_SAMPLING_FACTOR, cv2.IMWRITE_JPEG_SAMPLING_FACTOR_444  # Better color sampling
-            ]
-            
-            # Cache last frame for error recovery
-            last_valid_frame = None
-            error_count = 0
-            max_errors = 5
-            
-            while self._running:
-                try:
-                    current_time = time.time()
-                    
-                    # Precise frame rate control
-                    time_since_last = current_time - last_frame_time
-                    if time_since_last < frame_interval:
-                        sleep_time = frame_interval - time_since_last
-                        time.sleep(max(0.001, sleep_time))  # Minimum 1ms sleep
-                        continue
-                    
-                    # Get frame from camera manager (should already be BGR format)
-                    frame = None
-                    if hasattr(self.orchestrator.camera_manager, 'get_preview_frame'):
-                        frame = self.orchestrator.camera_manager.get_preview_frame(camera_id)
-                    
-                    if frame is not None and frame.size > 0:
-                        # Reset error count on successful frame
-                        error_count = 0
-                        last_valid_frame = frame
-                        
-                        # Minimal processing - frame should already be in correct BGR format
-                        height, width = frame.shape[:2]
-                        
-                        # Optional resize only if frame is too large
-                        max_width = 1024  # Increased for better quality
-                        if width > max_width:
-                            scale = max_width / width
-                            new_width = int(width * scale)
-                            new_height = int(height * scale)
-                            frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
-                        
-                        # Direct JPEG encoding without color conversion
-                        ret, buffer = cv2.imencode('.jpg', frame, encode_params)
-                        
-                        if ret and len(buffer) > 0:
-                            frame_size = len(buffer)
-                            # Optimized MJPEG frame with content length
-                            yield (b'--frame\r\n'
-                                   b'Content-Type: image/jpeg\r\n'
-                                   b'Content-Length: ' + str(frame_size).encode() + b'\r\n'
-                                   b'Cache-Control: no-cache\r\n\r\n' + 
-                                   buffer.tobytes() + b'\r\n')
+            try:
+                # Get orchestrator if available
+                orchestrator = getattr(self, 'orchestrator', None)
+                
+                if orchestrator:
+                    # Use direct camera access via orchestrator - this is the fastest method
+                    try:
+                        # Check if we have real cameras
+                        if hasattr(orchestrator.camera_adapter, 'controller') and \
+                           hasattr(orchestrator.camera_adapter.controller, 'cameras'):
                             
-                            last_frame_time = current_time
-                        else:
-                            error_count += 1
-                            self.logger.warning(f"Failed to encode frame for camera {camera_id}, error count: {error_count}")
+                            cameras = orchestrator.camera_adapter.controller.cameras
+                            if camera_id in cameras:
+                                camera = cameras[camera_id]
+                                
+                                # Use Picamera2's native MJPEG streaming if available
+                                try:
+                                    # Method 1: Direct MJPEG stream (fastest)
+                                    mjpeg_stream = BytesIO()
+                                    
+                                    # Try native MJPEG capture
+                                    camera.capture_file(mjpeg_stream, format='jpeg', 
+                                                      name='main', wait=False)
+                                    mjpeg_stream.seek(0)
+                                    
+                                    jpeg_data = mjpeg_stream.getvalue()
+                                    
+                                    if len(jpeg_data) > 0:
+                                        # Cache successful frame
+                                        last_frame = jpeg_data
+                                        frame_cache_time = current_time
+                                        error_count = 0
+                                        
+                                        # Stream the JPEG directly - no conversion needed!
+                                        yield (b'--frame\r\n'
+                                               b'Content-Type: image/jpeg\r\n'
+                                               b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
+                                               jpeg_data + b'\r\n')
+                                        continue
+                                    
+                                except Exception as mjpeg_error:
+                                    self.logger.debug(f"Native MJPEG failed: {mjpeg_error}")
+                                    
+                                    # Method 2: Array capture with optimized JPEG encoding
+                                    try:
+                                        array = camera.capture_array("main")
+                                        
+                                        if array is not None and array.size > 0:
+                                            # Handle different array formats
+                                            if len(array.shape) == 3:
+                                                if array.shape[2] == 3:  # RGB or BGR
+                                                    # Assume RGB from camera, convert to BGR for OpenCV
+                                                    frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
+                                                else:
+                                                    frame_bgr = array
+                                            else:
+                                                # Grayscale or other format
+                                                frame_bgr = array
+                                            
+                                            # High-quality JPEG encoding optimized for speed
+                                            encode_param = [
+                                                cv2.IMWRITE_JPEG_QUALITY, 85,  # Good quality/speed balance
+                                                cv2.IMWRITE_JPEG_OPTIMIZE, 1,   # Optimize encoding
+                                                cv2.IMWRITE_JPEG_PROGRESSIVE, 0  # Disable progressive for speed
+                                            ]
+                                            
+                                            ret, jpeg_buffer = cv2.imencode('.jpg', frame_bgr, encode_param)
+                                            
+                                            if ret:
+                                                jpeg_data = jpeg_buffer.tobytes()
+                                                
+                                                # Cache successful frame
+                                                last_frame = jpeg_data
+                                                frame_cache_time = current_time
+                                                error_count = 0
+                                                
+                                                yield (b'--frame\r\n'
+                                                       b'Content-Type: image/jpeg\r\n'
+                                                       b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
+                                                       jpeg_data + b'\r\n')
+                                                continue
+                                            
+                                    except Exception as array_error:
+                                        self.logger.debug(f"Array capture error: {array_error}")
                     
-                    else:
-                        error_count += 1
+                    except Exception as direct_error:
+                        self.logger.debug(f"Direct camera access failed: {direct_error}")
+                    
+                    # Method 3: Use orchestrator adapter method (most compatible)
+                    try:
+                        frame = orchestrator.camera_adapter.get_preview_frame(camera_id)
                         
-                        # Use cached frame if available and error count not too high
-                        if last_valid_frame is not None and error_count < max_errors:
-                            ret, buffer = cv2.imencode('.jpg', last_valid_frame, encode_params)
+                        if frame is not None:
+                            # High-quality JPEG encoding
+                            encode_param = [
+                                cv2.IMWRITE_JPEG_QUALITY, 85,
+                                cv2.IMWRITE_JPEG_OPTIMIZE, 1,
+                                cv2.IMWRITE_JPEG_PROGRESSIVE, 0
+                            ]
+                            
+                            ret, jpeg_buffer = cv2.imencode('.jpg', frame, encode_param)
+                            
                             if ret:
+                                jpeg_data = jpeg_buffer.tobytes()
+                                
+                                # Cache successful frame
+                                last_frame = jpeg_data
+                                frame_cache_time = current_time
+                                error_count = 0
+                                
                                 yield (b'--frame\r\n'
                                        b'Content-Type: image/jpeg\r\n'
-                                       b'Content-Length: ' + str(len(buffer)).encode() + b'\r\n\r\n' + 
-                                       buffer.tobytes() + b'\r\n')
-                        else:
-                            # Generate minimal status frame
-                            status_img = np.zeros((480, 640, 3), dtype=np.uint8)
-                            status_img[:] = (40, 40, 40)  # Dark background
-                            
-                            cv2.putText(status_img, f'Camera {camera_id}', (20, 60), 
-                                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
-                            
-                            if error_count >= max_errors:
-                                cv2.putText(status_img, 'Connection Lost', (20, 120), 
-                                           cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
-                            else:
-                                cv2.putText(status_img, 'Initializing...', (20, 120), 
-                                           cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
-                            
-                            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                            cv2.putText(status_img, timestamp, (20, 450), 
-                                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
-                            
-                            ret, buffer = cv2.imencode('.jpg', status_img, encode_params)
-                            if ret:
-                                yield (b'--frame\r\n'
-                                       b'Content-Type: image/jpeg\r\n'
-                                       b'Content-Length: ' + str(len(buffer)).encode() + b'\r\n\r\n' + 
-                                       buffer.tobytes() + b'\r\n')
-                        
-                        time.sleep(0.1)  # Slower rate during errors
+                                       b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
+                                       jpeg_data + b'\r\n')
+                                continue
                     
-                except Exception as e:
-                    error_count += 1
-                    self.logger.warning(f"Camera stream error for camera {camera_id}: {e}")
-                    time.sleep(0.05)  # Brief pause on error
+                    except Exception as adapter_error:
+                        self.logger.debug(f"Adapter method failed: {adapter_error}")
+                
+                # Error handling - use cached frame if available
+                error_count += 1
+                
+                if last_frame and (current_time - frame_cache_time) < 5.0:  # Use cache for 5 seconds
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n'
+                           b'Content-Length: ' + str(len(last_frame)).encode() + b'\r\n\r\n' +
+                           last_frame + b'\r\n')
+                else:
+                    # Generate simple error frame
+                    import numpy as np
+                    error_img = np.zeros((240, 320, 3), dtype=np.uint8)
+                    cv2.putText(error_img, f'Camera {camera_id} Error', (10, 50), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    cv2.putText(error_img, f'Attempts: {error_count}', (10, 100), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
                     
-        except Exception as e:
-            self.logger.error(f"Camera stream setup failed for camera {camera_id}: {e}")
-            # Final fallback
-            error_img = np.zeros((240, 320, 3), dtype=np.uint8)
-            cv2.putText(error_img, f'Camera {camera_id} Error', (10, 120), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-            ret, buffer = cv2.imencode('.jpg', error_img)
-            if ret:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                    ret, error_buffer = cv2.imencode('.jpg', error_img)
+                    if ret:
+                        error_frame = error_buffer.tobytes()
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n'
+                               b'Content-Length: ' + str(len(error_frame)).encode() + b'\r\n\r\n' +
+                               error_frame + b'\r\n')
+                
+                # Stop if too many consecutive errors
+                if error_count >= max_errors:
+                    self.logger.error(f"Camera {camera_id} stream failed after {max_errors} errors")
+                    break
+                    
+            except Exception as e:
+                self.logger.error(f"Stream generation error for camera {camera_id}: {e}")
+                error_count += 1
+                
+                if error_count >= max_errors:
+                    break
+                
+                # Brief pause before retry
+                time.sleep(0.1)
     
     def start_web_server(self, host='0.0.0.0', port=8080, debug=False, use_reloader=None):
         """Start the Flask web server"""
