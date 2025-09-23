@@ -600,18 +600,33 @@ class ScannerWebInterface:
             # Get lighting status
             if self.orchestrator and hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
                 try:
-                    lighting_status = self.orchestrator.lighting_controller.get_status()
-                    # Handle async get_status if needed
-                    if hasattr(lighting_status, '__await__'):
-                        # Skip async status for now in sync context
+                    # Check if get_status is async or sync
+                    get_status_method = getattr(self.orchestrator.lighting_controller, 'get_status', None)
+                    if get_status_method:
+                        try:
+                            # Try to call it - if it's async, it will return a coroutine
+                            lighting_status = get_status_method()
+                            
+                            # Check if it's a coroutine (async)
+                            if hasattr(lighting_status, '__await__'):
+                                # Skip async status for now in sync context
+                                status['lighting'].update({
+                                    'zones': [],
+                                    'status': 'async_method_skipped'
+                                })
+                            else:
+                                # It's sync, process normally
+                                status['lighting'].update({
+                                    'zones': list(lighting_status.get('zones', {}).keys()) if lighting_status else [],
+                                    'status': 'ready' if lighting_status and lighting_status.get('initialized') else 'unavailable'
+                                })
+                        except Exception as inner_e:
+                            status['system']['errors'].append(f"Lighting status call error: {inner_e}")
+                    else:
+                        # No get_status method
                         status['lighting'].update({
                             'zones': [],
-                            'status': 'async_status_skipped'
-                        })
-                    else:
-                        status['lighting'].update({
-                            'zones': list(lighting_status.get('zones', {}).keys()),
-                            'status': 'ready' if lighting_status.get('initialized') else 'unavailable'
+                            'status': 'no_status_method'
                         })
                 except Exception as e:
                     status['system']['errors'].append(f"Lighting controller error: {e}")
@@ -969,15 +984,26 @@ class ScannerWebInterface:
             while self._running:
                 try:
                     # Get frame from camera manager
-                    # This would be implemented based on your camera manager API
-                    frame = self.orchestrator.camera_manager.get_preview_frame(camera_id)
+                    frame = None
+                    
+                    # Try the mock method for development (sync)
+                    if hasattr(self.orchestrator.camera_manager, 'get_preview_frame'):
+                        frame = self.orchestrator.camera_manager.get_preview_frame(camera_id)
+                    
+                    # For real hardware, we'd need a sync version or different approach
+                    # Real camera streaming would be handled differently in production
                     
                     if frame is not None:
-                        # Encode frame as JPEG
+                        # Encode frame as JPEG (for mock data)
                         ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                         if ret:
                             yield (b'--frame\r\n'
                                    b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+                    else:
+                        # No frame available - send placeholder
+                        yield (b'--frame\r\n'
+                               b'Content-Type: text/plain\r\n\r\n'
+                               b'Camera stream not available\r\n')
                     
                     time.sleep(0.1)  # 10 FPS
                     

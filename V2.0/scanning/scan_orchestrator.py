@@ -348,6 +348,28 @@ class CameraManagerAdapter:
         
     def get_current_settings(self) -> Dict[str, Any]:
         return {'controller_type': 'PiCamera', 'is_connected': self.controller.is_connected()}
+    
+    def get_preview_frame(self, camera_id: int) -> None:
+        """Placeholder for camera preview frame (not implemented for real hardware)"""
+        # Real hardware streaming would require a different approach
+        # For now, return None to indicate no preview available
+        return None
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get camera manager status"""
+        try:
+            # Return basic status information
+            return {
+                'cameras': ['camera_1', 'camera_2'],  # Based on configuration
+                'active_cameras': [],
+                'initialized': self.controller.is_connected() if hasattr(self.controller, 'is_connected') else True
+            }
+        except Exception:
+            return {
+                'cameras': [],
+                'active_cameras': [],
+                'initialized': False
+            }
 
 class LightingControllerAdapter:
     """Adapter to make GPIOLEDController compatible with orchestrator protocol"""
