@@ -334,6 +334,10 @@ class CameraManagerAdapter:
         self._global_camera_lock = threading.Lock()  # For camera list access
         self._camera_access_count = {0: 0, 1: 0}  # Track simultaneous access attempts
         
+        # Sequential access strategy to prevent V4L2 buffer conflicts
+        self._global_access_lock = threading.Lock()  # Prevent any simultaneous camera access
+        self._last_camera_access = {0: 0, 1: 0}  # Track timing for staggered access
+        
     async def initialize(self) -> bool:
         return await self.controller.initialize()
         
@@ -511,73 +515,95 @@ class CameraManagerAdapter:
             exception: List[Union[Exception, None]] = [None]
             
             def capture_frame():
-                # Get camera-specific lock to prevent simultaneous access
-                camera_lock = self._camera_locks.get(mapped_camera_id)
-                if not camera_lock:
-                    self.logger.error(f"CAMERA ERROR: No lock available for camera {mapped_camera_id}")
-                    return
-                
-                # Try to acquire lock with timeout to prevent deadlock
-                lock_acquired = camera_lock.acquire(timeout=1.0)
-                if not lock_acquired:
-                    self.logger.warning(f"CAMERA WARNING: Could not acquire lock for camera {mapped_camera_id}")
+                # CRITICAL: Use global lock to prevent simultaneous camera access 
+                # This addresses the V4L2 buffer queue failures
+                global_lock_acquired = self._global_access_lock.acquire(timeout=8.0)
+                if not global_lock_acquired:
+                    self.logger.warning(f"CAMERA WARNING: Could not acquire global camera lock for camera {mapped_camera_id}")
                     return
                 
                 try:
-                    # Track access count
-                    self._camera_access_count[mapped_camera_id] = self._camera_access_count.get(mapped_camera_id, 0) + 1
+                    # Add small delay for camera switching to prevent hardware conflicts
+                    current_time_inner = time.time()
+                    time_since_last_access = current_time_inner - self._last_camera_access.get(mapped_camera_id, 0.0)
+                    if time_since_last_access < 0.5:  # Minimum 500ms between camera operations
+                        delay_needed = 0.5 - time_since_last_access
+                        time.sleep(delay_needed)
                     
-                    # Rate-limited access count logging
-                    if not hasattr(self, f'_last_access_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_access_log_{mapped_camera_id}', 0)) > 10.0:
-                        self.logger.info(f"CAMERA DEBUG: Camera {mapped_camera_id} access count: {self._camera_access_count[mapped_camera_id]}")
-                        setattr(self, f'_last_access_log_{mapped_camera_id}', current_time)
+                    self._last_camera_access[mapped_camera_id] = time.time()
                     
-                    # Check camera state first
-                    if not hasattr(camera, 'started') or not camera.started:
-                        self.logger.warning(f"CAMERA WARNING: Camera {mapped_camera_id} not started, attempting to start...")
-                        try:
-                            camera.start()
-                            time.sleep(0.3)  # Reduced startup time for better responsiveness
-                            self.logger.info(f"CAMERA SUCCESS: Camera {mapped_camera_id} started")
-                        except Exception as start_error:
-                            self.logger.error(f"CAMERA ERROR: Failed to start camera {mapped_camera_id}: {start_error}")
-                            return
+                    # Get camera-specific lock for resource tracking
+                    camera_lock = self._camera_locks.get(mapped_camera_id)
+                    if not camera_lock:
+                        self.logger.error(f"CAMERA ERROR: No lock available for camera {mapped_camera_id}")
+                        return
                     
-                    # Try array capture (fastest method)
+                    # Try to acquire camera lock with longer timeout
+                    lock_acquired = camera_lock.acquire(timeout=5.0)
+                    if not lock_acquired:
+                        self.logger.warning(f"CAMERA WARNING: Could not acquire camera lock for camera {mapped_camera_id}")
+                        return
+                    
                     try:
-                        array = camera.capture_array("main")
+                        # Track access count
+                        self._camera_access_count[mapped_camera_id] = self._camera_access_count.get(mapped_camera_id, 0) + 1
                         
-                        if array is not None and array.size > 0:
-                            # Handle different array formats
-                            if len(array.shape) == 3 and array.shape[2] == 3:
-                                # Assume RGB from camera, convert to BGR
-                                frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
-                                
-                                # Rate-limited success logging
-                                if not hasattr(self, f'_last_success_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_success_log_{mapped_camera_id}', 0)) > 5.0:
-                                    self.logger.info(f"CAMERA SUCCESS: Captured frame from camera {mapped_camera_id}: {frame_bgr.shape}")
-                                    setattr(self, f'_last_success_log_{mapped_camera_id}', current_time)
-                                
-                                result[0] = frame_bgr
+                        # Rate-limited access count logging
+                        if not hasattr(self, f'_last_access_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_access_log_{mapped_camera_id}', 0)) > 10.0:
+                            self.logger.info(f"CAMERA DEBUG: Camera {mapped_camera_id} access count: {self._camera_access_count[mapped_camera_id]}")
+                            setattr(self, f'_last_access_log_{mapped_camera_id}', current_time)
+                        
+                        # Check camera state first
+                        if not hasattr(camera, 'started') or not camera.started:
+                            self.logger.warning(f"CAMERA WARNING: Camera {mapped_camera_id} not started, attempting to start...")
+                            try:
+                                camera.start()
+                                time.sleep(0.3)  # Reduced startup time for better responsiveness
+                                self.logger.info(f"CAMERA SUCCESS: Camera {mapped_camera_id} started")
+                            except Exception as start_error:
+                                self.logger.error(f"CAMERA ERROR: Failed to start camera {mapped_camera_id}: {start_error}")
                                 return
+                        
+                        # Try array capture (fastest method)
+                        try:
+                            array = camera.capture_array("main")
+                            
+                            if array is not None and array.size > 0:
+                                # Handle different array formats
+                                if len(array.shape) == 3 and array.shape[2] == 3:
+                                    # Assume RGB from camera, convert to BGR
+                                    frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
+                                    
+                                    # Rate-limited success logging
+                                    if not hasattr(self, f'_last_success_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_success_log_{mapped_camera_id}', 0)) > 5.0:
+                                        self.logger.info(f"CAMERA SUCCESS: Captured frame from camera {mapped_camera_id}: {frame_bgr.shape}")
+                                        setattr(self, f'_last_success_log_{mapped_camera_id}', current_time)
+                                    
+                                    result[0] = frame_bgr
+                                    return
+                                else:
+                                    self.logger.warning(f"CAMERA WARNING: Unexpected array shape from camera {mapped_camera_id}: {array.shape}")
                             else:
-                                self.logger.warning(f"CAMERA WARNING: Unexpected array shape from camera {mapped_camera_id}: {array.shape}")
-                        else:
-                            self.logger.warning(f"CAMERA WARNING: Empty or invalid array from camera {mapped_camera_id}")
+                                self.logger.warning(f"CAMERA WARNING: Empty or invalid array from camera {mapped_camera_id}")
+                        
+                        except Exception as array_error:
+                            # Rate-limited error logging
+                            if not hasattr(self, f'_last_error_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_error_log_{mapped_camera_id}', 0)) > 5.0:
+                                self.logger.warning(f"CAMERA ERROR: Array capture failed for camera {mapped_camera_id}: {array_error}")
+                                setattr(self, f'_last_error_log_{mapped_camera_id}', current_time)
                     
-                    except Exception as array_error:
-                        # Rate-limited error logging
-                        if not hasattr(self, f'_last_error_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_error_log_{mapped_camera_id}', 0)) > 5.0:
-                            self.logger.warning(f"CAMERA ERROR: Array capture failed for camera {mapped_camera_id}: {array_error}")
-                            setattr(self, f'_last_error_log_{mapped_camera_id}', current_time)
+                    except Exception as e:
+                        self.logger.error(f"CAMERA ERROR: Exception in capture thread for camera {mapped_camera_id}: {e}")
+                        exception[0] = e
+                    finally:
+                        # Always release the camera lock
+                        if 'camera_lock' in locals() and 'lock_acquired' in locals() and lock_acquired:
+                            camera_lock.release()
+                            self._camera_access_count[mapped_camera_id] = max(0, self._camera_access_count.get(mapped_camera_id, 0) - 1)
                 
-                except Exception as e:
-                    self.logger.error(f"CAMERA ERROR: Exception in capture thread for camera {mapped_camera_id}: {e}")
-                    exception[0] = e
                 finally:
-                    # Always release the camera lock
-                    camera_lock.release()
-                    self._camera_access_count[mapped_camera_id] = max(0, self._camera_access_count.get(mapped_camera_id, 0) - 1)
+                    # Always release the global lock
+                    self._global_access_lock.release()
             
             # Start capture in separate thread with timeout
             capture_thread = threading.Thread(target=capture_frame)
