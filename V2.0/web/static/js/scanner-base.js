@@ -222,6 +222,13 @@ window.ScannerBase = {
 
         // Update detailed status
         this.updateDetailedStatus(data);
+        
+        // Dispatch status update event for Dashboard and other listeners
+        const statusEvent = new CustomEvent('scanner:statusUpdate', {
+            detail: { status: data }
+        });
+        document.dispatchEvent(statusEvent);
+        console.log('Dispatched scanner:statusUpdate event with data:', data);
     },
 
     /**
