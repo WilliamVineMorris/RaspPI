@@ -160,6 +160,20 @@ body {
     margin-bottom: 1rem;
 }
 
+/* Floating alerts positioning to avoid emergency stop */
+.alert-container {
+    position: fixed;
+    top: 90px;
+    right: 20px;
+    z-index: 9999;
+    pointer-events: none;
+    max-width: 350px;
+}
+
+.alert-container > * {
+    pointer-events: auto;
+}
+
 .alert {
     padding: 1rem;
     border-radius: var(--border-radius);
@@ -853,6 +867,14 @@ body {
     
     .home-buttons {
         grid-template-columns: repeat(3, 1fr);
+    }
+    
+    /* Alert positioning for mobile */
+    .alert-container {
+        top: 120px;
+        right: 10px;
+        left: 10px;
+        max-width: none;
     }
 }
 

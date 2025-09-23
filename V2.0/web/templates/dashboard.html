@@ -618,10 +618,14 @@
                                 const statusResponse = await fetch('/api/status');
                                 const status = await statusResponse.json();
                                 
-                                console.log(`Check ${checkCount}: Backend reports homed = ${status.motion?.homed || status.motion?.is_homed}`);
+                                // Only log status changes, not every check
+                                const homedStatus = status.motion?.homed || status.motion?.is_homed;
+                                if (checkCount === 1 || (checkCount % 20 === 0) || homedStatus === true) {
+                                    console.log(`Check ${checkCount}: Backend reports homed = ${homedStatus || 'unknown'}`);
+                                }
                                 
                                 // Trust the backend's homed status completely
-                                if (status.motion && (status.motion.homed || status.motion.is_homed)) {
+                                if (status.motion && (status.motion.homed === true || status.motion.is_homed === true)) {
                                     clearInterval(checkInterval); // Stop the interval
                                     console.log('✅ Backend reports homing complete!');
                                     showNotification('✅ All axes homed successfully!', 'success');

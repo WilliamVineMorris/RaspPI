@@ -16,7 +16,8 @@ const SettingsManager = {
     state: {
         currentSection: 'motion',
         hasUnsavedChanges: false,
-        autoSaveTimer: null
+        autoSaveTimer: null,
+        originalSettings: new Map()
     },
 
     /**

@@ -463,17 +463,19 @@ window.ScannerBase = {
         const alertElement = document.createElement('div');
         alertElement.id = alertId;
         alertElement.className = `alert ${type}`;
+        
+        // Calculate position based on existing alerts to avoid overlap
+        const existingAlerts = alertContainer.querySelectorAll('.alert');
+        const topOffset = existingAlerts.length * 60; // Stack them vertically
+        
         alertElement.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 10000;
-            max-width: 400px;
+            margin-bottom: 10px;
             padding: 12px 16px;
             border-radius: 6px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             transform: translateX(100%);
             transition: transform 0.3s ease;
+            position: relative;
         `;
         
         // Set colors based on type
@@ -496,7 +498,7 @@ window.ScannerBase = {
                     onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">&times;</button>
         `;
 
-        // Add to container (this should be positioned to not displace content)
+        // Add to container
         alertContainer.appendChild(alertElement);
         
         // Animate in
