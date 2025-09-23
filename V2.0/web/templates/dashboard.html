@@ -84,37 +84,64 @@
 
     <!-- Camera Feeds Panel -->
     <section class="camera-panel">
-        <h2>Live Camera Feeds</h2>
+        <h2>Live Camera Feed</h2>
         <div class="camera-grid">
-            <div class="camera-container">
-                <h3>Camera 1 (Primary)</h3>
+            <div class="camera-container" style="grid-column: 1 / -1; max-width: 600px; margin: 0 auto;">
+                <h3>Camera 0 (Primary)</h3>
                 <div class="camera-feed-wrapper">
-                    <img id="camera1Feed" 
-                         src="/camera/0" 
-                         alt="Camera 1 Feed" 
+                    <img id="camera0Feed" 
+                         src="/camera/0?t=0" 
+                         alt="Camera 0 Feed" 
                          class="camera-feed"
-                         onerror="this.src='data:image/svg+xml,<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 200 150&quot;><rect width=&quot;200&quot; height=&quot;150&quot; fill=&quot;%23f0f0f0&quot;/><text x=&quot;100&quot; y=&quot;75&quot; text-anchor=&quot;middle&quot; fill=&quot;%23666&quot;>Camera 1 Offline</text></svg>'">
+                         style="width: 100%; height: auto; border-radius: 8px;"
+                         onload="cameraStreamWorking = true; console.log('Camera 0 stream loaded successfully');"
+                         onerror="console.log('Camera 0 stream error, retrying...'); setTimeout(() => { const timestamp = Date.now(); this.src = '/camera/0?t=' + timestamp; }, 3000);">
                     <div class="camera-overlay">
-                        <button class="camera-control" onclick="captureFromCamera(0)">📸</button>
+                        <button class="camera-control" onclick="captureFromCamera(0)">📸 Capture</button>
                     </div>
                 </div>
-            </div>
-
-            <div class="camera-container">
-                <h3>Camera 2 (Secondary)</h3>
-                <div class="camera-feed-wrapper">
-                    <img id="camera2Feed" 
-                         src="/camera/1" 
-                         alt="Camera 2 Feed" 
-                         class="camera-feed"
-                         onerror="this.src='data:image/svg+xml,<svg xmlns=&quot;http://www.w3.org/2000/svg&quot; viewBox=&quot;0 0 200 150&quot;><rect width=&quot;200&quot; height=&quot;150&quot; fill=&quot;%23f0f0f0&quot;/><text x=&quot;100&quot; y=&quot;75&quot; text-anchor=&quot;middle&quot; fill=&quot;%23666&quot;>Camera 2 Offline</text></svg>'">
-                    <div class="camera-overlay">
-                        <button class="camera-control" onclick="captureFromCamera(1)">📸</button>
-                    </div>
+                <div class="camera-info">
+                    <small>Camera 1 available for scanning but not shown in live feed</small>
                 </div>
             </div>
         </div>
     </section>
+
+    <script>
+        // Enhanced camera stream management
+        let cameraStreamWorking = false;
+        let refreshInterval = null;
+        
+        function startCameraRefresh() {
+            // Initial load
+            refreshCameraStream();
+            
+            // Periodic refresh every 30 seconds to prevent stale streams
+            refreshInterval = setInterval(refreshCameraStream, 30000);
+        }
+        
+        function refreshCameraStream() {
+            const camera0Feed = document.getElementById('camera0Feed');
+            if (camera0Feed) {
+                const timestamp = Date.now();
+                console.log('Refreshing Camera 0 stream...');
+                camera0Feed.src = '/camera/0?t=' + timestamp;
+            }
+        }
+        
+        function stopCameraRefresh() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+        }
+        
+        // Start camera refresh when page loads
+        document.addEventListener('DOMContentLoaded', startCameraRefresh);
+        
+        // Stop refresh when page unloads
+        window.addEventListener('beforeunload', stopCameraRefresh);
+    </script>
 
     <!-- Activity Log Panel -->
     <section class="log-panel">
