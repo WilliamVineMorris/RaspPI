@@ -167,14 +167,30 @@ window.ScannerBase = {
     updateSystemStatus(status) {
         console.log('updateSystemStatus called with:', JSON.stringify(status, null, 2));
         console.log('Motion connected:', status.motion?.connected);
+        console.log('Motion connected type:', typeof status.motion?.connected);
         console.log('Cameras available:', status.cameras?.available);
+        console.log('Cameras available type:', typeof status.cameras?.available);
         console.log('Cameras available > 0:', status.cameras?.available > 0);
+        console.log('Boolean(status.cameras?.available):', Boolean(status.cameras?.available));
+        console.log('Number(status.cameras?.available):', Number(status.cameras?.available));
+        
+        // More robust boolean checks
+        const motionReady = Boolean(status.motion?.connected);
+        const cameraReady = Boolean(status.cameras?.available) && Number(status.cameras?.available) > 0;
+        const lightingReady = Boolean(status.lighting?.zones?.length) && status.lighting.zones.length > 0;
+        const scanActive = Boolean(status.scan?.active);
+        
+        console.log('Calculated ready states:');
+        console.log('  motionReady:', motionReady);
+        console.log('  cameraReady:', cameraReady);
+        console.log('  lightingReady:', lightingReady);
+        console.log('  scanActive:', scanActive);
         
         // Update main status indicators
-        this.updateStatusIndicator('motionStatus', status.motion?.connected, status.motion?.status);
-        this.updateStatusIndicator('cameraStatus', status.cameras?.available > 0, status.cameras?.status);
-        this.updateStatusIndicator('lightingStatus', status.lighting?.zones?.length > 0, status.lighting?.status);
-        this.updateStatusIndicator('scanStatus', status.scan?.active, status.scan?.status);
+        this.updateStatusIndicator('motionStatus', motionReady, status.motion?.status);
+        this.updateStatusIndicator('cameraStatus', cameraReady, status.cameras?.status);
+        this.updateStatusIndicator('lightingStatus', lightingReady, status.lighting?.status);
+        this.updateStatusIndicator('scanStatus', scanActive, status.scan?.status);
 
         // Update position display
         if (status.motion?.position) {
