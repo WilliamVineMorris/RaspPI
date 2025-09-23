@@ -129,29 +129,55 @@ def initialize_real_orchestrator():
         import asyncio
         
         # Create config manager with default config
-        config_file = Path(__file__).parent.parent / "config" / "default_config.yaml"
+        config_file = Path(__file__).parent.parent / "config" / "hardware_config.yaml"
         if not config_file.exists():
-            # Create minimal config if it doesn't exist
+            # Create minimal config matching the expected structure
             config_file.parent.mkdir(exist_ok=True)
             with open(config_file, 'w') as f:
                 f.write("""
+# Hardware Configuration for 3D Scanner
 system:
+  name: "3D Scanner Hardware Mode"
   simulation_mode: false
-  log_level: INFO
+  log_level: "INFO"
 
 motion:
-  fluidnc:
-    serial_port: "/dev/ttyUSB0"
-    baud_rate: 115200
+  controller:
+    type: "fluidnc"
+    connection: "usb"
+    port: "/dev/ttyUSB0"
+    baudrate: 115200
+    timeout: 10.0
+  axes:
+    x_axis:
+      type: "linear"
+      units: "mm"
+      min_limit: 0.0
+      max_limit: 200.0
+      home_position: 0.0
+    y_axis:
+      type: "linear"
+      units: "mm"
+      min_limit: 0.0
+      max_limit: 200.0
+      home_position: 0.0
 
 cameras:
-  pi_camera:
-    enabled: true
+  primary:
+    type: "pi_camera"
+    device_id: 0
+    interface: "libcamera"
+    resolution: [1920, 1080]
+  secondary:
+    type: "pi_camera"
+    device_id: 1
+    interface: "libcamera"
     resolution: [1920, 1080]
 
 lighting:
-  pwm_controller:
-    enabled: false  # Disabled for initial testing - can enable later
+  controller:
+    type: "gpio_pwm"
+    enabled: false  # Disabled for initial testing
 """)
         
         config_manager = ConfigManager(config_file)
