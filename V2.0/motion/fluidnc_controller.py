@@ -1270,6 +1270,14 @@ class FluidNCController(MotionController):
             result = await self.execute_gcode(gcode)
             await self._send_command("G90")  # Back to absolute positioning
             
+            # Update position after successful movement
+            if result:
+                # Wait for movement to complete 
+                await self._wait_for_movement_complete()
+                # Now get the final position
+                await self._update_status()
+                logger.info(f"Position updated after relative move: {self.current_position}")
+            
             return result
             
         except Exception as e:
