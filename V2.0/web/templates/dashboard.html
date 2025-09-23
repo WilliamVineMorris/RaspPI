@@ -548,74 +548,140 @@
         }
         
         // Motion Control Functions
+        // Notification system
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 10px 20px;
+                border-radius: 5px;
+                color: white;
+                z-index: 10000;
+                opacity: 0;
+                transition: opacity 0.3s;
+            `;
+            
+            // Set background color based on type
+            if (type === 'success') notification.style.backgroundColor = '#4CAF50';
+            else if (type === 'error') notification.style.backgroundColor = '#f44336';
+            else if (type === 'warning') notification.style.backgroundColor = '#ff9800';
+            else notification.style.backgroundColor = '#2196F3';
+            
+            document.body.appendChild(notification);
+            
+            // Fade in
+            setTimeout(() => { notification.style.opacity = '1'; }, 10);
+            
+            // Auto remove after 3 seconds
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 300);
+            }, 3000);
+        }
+
         async function homeAllAxes() {
             try {
                 console.log('Homing all axes...');
+                showNotification('Starting homing sequence...', 'info');
+                
                 const response = await fetch('/api/home', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ axes: ['X', 'Y', 'Z', 'C'] })
                 });
                 
-                const result = await response.json();
-                if (result.success) {
-                    console.log('Homing successful');
-                    refreshStatus();
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        console.log('Homing successful');
+                        showNotification('All axes homed successfully', 'success');
+                        await refreshStatus();
+                    } else {
+                        console.error('Homing failed:', result.error);
+                        showNotification('Homing failed: ' + (result.error || 'Unknown error'), 'error');
+                    }
                 } else {
-                    console.error('Homing failed:', result.error);
-                    alert('Homing failed: ' + (result.error || 'Unknown error'));
+                    const errorText = await response.text();
+                    console.error('Home API error:', response.status, errorText);
+                    showNotification(`Home request failed: ${response.status}`, 'error');
                 }
             } catch (error) {
                 console.error('Homing error:', error);
-                alert('Homing error: ' + error.message);
+                showNotification('Homing error: ' + error.message, 'error');
             }
         }
         
         async function capturePhoto() {
             try {
                 console.log('Capturing photo...');
+                showNotification('Capturing photo...', 'info');
+                
                 const response = await fetch('/api/camera/capture', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ camera_id: 0 })
                 });
                 
-                const result = await response.json();
-                if (result.success) {
-                    console.log('Photo captured successfully');
-                    alert('Photo captured successfully!');
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        console.log('Photo captured successfully');
+                        showNotification('Photo captured successfully!', 'success');
+                    } else {
+                        console.error('Photo capture failed:', result.error);
+                        showNotification('Photo capture failed: ' + (result.error || 'Unknown error'), 'error');
+                    }
                 } else {
-                    console.error('Photo capture failed:', result.error);
-                    alert('Photo capture failed: ' + (result.error || 'Unknown error'));
+                    const errorText = await response.text();
+                    console.error('Capture API error:', response.status, errorText);
+                    showNotification(`Capture request failed: ${response.status}`, 'error');
                 }
             } catch (error) {
                 console.error('Photo capture error:', error);
-                alert('Photo capture error: ' + error.message);
+                showNotification('Photo capture error: ' + error.message, 'error');
             }
         }
         
         async function testLighting() {
             try {
                 console.log('Testing lighting...');
+                showNotification('Testing lighting...', 'info');
+                
                 const response = await fetch('/api/lighting/flash', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
-                        zone_ids: ['zone_1', 'zone_2'],
-                        intensity: 50,
-                        duration_ms: 1000
+                        zone: 'all',
+                        brightness: 0.5,
+                        duration: 1000
                     })
                 });
                 
-                const result = await response.json();
-                if (result.success) {
-                    console.log('Lighting test successful');
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        console.log('Lighting test successful');
+                        showNotification('Lighting test successful!', 'success');
+                    } else {
+                        console.error('Lighting test failed:', result.error);
+                        showNotification('Lighting test failed: ' + (result.error || 'Unknown error'), 'error');
+                    }
                 } else {
-                    console.error('Lighting test failed:', result.error);
-                    alert('Lighting test failed: ' + (result.error || 'Unknown error'));
+                    const errorText = await response.text();
+                    console.error('Lighting API error:', response.status, errorText);
+                    showNotification(`Lighting request failed: ${response.status}`, 'error');
                 }
             } catch (error) {
                 console.error('Lighting test error:', error);
-                alert('Lighting test error: ' + error.message);
+                showNotification('Lighting test error: ' + error.message, 'error');
             }
         }
         
@@ -627,28 +693,65 @@
                 
                 // Update motion status
                 if (status.motion) {
-                    document.getElementById('currentPosition').textContent = 
-                        `X:${status.motion.position.x} Y:${status.motion.position.y} Z:${status.motion.position.z} C:${status.motion.position.c}`;
-                    document.getElementById('motionState').textContent = status.motion.status;
-                    document.getElementById('motionStatus').className = 
-                        'status-indicator ' + (status.motion.connected ? 'ready' : 'error');
+                    const posElement = document.getElementById('currentPosition');
+                    if (posElement) {
+                        posElement.textContent = 
+                            `X:${status.motion.position.x.toFixed(1)} Y:${status.motion.position.y.toFixed(1)} Z:${status.motion.position.z.toFixed(1)} C:${status.motion.position.c.toFixed(1)}`;
+                    }
+                    
+                    const stateElement = document.getElementById('motionState');
+                    if (stateElement) {
+                        stateElement.textContent = status.motion.status;
+                    }
+                    
+                    const statusElement = document.getElementById('motionStatus');
+                    if (statusElement) {
+                        statusElement.className = 
+                            'status-indicator ' + (status.motion.connected ? 'ready' : 'error');
+                    }
                 }
                 
                 // Update camera status
                 if (status.cameras) {
-                    document.getElementById('cameraCount').textContent = status.cameras.available;
-                    document.getElementById('activeCameras').textContent = status.cameras.active.join(', ') || 'None';
-                    document.getElementById('cameraState').textContent = status.cameras.status;
-                    document.getElementById('cameraStatus').className = 
-                        'status-indicator ' + (status.cameras.available > 0 ? 'ready' : 'error');
+                    const countElement = document.getElementById('cameraCount');
+                    if (countElement) {
+                        countElement.textContent = status.cameras.available;
+                    }
+                    
+                    const activeElement = document.getElementById('activeCameras');
+                    if (activeElement) {
+                        activeElement.textContent = status.cameras.active.join(', ') || 'None';
+                    }
+                    
+                    const stateElement = document.getElementById('cameraState');
+                    if (stateElement) {
+                        stateElement.textContent = status.cameras.status;
+                    }
+                    
+                    const statusElement = document.getElementById('cameraStatus');
+                    if (statusElement) {
+                        statusElement.className = 
+                            'status-indicator ' + (status.cameras.available > 0 ? 'ready' : 'error');
+                    }
                 }
                 
                 // Update lighting status
                 if (status.lighting) {
-                    document.getElementById('lightingZones').textContent = status.lighting.zones.length;
-                    document.getElementById('lightingState').textContent = status.lighting.status;
-                    document.getElementById('lightingStatus').className = 
-                        'status-indicator ' + (status.lighting.zones.length > 0 ? 'ready' : 'error');
+                    const zonesElement = document.getElementById('lightingZones');
+                    if (zonesElement) {
+                        zonesElement.textContent = status.lighting.zones ? status.lighting.zones.length : 0;
+                    }
+                    
+                    const stateElement = document.getElementById('lightingState');
+                    if (stateElement) {
+                        stateElement.textContent = status.lighting.status;
+                    }
+                    
+                    const statusElement = document.getElementById('lightingStatus');
+                    if (statusElement) {
+                        statusElement.className = 
+                            'status-indicator ' + (status.lighting.zones && status.lighting.zones.length > 0 ? 'ready' : 'error');
+                    }
                 }
                 
                 console.log('Status refreshed successfully');
