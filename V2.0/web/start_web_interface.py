@@ -216,7 +216,7 @@ def main():
     parser = argparse.ArgumentParser(description="3D Scanner Web Interface")
     parser.add_argument(
         "--mode",
-        choices=["production", "development", "mock"],
+        choices=["production", "development", "mock", "hardware"],
         default="development",
         help="Operating mode (default: development)"
     )
@@ -268,6 +268,10 @@ def main():
         
     elif args.mode == "development":
         print("🛠️  Development Mode: Attempting real hardware with mock fallback...")
+        orchestrator = initialize_real_orchestrator()
+        
+    elif args.mode == "hardware":
+        print("🔧 Hardware Mode: Real hardware components only...")
         orchestrator = initialize_real_orchestrator()
         
     elif args.mode == "mock":
