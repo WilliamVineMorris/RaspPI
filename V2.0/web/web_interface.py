@@ -941,23 +941,33 @@ class ScannerWebInterface:
             raise HardwareError(f"Failed to execute position command: {e}")
     
     def _execute_home_command(self, axes: List[str]) -> Dict[str, Any]:
-        """Execute homing command"""
+        """Execute homing command with immediate feedback"""
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
                 raise HardwareError("Motion controller not available")
             
-            # Execute homing
-            result = self.orchestrator.motion_controller.home_axes(axes)
+            self.logger.info(f"Starting homing sequence for axes: {axes}")
             
-            # Get position after homing
-            position = self.orchestrator.motion_controller.get_position()
+            # Start homing in a separate thread to provide immediate response
+            import threading
+            def home_task():
+                try:
+                    result = self.orchestrator.motion_controller.home_axes(axes)
+                    self.logger.info(f"Homing sequence completed for axes: {axes}, result: {result}")
+                except Exception as e:
+                    self.logger.error(f"Homing failed: {e}")
             
-            self.logger.info(f"Homing command executed for axes: {axes}")
+            # Start homing thread
+            home_thread = threading.Thread(target=home_task)
+            home_thread.daemon = True
+            home_thread.start()
             
+            # Return immediate response
             return {
-                'homed_axes': axes,
-                'position_after_homing': position,
-                'success': result
+                'message': f'Homing sequence started for axes: {", ".join(axes)}',
+                'status': 'in_progress',
+                'axes': axes,
+                'success': True
             }
             
         except Exception as e:

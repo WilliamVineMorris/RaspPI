@@ -590,7 +590,15 @@
         async function homeAllAxes() {
             try {
                 console.log('Homing all axes...');
-                showNotification('Starting homing sequence...', 'info');
+                
+                // Disable button during homing
+                const homeButton = document.getElementById('homeAllBtn');
+                if (homeButton) {
+                    homeButton.disabled = true;
+                    homeButton.textContent = 'Homing...';
+                }
+                
+                showNotification('🏠 Starting homing sequence...', 'info');
                 
                 const response = await fetch('/api/home', {
                     method: 'POST',
@@ -601,21 +609,92 @@
                 if (response.ok) {
                     const result = await response.json();
                     if (result.success) {
-                        console.log('Homing successful');
-                        showNotification('All axes homed successfully', 'success');
-                        await refreshStatus();
+                        console.log('Homing started successfully');
+                        if (result.status === 'in_progress') {
+                            showNotification('🔄 Homing in progress... This may take 30-60 seconds', 'warning');
+                            
+                            // Start monitoring homing progress
+                            let checkCount = 0;
+                            const maxChecks = 120; // 2 minutes max
+                            
+                            const checkProgress = async () => {
+                                try {
+                                    checkCount++;
+                                    const statusResponse = await fetch('/api/status');
+                                    const status = await statusResponse.json();
+                                    
+                                    // Check if motion controller is idle (homing complete)
+                                    if (status.motion && status.motion.status === 'idle') {
+                                        showNotification('✅ All axes homed successfully!', 'success');
+                                        await refreshStatus();
+                                        
+                                        // Re-enable button
+                                        if (homeButton) {
+                                            homeButton.disabled = false;
+                                            homeButton.textContent = 'Home All Axes';
+                                        }
+                                        return;
+                                    }
+                                    
+                                    // Show progress updates
+                                    if (checkCount % 5 === 0) { // Every 5 seconds
+                                        showNotification(`🔄 Homing in progress... (${Math.round(checkCount/2)}s)`, 'warning');
+                                    }
+                                    
+                                    // Continue checking if not exceeded max time
+                                    if (checkCount < maxChecks) {
+                                        setTimeout(checkProgress, 500); // Check every 500ms
+                                    } else {
+                                        showNotification('⚠️ Homing timeout - check system status', 'error');
+                                        if (homeButton) {
+                                            homeButton.disabled = false;
+                                            homeButton.textContent = 'Home All Axes';
+                                        }
+                                    }
+                                } catch (error) {
+                                    console.error('Progress check error:', error);
+                                    if (homeButton) {
+                                        homeButton.disabled = false;
+                                        homeButton.textContent = 'Home All Axes';
+                                    }
+                                }
+                            };
+                            
+                            // Start progress monitoring after a short delay
+                            setTimeout(checkProgress, 1000);
+                        } else {
+                            showNotification('✅ All axes homed successfully!', 'success');
+                            await refreshStatus();
+                            if (homeButton) {
+                                homeButton.disabled = false;
+                                homeButton.textContent = 'Home All Axes';
+                            }
+                        }
                     } else {
                         console.error('Homing failed:', result.error);
-                        showNotification('Homing failed: ' + (result.error || 'Unknown error'), 'error');
+                        showNotification('❌ Homing failed: ' + (result.error || 'Unknown error'), 'error');
+                        if (homeButton) {
+                            homeButton.disabled = false;
+                            homeButton.textContent = 'Home All Axes';
+                        }
                     }
                 } else {
                     const errorText = await response.text();
                     console.error('Home API error:', response.status, errorText);
-                    showNotification(`Home request failed: ${response.status}`, 'error');
+                    showNotification(`❌ Home request failed: ${response.status}`, 'error');
+                    if (homeButton) {
+                        homeButton.disabled = false;
+                        homeButton.textContent = 'Home All Axes';
+                    }
                 }
             } catch (error) {
                 console.error('Homing error:', error);
-                showNotification('Homing error: ' + error.message, 'error');
+                showNotification('❌ Homing error: ' + error.message, 'error');
+                const homeButton = document.getElementById('homeAllBtn');
+                if (homeButton) {
+                    homeButton.disabled = false;
+                    homeButton.textContent = 'Home All Axes';
+                }
             }
         }
         

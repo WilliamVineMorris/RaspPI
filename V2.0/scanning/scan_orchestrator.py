@@ -236,6 +236,7 @@ class MotionControllerAdapter:
     def __init__(self, fluidnc_controller):
         self.controller = fluidnc_controller
         self.logger = logging.getLogger(__name__)
+        self._homing_in_progress = False
         
     async def initialize(self) -> bool:
         return await self.controller.initialize()
@@ -246,12 +247,15 @@ class MotionControllerAdapter:
     def home_axes(self, axes: List[str]) -> bool:
         """Synchronous wrapper for homing specific axes"""
         try:
+            self._homing_in_progress = True
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             result = loop.run_until_complete(self.controller.home_all_axes())
             loop.close()
+            self._homing_in_progress = False
             return result
         except Exception as e:
+            self._homing_in_progress = False
             self.logger.error(f"Home axes failed: {e}")
             return False
         
@@ -298,8 +302,17 @@ class MotionControllerAdapter:
         try:
             is_connected = self.controller.is_connected()
             self.logger.debug(f"Motion controller connection status: {is_connected}")
+            
+            # Determine state based on homing status and connection
+            if self._homing_in_progress:
+                state = 'homing'
+            elif is_connected:
+                state = 'idle'
+            else:
+                state = 'disconnected'
+                
             return {
-                'state': 'idle' if is_connected else 'disconnected',
+                'state': state,
                 'connected': is_connected,
                 'initialized': is_connected
             }
