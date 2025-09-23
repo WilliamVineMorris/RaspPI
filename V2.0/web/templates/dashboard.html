@@ -583,7 +583,7 @@
 
         async function homeAllAxes() {
             try {
-                console.log('Homing all axes...');
+                console.log('Starting homing sequence...');
                 
                 // Disable button during homing
                 const homeButton = document.getElementById('homeAllBtn');
@@ -602,74 +602,69 @@
                 
                 if (response.ok) {
                     const result = await response.json();
-                    if (result.success) {
-                        console.log('Homing started successfully');
-                        if (result.status === 'in_progress') {
-                            showNotification('🔄 Homing in progress... This may take 30-60 seconds', 'warning');
-                            
-                            // Start monitoring homing progress
-                            let checkCount = 0;
-                            const maxChecks = 120; // 2 minutes max
-                            
-                            const checkProgress = async () => {
-                                try {
-                                    checkCount++;
-                                    const statusResponse = await fetch('/api/status');
-                                    const status = await statusResponse.json();
+                    if (result.success && result.status === 'in_progress') {
+                        console.log('Homing started, backend will handle completion detection');
+                        showNotification('🔄 Homing in progress... Backend handling detection', 'warning');
+                        
+                        // Simple polling - trust the backend to detect completion
+                        let checkCount = 0;
+                        const maxChecks = 240; // 4 minutes max timeout
+                        
+                        const checkCompletion = async () => {
+                            try {
+                                checkCount++;
+                                const statusResponse = await fetch('/api/status');
+                                const status = await statusResponse.json();
+                                
+                                console.log(`Check ${checkCount}: Backend reports homed = ${status.motion?.homed || status.motion?.is_homed}`);
+                                
+                                // Trust the backend's homed status completely
+                                if (status.motion && (status.motion.homed || status.motion.is_homed)) {
+                                    console.log('✅ Backend reports homing complete!');
+                                    showNotification('✅ All axes homed successfully!', 'success');
+                                    await refreshStatus();
                                     
-                                    // Check if motion controller is idle (homing complete)
-                                    if (status.motion && status.motion.status === 'idle') {
-                                        showNotification('✅ All axes homed successfully!', 'success');
-                                        await refreshStatus();
-                                        
-                                        // Re-enable button
-                                        if (homeButton) {
-                                            homeButton.disabled = false;
-                                            homeButton.textContent = 'Home All Axes';
-                                        }
-                                        return;
-                                    }
-                                    
-                                    // Show progress updates
-                                    if (checkCount % 5 === 0) { // Every 5 seconds
-                                        showNotification(`🔄 Homing in progress... (${Math.round(checkCount/2)}s)`, 'warning');
-                                    }
-                                    
-                                    // Continue checking if not exceeded max time
-                                    if (checkCount < maxChecks) {
-                                        setTimeout(checkProgress, 500); // Check every 500ms
-                                    } else {
-                                        showNotification('⚠️ Homing timeout - check system status', 'error');
-                                        if (homeButton) {
-                                            homeButton.disabled = false;
-                                            homeButton.textContent = 'Home All Axes';
-                                        }
-                                    }
-                                } catch (error) {
-                                    console.error('Progress check error:', error);
                                     if (homeButton) {
                                         homeButton.disabled = false;
-                                        homeButton.textContent = 'Home All Axes';
+                                        homeButton.textContent = '🏠 Home All';
+                                    }
+                                    return;
+                                }
+                                
+                                // Show progress every 10 checks (5 seconds)
+                                if (checkCount % 10 === 0) {
+                                    const elapsed = Math.floor(checkCount / 2);
+                                    showNotification(`🔄 Homing in progress... ${elapsed}s elapsed`, 'warning');
+                                }
+                                
+                                // Continue checking if not timed out
+                                if (checkCount < maxChecks) {
+                                    setTimeout(checkCompletion, 500);
+                                } else {
+                                    console.log('Homing timeout - backend did not report completion');
+                                    showNotification('⚠️ Homing timeout - check system status', 'error');
+                                    if (homeButton) {
+                                        homeButton.disabled = false;
+                                        homeButton.textContent = '🏠 Home All';
                                     }
                                 }
-                            };
-                            
-                            // Start progress monitoring after a short delay
-                            setTimeout(checkProgress, 1000);
-                        } else {
-                            showNotification('✅ All axes homed successfully!', 'success');
-                            await refreshStatus();
-                            if (homeButton) {
-                                homeButton.disabled = false;
-                                homeButton.textContent = 'Home All Axes';
+                            } catch (error) {
+                                console.error('Homing status check error:', error);
+                                if (homeButton) {
+                                    homeButton.disabled = false;
+                                    homeButton.textContent = '🏠 Home All';
+                                }
                             }
-                        }
+                        };
+                        
+                        // Start checking after 2 seconds
+                        setTimeout(checkCompletion, 2000);
                     } else {
                         console.error('Homing failed:', result.error);
                         showNotification('❌ Homing failed: ' + (result.error || 'Unknown error'), 'error');
                         if (homeButton) {
                             homeButton.disabled = false;
-                            homeButton.textContent = 'Home All Axes';
+                            homeButton.textContent = '🏠 Home All';
                         }
                     }
                 } else {
@@ -678,7 +673,7 @@
                     showNotification(`❌ Home request failed: ${response.status}`, 'error');
                     if (homeButton) {
                         homeButton.disabled = false;
-                        homeButton.textContent = 'Home All Axes';
+                        homeButton.textContent = '🏠 Home All';
                     }
                 }
             } catch (error) {
@@ -687,7 +682,7 @@
                 const homeButton = document.getElementById('homeAllBtn');
                 if (homeButton) {
                     homeButton.disabled = false;
-                    homeButton.textContent = 'Home All Axes';
+                    homeButton.textContent = '🏠 Home All';
                 }
             }
         }
