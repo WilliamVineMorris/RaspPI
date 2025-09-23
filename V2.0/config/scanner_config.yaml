@@ -113,7 +113,7 @@ cameras:
   
   # Color Format Configuration
   color_format:
-    default_mode: "bgr_direct"  # Direct BGR format (no conversion needed)
+    default_mode: "rgb_to_bgr"  # Convert RGB camera output to BGR for correct colors
     # Available modes: auto, rgb_to_bgr, bgr_direct, bgr_to_rgb
     
   camera_1:

@@ -349,17 +349,17 @@ class CameraManagerAdapter:
         self._mode_lock = threading.Lock()  # Lock for mode switching
         self._capture_lock = threading.Lock()  # Lock for captures
         
-        # Color format configuration - read from config or default to direct BGR
+        # Color format configuration - read from config or default to RGB to BGR conversion
         try:
             camera_config = self.config_manager.get_section('cameras')
             color_config = camera_config.get('color_format', {})
-            default_mode = color_config.get('default_mode', 'bgr_direct')
+            default_mode = color_config.get('default_mode', 'rgb_to_bgr')
             self._force_color_conversion = default_mode
             self.logger.info(f"CAMERA: Initialized with color format from config: {default_mode}")
         except Exception as e:
-            # Fallback to direct BGR if config read fails
-            self._force_color_conversion = 'bgr_direct'
-            self.logger.info(f"CAMERA: Config read failed ({e}), defaulting to direct BGR")
+            # Fallback to RGB to BGR conversion if config read fails
+            self._force_color_conversion = 'rgb_to_bgr'
+            self.logger.info(f"CAMERA: Config read failed ({e}), defaulting to RGB to BGR conversion")
             
         self.logger.info("CAMERA: Camera adapter initialized with color format configuration")
         
@@ -394,16 +394,16 @@ class CameraManagerAdapter:
                 camera = self.controller.cameras[camera_id]
                 
                 if camera:
-                    # Create 1080p streaming configuration (optimized for speed) - BGR format for direct use
+                    # Create 1080p streaming configuration (optimized for speed) - RGB format from camera
                     self._stream_config = camera.create_video_configuration(
-                        main={"size": (1920, 1080), "format": "BGR888"},
+                        main={"size": (1920, 1080), "format": "RGB888"},
                         lores={"size": (640, 480), "format": "YUV420"},  # Thumbnail for processing
                         display="lores"  # Use low-res for display efficiency
                     )
                     
-                    # Create high-resolution capture configuration (optimized for quality) - BGR format for direct use
+                    # Create high-resolution capture configuration (optimized for quality) - RGB format from camera
                     self._capture_config = camera.create_still_configuration(
-                        main={"size": (4608, 2592), "format": "BGR888"},  # Full sensor resolution
+                        main={"size": (4608, 2592), "format": "RGB888"},  # Full sensor resolution
                         lores={"size": (1920, 1080), "format": "YUV420"},  # Preview
                         display="lores"
                     )
@@ -413,7 +413,7 @@ class CameraManagerAdapter:
                     camera.start()
                     
                     self._current_mode = "streaming"
-                    self.logger.info("CAMERA: Dual-mode configurations created with BGR888 format - 1080p stream / 4K capture")
+                    self.logger.info("CAMERA: Dual-mode configurations created with RGB888 format - 1080p stream / 4K capture")
                     
         except Exception as e:
             self.logger.error(f"CAMERA: Failed to setup dual-mode configurations: {e}")
@@ -598,14 +598,14 @@ class CameraManagerAdapter:
                                 blue_bgr = sample_mean[0]  # Blue in BGR position
                                 red_green_avg = (sample_mean[1] + sample_mean[2] if blue_bgr > blue_rgb else sample_mean[0] + sample_mean[1]) / 2
                                 
-                                # Check for color format override
+                                # Check for color format override - SINGLE CONVERSION ONLY
                                 force_conversion = getattr(self, '_force_color_conversion', None)
                                 
                                 if force_conversion == 'rgb_to_bgr':
-                                    # Force RGB to BGR conversion
+                                    # Force RGB to BGR conversion - SINGLE PASS
                                     frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
                                     if not hasattr(self, '_color_format_logged'):
-                                        self.logger.info("CAMERA: FORCED RGB to BGR conversion")
+                                        self.logger.info("CAMERA: RGB to BGR conversion applied (single pass)")
                                         self._color_format_logged = True
                                 elif force_conversion == 'bgr_direct':
                                     # Force direct BGR (no conversion) - camera already outputs BGR888
@@ -614,28 +614,31 @@ class CameraManagerAdapter:
                                         self.logger.info("CAMERA: Using direct BGR888 format from camera (no conversion needed)")
                                         self._color_format_logged = True
                                 elif force_conversion == 'bgr_to_rgb':
-                                    # Force BGR to RGB conversion
+                                    # Force BGR to RGB conversion - SINGLE PASS
                                     frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_BGR2RGB)
                                     if not hasattr(self, '_color_format_logged'):
-                                        self.logger.info("CAMERA: FORCED BGR to RGB conversion")
+                                        self.logger.info("CAMERA: BGR to RGB conversion applied (single pass)")
                                         self._color_format_logged = True
                                 else:
-                                    # Auto-detection logic (original)
+                                    # Auto-detection logic (original) - SINGLE PASS
                                     # If blue is dominant in position 0, data is already BGR
                                     if blue_bgr > (red_green_avg * 1.2):  # Reduced threshold for better detection
                                         frame_bgr = frame_array.copy()  # Already BGR
                                         if not hasattr(self, '_color_format_logged'):
-                                            self.logger.info("CAMERA: Frame detected as BGR format")
+                                            self.logger.info("CAMERA: Frame detected as BGR format (no conversion)")
                                             self._color_format_logged = True
                                     else:
-                                        # Convert RGB to BGR
+                                        # Convert RGB to BGR - SINGLE PASS
                                         frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
                                         if not hasattr(self, '_color_format_logged'):
-                                            self.logger.info("CAMERA: Converting RGB to BGR format")
+                                            self.logger.info("CAMERA: Auto-detected RGB, converting to BGR (single pass)")
                                             self._color_format_logged = True
                             else:
-                                # Fallback: assume RGB and convert
+                                # Fallback: assume RGB and convert - SINGLE PASS
                                 frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
+                                
+                            # Ensure no further conversions happen to this frame
+                            # frame_bgr is now in correct BGR format for OpenCV/web display
                             
                             # Optional: Apply minimal enhancement for better web display
                             # Only if the frame appears too dark/flat
@@ -714,10 +717,24 @@ class CameraManagerAdapter:
                         image_array = camera.capture_array("main")
                         
                         if image_array is not None and image_array.size > 0:
-                            # Convert RGB to BGR for consistency
-                            image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                            # Apply the same color format logic as streaming capture - SINGLE CONVERSION ONLY
+                            force_conversion = getattr(self, '_force_color_conversion', 'rgb_to_bgr')
                             
-                            self.logger.info(f"CAMERA: High-res capture successful: {image_bgr.shape}, dtype: {image_bgr.dtype}")
+                            if force_conversion == 'rgb_to_bgr':
+                                # Convert RGB to BGR - SINGLE PASS
+                                image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                            elif force_conversion == 'bgr_direct':
+                                # Use direct BGR (no conversion) - SINGLE PASS
+                                image_bgr = image_array.copy()
+                            elif force_conversion == 'bgr_to_rgb':
+                                # Convert BGR to RGB - SINGLE PASS
+                                image_bgr = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
+                            else:
+                                # Auto-detection or fallback to RGB to BGR - SINGLE PASS
+                                image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                            
+                            # Ensure no further conversions happen to this high-res image
+                            self.logger.info(f"CAMERA: High-res capture successful with {force_conversion} format (single conversion): {image_bgr.shape}, dtype: {image_bgr.dtype}")
                             return image_bgr
                         else:
                             self.logger.error("CAMERA: High-res capture returned empty array")
