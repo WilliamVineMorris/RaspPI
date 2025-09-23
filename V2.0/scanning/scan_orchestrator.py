@@ -230,6 +230,57 @@ class MockLightingController:
         else:
             return {zone_id: "ready" if self._initialized else "disconnected" 
                    for zone_id in self._zones}
+
+class MockStorageManager:
+    """Mock storage manager for testing"""
+    def __init__(self, config_manager: ConfigManager):
+        self.config_manager = config_manager
+        self._initialized = False
+        self._sessions = {}
+        self._current_session_id = None
+        
+    async def initialize(self) -> bool:
+        await asyncio.sleep(0.1)
+        self._initialized = True
+        return True
+        
+    async def shutdown(self) -> bool:
+        self._initialized = False
+        return True
+        
+    def is_available(self) -> bool:
+        return self._initialized
+        
+    async def create_session(self, session_metadata: Dict[str, Any]) -> str:
+        session_id = f"mock_session_{len(self._sessions) + 1}"
+        self._sessions[session_id] = {
+            'id': session_id,
+            'metadata': session_metadata,
+            'created_at': time.time(),
+            'files': []
+        }
+        self._current_session_id = session_id
+        return session_id
+        
+    async def finalize_session(self, session_id: str) -> bool:
+        if session_id in self._sessions:
+            self._sessions[session_id]['completed_at'] = time.time()
+            return True
+        return False
+        
+    async def store_file(self, file_data: bytes, metadata: Any, location_name: Optional[str] = None) -> str:
+        file_id = f"mock_file_{len(self._sessions.get(self._current_session_id, {}).get('files', [])) + 1}"
+        if self._current_session_id and self._current_session_id in self._sessions:
+            self._sessions[self._current_session_id]['files'].append({
+                'file_id': file_id,
+                'size': len(file_data),
+                'metadata': metadata
+            })
+        return file_id
+        
+    async def list_sessions(self, limit: int = 100) -> List[Any]:
+        return list(self._sessions.values())[:limit]
+
 class MotionControllerAdapter:
     """Adapter to make FluidNCController compatible with orchestrator protocol"""
     
@@ -1130,6 +1181,7 @@ class ScanOrchestrator:
             self.motion_controller = MockMotionController(config_manager)
             self.camera_manager = MockCameraManager(config_manager)
             self.lighting_controller = MockLightingController(config_manager)
+            self.storage_manager = MockStorageManager(config_manager)
             self.logger.info("Initialized with mock hardware (simulation mode)")
         else:
             # Import and use real hardware controllers with adapters
@@ -1137,26 +1189,31 @@ class ScanOrchestrator:
                 from motion.fluidnc_controller import FluidNCController
                 from camera.pi_camera_controller import PiCameraController
                 from lighting.gpio_led_controller import GPIOLEDController
+                from storage.session_manager import SessionManager
                 
                 motion_config = config_manager.get('motion', {})
                 camera_config = config_manager.get('cameras', {})
                 lighting_config = config_manager.get('lighting', {})
+                storage_config = config_manager.get('storage', {})
                 
                 # Create hardware controllers
                 fluidnc_controller = FluidNCController(motion_config)
                 pi_camera_controller = PiCameraController(camera_config)
                 gpio_lighting_controller = GPIOLEDController(lighting_config)
+                session_manager = SessionManager(storage_config)
                 
                 # Wrap with adapters to match protocol interface
                 self.motion_controller = MotionControllerAdapter(fluidnc_controller)
                 self.camera_manager = CameraManagerAdapter(pi_camera_controller, config_manager)
                 self.lighting_controller = LightingControllerAdapter(gpio_lighting_controller)
-                self.logger.info("Initialized with real hardware controllers")
+                self.storage_manager = session_manager
+                self.logger.info("Initialized with real hardware controllers and storage manager")
             except ImportError as e:
                 self.logger.warning(f"Hardware modules not available, falling back to mocks: {e}")
                 self.motion_controller = MockMotionController(config_manager)
                 self.camera_manager = MockCameraManager(config_manager)
                 self.lighting_controller = MockLightingController(config_manager)
+                self.storage_manager = MockStorageManager(config_manager)
         self.event_bus = EventBus()
         
         # Active scan state
