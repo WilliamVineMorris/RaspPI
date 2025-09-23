@@ -122,7 +122,7 @@ def create_mock_orchestrator():
     return MockOrchestrator()
 
 def initialize_real_orchestrator():
-    """Initialize the real scanner orchestrator"""
+    """Initialize the real scanner orchestrator with optional GPIO"""
     try:
         from scanning.scan_orchestrator import ScanOrchestrator
         from core.config_manager import ConfigManager
@@ -136,7 +136,7 @@ def initialize_real_orchestrator():
             with open(config_file, 'w') as f:
                 f.write("""
 system:
-  simulation_mode: true
+  simulation_mode: false
   log_level: INFO
 
 motion:
@@ -151,13 +151,15 @@ cameras:
 
 lighting:
   pwm_controller:
-    enabled: true
+    enabled: false  # Disabled for initial testing - can enable later
 """)
         
         config_manager = ConfigManager(config_file)
         
         # Create orchestrator
         orchestrator = ScanOrchestrator(config_manager)
+        
+        print("⚠️  Note: GPIO/LED lighting disabled for initial testing")
         
         # Initialize all subsystems asynchronously
         print("Initializing scanner subsystems...")
@@ -170,7 +172,7 @@ lighting:
         finally:
             loop.close()
         
-        print("✅ Real scanner orchestrator initialized successfully")
+        print("✅ Real scanner orchestrator initialized (motion + cameras)")
         return orchestrator
         
     except ImportError as e:
