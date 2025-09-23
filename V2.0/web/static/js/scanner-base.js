@@ -70,7 +70,9 @@ window.ScannerBase = {
         }
         
         this.apiRequest('/api/status')
-            .then(status => {
+            .then(response => {
+                // Extract the data from the API response
+                const status = response.data || response;
                 this.handleStatusUpdate(status);
                 if (!this.state.connected) {
                     this.state.connected = true;
