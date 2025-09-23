@@ -73,6 +73,7 @@ class FluidNCController(MotionController):
         self.background_monitor_task = None
         self.monitor_running = False
         self.last_position_update = 0
+        self._last_movement_position = Position4D()  # Track position changes during movement
         
         # Load axis configuration from config
         self._load_axis_config()
@@ -590,8 +591,56 @@ class FluidNCController(MotionController):
         
         while time.time() - start_time < timeout:
             try:
-                # Get actual status (not just "ok" acknowledgment)
-                status_response = await self._get_status_response()
+                # Use cached position data from background monitor instead of competing for the lock
+                current_time = time.time()
+                status_age = current_time - self.last_position_update if self.last_position_update else float('inf')
+                
+                # If we have recent status data from background monitor, use it
+                if status_age <= 1.0:  # Use if less than 1 second old
+                    # Infer status from position changes
+                    if hasattr(self, '_last_movement_position'):
+                        current_pos = self.current_position
+                        last_pos = self._last_movement_position
+                        
+                        # Check if position has changed (movement in progress)
+                        pos_changed = (
+                            abs(current_pos.x - last_pos.x) > 0.001 or
+                            abs(current_pos.y - last_pos.y) > 0.001 or
+                            abs(current_pos.z - last_pos.z) > 0.001 or
+                            abs(current_pos.c - last_pos.c) > 0.001
+                        )
+                        
+                        if pos_changed:
+                            movement_started = True
+                            self._last_movement_position = current_pos
+                            logger.debug(f"Movement in progress - position: {current_pos}")
+                            await asyncio.sleep(0.1)  # Check frequently during movement
+                            continue
+                        elif movement_started:
+                            # Position stable after movement started = completed
+                            logger.info("✅ Movement completed - position stable")
+                            return
+                    else:
+                        # First check - store initial position
+                        self._last_movement_position = self.current_position
+                        
+                    # For initial status, check if we should consider movement started
+                    elapsed = time.time() - start_time
+                    if elapsed > 1.0 and not movement_started:
+                        logger.info("✅ Movement completed - assuming quick completion")
+                        return
+                    
+                    await asyncio.sleep(0.1)  # Fast polling when using background monitor data
+                    continue
+                
+                # Fallback to direct status query only if background data is stale
+                logger.debug("Background data stale, doing direct status check...")
+                try:
+                    status_response = await asyncio.wait_for(self._get_status_response(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    logger.debug("Direct status check timed out, continuing with movement wait...")
+                    await asyncio.sleep(0.2)
+                    continue
                 
                 if status_response:
                     # Log status changes for debugging
