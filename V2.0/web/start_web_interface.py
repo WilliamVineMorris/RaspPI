@@ -188,20 +188,27 @@ motion:
       steps_per_degree: 5.0
 
 cameras:
-  primary:
-    type: "pi_camera"
-    device_id: 0
-    interface: "libcamera"
+  camera_1:
+    port: 0
     resolution: [1920, 1080]
+    interface: "libcamera"
     enabled: true
-  secondary:
-    type: "pi_camera"
-    device_id: 1
-    interface: "libcamera"
+  camera_2:
+    port: 1
     resolution: [1920, 1080]
+    interface: "libcamera"
     enabled: true
 
 lighting:
+  led_zones:
+    zone_1:
+      gpio_pin: 18
+      max_intensity: 80
+      name: "Front Left"
+    zone_2:
+      gpio_pin: 19
+      max_intensity: 80
+      name: "Front Right"
   controller:
     type: "gpio_pwm"
     enabled: false  # Disabled for initial testing
