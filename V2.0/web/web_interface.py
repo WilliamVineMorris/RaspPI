@@ -1082,9 +1082,27 @@ class ScannerWebInterface:
             
             # Apply camera controls asynchronously
             import asyncio
-            result = asyncio.create_task(
-                self.orchestrator.camera_manager.set_camera_controls(camera_id, controls)
-            )
+            try:
+                # Run the async method in a new event loop
+                result = asyncio.run(
+                    self.orchestrator.camera_manager.set_camera_controls(camera_id, controls)
+                )
+            except RuntimeError:
+                # If there's already an event loop, create a task and run it
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Use run_in_executor for thread safety
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(
+                            asyncio.run,
+                            self.orchestrator.camera_manager.set_camera_controls(camera_id, controls)
+                        )
+                        result = future.result(timeout=5.0)
+                else:
+                    result = loop.run_until_complete(
+                        self.orchestrator.camera_manager.set_camera_controls(camera_id, controls)
+                    )
             
             self.logger.info(f"Camera controls applied: Camera {camera_id}, Controls: {controls}")
             
@@ -1107,9 +1125,27 @@ class ScannerWebInterface:
             
             # Trigger autofocus
             import asyncio
-            result = asyncio.create_task(
-                self.orchestrator.camera_manager.trigger_autofocus(camera_id)
-            )
+            try:
+                # Run the async method in a new event loop
+                result = asyncio.run(
+                    self.orchestrator.camera_manager.trigger_autofocus(camera_id)
+                )
+            except RuntimeError:
+                # If there's already an event loop, create a task and run it
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Use run_in_executor for thread safety
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(
+                            asyncio.run,
+                            self.orchestrator.camera_manager.trigger_autofocus(camera_id)
+                        )
+                        result = future.result(timeout=5.0)
+                else:
+                    result = loop.run_until_complete(
+                        self.orchestrator.camera_manager.trigger_autofocus(camera_id)
+                    )
             
             self.logger.info(f"Autofocus triggered: Camera {camera_id}")
             
@@ -1132,9 +1168,27 @@ class ScannerWebInterface:
             
             # Set manual focus
             import asyncio
-            result = asyncio.create_task(
-                self.orchestrator.camera_manager.set_manual_focus(camera_id, focus_position)
-            )
+            try:
+                # Run the async method in a new event loop
+                result = asyncio.run(
+                    self.orchestrator.camera_manager.set_manual_focus(camera_id, focus_position)
+                )
+            except RuntimeError:
+                # If there's already an event loop, create a task and run it
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Use run_in_executor for thread safety
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(
+                            asyncio.run,
+                            self.orchestrator.camera_manager.set_manual_focus(camera_id, focus_position)
+                        )
+                        result = future.result(timeout=5.0)
+                else:
+                    result = loop.run_until_complete(
+                        self.orchestrator.camera_manager.set_manual_focus(camera_id, focus_position)
+                    )
             
             self.logger.info(f"Manual focus set: Camera {camera_id}, Position: {focus_position}")
             
@@ -1157,9 +1211,30 @@ class ScannerWebInterface:
             
             # Get current camera controls
             import asyncio
-            controls = asyncio.create_task(
-                self.orchestrator.camera_manager.get_camera_controls(camera_id)
-            )
+            try:
+                # Run the async method in a new event loop
+                controls = asyncio.run(
+                    self.orchestrator.camera_manager.get_camera_controls(camera_id)
+                )
+            except RuntimeError:
+                # If there's already an event loop, handle it
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # Use run_in_executor for thread safety
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(
+                            asyncio.run,
+                            self.orchestrator.camera_manager.get_camera_controls(camera_id)
+                        )
+                        controls = future.result(timeout=5.0)
+                else:
+                    controls = loop.run_until_complete(
+                        self.orchestrator.camera_manager.get_camera_controls(camera_id)
+                    )
+            except Exception:
+                # Fallback if async method doesn't exist or fails
+                controls = {}
             
             # Get basic status
             basic_status = self.orchestrator.camera_manager.get_status()
@@ -1167,7 +1242,7 @@ class ScannerWebInterface:
             return {
                 'camera_id': camera_id,
                 'basic_status': basic_status,
-                'controls': controls.result() if hasattr(controls, 'result') else {},
+                'controls': controls,
                 'timestamp': datetime.now().isoformat()
             }
             
