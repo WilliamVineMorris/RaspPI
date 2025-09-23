@@ -95,6 +95,8 @@ const Dashboard = {
         // Home position button
         const homeButton = document.getElementById('homePosition');
         if (homeButton) {
+            // Store original text for restoration after homing
+            homeButton.dataset.originalText = homeButton.textContent;
             homeButton.addEventListener('click', () => this.homePosition());
         }
 
@@ -351,25 +353,120 @@ const Dashboard = {
     },
 
     /**
-     * Home all axes to reference position
+     * Home all axes to reference position with real-time progress monitoring
      */
     async homePosition() {
+        const homeButton = document.getElementById('homePosition');
+        let progressInterval = null;
+        let startTime = Date.now();
+        
         try {
-            ScannerBase.showLoading('Moving to home position...');
-            ScannerBase.addLogEntry('Homing all axes...', 'info');
+            // Disable button and show immediate feedback
+            if (homeButton) {
+                homeButton.disabled = true;
+                homeButton.textContent = '🏠 Homing...';
+                homeButton.style.opacity = '0.6';
+            }
 
+            ScannerBase.showLoading('🏠 Initializing homing sequence...');
+            ScannerBase.addLogEntry('🚀 Starting homing sequence for all axes...', 'info');
+            ScannerBase.showAlert('🏠 Homing sequence started - please wait...', 'info', 3000);
+
+            // Start the homing request (this returns immediately due to threading)
             const response = await ScannerBase.apiRequest('/api/home', {
                 method: 'POST'
             });
 
-            ScannerBase.showAlert('Successfully moved to home position', 'success');
-            ScannerBase.addLogEntry('All axes homed successfully', 'success');
+            // Show immediate confirmation that homing started
+            ScannerBase.addLogEntry('✅ Homing request sent - monitoring progress...', 'success');
+            ScannerBase.showAlert('⚡ Homing in progress - monitoring status...', 'info', 2000);
+
+            // Start progress monitoring
+            let checkCount = 0;
+            let homingDetected = false;
+            const maxChecks = 120; // 2 minutes timeout (120 * 1000ms)
+            
+            progressInterval = setInterval(async () => {
+                checkCount++;
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                
+                try {
+                    // Get current status
+                    const status = await ScannerBase.apiRequest('/api/status');
+                    
+                    // Update progress display
+                    ScannerBase.showLoading(`🏠 Homing in progress... (${elapsed}s)`);
+                    
+                    // Check if homing is complete
+                    if (status.motion && status.motion.status === 'idle' && status.motion.is_homed) {
+                        // Homing completed successfully
+                        clearInterval(progressInterval);
+                        progressInterval = null;
+                        
+                        ScannerBase.hideLoading();
+                        ScannerBase.showAlert('🎉 All axes homed successfully!', 'success', 5000);
+                        ScannerBase.addLogEntry(`✅ Homing completed successfully in ${elapsed} seconds`, 'success');
+                        
+                        // Re-enable button
+                        if (homeButton) {
+                            homeButton.disabled = false;
+                            homeButton.textContent = homeButton.dataset.originalText || '🏠 Home Position';
+                            homeButton.style.opacity = '1';
+                        }
+                        return;
+                    }
+                    
+                    // Check if homing is still in progress
+                    if (status.motion && status.motion.status === 'homing') {
+                        if (!homingDetected) {
+                            homingDetected = true;
+                            ScannerBase.addLogEntry('🎯 Homing sequence actively running...', 'info');
+                            ScannerBase.showAlert('⚡ Homing sequence detected and running!', 'info', 2000);
+                        }
+                        ScannerBase.showLoading(`🏠 Homing axes... (${elapsed}s)`);
+                        return; // Continue monitoring
+                    }
+                    
+                    // Check for errors
+                    if (status.motion && status.motion.status === 'error') {
+                        throw new Error('Motion controller reported error during homing');
+                    }
+                    
+                    // Update progress every 10 seconds
+                    if (checkCount % 10 === 0) {
+                        ScannerBase.addLogEntry(`⏳ Homing still in progress... (${elapsed}s elapsed)`, 'info');
+                    }
+                    
+                } catch (statusError) {
+                    ScannerBase.log(`Status check error during homing: ${statusError.message}`);
+                }
+                
+                // Timeout check
+                if (checkCount >= maxChecks) {
+                    clearInterval(progressInterval);
+                    progressInterval = null;
+                    throw new Error(`Homing timeout after ${elapsed} seconds`);
+                }
+                
+            }, 1000); // Check every second
 
         } catch (error) {
-            ScannerBase.showAlert(`Homing failed: ${error.message}`, 'error');
-            ScannerBase.addLogEntry(`Homing failed: ${error.message}`, 'error');
-        } finally {
+            // Clean up on error
+            if (progressInterval) {
+                clearInterval(progressInterval);
+                progressInterval = null;
+            }
+            
             ScannerBase.hideLoading();
+            ScannerBase.showAlert(`❌ Homing failed: ${error.message}`, 'error', 8000);
+            ScannerBase.addLogEntry(`❌ Homing failed: ${error.message}`, 'error');
+            
+            // Re-enable button
+            if (homeButton) {
+                homeButton.disabled = false;
+                homeButton.textContent = homeButton.dataset.originalText || '🏠 Home Position';
+                homeButton.style.opacity = '1';
+            }
         }
     },
 
