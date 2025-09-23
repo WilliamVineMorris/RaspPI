@@ -602,7 +602,9 @@
                 
                 if (response.ok) {
                     const result = await response.json();
-                    if (result.success && result.status === 'in_progress') {
+                    console.log('Homing API response:', result); // Debug logging
+                    
+                    if (result.success && result.data && result.data.status === 'in_progress') {
                         console.log('Homing started, backend will handle completion detection');
                         showNotification('🔄 Homing in progress... Backend handling detection', 'warning');
                         
@@ -660,8 +662,9 @@
                         // Start checking after 2 seconds
                         setTimeout(checkCompletion, 2000);
                     } else {
-                        console.error('Homing failed:', result.error);
-                        showNotification('❌ Homing failed: ' + (result.error || 'Unknown error'), 'error');
+                        console.error('Homing failed. Full response:', result);
+                        const errorMsg = (result.data && result.data.error) || result.error || 'Unknown error';
+                        showNotification('❌ Homing failed: ' + errorMsg, 'error');
                         if (homeButton) {
                             homeButton.disabled = false;
                             homeButton.textContent = '🏠 Home All';
