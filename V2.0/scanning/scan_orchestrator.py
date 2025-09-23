@@ -578,25 +578,47 @@ class CameraManagerAdapter:
                             # Test a small sample to determine color format
                             sample_mean = np.mean(frame_array[:100, :100], axis=(0,1))
                             
-                            # If blue channel (index 2 in RGB) is much higher, we have correct RGB
-                            # If blue channel (index 0 in BGR) is much higher, we have BGR already
+                            # Enhanced intelligent color format detection with override
                             if len(sample_mean) == 3:
                                 blue_rgb = sample_mean[2]  # Blue in RGB
                                 blue_bgr = sample_mean[0]  # Blue in BGR position
                                 red_green_avg = (sample_mean[1] + sample_mean[2] if blue_bgr > blue_rgb else sample_mean[0] + sample_mean[1]) / 2
                                 
-                                # If blue is dominant in position 0, data is already BGR
-                                if blue_bgr > (red_green_avg * 1.5):
-                                    frame_bgr = frame_array.copy()  # Already BGR
-                                    if not hasattr(self, '_color_format_logged'):
-                                        self.logger.info("CAMERA: Frame already in BGR format")
-                                        self._color_format_logged = True
-                                else:
-                                    # Convert RGB to BGR
+                                # Check for color format override
+                                force_conversion = getattr(self, '_force_color_conversion', None)
+                                
+                                if force_conversion == 'rgb_to_bgr':
+                                    # Force RGB to BGR conversion
                                     frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
                                     if not hasattr(self, '_color_format_logged'):
-                                        self.logger.info("CAMERA: Converting RGB to BGR format")
+                                        self.logger.info("CAMERA: FORCED RGB to BGR conversion")
                                         self._color_format_logged = True
+                                elif force_conversion == 'bgr_direct':
+                                    # Force direct BGR (no conversion)
+                                    frame_bgr = frame_array.copy()
+                                    if not hasattr(self, '_color_format_logged'):
+                                        self.logger.info("CAMERA: FORCED direct BGR (no conversion)")
+                                        self._color_format_logged = True
+                                elif force_conversion == 'bgr_to_rgb':
+                                    # Force BGR to RGB conversion
+                                    frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_BGR2RGB)
+                                    if not hasattr(self, '_color_format_logged'):
+                                        self.logger.info("CAMERA: FORCED BGR to RGB conversion")
+                                        self._color_format_logged = True
+                                else:
+                                    # Auto-detection logic (original)
+                                    # If blue is dominant in position 0, data is already BGR
+                                    if blue_bgr > (red_green_avg * 1.2):  # Reduced threshold for better detection
+                                        frame_bgr = frame_array.copy()  # Already BGR
+                                        if not hasattr(self, '_color_format_logged'):
+                                            self.logger.info("CAMERA: Frame detected as BGR format")
+                                            self._color_format_logged = True
+                                    else:
+                                        # Convert RGB to BGR
+                                        frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
+                                        if not hasattr(self, '_color_format_logged'):
+                                            self.logger.info("CAMERA: Converting RGB to BGR format")
+                                            self._color_format_logged = True
                             else:
                                 # Fallback: assume RGB and convert
                                 frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
@@ -829,6 +851,31 @@ class CameraManagerAdapter:
         except Exception as e:
             self.logger.error(f"CAMERA: Manual focus failed for {camera_id}: {e}")
             return False
+    
+    async def set_color_conversion_mode(self, mode: str):
+        """Set color conversion mode for debugging color issues
+        
+        Args:
+            mode: 'auto', 'rgb_to_bgr', 'bgr_direct', 'bgr_to_rgb'
+        """
+        valid_modes = ['auto', 'rgb_to_bgr', 'bgr_direct', 'bgr_to_rgb']
+        if mode not in valid_modes:
+            self.logger.error(f"CAMERA: Invalid color mode '{mode}'. Valid modes: {valid_modes}")
+            return False
+            
+        if mode == 'auto':
+            if hasattr(self, '_force_color_conversion'):
+                delattr(self, '_force_color_conversion')
+            self.logger.info("CAMERA: Color conversion set to AUTO detection")
+        else:
+            self._force_color_conversion = mode
+            self.logger.info(f"CAMERA: Color conversion FORCED to {mode}")
+        
+        # Reset the color format logging flag to see new conversion messages
+        if hasattr(self, '_color_format_logged'):
+            delattr(self, '_color_format_logged')
+            
+        return True
     
     async def get_camera_controls(self, camera_id):
         """Get current camera control values"""

@@ -256,6 +256,21 @@
                                 </button>
                             </div>
                         </div>
+                        
+                        <!-- Color Format Debug -->
+                        <div class="control-group" style="border-top: 1px solid #ddd; padding-top: 10px; margin-top: 10px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #d73027;">🔧 Color Debug</label>
+                            <label style="font-size: 12px; display: block; margin-bottom: 5px;">If colors look wrong, try:</label>
+                            <select id="colorFormatMode" style="width: 100%; padding: 4px; margin-bottom: 8px;" onchange="setColorFormat(this.value)">
+                                <option value="auto">🤖 Auto Detection</option>
+                                <option value="rgb_to_bgr">🔄 RGB→BGR Convert</option>
+                                <option value="bgr_direct">🎯 Direct BGR</option>
+                                <option value="bgr_to_rgb">↩️ BGR→RGB Convert</option>
+                            </select>
+                            <div style="font-size: 11px; color: #666; margin-top: 5px;">
+                                Change if colors appear blue/orange instead of natural colors
+                            </div>
+                        </div>
                     </div>
                     
                     <!-- Status Display -->
@@ -462,6 +477,36 @@
             const mode = document.getElementById('whiteBalanceMode').value;
             await setWhiteBalanceMode(mode);
             updateControlsStatus(`White balance locked to ${mode} mode`, 'info');
+        }
+        
+        async function setColorFormat(mode) {
+            try {
+                const response = await fetch('/api/camera/color_format', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        camera_id: 'camera_1',
+                        mode: mode
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    let description = '';
+                    switch(mode) {
+                        case 'auto': description = 'Auto color detection enabled'; break;
+                        case 'rgb_to_bgr': description = 'Forcing RGB→BGR conversion'; break;
+                        case 'bgr_direct': description = 'Using direct BGR (no conversion)'; break;
+                        case 'bgr_to_rgb': description = 'Forcing BGR→RGB conversion'; break;
+                    }
+                    updateControlsStatus(description, 'info');
+                } else {
+                    updateControlsStatus('Color format setting failed: ' + (result.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                updateControlsStatus('Color format error: ' + error.message, 'error');
+                console.error('Color format error:', error);
+            }
         }
         
         function toggleAutoWhiteBalance(enabled) {
