@@ -184,7 +184,12 @@ def add_scan_queue_endpoints(app, web_interface):
         try:
             from flask import request, jsonify
             
-            data = request.get_json()
+            # Validate JSON request
+            try:
+                data = request.get_json(force=True)
+            except Exception:
+                return jsonify({'success': False, 'error': 'Invalid JSON format'}), 400
+                
             if not data:
                 return jsonify({'success': False, 'error': 'No data provided'}), 400
             
@@ -210,6 +215,10 @@ def add_scan_queue_endpoints(app, web_interface):
             })
             
         except Exception as e:
+            # Check if this is a werkzeug HTTPException (from abort())
+            from werkzeug.exceptions import HTTPException
+            if isinstance(e, HTTPException):
+                raise e  # Re-raise HTTP exceptions to preserve status codes
             logger.error(f"Add to queue error: {e}")
             return jsonify({'success': False, 'error': str(e)}), 500
     
@@ -219,7 +228,15 @@ def add_scan_queue_endpoints(app, web_interface):
         try:
             from flask import request, jsonify
             
-            data = request.get_json()
+            # Validate JSON request
+            try:
+                data = request.get_json(force=True)
+            except Exception:
+                return jsonify({'success': False, 'error': 'Invalid JSON format'}), 400
+                
+            if not data:
+                return jsonify({'success': False, 'error': 'No data provided'}), 400
+            
             queue_id = data.get('queue_id')
             
             if not queue_id:
