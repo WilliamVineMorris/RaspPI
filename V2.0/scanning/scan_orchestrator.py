@@ -337,6 +337,8 @@ class CameraManagerAdapter:
         # Sequential access strategy to prevent V4L2 buffer conflicts
         self._global_access_lock = threading.Lock()  # Prevent any simultaneous camera access
         self._last_camera_access = {0: 0, 1: 0}  # Track timing for staggered access
+        self._camera_priority_order = [0, 1]  # Camera 0 gets priority, then Camera 1
+        self._camera_startup_status = {0: False, 1: False}  # Track successful startups
         
     async def initialize(self) -> bool:
         return await self.controller.initialize()
@@ -510,6 +512,15 @@ class CameraManagerAdapter:
                 self.logger.info(f"CAMERA DEBUG: Starting capture from camera {mapped_camera_id}")
                 setattr(self, f'_last_capture_log_{mapped_camera_id}', current_time)
             
+            # Priority check: Camera 1 should wait for Camera 0 to be stable
+            if mapped_camera_id == 1:
+                camera_0_status = self._camera_startup_status.get(0, False)
+                if not camera_0_status:
+                    self.logger.warning(f"CAMERA PRIORITY: Camera 1 waiting for Camera 0 to be stable")
+                    return None
+                # Add extra delay for Camera 1
+                time.sleep(0.2)
+            
             # Use threading for timeout with camera resource locking
             result: List[Union[np.ndarray, None]] = [None]
             exception: List[Union[Exception, None]] = [None]
@@ -553,15 +564,22 @@ class CameraManagerAdapter:
                             self.logger.info(f"CAMERA DEBUG: Camera {mapped_camera_id} access count: {self._camera_access_count[mapped_camera_id]}")
                             setattr(self, f'_last_access_log_{mapped_camera_id}', current_time)
                         
-                        # Check camera state first
+                        # Check camera state first with priority-based startup
                         if not hasattr(camera, 'started') or not camera.started:
+                            # Check if this is Camera 1 and Camera 0 isn't running yet
+                            if mapped_camera_id == 1 and not self._camera_startup_status.get(0, False):
+                                self.logger.warning(f"CAMERA WARNING: Delaying Camera 1 startup until Camera 0 is stable")
+                                return
+                            
                             self.logger.warning(f"CAMERA WARNING: Camera {mapped_camera_id} not started, attempting to start...")
                             try:
                                 camera.start()
-                                time.sleep(0.3)  # Reduced startup time for better responsiveness
+                                time.sleep(0.5 if mapped_camera_id == 0 else 1.0)  # Longer delay for Camera 1
                                 self.logger.info(f"CAMERA SUCCESS: Camera {mapped_camera_id} started")
+                                self._camera_startup_status[mapped_camera_id] = True
                             except Exception as start_error:
                                 self.logger.error(f"CAMERA ERROR: Failed to start camera {mapped_camera_id}: {start_error}")
+                                self._camera_startup_status[mapped_camera_id] = False
                                 return
                         
                         # Try array capture (fastest method)
@@ -579,6 +597,11 @@ class CameraManagerAdapter:
                                         self.logger.info(f"CAMERA SUCCESS: Captured frame from camera {mapped_camera_id}: {frame_bgr.shape}")
                                         setattr(self, f'_last_success_log_{mapped_camera_id}', current_time)
                                     
+                                    # Mark camera as stable after successful capture
+                                    if not self._camera_startup_status.get(mapped_camera_id, False):
+                                        self._camera_startup_status[mapped_camera_id] = True
+                                        self.logger.info(f"CAMERA PRIORITY: Camera {mapped_camera_id} marked as stable")
+                                    
                                     result[0] = frame_bgr
                                     return
                                 else:
@@ -594,6 +617,8 @@ class CameraManagerAdapter:
                     
                     except Exception as e:
                         self.logger.error(f"CAMERA ERROR: Exception in capture thread for camera {mapped_camera_id}: {e}")
+                        # Mark camera as unstable on errors
+                        self._camera_startup_status[mapped_camera_id] = False
                         exception[0] = e
                     finally:
                         # Always release the camera lock
