@@ -34,6 +34,8 @@ storage:
   backup_enabled: true
 
 motion:
+  controller_port: "/dev/ttyUSB0"
+  baud_rate: 115200
   axes:
     x:
       min_position: 0
