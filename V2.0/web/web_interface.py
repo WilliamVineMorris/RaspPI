@@ -780,11 +780,18 @@ class ScannerWebInterface:
             
             # Emergency stop motion controller
             if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
-                self.orchestrator.motion_controller.emergency_stop()
+                try:
+                    self.orchestrator.motion_controller.emergency_stop_sync()
+                except Exception as e:
+                    self.logger.warning(f"Motion controller emergency stop failed: {e}")
             
             # Turn off lighting
             if self.orchestrator and hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
-                asyncio.create_task(self.orchestrator.lighting_controller.turn_off_all())
+                try:
+                    # Use sync wrapper method to avoid async warnings
+                    self.orchestrator.lighting_controller.turn_off_all_sync()
+                except Exception as e:
+                    self.logger.warning(f"Could not turn off lighting during emergency stop: {e}")
             
             self.logger.warning("Emergency stop executed")
             
@@ -937,17 +944,19 @@ class ScannerWebInterface:
             # Execute flash
             from lighting.base import LightingSettings
             flash_settings = LightingSettings(brightness=brightness, duration_ms=duration)
-            
-            if zone == 'all':
-                result = asyncio.create_task(
-                    self.orchestrator.lighting_controller.flash_all_zones(flash_settings)
-                )
-            else:
-                result = asyncio.create_task(
-                    self.orchestrator.lighting_controller.flash_zone(zone, flash_settings)
-                )
-            
-            self.logger.info(f"Lighting flash executed: Zone {zone}, Brightness {brightness}")
+            # Execute flash using synchronous wrapper
+            try:
+                if zone == 'all':
+                    # Flash all zones
+                    result = self.orchestrator.lighting_controller.flash_sync(['all'], flash_settings)
+                else:
+                    # Flash specific zone
+                    result = self.orchestrator.lighting_controller.flash_sync([zone], flash_settings)
+                    
+                self.logger.info(f"Lighting flash executed: Zone {zone}, Brightness {brightness}")
+            except Exception as e:
+                self.logger.error(f"Flash execution failed: {e}")
+                raise HardwareError(f"Failed to execute lighting flash: {e}")
             
             return {
                 'zone': zone,

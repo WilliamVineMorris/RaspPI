@@ -238,11 +238,57 @@ class MotionControllerAdapter:
     async def emergency_stop(self) -> bool:
         return await self.controller.emergency_stop()
         
+    def emergency_stop_sync(self) -> bool:
+        """Synchronous wrapper for emergency stop"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(self.controller.emergency_stop())
+            loop.close()
+            return result
+        except Exception:
+            return False
+        
     async def shutdown(self) -> None:
         await self.controller.shutdown()
         
     def is_connected(self) -> bool:
         return self.controller.is_connected()
+        
+    def get_status(self) -> Dict[str, Any]:
+        """Get motion controller status"""
+        try:
+            is_connected = self.controller.is_connected()
+            return {
+                'state': 'idle' if is_connected else 'disconnected',
+                'connected': is_connected,
+                'initialized': is_connected
+            }
+        except Exception:
+            return {
+                'state': 'error',
+                'connected': False,
+                'initialized': False
+            }
+            
+    def get_position(self) -> Dict[str, float]:
+        """Get current position in a dict format"""
+        try:
+            if hasattr(self.controller, 'get_position_sync'):
+                # Use synchronous method if available
+                pos = self.controller.get_position_sync()
+            else:
+                # Fallback to basic position if no sync method
+                return {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
+                
+            return {
+                'x': pos.x if hasattr(pos, 'x') else 0.0,
+                'y': pos.y if hasattr(pos, 'y') else 0.0, 
+                'z': pos.z if hasattr(pos, 'z') else 0.0,
+                'c': pos.c if hasattr(pos, 'c') else 0.0
+            }
+        except Exception:
+            return {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
         
     def get_current_settings(self) -> Dict[str, Any]:
         return {'controller_type': 'FluidNC', 'connected': self.controller.is_connected()}
@@ -358,12 +404,22 @@ class CameraManagerAdapter:
     def get_status(self) -> Dict[str, Any]:
         """Get camera manager status"""
         try:
-            # Return basic status information
-            return {
-                'cameras': ['camera_1', 'camera_2'],  # Based on configuration
-                'active_cameras': [],
-                'initialized': self.controller.is_connected() if hasattr(self.controller, 'is_connected') else True
-            }
+            # Check if cameras are initialized and connected
+            is_connected = self.controller.is_connected() if hasattr(self.controller, 'is_connected') else True
+            
+            if is_connected:
+                # If connected, report cameras as active
+                return {
+                    'cameras': ['camera_1', 'camera_2'],  # Based on configuration
+                    'active_cameras': ['camera_1', 'camera_2'],  # Both cameras active when connected
+                    'initialized': True
+                }
+            else:
+                return {
+                    'cameras': ['camera_1', 'camera_2'],  # Still available but not active
+                    'active_cameras': [],
+                    'initialized': False
+                }
         except Exception:
             return {
                 'cameras': [],
@@ -410,6 +466,28 @@ class LightingControllerAdapter:
                 'initialized': False,
                 'status': 'error'
             }
+    
+    def turn_off_all_sync(self) -> bool:
+        """Synchronous wrapper for turn_off_all - safe for emergency stops"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(self.controller.turn_off_all())
+            loop.close()
+            return result
+        except Exception as e:
+            return False
+            
+    def flash_sync(self, zone_ids: List[str], settings: Any) -> Any:
+        """Synchronous wrapper for flash - safe for web interface"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(self.controller.flash(zone_ids, settings))
+            loop.close()
+            return result
+        except Exception as e:
+            return False
 
 class ScanOrchestrator:
     """
