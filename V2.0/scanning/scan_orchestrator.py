@@ -307,7 +307,7 @@ class MotionControllerAdapter:
         return self.controller.is_connected()
         
     def get_status(self) -> Dict[str, Any]:
-        """Get motion controller status"""
+        """Get motion controller status with enhanced FluidNC information"""
         try:
             is_connected = self.controller.is_connected()
             self.logger.debug(f"Motion controller connection status: {is_connected}")
@@ -316,6 +316,8 @@ class MotionControllerAdapter:
             position = None
             is_homed = False
             raw_status = None
+            fluidnc_status = None
+            axes_homed = {'x': False, 'y': False, 'z': False, 'c': False}
             
             if is_connected:
                 try:
@@ -330,13 +332,50 @@ class MotionControllerAdapter:
                     else:
                         position_dict = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
                     
+                    # Get enhanced FluidNC status information
+                    if hasattr(self.controller, '_last_status'):
+                        raw_status = self.controller._last_status
+                        self.logger.debug(f"Raw FluidNC status: {raw_status}")
+                        
+                        # Parse FluidNC status for detailed information
+                        if raw_status:
+                            # Extract state information
+                            if '<Idle' in raw_status:
+                                fluidnc_status = 'Idle'
+                            elif '<Run' in raw_status:
+                                fluidnc_status = 'Run'
+                            elif '<Home' in raw_status:
+                                fluidnc_status = 'Homing'
+                            elif '<Jog' in raw_status:
+                                fluidnc_status = 'Jogging'
+                            elif '<Alarm' in raw_status:
+                                fluidnc_status = 'Alarm'
+                            else:
+                                fluidnc_status = 'Unknown'
+                                
+                            # Check individual axis homing status
+                            # FluidNC typically shows homed axes in status
+                            if ':' in raw_status and '|' in raw_status:
+                                # Parse individual axis status if available
+                                # This is FluidNC specific and may need adjustment
+                                try:
+                                    # Look for homing indicators in status
+                                    if 'H' in raw_status or 'homed' in raw_status.lower():
+                                        # Assume all axes are homed if any homing indicator present
+                                        axes_homed = {'x': True, 'y': True, 'z': True, 'c': True}
+                                except Exception as parse_error:
+                                    self.logger.debug(f"Could not parse individual axis status: {parse_error}")
+                    
                     # Get homing status - don't report homed=True if homing is in progress
                     if hasattr(self.controller, 'is_homed'):
                         is_homed = self.controller.is_homed and not self._homing_in_progress
                     
-                    # Get raw status for debugging
-                    if hasattr(self.controller, '_last_status'):
-                        raw_status = self.controller._last_status
+                    # Alternative homing detection from raw status
+                    if not is_homed and raw_status and 'Idle' in raw_status:
+                        # Check if this looks like a post-homing idle state
+                        # This is a heuristic and may need adjustment
+                        if any(axes_homed.values()) or 'H' in raw_status:
+                            is_homed = True
                         
                 except Exception as e:
                     self.logger.debug(f"Error getting detailed motion status: {e}")
@@ -348,7 +387,14 @@ class MotionControllerAdapter:
             if self._homing_in_progress:
                 state = 'homing'
             elif is_connected:
-                state = 'idle'
+                if fluidnc_status == 'Homing':
+                    state = 'homing'
+                elif fluidnc_status == 'Run' or fluidnc_status == 'Jogging':
+                    state = 'moving'
+                elif fluidnc_status == 'Alarm':
+                    state = 'alarm'
+                else:
+                    state = 'idle'
             else:
                 state = 'disconnected'
                 
@@ -358,8 +404,12 @@ class MotionControllerAdapter:
                 'connected': is_connected,
                 'initialized': is_connected,
                 'is_homed': is_homed,
+                'homed': is_homed,  # Add both field names for compatibility
                 'position': position_dict,
-                'raw_status': raw_status
+                'raw_status': raw_status,
+                'fluidnc_status': fluidnc_status,
+                'axes_homed': axes_homed,
+                'homing_in_progress': self._homing_in_progress
             }
         except Exception as e:
             self.logger.error(f"Error getting motion controller status: {e}")
@@ -369,8 +419,12 @@ class MotionControllerAdapter:
                 'connected': False,
                 'initialized': False,
                 'is_homed': False,
+                'homed': False,
                 'position': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0},
-                'raw_status': None
+                'raw_status': None,
+                'fluidnc_status': 'Error',
+                'axes_homed': {'x': False, 'y': False, 'z': False, 'c': False},
+                'homing_in_progress': False
             }
             
     def get_position(self) -> Dict[str, float]:

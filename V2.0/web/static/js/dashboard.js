@@ -247,6 +247,26 @@ const Dashboard = {
             activityElement.textContent = this.formatMotionActivity(activity);
             activityElement.className = `status-value ${this.getActivityClass(activity)}`;
         }
+
+        // Update FluidNC status
+        const fluidncElement = document.getElementById('fluidncStatus');
+        if (fluidncElement) {
+            const fluidncStatus = status.motion.fluidnc_status || 'Unknown';
+            fluidncElement.textContent = fluidncStatus;
+            
+            // Color code FluidNC status
+            let statusClass = 'idle';
+            switch(fluidncStatus.toLowerCase()) {
+                case 'idle': statusClass = 'idle'; break;
+                case 'run':
+                case 'jogging': statusClass = 'busy'; break;
+                case 'homing': statusClass = 'busy'; break;
+                case 'alarm':
+                case 'error': statusClass = 'error'; break;
+                default: statusClass = 'idle';
+            }
+            fluidncElement.className = `status-value ${statusClass}`;
+        }
     },
 
     /**
@@ -500,7 +520,8 @@ const Dashboard = {
                     // Check if homing is complete - need MINIMUM TIME + idle status + homed flag
                     // Prevent premature completion detection by requiring at least 15 seconds
                     const minimumHomingTime = 15; // seconds
-                    if (status.motion && status.motion.status === 'idle' && status.motion.is_homed === true && elapsed >= minimumHomingTime) {
+                    const isHomed = status.motion.homed || status.motion.is_homed || false;
+                    if (status.motion && status.motion.status === 'idle' && isHomed && elapsed >= minimumHomingTime) {
                         // Additional validation: ensure we've detected active homing before completion
                         if (!homingDetected) {
                             ScannerBase.addLogEntry(`⚠️ Premature completion detected (${elapsed}s) - waiting for actual homing sequence...`, 'warning');
@@ -526,13 +547,17 @@ const Dashboard = {
                     
                     // Check if homing is still in progress - look for homing status OR Home state in FluidNC
                     if (status.motion && (status.motion.status === 'homing' || 
+                        status.motion.fluidnc_status === 'Homing' ||
                         (status.motion.raw_status && status.motion.raw_status.includes('<Home|')))) {
                         if (!homingDetected) {
                             homingDetected = true;
-                            ScannerBase.addLogEntry('🎯 Homing sequence actively running...', 'info');
+                            ScannerBase.addLogEntry(`🔄 Homing sequence detected (FluidNC: ${status.motion.fluidnc_status || 'Unknown'})`, 'info');
                             ScannerBase.showAlert('⚡ Homing sequence detected and running!', 'info', 2000);
                         }
                         ScannerBase.showLoading(`🏠 Homing axes... (${elapsed}s)`);
+                        
+                        // Log detailed status for debugging
+                        ScannerBase.log(`Homing in progress: state=${status.motion.status}, fluidnc=${status.motion.fluidnc_status}, homed=${status.motion.homed || status.motion.is_homed}, elapsed=${elapsed}s`);
                         return; // Continue monitoring
                     }
                     
@@ -544,7 +569,7 @@ const Dashboard = {
                     // Update progress every 10 seconds with more detailed logging
                     if (checkCount % 10 === 0) {
                         ScannerBase.addLogEntry(`⏳ Homing still in progress... (${elapsed}s elapsed)`, 'info');
-                        ScannerBase.log(`Homing status check: motion.status=${status.motion?.status}, is_homed=${status.motion?.is_homed}, raw_status=${status.motion?.raw_status?.substring(0,50) || 'none'}`);
+                        ScannerBase.log(`Homing status check: motion.status=${status.motion?.status}, fluidnc_status=${status.motion?.fluidnc_status}, homed=${status.motion?.homed || status.motion?.is_homed}, raw_status=${status.motion?.raw_status?.substring(0,50) || 'none'}`);
                     }
                     
                 } catch (statusError) {
