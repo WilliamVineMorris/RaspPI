@@ -550,6 +550,32 @@ class ScannerWebInterface:
                 self.logger.error(f"Manual focus API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
+        @self.app.route('/api/camera/stabilize', methods=['POST'])
+        def api_camera_stabilize():
+            """Enable camera stabilization to reduce flickering"""
+            try:
+                data = request.get_json() or {}
+                camera_id = data.get('camera_id', 'camera_1')
+                enable = data.get('enable', True)
+                
+                controls = {
+                    'stabilize_exposure': enable,
+                    'stabilize_awb': enable
+                }
+                
+                result = self._execute_camera_controls(camera_id, controls)
+                
+                return jsonify({
+                    'success': True,
+                    'data': result,
+                    'stabilization_enabled': enable,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Camera stabilization API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
         @self.app.route('/api/camera/status', methods=['GET'])
         def api_camera_detailed_status():
             """Get detailed camera status including current controls"""

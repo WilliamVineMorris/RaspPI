@@ -200,6 +200,7 @@
                             <div style="display: flex; gap: 10px; margin-bottom: 10px;">
                                 <button class="btn btn-sm btn-primary" onclick="triggerAutofocus()">🎯 Auto Focus</button>
                                 <button class="btn btn-sm btn-secondary" onclick="toggleManualFocus()">⚙️ Manual</button>
+                                <button id="stabilizeBtn" class="btn btn-sm btn-warning" onclick="toggleStabilization()">🔧 Stabilize</button>
                             </div>
                             <div id="manualFocusPanel" style="display: none;">
                                 <label for="focusSlider" style="font-size: 12px;">Focus Position (0=Near, 10=Far)</label>
@@ -362,6 +363,37 @@
             } catch (error) {
                 updateControlsStatus('Focus setting error: ' + error.message, 'error');
                 console.error('Manual focus error:', error);
+            }
+        }
+        
+        let stabilizationEnabled = false;
+        async function toggleStabilization() {
+            try {
+                stabilizationEnabled = !stabilizationEnabled;
+                const btn = document.getElementById('stabilizeBtn');
+                
+                const response = await fetch('/api/camera/stabilize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        camera_id: 'camera_1',
+                        enable: stabilizationEnabled
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    btn.textContent = stabilizationEnabled ? '🔒 Stabilized' : '🔧 Stabilize';
+                    btn.className = stabilizationEnabled ? 'btn btn-sm btn-success' : 'btn btn-sm btn-warning';
+                    updateControlsStatus(stabilizationEnabled ? 'Camera stabilization enabled' : 'Camera stabilization disabled', 'info');
+                } else {
+                    updateControlsStatus('Stabilization toggle failed: ' + (result.error || 'Unknown error'), 'error');
+                    stabilizationEnabled = !stabilizationEnabled; // Revert on failure
+                }
+            } catch (error) {
+                updateControlsStatus('Stabilization error: ' + error.message, 'error');
+                console.error('Stabilization error:', error);
+                stabilizationEnabled = !stabilizationEnabled; // Revert on failure
             }
         }
         

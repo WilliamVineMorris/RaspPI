@@ -757,11 +757,24 @@ class CameraManagerAdapter:
                             picam_controls['AwbEnable'] = True
                         else:
                             picam_controls['AwbEnable'] = False
+                            # Set stable white balance gains to reduce flickering
+                            picam_controls['ColourGains'] = (1.4, 1.2)  # Daylight balanced
                     
                     if 'white_balance_gains' in controls_dict:
                         gains = controls_dict['white_balance_gains']
                         if isinstance(gains, (list, tuple)) and len(gains) == 2:
                             picam_controls['ColourGains'] = gains
+                    
+                    # Stabilization settings to reduce flickering
+                    if 'stabilize_exposure' in controls_dict and controls_dict['stabilize_exposure']:
+                        # Lock exposure to reduce flickering
+                        picam_controls['AeEnable'] = False
+                        picam_controls['ExposureTime'] = 10000  # 10ms stable exposure
+                        
+                    if 'stabilize_awb' in controls_dict and controls_dict['stabilize_awb']:
+                        # Lock AWB to reduce color shifts
+                        picam_controls['AwbEnable'] = False
+                        picam_controls['ColourGains'] = (1.4, 1.2)  # Stable daylight balance
                     
                     # Apply controls
                     if picam_controls:
