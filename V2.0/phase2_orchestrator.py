@@ -28,7 +28,7 @@ from core.logging_setup import setup_logging
 # Import base controllers
 from motion.fluidnc_controller import create_fluidnc_controller
 from camera.pi_camera_controller import create_pi_camera_controller
-from lighting.pi_gpio_controller import create_gpio_controller
+from lighting.gpio_led_controller import create_lighting_controller
 
 # Import Phase 2 adapters
 from motion.adapter import create_motion_adapter, FluidNCMotionAdapter
@@ -171,7 +171,8 @@ class Phase2SystemOrchestrator:
             
             # Lighting controller (GPIO)
             self.logger.info("Initializing GPIO lighting controller...")
-            self.lighting_controller = create_gpio_controller(self.config_manager)
+            lighting_config = self.config_manager.get('lighting', {})
+            self.lighting_controller = create_lighting_controller(lighting_config)
             lighting_init = await self.lighting_controller.initialize()
             if not lighting_init:
                 self.logger.error("GPIO lighting controller initialization failed")
