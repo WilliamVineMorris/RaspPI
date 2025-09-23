@@ -1434,7 +1434,7 @@ class ScannerWebInterface:
         
         frame_counter = 0
         last_log_time = 0
-        fps_target = 8  # Reduced FPS for Pi performance (was 20)
+        fps_target = 20  # Maintained at 20 FPS as requested
         frame_interval = 1.0 / fps_target
         last_frame_time = 0
         frame_cache = None  # Add frame caching
