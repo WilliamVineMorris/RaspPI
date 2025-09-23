@@ -879,16 +879,16 @@ class CameraManagerAdapter:
             self.logger.debug(f"Camera manager connection status: {is_connected}")
             
             if is_connected:
-                # If in streaming mode, only report Camera 0 as active to prevent interference
+                # Always show both cameras as available, but active cameras depend on mode
                 if getattr(self, '_streaming_mode', False):
                     status = {
-                        'cameras': ['camera_1'],  # Only Camera 0 (camera_1) for streaming
+                        'cameras': ['camera_1', 'camera_2'],  # Both cameras available
                         'active_cameras': ['camera_1'],  # Only Camera 0 active in streaming mode
                         'initialized': True
                     }
                     self.logger.info(f"Camera status (streaming mode): {status}")
                 else:
-                    # Scanning mode - both cameras available
+                    # Scanning mode - both cameras available and active
                     status = {
                         'cameras': ['camera_1', 'camera_2'],  # Both cameras available
                         'active_cameras': ['camera_1', 'camera_2'],  # Both cameras active for scanning

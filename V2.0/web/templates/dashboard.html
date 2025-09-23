@@ -546,6 +546,120 @@
                 }
             }
         }
+        
+        // Motion Control Functions
+        async function homeAllAxes() {
+            try {
+                console.log('Homing all axes...');
+                const response = await fetch('/api/home', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    console.log('Homing successful');
+                    refreshStatus();
+                } else {
+                    console.error('Homing failed:', result.error);
+                    alert('Homing failed: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Homing error:', error);
+                alert('Homing error: ' + error.message);
+            }
+        }
+        
+        async function capturePhoto() {
+            try {
+                console.log('Capturing photo...');
+                const response = await fetch('/api/camera/capture', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ camera_id: 0 })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    console.log('Photo captured successfully');
+                    alert('Photo captured successfully!');
+                } else {
+                    console.error('Photo capture failed:', result.error);
+                    alert('Photo capture failed: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Photo capture error:', error);
+                alert('Photo capture error: ' + error.message);
+            }
+        }
+        
+        async function testLighting() {
+            try {
+                console.log('Testing lighting...');
+                const response = await fetch('/api/lighting/flash', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        zone_ids: ['zone_1', 'zone_2'],
+                        intensity: 50,
+                        duration_ms: 1000
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    console.log('Lighting test successful');
+                } else {
+                    console.error('Lighting test failed:', result.error);
+                    alert('Lighting test failed: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Lighting test error:', error);
+                alert('Lighting test error: ' + error.message);
+            }
+        }
+        
+        async function refreshStatus() {
+            try {
+                console.log('Refreshing status...');
+                const response = await fetch('/api/status');
+                const status = await response.json();
+                
+                // Update motion status
+                if (status.motion) {
+                    document.getElementById('currentPosition').textContent = 
+                        `X:${status.motion.position.x} Y:${status.motion.position.y} Z:${status.motion.position.z} C:${status.motion.position.c}`;
+                    document.getElementById('motionState').textContent = status.motion.status;
+                    document.getElementById('motionStatus').className = 
+                        'status-indicator ' + (status.motion.connected ? 'ready' : 'error');
+                }
+                
+                // Update camera status
+                if (status.cameras) {
+                    document.getElementById('cameraCount').textContent = status.cameras.available;
+                    document.getElementById('activeCameras').textContent = status.cameras.active.join(', ') || 'None';
+                    document.getElementById('cameraState').textContent = status.cameras.status;
+                    document.getElementById('cameraStatus').className = 
+                        'status-indicator ' + (status.cameras.available > 0 ? 'ready' : 'error');
+                }
+                
+                // Update lighting status
+                if (status.lighting) {
+                    document.getElementById('lightingZones').textContent = status.lighting.zones.length;
+                    document.getElementById('lightingState').textContent = status.lighting.status;
+                    document.getElementById('lightingStatus').className = 
+                        'status-indicator ' + (status.lighting.zones.length > 0 ? 'ready' : 'error');
+                }
+                
+                console.log('Status refreshed successfully');
+            } catch (error) {
+                console.error('Status refresh error:', error);
+            }
+        }
+        
+        function captureFromCamera(cameraId) {
+            capturePhoto();
+        }
     </script>
 </div>
 
