@@ -749,8 +749,8 @@ class ScannerWebInterface:
                     motion_status = self.orchestrator.motion_controller.get_status()
                     position = self.orchestrator.motion_controller.get_position()
                     
-                    self.logger.info(f"Motion status from adapter: {motion_status}")
-                    self.logger.info(f"Motion position from adapter: {position}")
+                    self.logger.debug(f"Motion status from adapter: {motion_status}")
+                    self.logger.debug(f"Motion position from adapter: {position}")
                     
                     status['motion'].update({
                         'connected': True,
@@ -768,7 +768,7 @@ class ScannerWebInterface:
                 self.logger.debug(f"Checking camera manager status...")
                 try:
                     camera_status = self.orchestrator.camera_manager.get_status()
-                    self.logger.info(f"Camera status from adapter: {camera_status}")
+                    self.logger.debug(f"Camera status from adapter: {camera_status}")
                     
                     status['cameras'].update({
                         'available': len(camera_status.get('cameras', [])),

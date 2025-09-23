@@ -898,7 +898,7 @@ class CameraManagerAdapter:
                         'active_cameras': ['camera_1'],  # Only Camera 0 active in streaming mode
                         'initialized': True
                     }
-                    self.logger.info(f"Camera status (streaming mode): {status}")
+                    self.logger.debug(f"Camera status (streaming mode): {status}")
                 else:
                     # Scanning mode - both cameras available and active
                     status = {
