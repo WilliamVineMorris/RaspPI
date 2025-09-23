@@ -34,6 +34,9 @@ const Dashboard = {
         
         // Listen for status updates
         document.addEventListener('scanner:statusUpdate', (event) => {
+            console.log('Dashboard received scanner:statusUpdate event:', event);
+            console.log('Event detail:', event.detail);
+            console.log('Event detail.status:', event.detail.status);
             this.handleStatusUpdate(event.detail.status);
         });
 
@@ -140,6 +143,9 @@ const Dashboard = {
      * Handle dashboard-specific status updates
      */
     handleStatusUpdate(status) {
+        console.log('Dashboard handleStatusUpdate called with:', status);
+        console.log('Status motion data:', status?.motion);
+        
         // Update system metrics
         this.updateSystemMetrics(status);
         
@@ -199,13 +205,22 @@ const Dashboard = {
      * Update motion controller status display
      */
     updateMotionStatus(status) {
-        if (!status.motion) return;
+        console.log('Dashboard updateMotionStatus called with status:', status);
+        console.log('Status.motion:', status?.motion);
+        
+        if (!status.motion) {
+            console.log('No motion data in status, returning early');
+            return;
+        }
+
+        console.log('Updating motion status elements...');
 
         // Update motion status indicator
         const motionStatusElement = document.getElementById('motionStatus');
         if (motionStatusElement) {
             const isConnected = status.motion.connected;
             motionStatusElement.className = `status-indicator ${isConnected ? 'ready' : 'error'}`;
+            console.log('Updated motionStatus element');
         }
 
         // Update connection status
@@ -214,6 +229,7 @@ const Dashboard = {
             const connected = status.motion.connected || false;
             connectionElement.textContent = connected ? 'Connected' : 'Disconnected';
             connectionElement.className = `status-value ${connected ? 'connected' : 'disconnected'}`;
+            console.log('Updated motionConnection:', connected);
         }
 
         // Update homed status
@@ -222,6 +238,7 @@ const Dashboard = {
             const homed = status.motion.homed || false;
             homedElement.textContent = homed ? 'Yes' : 'No';
             homedElement.className = `status-value ${homed ? 'homed' : 'not-homed'}`;
+            console.log('Updated motionHomed:', homed);
         }
 
         // Update position display
@@ -230,6 +247,7 @@ const Dashboard = {
             if (positionElement) {
                 const pos = status.motion.position;
                 positionElement.textContent = `X:${parseFloat(pos.x || 0).toFixed(1)} Y:${parseFloat(pos.y || 0).toFixed(1)} Z:${parseFloat(pos.z || 0).toFixed(1)} C:${parseFloat(pos.c || 0).toFixed(1)}`;
+                console.log('Updated currentPosition:', positionElement.textContent);
             }
         }
 
@@ -238,6 +256,7 @@ const Dashboard = {
         if (stateElement) {
             const state = status.motion.status || 'unknown';
             stateElement.textContent = this.formatMotionState(state);
+            console.log('Updated motionState:', state);
         }
 
         // Update activity
