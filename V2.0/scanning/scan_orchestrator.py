@@ -436,7 +436,7 @@ class CameraManagerAdapter:
     
     def get_preview_frame(self, camera_id):
         """
-        Get a preview frame from the specified camera with enhanced reliability
+        Get a preview frame from the specified camera with direct capture
         
         Args:
             camera_id: Camera identifier (int or string)
@@ -448,37 +448,12 @@ class CameraManagerAdapter:
             import cv2
             import numpy as np
             import time
-            import io
-            from PIL import Image
-            import threading
-            from typing import List, Union
             
             # Rate-limited logging
             current_time = time.time()
-            if not hasattr(self, '_last_debug_log') or (current_time - self._last_debug_log) > 5.0:
+            if not hasattr(self, '_last_debug_log') or (current_time - self._last_debug_log) > 20.0:
                 self.logger.info(f"CAMERA DEBUG: get_preview_frame called for camera {camera_id} (type: {type(camera_id)})")
                 self._last_debug_log = current_time
-            
-            # Convert camera_id to the internal string format
-            if isinstance(camera_id, int):
-                actual_camera_id = f"camera_{camera_id + 1}"  # 0 -> camera_1, 1 -> camera_2
-            else:
-                actual_camera_id = str(camera_id)
-            
-            # Check if we have access to the real camera controller
-            if not hasattr(self.controller, 'cameras'):
-                self.logger.warning(f"CAMERA ERROR: Controller has no cameras attribute. Controller type: {type(self.controller)}")
-                return None
-                
-            cameras = self.controller.cameras
-            if cameras is None:
-                self.logger.error(f"CAMERA ERROR: Controller cameras is None")
-                return None
-                
-            if not hasattr(self, '_logged_cameras') or (current_time - getattr(self, '_last_camera_log', 0)) > 10.0:
-                self.logger.info(f"CAMERA DEBUG: Available cameras: {list(cameras.keys()) if cameras else 'None'}")
-                self._logged_cameras = True
-                self._last_camera_log = current_time
             
             # Handle camera ID mapping - convert string IDs if necessary
             mapped_camera_id = camera_id
@@ -486,121 +461,79 @@ class CameraManagerAdapter:
                 # Extract numeric part from 'camera_1' -> 0, 'camera_2' -> 1, etc.
                 try:
                     numeric_id = int(camera_id.split('_')[1]) - 1
-                    if numeric_id in cameras:
-                        mapped_camera_id = numeric_id
-                        if not hasattr(self, f'_logged_mapping_{camera_id}'):
-                            self.logger.info(f"CAMERA DEBUG: Mapped string ID {camera_id} to numeric ID {mapped_camera_id}")
-                            setattr(self, f'_logged_mapping_{camera_id}', True)
+                    mapped_camera_id = numeric_id
                 except (ValueError, IndexError):
                     self.logger.warning(f"CAMERA ERROR: Could not parse camera ID: {camera_id}")
+                    return None
             
-            if mapped_camera_id not in cameras:
-                if not hasattr(self, f'_logged_missing_{mapped_camera_id}'):
-                    self.logger.warning(f"CAMERA ERROR: Camera {mapped_camera_id} not in available cameras: {list(cameras.keys())}")
-                    setattr(self, f'_logged_missing_{mapped_camera_id}', True)
+            # Check if we have access to the real camera controller
+            if not hasattr(self.controller, 'cameras'):
+                self.logger.warning(f"CAMERA ERROR: Controller has no cameras attribute")
+                return None
+                
+            cameras = self.controller.cameras
+            if cameras is None or mapped_camera_id not in cameras:
+                self.logger.warning(f"CAMERA ERROR: Camera {mapped_camera_id} not available")
+                return None
+            
+            # Priority check: Only Camera 0 for web streaming
+            if mapped_camera_id != 0:
                 return None
             
             camera = cameras.get(mapped_camera_id)
             if not camera:
-                if not hasattr(self, f'_logged_none_{mapped_camera_id}'):
-                    self.logger.warning(f"CAMERA ERROR: Camera {mapped_camera_id} is None")
-                    setattr(self, f'_logged_none_{mapped_camera_id}', True)
+                self.logger.warning(f"CAMERA ERROR: Camera {mapped_camera_id} is None")
                 return None
             
-            # Rate-limited capture logging
-            if not hasattr(self, f'_last_capture_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_capture_log_{mapped_camera_id}', 0)) > 3.0:
-                self.logger.info(f"CAMERA DEBUG: Starting capture from camera {mapped_camera_id}")
-                setattr(self, f'_last_capture_log_{mapped_camera_id}', current_time)
-            
-            # Priority check: DISABLE Camera 1 completely until Camera 0 is stable
-            if mapped_camera_id == 1:
-                self.logger.warning(f"CAMERA DISABLED: Camera 1 temporarily disabled until Camera 0 is fully stable")
-                return None
-            
-            # Use threading for timeout with camera resource locking
-            result: List[Union[np.ndarray, None]] = [None]
-            exception: List[Union[Exception, None]] = [None]
-            
-            def capture_frame():
-                try:
-                    # Simple capture without complex locking for now
-                    # Focus on getting Camera 0 working first
-                    
-                    self.logger.info(f"CAMERA SIMPLE: Starting simple capture for camera {mapped_camera_id}")
-                    
-                    # Check camera state first
-                    if not hasattr(camera, 'started') or not camera.started:
-                        self.logger.warning(f"CAMERA WARNING: Camera {mapped_camera_id} not started, attempting to start...")
-                        try:
-                            camera.start()
-                            time.sleep(0.5)  # Give camera time to start
-                            self.logger.info(f"CAMERA SUCCESS: Camera {mapped_camera_id} started")
-                            self._camera_startup_status[mapped_camera_id] = True
-                        except Exception as start_error:
-                            self.logger.error(f"CAMERA ERROR: Failed to start camera {mapped_camera_id}: {start_error}")
-                            self._camera_startup_status[mapped_camera_id] = False
-                            return
-                    
-                    # Simple array capture
-                    self.logger.info(f"CAMERA SIMPLE: Attempting capture_array for camera {mapped_camera_id}")
-                    array = camera.capture_array("main")
-                    
-                    if array is not None and array.size > 0:
-                        # Handle different array formats
-                        if len(array.shape) == 3 and array.shape[2] == 3:
-                            # Assume RGB from camera, convert to BGR
-                            frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
-                            
-                            self.logger.info(f"CAMERA SUCCESS: Simple capture successful for camera {mapped_camera_id}: {frame_bgr.shape}")
-                            
-                            # Mark camera as stable after successful capture
-                            if not self._camera_startup_status.get(mapped_camera_id, False):
-                                self._camera_startup_status[mapped_camera_id] = True
-                                self.logger.info(f"CAMERA PRIORITY: Camera {mapped_camera_id} marked as stable")
-                            
-                            result[0] = frame_bgr
-                            return
-                        else:
-                            self.logger.warning(f"CAMERA WARNING: Unexpected array shape from camera {mapped_camera_id}: {array.shape}")
-                    else:
-                        self.logger.warning(f"CAMERA WARNING: Empty or invalid array from camera {mapped_camera_id}")
+            # Direct capture without threading for web streaming
+            try:
+                # Make sure camera is started
+                if not hasattr(camera, 'started') or not camera.started:
+                    camera.start()
+                    time.sleep(0.1)  # Brief wait for camera to start
                 
-                except Exception as e:
-                    self.logger.error(f"CAMERA ERROR: Simple capture failed for camera {mapped_camera_id}: {e}")
-                    # Mark camera as unstable on errors
-                    self._camera_startup_status[mapped_camera_id] = False
-                    exception[0] = e
-            
-            # Start capture in separate thread with timeout
-            capture_thread = threading.Thread(target=capture_frame)
-            capture_thread.daemon = True
-            capture_thread.start()
-            
-            # Use optimized timeout to reduce blocking while allowing camera startup
-            timeout_duration = 3.0  # Increased from 2.0 to allow for V4L2 buffer recovery
-            
-            # Wait for thread to complete with timeout
-            capture_thread.join(timeout=timeout_duration)
-            
-            if capture_thread.is_alive():
-                # Rate-limited timeout logging
-                if not hasattr(self, f'_last_timeout_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_timeout_log_{mapped_camera_id}', 0)) > 5.0:
-                    self.logger.error(f"CAMERA TIMEOUT: Camera {mapped_camera_id} timed out after {timeout_duration}s")
-                    setattr(self, f'_last_timeout_log_{mapped_camera_id}', current_time)
-                return None
-            
-            if exception[0]:
-                self.logger.error(f"CAMERA ERROR: Camera capture failed with exception: {exception[0]}")
-                return None
-            
-            if result[0] is not None:
-                return result[0]
-            else:
-                # Rate-limited failure logging
-                if not hasattr(self, f'_last_fail_log_{mapped_camera_id}') or (current_time - getattr(self, f'_last_fail_log_{mapped_camera_id}', 0)) > 5.0:
-                    self.logger.warning(f"CAMERA WARNING: No frame captured for camera {mapped_camera_id}")
-                    setattr(self, f'_last_fail_log_{mapped_camera_id}', current_time)
-                return None
+                # Direct capture - this is working based on logs
+                array = camera.capture_array("main")
+                
+                if array is not None and array.size > 0:
+                    # The logs show successful capture with shape (6944, 9152, 3)
+                    # Problem might be with color format - let's try different approach
+                    
+                    if len(array.shape) == 3 and array.shape[2] == 3:
+                        # Try direct BGR assignment instead of color conversion
+                        # Pi Camera might already be in correct format
+                        frame_bgr = array.copy()
+                        
+                        # If it's RGB, convert to BGR
+                        if array.dtype == np.uint8:
+                            # Standard RGB to BGR conversion
+                            frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
+                        
+                        # Validate frame data
+                        if frame_bgr.shape[0] > 0 and frame_bgr.shape[1] > 0:
+                            # Rate-limited success logging
+                            if not hasattr(self, '_last_success_log') or (current_time - self._last_success_log) > 20.0:
+                                self.logger.info(f"CAMERA SUCCESS: Frame captured for camera {mapped_camera_id}: {frame_bgr.shape}, dtype: {frame_bgr.dtype}")
+                                # Check if frame has actual data (not all zeros/blues)
+                                mean_values = np.mean(frame_bgr, axis=(0,1))
+                                self.logger.info(f"CAMERA DEBUG: Frame mean BGR values: {mean_values}")
+                                self._last_success_log = current_time
+                            
+                            return frame_bgr
+                        else:
+                            self.logger.warning(f"CAMERA WARNING: Invalid frame dimensions: {frame_bgr.shape}")
+                    else:
+                        self.logger.warning(f"CAMERA WARNING: Unexpected array shape: {array.shape}")
+                else:
+                    self.logger.warning(f"CAMERA WARNING: Empty or invalid array from camera {mapped_camera_id}")
+                
+            except Exception as e:
+                # Rate-limited error logging
+                if not hasattr(self, '_last_error_log') or (current_time - self._last_error_log) > 10.0:
+                    self.logger.error(f"CAMERA ERROR: Direct capture failed for camera {mapped_camera_id}: {e}")
+                    self._last_error_log = current_time
+                
+            return None
                 
         except Exception as e:
             self.logger.error(f"CAMERA ERROR: Error in get_preview_frame for camera {camera_id}: {e}")
