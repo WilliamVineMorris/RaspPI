@@ -811,7 +811,7 @@ class ScannerWebInterface:
                     
                     # Force a fresh position update to ensure we have current coordinates
                     try:
-                        # Get fresh position data before returning status
+                        # Use the adapter's get_current_position method
                         fresh_position = asyncio.run(motion_controller.get_current_position())
                         self.logger.debug(f"Fresh position retrieved: {fresh_position}")
                     except Exception as pos_e:

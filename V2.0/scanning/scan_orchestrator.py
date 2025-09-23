@@ -345,6 +345,10 @@ class MotionControllerAdapter:
         """Asynchronous wrapper for absolute position movement"""
         return await self.controller.move_to_position(position, feedrate)
         
+    async def get_current_position(self):
+        """Asynchronous wrapper for getting current position"""
+        return await self.controller.get_current_position()
+        
     async def emergency_stop(self) -> bool:
         return await self.controller.emergency_stop()
         
