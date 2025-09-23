@@ -423,12 +423,10 @@ class CameraManagerAdapter:
         return {'controller_type': 'PiCamera', 'is_connected': self.controller.is_connected()}
     
     def get_preview_frame(self, camera_id: int) -> Optional[Any]:
-        """Get a preview frame from the specified camera for streaming"""
+        """Get a preview frame from the specified camera for streaming - Direct method with autofocus"""
         try:
             import cv2
             import numpy as np
-            from pathlib import Path
-            import tempfile
             import time
             
             # Check if we have access to the real camera controller
@@ -446,63 +444,121 @@ class CameraManagerAdapter:
                 is_scanning = getattr(self, '_is_scanning', False)
                 
                 if not is_scanning:
-                    # Live streaming mode - optimized for speed and efficiency
+                    # Live streaming mode - optimized for speed with autofocus
                     try:
-                        # Use preview configuration for streaming (much faster)
+                        # Create optimized preview configuration for streaming
                         preview_config = camera.create_preview_configuration(
-                            main={"size": (800, 600), "format": "RGB888"},
-                            buffer_count=2,
-                            queue=False  # Disable queue for real-time streaming
+                            main={"size": (800, 600), "format": "BGR888"},  # Direct BGR format to avoid conversion
+                            buffer_count=1,  # Minimal buffering for real-time
+                            queue=False
                         )
                         
-                        # Only reconfigure if not already in preview mode
+                        # Configure camera controls for live preview
+                        controls = {}
+                        
+                        # Enable continuous autofocus during live preview
+                        try:
+                            controls.update({
+                                "AfMode": 2,  # Continuous autofocus
+                                "AfTrigger": 0,  # Continuous trigger
+                                "ExposureTime": None,  # Auto exposure
+                                "AnalogueGain": None,  # Auto gain
+                            })
+                        except Exception as af_error:
+                            self.logger.debug(f"Autofocus setup warning: {af_error}")
+                        
+                        # Only reconfigure if needed
                         current_config = getattr(camera, '_current_config_type', None)
-                        if current_config != 'preview':
+                        if current_config != 'preview_direct':
                             camera.stop()
                             camera.configure(preview_config)
+                            
+                            # Apply controls after configuration
+                            if controls:
+                                try:
+                                    camera.set_controls(controls)
+                                    self.logger.debug(f"Applied autofocus controls to camera {camera_id}")
+                                except Exception as ctrl_error:
+                                    self.logger.debug(f"Control setting warning: {ctrl_error}")
+                            
                             camera.start()
-                            camera._current_config_type = 'preview'
-                            time.sleep(0.05)  # Brief stabilization
+                            camera._current_config_type = 'preview_direct'
+                            
+                            # Brief settling time for autofocus
+                            time.sleep(0.1)
                         
-                        # Capture frame directly from buffer (fastest method)
-                        array = camera.capture_array("main")
-                        
-                        if array is not None and len(array.shape) == 3:
-                            # Fix color inversion: RGB to BGR conversion for OpenCV
-                            frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
-                            self.logger.debug(f"Live preview frame captured from camera {camera_id}: {frame_bgr.shape}")
-                            return frame_bgr
-                        else:
-                            self.logger.warning(f"Invalid preview array from camera {camera_id}")
+                        # Direct capture with minimal processing
+                        try:
+                            # Use capture_array with direct BGR format - no conversion needed
+                            array = camera.capture_array("main")
+                            
+                            if array is not None and len(array.shape) == 3:
+                                # Array should already be in BGR format due to configuration
+                                self.logger.debug(f"Direct BGR frame captured from camera {camera_id}: {array.shape}")
+                                return array
+                            else:
+                                self.logger.warning(f"Invalid array from camera {camera_id}")
+                                return None
+                                
+                        except Exception as capture_error:
+                            self.logger.warning(f"Direct capture failed: {capture_error}")
+                            
+                            # Fallback: try with RGB format and convert
+                            fallback_config = camera.create_preview_configuration(
+                                main={"size": (800, 600), "format": "RGB888"},
+                                buffer_count=1
+                            )
+                            camera.stop()
+                            camera.configure(fallback_config)
+                            camera.start()
+                            
+                            array = camera.capture_array("main")
+                            if array is not None and len(array.shape) == 3:
+                                # Convert RGB to BGR 
+                                frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
+                                self.logger.debug(f"Fallback RGB->BGR frame from camera {camera_id}")
+                                return frame_bgr
                             return None
                             
                     except Exception as preview_error:
                         self.logger.warning(f"Preview mode failed for camera {camera_id}: {preview_error}")
-                        # Fall through to still capture mode
+                        # Fall through to scanning mode
                 
-                # Scanning mode or preview fallback - use still capture
+                # Scanning mode or preview fallback - disable autofocus for consistency
                 try:
                     still_config = camera.create_still_configuration(
-                        main={"size": (640, 480), "format": "RGB888"},
+                        main={"size": (640, 480), "format": "BGR888"},  # Direct BGR
                         buffer_count=1
                     )
                     
+                    # Disable autofocus for scanning consistency
+                    scan_controls = {
+                        "AfMode": 0,  # Manual focus
+                        "LensPosition": 1.0,  # Fixed focus position
+                    }
+                    
                     current_config = getattr(camera, '_current_config_type', None)
-                    if current_config != 'still':
+                    if current_config != 'still_direct':
                         camera.stop()
                         camera.configure(still_config)
+                        
+                        try:
+                            camera.set_controls(scan_controls)
+                            self.logger.debug(f"Applied fixed focus for scanning mode")
+                        except Exception as ctrl_error:
+                            self.logger.debug(f"Scan control warning: {ctrl_error}")
+                        
                         camera.start()
-                        camera._current_config_type = 'still'
-                        time.sleep(0.1)  # Stabilization for still mode
+                        camera._current_config_type = 'still_direct'
+                        time.sleep(0.15)  # Longer stabilization for fixed focus
                     
                     # Capture still frame
                     array = camera.capture_array("main")
                     
                     if array is not None and len(array.shape) == 3:
-                        # Fix color inversion: RGB to BGR conversion
-                        frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
-                        self.logger.debug(f"Still frame captured from camera {camera_id}: {frame_bgr.shape}")
-                        return frame_bgr
+                        # Should already be BGR format
+                        self.logger.debug(f"Direct BGR still frame from camera {camera_id}: {array.shape}")
+                        return array
                     else:
                         self.logger.warning(f"Invalid still array from camera {camera_id}")
                         return None

@@ -999,7 +999,7 @@ class ScannerWebInterface:
             raise HardwareError(f"Failed to execute lighting flash: {e}")
     
     def _generate_camera_stream(self, camera_id: int):
-        """Generate optimized MJPEG stream for camera"""
+        """Generate ultra-optimized MJPEG stream for camera with minimal overhead"""
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
                 raise HardwareError("Camera manager not available")
@@ -1007,91 +1007,123 @@ class ScannerWebInterface:
             import numpy as np
             import time
             
-            # Initialize streaming parameters
-            target_fps = 15  # Higher frame rate for live streaming
+            # Streaming parameters optimized for performance
+            target_fps = 20  # Even higher frame rate
             frame_interval = 1.0 / target_fps
             last_frame_time = 0
             
-            # JPEG encoding parameters for better quality/speed balance
+            # Ultra-fast JPEG encoding parameters
             encode_params = [
-                cv2.IMWRITE_JPEG_QUALITY, 85,  # Higher quality than before
-                cv2.IMWRITE_JPEG_OPTIMIZE, 1,  # Optimize for smaller size
-                cv2.IMWRITE_JPEG_PROGRESSIVE, 1  # Progressive JPEG for faster loading
+                cv2.IMWRITE_JPEG_QUALITY, 90,  # High quality for color accuracy
+                cv2.IMWRITE_JPEG_OPTIMIZE, 1,
+                cv2.IMWRITE_JPEG_PROGRESSIVE, 0,  # Disable progressive for faster encoding
+                cv2.IMWRITE_JPEG_SAMPLING_FACTOR, cv2.IMWRITE_JPEG_SAMPLING_FACTOR_444  # Better color sampling
             ]
+            
+            # Cache last frame for error recovery
+            last_valid_frame = None
+            error_count = 0
+            max_errors = 5
             
             while self._running:
                 try:
                     current_time = time.time()
                     
-                    # Frame rate limiting
-                    if current_time - last_frame_time < frame_interval:
-                        time.sleep(0.01)  # Small sleep to prevent CPU spinning
+                    # Precise frame rate control
+                    time_since_last = current_time - last_frame_time
+                    if time_since_last < frame_interval:
+                        sleep_time = frame_interval - time_since_last
+                        time.sleep(max(0.001, sleep_time))  # Minimum 1ms sleep
                         continue
                     
-                    # Get frame from camera manager
+                    # Get frame from camera manager (should already be BGR format)
                     frame = None
-                    
                     if hasattr(self.orchestrator.camera_manager, 'get_preview_frame'):
                         frame = self.orchestrator.camera_manager.get_preview_frame(camera_id)
                     
-                    if frame is not None:
-                        # Optimize frame for streaming
+                    if frame is not None and frame.size > 0:
+                        # Reset error count on successful frame
+                        error_count = 0
+                        last_valid_frame = frame
+                        
+                        # Minimal processing - frame should already be in correct BGR format
                         height, width = frame.shape[:2]
                         
-                        # Resize if too large (optimize bandwidth)
-                        max_width = 800
+                        # Optional resize only if frame is too large
+                        max_width = 1024  # Increased for better quality
                         if width > max_width:
                             scale = max_width / width
                             new_width = int(width * scale)
                             new_height = int(height * scale)
-                            frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+                            frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
                         
-                        # Encode with optimized parameters
+                        # Direct JPEG encoding without color conversion
                         ret, buffer = cv2.imencode('.jpg', frame, encode_params)
                         
-                        if ret:
-                            # Create MJPEG frame
+                        if ret and len(buffer) > 0:
+                            frame_size = len(buffer)
+                            # Optimized MJPEG frame with content length
                             yield (b'--frame\r\n'
                                    b'Content-Type: image/jpeg\r\n'
-                                   b'Content-Length: ' + str(len(buffer)).encode() + b'\r\n\r\n' + 
+                                   b'Content-Length: ' + str(frame_size).encode() + b'\r\n'
+                                   b'Cache-Control: no-cache\r\n\r\n' + 
                                    buffer.tobytes() + b'\r\n')
                             
                             last_frame_time = current_time
                         else:
-                            self.logger.warning(f"Failed to encode frame for camera {camera_id}")
-                            time.sleep(0.1)
+                            error_count += 1
+                            self.logger.warning(f"Failed to encode frame for camera {camera_id}, error count: {error_count}")
+                    
                     else:
-                        # Create optimized placeholder for when camera is not available
-                        img = np.zeros((480, 640, 3), dtype=np.uint8)
-                        img[:] = (32, 32, 32)  # Dark background
+                        error_count += 1
                         
-                        # Add status information
-                        cv2.putText(img, f'Camera {camera_id}', (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
-                        cv2.putText(img, 'Initializing...', (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 2)
+                        # Use cached frame if available and error count not too high
+                        if last_valid_frame is not None and error_count < max_errors:
+                            ret, buffer = cv2.imencode('.jpg', last_valid_frame, encode_params)
+                            if ret:
+                                yield (b'--frame\r\n'
+                                       b'Content-Type: image/jpeg\r\n'
+                                       b'Content-Length: ' + str(len(buffer)).encode() + b'\r\n\r\n' + 
+                                       buffer.tobytes() + b'\r\n')
+                        else:
+                            # Generate minimal status frame
+                            status_img = np.zeros((480, 640, 3), dtype=np.uint8)
+                            status_img[:] = (40, 40, 40)  # Dark background
+                            
+                            cv2.putText(status_img, f'Camera {camera_id}', (20, 60), 
+                                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
+                            
+                            if error_count >= max_errors:
+                                cv2.putText(status_img, 'Connection Lost', (20, 120), 
+                                           cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+                            else:
+                                cv2.putText(status_img, 'Initializing...', (20, 120), 
+                                           cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
+                            
+                            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                            cv2.putText(status_img, timestamp, (20, 450), 
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+                            
+                            ret, buffer = cv2.imencode('.jpg', status_img, encode_params)
+                            if ret:
+                                yield (b'--frame\r\n'
+                                       b'Content-Type: image/jpeg\r\n'
+                                       b'Content-Length: ' + str(len(buffer)).encode() + b'\r\n\r\n' + 
+                                       buffer.tobytes() + b'\r\n')
                         
-                        # Add timestamp
-                        timestamp = datetime.now().strftime("%H:%M:%S")
-                        cv2.putText(img, timestamp, (20, 450), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (150, 150, 150), 1)
-                        
-                        # Encode placeholder
-                        ret, buffer = cv2.imencode('.jpg', img, encode_params)
-                        if ret:
-                            yield (b'--frame\r\n'
-                                   b'Content-Type: image/jpeg\r\n'
-                                   b'Content-Length: ' + str(len(buffer)).encode() + b'\r\n\r\n' + 
-                                   buffer.tobytes() + b'\r\n')
-                        
-                        time.sleep(0.2)  # Slower rate for placeholder
+                        time.sleep(0.1)  # Slower rate during errors
                     
                 except Exception as e:
-                    self.logger.warning(f"Camera stream error: {e}")
-                    time.sleep(0.5)  # Wait before retry
+                    error_count += 1
+                    self.logger.warning(f"Camera stream error for camera {camera_id}: {e}")
+                    time.sleep(0.05)  # Brief pause on error
                     
         except Exception as e:
-            self.logger.error(f"Camera stream setup failed: {e}")
-            # Emergency fallback
+            self.logger.error(f"Camera stream setup failed for camera {camera_id}: {e}")
+            # Final fallback
             error_img = np.zeros((240, 320, 3), dtype=np.uint8)
-            cv2.putText(error_img, 'Camera Error', (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.putText(error_img, f'Camera {camera_id} Error', (10, 120), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             ret, buffer = cv2.imencode('.jpg', error_img)
             if ret:
                 yield (b'--frame\r\n'
