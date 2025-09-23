@@ -569,11 +569,23 @@ window.emergencyStop = async function() {
 };
 
 window.refreshStatus = function() {
-    if (ScannerBase.socket?.connected) {
-        ScannerBase.socket.emit('request_status');
-        ScannerBase.showAlert('Status refreshed', 'success', 2000);
-    } else {
-        ScannerBase.showAlert('Cannot refresh status - not connected', 'warning');
+    try {
+        ScannerBase.log('Manual status refresh requested');
+        
+        // Show loading feedback
+        ScannerBase.showAlert('Refreshing status...', 'info', 1000);
+        
+        // Use the existing polling mechanism
+        ScannerBase.pollStatus();
+        
+        // Additional feedback after a short delay
+        setTimeout(() => {
+            ScannerBase.showAlert('Status refreshed', 'success', 2000);
+        }, 500);
+        
+    } catch (error) {
+        ScannerBase.log('Status refresh error:', error);
+        ScannerBase.showAlert(`Cannot refresh status: ${error.message}`, 'error');
     }
 };
 

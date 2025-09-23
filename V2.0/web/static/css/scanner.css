@@ -290,6 +290,74 @@ body {
     margin-bottom: 0.15rem;
 }
 
+/* Motion Controller Status Grid */
+.motion-controller-status-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.motion-status-item {
+    padding: 0.4rem;
+    background-color: var(--bg-secondary);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.motion-status-label {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+}
+
+.motion-status-value {
+    font-size: 0.8rem;
+    font-weight: 500;
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    background-color: var(--bg-primary);
+}
+
+/* Motion Status Value Colors */
+.motion-status-value.connected {
+    color: var(--success-color);
+    background-color: rgba(34, 197, 94, 0.1);
+}
+
+.motion-status-value.disconnected {
+    color: var(--error-color);
+    background-color: rgba(239, 68, 68, 0.1);
+}
+
+.motion-status-value.homed {
+    color: var(--success-color);
+    background-color: rgba(34, 197, 94, 0.1);
+}
+
+.motion-status-value.not-homed {
+    color: var(--warning-color);
+    background-color: rgba(251, 191, 36, 0.1);
+}
+
+.motion-status-value.idle {
+    color: var(--text-primary);
+    background-color: var(--bg-tertiary);
+}
+
+.motion-status-value.busy {
+    color: var(--warning-color);
+    background-color: rgba(251, 191, 36, 0.1);
+}
+
+.motion-status-value.error {
+    color: var(--error-color);
+    background-color: rgba(239, 68, 68, 0.1);
+}
+
 /* Action buttons - Compact */
 .action-grid {
     display: grid;

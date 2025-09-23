@@ -215,12 +215,35 @@
     <!-- Status Panel -->
     <section class="manual-status-panel">
         <h2>System Status</h2>
-        <div class="status-compact">
-            <div class="status-row">
-                <span class="status-label">Motion:</span>
-                <span class="status-value" id="motionStatusText">Ready</span>
-                <span class="status-indicator" id="motionStatusDot">●</span>
+        
+        <!-- Enhanced Motion Controller Status -->
+        <div class="motion-status-detail">
+            <h3>Motion Controller</h3>
+            <div class="status-grid">
+                <div class="status-item">
+                    <span class="status-label">Connection:</span>
+                    <span class="status-value" id="motionConnectionText">Unknown</span>
+                    <span class="status-indicator" id="motionConnectionDot">●</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Homed:</span>
+                    <span class="status-value" id="motionHomedText">Unknown</span>
+                    <span class="status-indicator" id="motionHomedDot">●</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">State:</span>
+                    <span class="status-value" id="motionStateText">Unknown</span>
+                    <span class="status-indicator" id="motionStateDot">●</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Activity:</span>
+                    <span class="status-value" id="motionActivityText">Idle</span>
+                </div>
             </div>
+        </div>
+        
+        <!-- Compact System Status -->
+        <div class="status-compact">
             <div class="status-row">
                 <span class="status-label">Cameras:</span>
                 <span class="status-value" id="cameraStatusText">Ready</span>

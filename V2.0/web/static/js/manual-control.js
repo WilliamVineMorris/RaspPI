@@ -325,12 +325,11 @@ const ManualControl = {
             });
         }
 
-        // Update motion state
-        const motionStateElement = document.getElementById('motionState');
-        if (motionStateElement) {
-            motionStateElement.textContent = status.motion.status || 'Unknown';
-            motionStateElement.className = `motion-state ${status.motion.connected ? 'connected' : 'disconnected'}`;
-        }
+        // Update detailed motion controller status
+        this.updateMotionConnectionStatus(status.motion.connected || false);
+        this.updateMotionHomedStatus(status.motion.homed || false);
+        this.updateMotionStateStatus(status.motion.status || 'unknown');
+        this.updateMotionActivity(status.motion.activity || 'idle');
 
         // Update control availability
         const isReady = status.motion.connected && !status.scan?.active;
@@ -338,6 +337,99 @@ const ManualControl = {
         motionControls.forEach(control => {
             control.disabled = !isReady;
         });
+    },
+
+    /**
+     * Update motion connection status
+     */
+    updateMotionConnectionStatus(connected) {
+        const textElement = document.getElementById('motionConnectionText');
+        const dotElement = document.getElementById('motionConnectionDot');
+        
+        if (textElement) {
+            textElement.textContent = connected ? 'Connected' : 'Disconnected';
+            textElement.className = connected ? 'status-good' : 'status-error';
+        }
+        
+        if (dotElement) {
+            dotElement.className = `status-indicator ${connected ? 'ready' : 'error'}`;
+        }
+    },
+
+    /**
+     * Update motion homed status
+     */
+    updateMotionHomedStatus(homed) {
+        const textElement = document.getElementById('motionHomedText');
+        const dotElement = document.getElementById('motionHomedDot');
+        
+        if (textElement) {
+            textElement.textContent = homed ? 'Homed' : 'Not Homed';
+            textElement.className = homed ? 'status-good' : 'status-warning';
+        }
+        
+        if (dotElement) {
+            dotElement.className = `status-indicator ${homed ? 'ready' : 'warning'}`;
+        }
+    },
+
+    /**
+     * Update motion state status
+     */
+    updateMotionStateStatus(state) {
+        const textElement = document.getElementById('motionStateText');
+        const dotElement = document.getElementById('motionStateDot');
+        
+        if (textElement) {
+            textElement.textContent = this.formatMotionState(state);
+        }
+        
+        if (dotElement) {
+            const isHealthy = ['idle', 'ready', 'homed'].includes(state.toLowerCase());
+            dotElement.className = `status-indicator ${isHealthy ? 'ready' : 'warning'}`;
+        }
+    },
+
+    /**
+     * Update motion activity
+     */
+    updateMotionActivity(activity) {
+        const textElement = document.getElementById('motionActivityText');
+        
+        if (textElement) {
+            textElement.textContent = this.formatMotionActivity(activity);
+        }
+    },
+
+    /**
+     * Format motion state for display
+     */
+    formatMotionState(state) {
+        const stateMap = {
+            'idle': 'Idle',
+            'ready': 'Ready',
+            'moving': 'Moving',
+            'homing': 'Homing',
+            'error': 'Error',
+            'alarm': 'Alarm',
+            'unknown': 'Unknown'
+        };
+        return stateMap[state.toLowerCase()] || state;
+    },
+
+    /**
+     * Format motion activity for display
+     */
+    formatMotionActivity(activity) {
+        const activityMap = {
+            'idle': 'Idle',
+            'jogging': 'Jogging',
+            'homing': 'Homing',
+            'moving': 'Moving to Position',
+            'scanning': 'Scanning',
+            'error': 'Error'
+        };
+        return activityMap[activity.toLowerCase()] || activity;
     },
 
     /**

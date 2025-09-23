@@ -752,9 +752,27 @@ class ScannerWebInterface:
                     self.logger.debug(f"Motion status from adapter: {motion_status}")
                     self.logger.debug(f"Motion position from adapter: {position}")
                     
+                    # Extract enhanced status information
+                    connected = motion_status.get('connected', False)
+                    homed = motion_status.get('is_homed', False)
+                    state = motion_status.get('state', 'unknown')
+                    
+                    # Determine activity based on state
+                    activity_map = {
+                        'homing': 'homing',
+                        'moving': 'moving',
+                        'jogging': 'jogging',
+                        'idle': 'idle',
+                        'disconnected': 'disconnected',
+                        'error': 'error'
+                    }
+                    activity = activity_map.get(state.lower(), 'unknown')
+                    
                     status['motion'].update({
-                        'connected': True,
-                        'status': motion_status.get('state', 'unknown'),
+                        'connected': connected,
+                        'homed': homed,
+                        'status': state,
+                        'activity': activity,
                         'position': position
                     })
                 except Exception as e:
