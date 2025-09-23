@@ -397,8 +397,8 @@ const Dashboard = {
                     // Update progress display
                     ScannerBase.showLoading(`🏠 Homing in progress... (${elapsed}s)`);
                     
-                    // Check if homing is complete
-                    if (status.motion && status.motion.status === 'idle' && status.motion.is_homed) {
+                    // Check if homing is complete - need both idle status AND homed flag
+                    if (status.motion && status.motion.status === 'idle' && status.motion.is_homed === true) {
                         // Homing completed successfully
                         clearInterval(progressInterval);
                         progressInterval = null;
@@ -416,8 +416,9 @@ const Dashboard = {
                         return;
                     }
                     
-                    // Check if homing is still in progress
-                    if (status.motion && status.motion.status === 'homing') {
+                    // Check if homing is still in progress - look for homing status OR Home state in FluidNC
+                    if (status.motion && (status.motion.status === 'homing' || 
+                        (status.motion.raw_status && status.motion.raw_status.includes('<Home|')))) {
                         if (!homingDetected) {
                             homingDetected = true;
                             ScannerBase.addLogEntry('🎯 Homing sequence actively running...', 'info');
@@ -432,9 +433,10 @@ const Dashboard = {
                         throw new Error('Motion controller reported error during homing');
                     }
                     
-                    // Update progress every 10 seconds
+                    // Update progress every 10 seconds with more detailed logging
                     if (checkCount % 10 === 0) {
                         ScannerBase.addLogEntry(`⏳ Homing still in progress... (${elapsed}s elapsed)`, 'info');
+                        ScannerBase.log(`Homing status check: motion.status=${status.motion?.status}, is_homed=${status.motion?.is_homed}, raw_status=${status.motion?.raw_status?.substring(0,50) || 'none'}`);
                     }
                     
                 } catch (statusError) {

@@ -303,6 +303,38 @@ class MotionControllerAdapter:
             is_connected = self.controller.is_connected()
             self.logger.debug(f"Motion controller connection status: {is_connected}")
             
+            # Get position and homing status from controller
+            position = None
+            is_homed = False
+            raw_status = None
+            
+            if is_connected:
+                try:
+                    if hasattr(self.controller, 'get_position_sync'):
+                        position = self.controller.get_position_sync()
+                        position_dict = {
+                            'x': position.x,
+                            'y': position.y, 
+                            'z': position.z,
+                            'c': position.c
+                        }
+                    else:
+                        position_dict = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
+                    
+                    # Get homing status
+                    if hasattr(self.controller, 'is_homed'):
+                        is_homed = self.controller.is_homed
+                    
+                    # Get raw status for debugging
+                    if hasattr(self.controller, '_last_status'):
+                        raw_status = self.controller._last_status
+                        
+                except Exception as e:
+                    self.logger.debug(f"Error getting detailed motion status: {e}")
+                    position_dict = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
+            else:
+                position_dict = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
+            
             # Determine state based on homing status and connection
             if self._homing_in_progress:
                 state = 'homing'
@@ -312,16 +344,24 @@ class MotionControllerAdapter:
                 state = 'disconnected'
                 
             return {
+                'status': state,  # Add this for compatibility
                 'state': state,
                 'connected': is_connected,
-                'initialized': is_connected
+                'initialized': is_connected,
+                'is_homed': is_homed,
+                'position': position_dict,
+                'raw_status': raw_status
             }
         except Exception as e:
             self.logger.error(f"Error getting motion controller status: {e}")
             return {
+                'status': 'error',
                 'state': 'error',
                 'connected': False,
-                'initialized': False
+                'initialized': False,
+                'is_homed': False,
+                'position': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0},
+                'raw_status': None
             }
             
     def get_position(self) -> Dict[str, float]:
