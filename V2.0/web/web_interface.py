@@ -337,7 +337,7 @@ class ScannerWebInterface:
                 validated_command = CommandValidator.validate_move_command(data)
                 
                 # Execute movement
-                result = self._execute_move_command(validated_command)
+                result = asyncio.run(self._execute_move_command(validated_command))
                 
                 return jsonify({
                     'success': True,
@@ -807,35 +807,55 @@ class ScannerWebInterface:
             if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
                 self.logger.debug(f"Checking motion controller status...")
                 try:
-                    motion_status = self.orchestrator.motion_controller.get_status()
-                    position = self.orchestrator.motion_controller.get_position()
+                    motion_controller = self.orchestrator.motion_controller
                     
-                    self.logger.debug(f"Motion status from adapter: {motion_status}")
-                    self.logger.debug(f"Motion position from adapter: {position}")
+                    # Get cached position directly from controller (updated by async methods)
+                    position = motion_controller.current_position
                     
-                    # Extract enhanced status information
-                    connected = motion_status.get('connected', False)
-                    homed = motion_status.get('is_homed', False)
-                    state = motion_status.get('state', 'unknown')
+                    # Get status information from controller properties
+                    connected = motion_controller.is_connected() if hasattr(motion_controller, 'is_connected') else False
+                    homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
+                    current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
                     
-                    # Determine activity based on state
+                    self.logger.debug(f"Motion controller cached position: {position}")
+                    self.logger.debug(f"Motion controller status: connected={connected}, homed={homed}, status={current_status}")
+                    
+                    # Convert Position4D to dict for JSON serialization
+                    if hasattr(position, '__dict__'):
+                        position_dict = {
+                            'x': getattr(position, 'x', 0.0),
+                            'y': getattr(position, 'y', 0.0), 
+                            'z': getattr(position, 'z', 0.0),
+                            'c': getattr(position, 'c', 0.0)
+                        }
+                    else:
+                        position_dict = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
+                    
+                    # Convert MotionStatus enum to string
+                    status_str = str(current_status).split('.')[-1].lower() if hasattr(current_status, 'name') else str(current_status).lower()
+                    
+                    # Determine activity based on status
                     activity_map = {
                         'homing': 'homing',
-                        'moving': 'moving',
+                        'moving': 'moving', 
                         'jogging': 'jogging',
                         'idle': 'idle',
                         'disconnected': 'disconnected',
-                        'error': 'error'
+                        'error': 'error',
+                        'alarm': 'error'
                     }
-                    activity = activity_map.get(state.lower(), 'unknown')
+                    activity = activity_map.get(status_str, 'unknown')
                     
                     status['motion'].update({
                         'connected': connected,
                         'homed': homed,
-                        'status': state,
+                        'status': status_str,
                         'activity': activity,
-                        'position': position
+                        'position': position_dict
                     })
+                    
+                    self.logger.debug(f"Final motion status sent to UI: {status['motion']}")
+                    
                 except Exception as e:
                     self.logger.error(f"Motion controller status error: {e}")
                     status['system']['errors'].append(f"Motion controller error: {e}")
@@ -985,10 +1005,22 @@ class ScannerWebInterface:
             # Execute the jog movement
             result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=speed)
             
-            # Get updated position
-            new_position = await self.orchestrator.motion_controller.get_position()
+            # Get updated position from cached value (updated by move_relative)
+            motion_controller = self.orchestrator.motion_controller
+            cached_position = motion_controller.current_position
             
-            self.logger.info(f"Jog command executed: delta={delta} speed={speed}")
+            # Convert Position4D to dict for JSON response
+            if hasattr(cached_position, '__dict__'):
+                new_position = {
+                    'x': getattr(cached_position, 'x', 0.0),
+                    'y': getattr(cached_position, 'y', 0.0),
+                    'z': getattr(cached_position, 'z', 0.0),
+                    'c': getattr(cached_position, 'c', 0.0)
+                }
+            else:
+                new_position = cached_position
+            
+            self.logger.info(f"Jog command executed: delta={delta} speed={speed}, new_position={new_position}")
             
             return {
                 'delta': delta_values,
@@ -1001,7 +1033,7 @@ class ScannerWebInterface:
             self.logger.error(f"Jog command execution failed: {e}")
             raise HardwareError(f"Failed to execute jog command: {e}")
 
-    def _execute_move_command(self, command: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute_move_command(self, command: Dict[str, Any]) -> Dict[str, Any]:
         """Execute validated movement command"""
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
@@ -1010,13 +1042,36 @@ class ScannerWebInterface:
             axis = command['axis']
             distance = command['distance']
             
+            # Convert single-axis command to Position4D format
+            delta_values = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
+            delta_values[axis] = distance
+            
+            # Create Position4D delta object
+            if SCANNER_MODULES_AVAILABLE:
+                delta = Position4D(x=delta_values['x'], y=delta_values['y'], 
+                                 z=delta_values['z'], c=delta_values['c'])
+            else:
+                delta = delta_values
+            
             # Execute the movement
-            result = self.orchestrator.motion_controller.move_relative(axis, distance)
+            result = await self.orchestrator.motion_controller.move_relative(delta)
             
-            # Get updated position
-            new_position = self.orchestrator.motion_controller.get_position()
+            # Get updated position from cached value
+            motion_controller = self.orchestrator.motion_controller
+            cached_position = motion_controller.current_position
             
-            self.logger.info(f"Move command executed: {axis} {distance:+.1f}mm")
+            # Convert Position4D to dict for JSON response
+            if hasattr(cached_position, '__dict__'):
+                new_position = {
+                    'x': getattr(cached_position, 'x', 0.0),
+                    'y': getattr(cached_position, 'y', 0.0),
+                    'z': getattr(cached_position, 'z', 0.0),
+                    'c': getattr(cached_position, 'c', 0.0)
+                }
+            else:
+                new_position = cached_position
+            
+            self.logger.info(f"Move command executed: {axis} {distance:+.1f}mm, new_position={new_position}")
             
             return {
                 'axis': axis,
@@ -1029,19 +1084,31 @@ class ScannerWebInterface:
             self.logger.error(f"Move command execution failed: {e}")
             raise HardwareError(f"Failed to execute move command: {e}")
     
-    def _execute_position_command(self, position: Dict[str, Any]) -> Dict[str, Any]:
+    async def _execute_position_command(self, position: Dict[str, Any]) -> Dict[str, Any]:
         """Execute validated position command"""
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
                 raise HardwareError("Motion controller not available")
             
             # Execute the position movement
-            result = self.orchestrator.motion_controller.move_to_position(position)
+            result = await self.orchestrator.motion_controller.move_to_position(position)
             
-            # Get updated position
-            new_position = self.orchestrator.motion_controller.get_position()
+            # Get updated position from cached value
+            motion_controller = self.orchestrator.motion_controller
+            cached_position = motion_controller.current_position
             
-            self.logger.info(f"Position command executed: {position}")
+            # Convert Position4D to dict for JSON response
+            if hasattr(cached_position, '__dict__'):
+                new_position = {
+                    'x': getattr(cached_position, 'x', 0.0),
+                    'y': getattr(cached_position, 'y', 0.0),
+                    'z': getattr(cached_position, 'z', 0.0),
+                    'c': getattr(cached_position, 'c', 0.0)
+                }
+            else:
+                new_position = cached_position
+            
+            self.logger.info(f"Position command executed: {position}, new_position={new_position}")
             
             return {
                 'target_position': position,
