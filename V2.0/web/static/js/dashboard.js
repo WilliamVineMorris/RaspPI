@@ -215,16 +215,33 @@ const Dashboard = {
 
         console.log('Updating motion status elements...');
 
+        // Debug: Check all elements before updating
+        const elements = {
+            motionStatus: document.getElementById('motionStatus'),
+            motionConnection: document.getElementById('motionConnection'),
+            motionHomed: document.getElementById('motionHomed'),
+            currentPosition: document.getElementById('currentPosition'),
+            motionState: document.getElementById('motionState'),
+            motionActivity: document.getElementById('motionActivity'),
+            fluidncStatus: document.getElementById('fluidncStatus')
+        };
+        
+        console.log('Element availability check:', Object.fromEntries(
+            Object.entries(elements).map(([key, el]) => [key, el ? 'found' : 'missing'])
+        ));
+
         // Update motion status indicator
-        const motionStatusElement = document.getElementById('motionStatus');
+        const motionStatusElement = elements.motionStatus;
         if (motionStatusElement) {
             const isConnected = status.motion.connected;
             motionStatusElement.className = `status-indicator ${isConnected ? 'ready' : 'error'}`;
             console.log('Updated motionStatus element');
+        } else {
+            console.log('motionStatus element not found!');
         }
 
         // Update connection status
-        const connectionElement = document.getElementById('motionConnection');
+        const connectionElement = elements.motionConnection;
         if (connectionElement) {
             const connected = status.motion.connected || false;
             connectionElement.textContent = connected ? 'Connected' : 'Disconnected';
@@ -235,7 +252,7 @@ const Dashboard = {
         }
 
         // Update homed status
-        const homedElement = document.getElementById('motionHomed');
+        const homedElement = elements.motionHomed;
         if (homedElement) {
             const homed = status.motion.homed || false;
             homedElement.textContent = homed ? 'Yes' : 'No';
@@ -247,24 +264,28 @@ const Dashboard = {
 
         // Update position display
         if (status.motion.position) {
-            const positionElement = document.getElementById('currentPosition');
+            const positionElement = elements.currentPosition;
             if (positionElement) {
                 const pos = status.motion.position;
                 positionElement.textContent = `X:${parseFloat(pos.x || 0).toFixed(1)} Y:${parseFloat(pos.y || 0).toFixed(1)} Z:${parseFloat(pos.z || 0).toFixed(1)} C:${parseFloat(pos.c || 0).toFixed(1)}`;
                 console.log('Updated currentPosition:', positionElement.textContent);
+            } else {
+                console.log('currentPosition element not found!');
             }
         }
 
         // Update state
-        const stateElement = document.getElementById('motionState');
+        const stateElement = elements.motionState;
         if (stateElement) {
             const state = status.motion.status || 'unknown';
             stateElement.textContent = this.formatMotionState(state);
             console.log('Updated motionState:', state);
+        } else {
+            console.log('motionState element not found!');
         }
 
         // Update activity
-        const activityElement = document.getElementById('motionActivity');
+        const activityElement = elements.motionActivity;
         if (activityElement) {
             const activity = status.motion.activity || 'idle';
             activityElement.textContent = this.formatMotionActivity(activity);
@@ -275,7 +296,7 @@ const Dashboard = {
         }
 
         // Update FluidNC status
-        const fluidncElement = document.getElementById('fluidncStatus');
+        const fluidncElement = elements.fluidncStatus;
         if (fluidncElement) {
             const fluidncStatus = status.motion.fluidnc_status || 'Unknown';
             fluidncElement.textContent = fluidncStatus;
