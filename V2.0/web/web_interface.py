@@ -37,6 +37,7 @@ from werkzeug.exceptions import BadRequest
 # Import scanner modules
 try:
     from core.exceptions import ScannerSystemError, HardwareError
+    from core.types import Position4D
     from scanning.scan_patterns import GridScanPattern, CylindricalScanPattern
     from scanning.scan_state import ScanStatus, ScanPhase
     from scanning.scan_orchestrator import ScanOrchestrator
@@ -416,17 +417,19 @@ class ScannerWebInterface:
                 if direction not in ['+', '-']:
                     return jsonify({"success": False, "error": "Invalid direction"}), 400
                 
-                # Convert to move command format
-                move_data = {}
+                # Convert to the correct format expected by _execute_move_command
                 move_distance = distance if direction == '+' else -distance
-                move_data[axis] = move_distance
                 
                 if mode == 'continuous':
                     # For continuous jog, use smaller increments
-                    move_data[axis] = 0.5 if direction == '+' else -0.5
+                    move_distance = 0.5 if direction == '+' else -0.5
                 
-                # Execute the movement using existing move logic
-                result = self._execute_move_command(move_data)
+                # Format command as Position4D delta for FluidNC controller
+                delta_values = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
+                delta_values[axis] = move_distance
+                
+                # Execute the movement using Position4D format
+                result = asyncio.run(self._execute_jog_command(delta_values, speed))
                 
                 return jsonify({
                     'success': True,
@@ -435,7 +438,7 @@ class ScannerWebInterface:
                 })
                 
             except Exception as e:
-                logger.error(f"Jog command error: {e}")
+                self.logger.error(f"Jog command error: {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
         @self.app.route('/api/stop', methods=['POST'])
@@ -964,6 +967,40 @@ class ScannerWebInterface:
     
     # Command execution methods with robust error handling
     
+    async def _execute_jog_command(self, delta_values: Dict[str, float], speed: float) -> Dict[str, Any]:
+        """Execute jog movement with Position4D format"""
+        try:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
+                raise HardwareError("Motion controller not available")
+            
+            # Create Position4D delta object
+            if SCANNER_MODULES_AVAILABLE:
+                delta = Position4D(x=delta_values['x'], y=delta_values['y'], 
+                                 z=delta_values['z'], c=delta_values['c'])
+            else:
+                # Mock for development
+                delta = {'x': delta_values['x'], 'y': delta_values['y'], 
+                        'z': delta_values['z'], 'c': delta_values['c']}
+            
+            # Execute the jog movement
+            result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=speed)
+            
+            # Get updated position
+            new_position = await self.orchestrator.motion_controller.get_position()
+            
+            self.logger.info(f"Jog command executed: delta={delta} speed={speed}")
+            
+            return {
+                'delta': delta_values,
+                'speed': speed,
+                'new_position': new_position,
+                'success': result
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Jog command execution failed: {e}")
+            raise HardwareError(f"Failed to execute jog command: {e}")
+
     def _execute_move_command(self, command: Dict[str, Any]) -> Dict[str, Any]:
         """Execute validated movement command"""
         try:

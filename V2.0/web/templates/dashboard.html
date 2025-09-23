@@ -104,7 +104,12 @@
                 <div class="status-details" id="motionDetails">
                     <div>Connection: <span id="motionConnection" class="status-value">Unknown</span></div>
                     <div>Homed: <span id="motionHomed" class="status-value">Unknown</span></div>
-                    <div>Position: <span id="currentPosition">X:0.0 Y:0.0 Z:0.0 C:0.0</span></div>
+                    <div>Position: 
+                        <span>X:<span id="currentX">0.0</span>mm</span>
+                        <span>Y:<span id="currentY">0.0</span>mm</span> 
+                        <span>Z:<span id="currentZ">0.0</span>°</span>
+                        <span>C:<span id="currentC">0.0</span>°</span>
+                    </div>
                     <div>State: <span id="motionState">Unknown</span></div>
                     <div>Activity: <span id="motionActivity" class="status-value">Unknown</span></div>
                     <div>FluidNC: <span id="fluidncStatus" class="status-value">Unknown</span></div>
@@ -848,13 +853,24 @@
                     console.log('Fallback updated motionHomed:', homed);
                 }
                 
-                // Update position
-                const posElement = document.getElementById('currentPosition');
-                if (posElement && motionData.position) {
+                // Update position using individual axis elements (consistent with manual page)
+                if (motionData.position) {
                     const pos = motionData.position;
-                    posElement.textContent = 
-                        `X:${parseFloat(pos.x || 0).toFixed(1)} Y:${parseFloat(pos.y || 0).toFixed(1)} Z:${parseFloat(pos.z || 0).toFixed(1)} C:${parseFloat(pos.c || 0).toFixed(1)}`;
-                    console.log('Fallback updated currentPosition:', posElement.textContent);
+                    const axes = [
+                        { id: 'currentX', value: pos.x || 0, unit: 'mm' },
+                        { id: 'currentY', value: pos.y || 0, unit: 'mm' },
+                        { id: 'currentZ', value: pos.z || 0, unit: '°' },
+                        { id: 'currentC', value: pos.c || 0, unit: '°' }
+                    ];
+                    
+                    axes.forEach(axis => {
+                        const element = document.getElementById(axis.id);
+                        if (element) {
+                            element.textContent = parseFloat(axis.value).toFixed(1);
+                        }
+                    });
+                    
+                    console.log('Updated position displays:', pos);
                 }
                 
                 // Update state
@@ -949,7 +965,7 @@
             
             // Check if all motion status elements exist
             const motionElements = [
-                'motionConnection', 'motionHomed', 'currentPosition', 
+                'motionConnection', 'motionHomed', 'currentX', 'currentY', 'currentZ', 'currentC', 
                 'motionState', 'motionActivity', 'fluidncStatus'
             ];
             

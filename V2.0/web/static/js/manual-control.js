@@ -309,6 +309,28 @@ const ManualControl = {
     },
 
     /**
+     * Update position displays with current axis values
+     */
+    updatePositionDisplays(position) {
+        if (!position) {
+            ScannerBase.log('No position data provided to updatePositionDisplays');
+            return;
+        }
+
+        const axes = ['x', 'y', 'z', 'c'];
+        axes.forEach(axis => {
+            const element = document.getElementById(`current${axis.toUpperCase()}`);
+            if (element) {
+                const value = parseFloat(position[axis] || 0).toFixed(this.config.positionPrecision);
+                element.textContent = value;
+                ScannerBase.log(`Updated ${axis.toUpperCase()} position display: ${value}`);
+            } else {
+                ScannerBase.log(`Element current${axis.toUpperCase()} not found`);
+            }
+        });
+    },
+
+    /**
      * Update motion control status
      */
     updateMotionStatus(status) {
@@ -887,7 +909,9 @@ const ManualControl = {
                             }
                             
                             // Update position displays
-                            this.updatePositionDisplays(status.motion.position);
+                            if (status.motion && status.motion.position) {
+                                this.updatePositionDisplays(status.motion.position);
+                            }
                         }, 5000);
                         return;
                     }
