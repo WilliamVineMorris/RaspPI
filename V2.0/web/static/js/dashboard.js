@@ -528,20 +528,26 @@ const Dashboard = {
                             return; // Continue monitoring
                         }
                         
-                        // Homing completed successfully
-                        clearInterval(progressInterval);
-                        progressInterval = null;
+                        // Add a small delay to ensure coordinates are properly set
+                        ScannerBase.showLoading(`✅ Homing complete - finalizing coordinates... (${elapsed}s)`);
                         
-                        ScannerBase.hideLoading();
-                        ScannerBase.showAlert('🎉 All axes homed successfully!', 'success', 5000);
-                        ScannerBase.addLogEntry(`✅ Homing completed successfully in ${elapsed} seconds`, 'success');
-                        
-                        // Re-enable button
-                        if (homeButton) {
-                            homeButton.disabled = false;
-                            homeButton.textContent = homeButton.dataset.originalText || '🏠 Home Position';
-                            homeButton.style.opacity = '1';
-                        }
+                        // Wait 2 seconds before declaring completion
+                        setTimeout(() => {
+                            // Homing completed successfully
+                            clearInterval(progressInterval);
+                            progressInterval = null;
+                            
+                            ScannerBase.hideLoading();
+                            ScannerBase.showAlert('🎉 All axes homed successfully!', 'success', 5000);
+                            ScannerBase.addLogEntry(`✅ Homing completed successfully in ${elapsed + 2} seconds`, 'success');
+                            
+                            // Re-enable button
+                            if (homeButton) {
+                                homeButton.disabled = false;
+                                homeButton.textContent = homeButton.dataset.originalText || '🏠 Home All';
+                                homeButton.style.opacity = '1';
+                            }
+                        }, 2000);
                         return;
                     }
                     
@@ -552,12 +558,20 @@ const Dashboard = {
                         if (!homingDetected) {
                             homingDetected = true;
                             ScannerBase.addLogEntry(`🔄 Homing sequence detected (FluidNC: ${status.motion.fluidnc_status || 'Unknown'})`, 'info');
-                            ScannerBase.showAlert('⚡ Homing sequence detected and running!', 'info', 2000);
+                            ScannerBase.showAlert('⚡ Physical homing in progress...', 'info', 2000);
                         }
-                        ScannerBase.showLoading(`🏠 Homing axes... (${elapsed}s)`);
+                        ScannerBase.showLoading(`🏠 Physical homing in progress... (${elapsed}s)`);
                         
                         // Log detailed status for debugging
-                        ScannerBase.log(`Homing in progress: state=${status.motion.status}, fluidnc=${status.motion.fluidnc_status}, homed=${status.motion.homed || status.motion.is_homed}, elapsed=${elapsed}s`);
+                        ScannerBase.log(`Active homing: state=${status.motion.status}, fluidnc=${status.motion.fluidnc_status}, homed=${status.motion.homed || status.motion.is_homed}, elapsed=${elapsed}s`);
+                        return; // Continue monitoring
+                    }
+                    
+                    // Check if we're in coordinate reset phase (idle but not homed yet)
+                    if (homingDetected && status.motion && status.motion.status === 'idle' && 
+                        !(status.motion.homed || status.motion.is_homed) && elapsed < minimumHomingTime) {
+                        ScannerBase.showLoading(`🔄 Resetting coordinates... (${elapsed}s)`);
+                        ScannerBase.log(`Coordinate reset phase: state=${status.motion.status}, fluidnc=${status.motion.fluidnc_status}, homed=${status.motion.homed || status.motion.is_homed}, elapsed=${elapsed}s`);
                         return; // Continue monitoring
                     }
                     
@@ -568,8 +582,9 @@ const Dashboard = {
                     
                     // Update progress every 10 seconds with more detailed logging
                     if (checkCount % 10 === 0) {
-                        ScannerBase.addLogEntry(`⏳ Homing still in progress... (${elapsed}s elapsed)`, 'info');
-                        ScannerBase.log(`Homing status check: motion.status=${status.motion?.status}, fluidnc_status=${status.motion?.fluidnc_status}, homed=${status.motion?.homed || status.motion?.is_homed}, raw_status=${status.motion?.raw_status?.substring(0,50) || 'none'}`);
+                        const phase = homingDetected ? 'coordinate reset' : 'waiting for homing start';
+                        ScannerBase.addLogEntry(`⏳ Homing process: ${phase}... (${elapsed}s elapsed)`, 'info');
+                        ScannerBase.log(`Homing status check: motion.status=${status.motion?.status}, fluidnc_status=${status.motion?.fluidnc_status}, homed=${status.motion?.homed || status.motion?.is_homed}, homingDetected=${homingDetected}, phase=${phase}, raw_status=${status.motion?.raw_status?.substring(0,50) || 'none'}`);
                     }
                     
                 } catch (statusError) {

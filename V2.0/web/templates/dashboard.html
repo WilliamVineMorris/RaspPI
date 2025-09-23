@@ -349,16 +349,6 @@
             }
         }
         
-        // Start camera refresh when page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            startCameraRefresh();
-            
-            // Enable autofocus by default after page loads
-            setTimeout(() => {
-                triggerAutofocus();
-            }, 2000); // Wait 2 seconds for camera to initialize
-        });
-        
         // Stop refresh when page unloads
         window.addEventListener('beforeunload', stopCameraRefresh);
         
@@ -774,24 +764,12 @@
                 const response = await fetch('/api/status');
                 const status = await response.json();
                 
-                // Update motion status
-                if (status.motion) {
-                    const posElement = document.getElementById('currentPosition');
-                    if (posElement) {
-                        posElement.textContent = 
-                            `X:${status.motion.position.x.toFixed(1)} Y:${status.motion.position.y.toFixed(1)} Z:${status.motion.position.z.toFixed(1)} C:${status.motion.position.c.toFixed(1)}`;
-                    }
-                    
-                    const stateElement = document.getElementById('motionState');
-                    if (stateElement) {
-                        stateElement.textContent = status.motion.status;
-                    }
-                    
-                    const statusElement = document.getElementById('motionStatus');
-                    if (statusElement) {
-                        statusElement.className = 
-                            'status-indicator ' + (status.motion.connected ? 'ready' : 'error');
-                    }
+                // Use Dashboard.js motion status update if available
+                if (window.Dashboard && Dashboard.updateMotionStatus) {
+                    Dashboard.updateMotionStatus(status);
+                } else {
+                    // Fallback to basic updates
+                    updateBasicMotionStatus(status);
                 }
                 
                 // Update camera status
@@ -843,9 +821,55 @@
             }
         }
         
+        function updateBasicMotionStatus(status) {
+            // Basic fallback motion status updates
+            if (status.motion) {
+                const posElement = document.getElementById('currentPosition');
+                if (posElement) {
+                    posElement.textContent = 
+                        `X:${status.motion.position.x.toFixed(1)} Y:${status.motion.position.y.toFixed(1)} Z:${status.motion.position.z.toFixed(1)} C:${status.motion.position.c.toFixed(1)}`;
+                }
+                
+                const stateElement = document.getElementById('motionState');
+                if (stateElement) {
+                    stateElement.textContent = status.motion.status;
+                }
+                
+                const statusElement = document.getElementById('motionStatus');
+                if (statusElement) {
+                    statusElement.className = 
+                        'status-indicator ' + (status.motion.connected ? 'ready' : 'error');
+                }
+            }
+        }
+        
         function captureFromCamera(cameraId) {
             capturePhoto();
         }
+        
+        // Initialize Dashboard when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize ScannerBase first
+            if (window.ScannerBase) {
+                ScannerBase.init();
+            }
+            
+            // Initialize Dashboard
+            if (window.Dashboard) {
+                Dashboard.init();
+                console.log('Dashboard initialized successfully');
+            } else {
+                console.warn('Dashboard.js not loaded, using fallback functions');
+            }
+            
+            // Start camera refresh
+            startCameraRefresh();
+            
+            // Enable autofocus by default after page loads
+            setTimeout(() => {
+                triggerAutofocus();
+            }, 2000); // Wait 2 seconds for camera to initialize
+        });
     </script>
 </div>
 
