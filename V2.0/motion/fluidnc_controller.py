@@ -1230,19 +1230,35 @@ class FluidNCController(MotionController):
             logger.error(f"Status update failed: {e}")
             self.status = MotionStatus.ERROR
 
+    def is_background_monitor_running(self) -> bool:
+        """Check if background monitoring task is running"""
+        return (self.monitor_running and 
+                self.background_monitor_task is not None and 
+                not self.background_monitor_task.done())
+
     async def _background_status_monitor(self):
         """Background task to continuously process FluidNC auto-reports"""
-        logger.info("Background status monitor started")
+        logger.info("🚀 Background status monitor started")
         
         try:
+            message_count = 0
             while self.monitor_running and self.is_connected():
                 try:
                     # Read any available messages from FluidNC (including auto-reports)
                     messages = await self._read_all_messages()
                     
+                    if messages:
+                        message_count += len(messages)
+                        if message_count % 10 == 0:  # Log every 10th batch of messages
+                            logger.info(f"📈 Background monitor processed {message_count} messages so far")
+                    
                     current_time = time.time()
                     
                     for message in messages:
+                        # Log any status messages we receive
+                        if '<' in message and '>' in message:
+                            logger.debug(f"📡 Background monitor received: {message}")
+                        
                         # Process status reports that contain position information
                         if '<' in message and '>' in message and ('MPos:' in message or 'WPos:' in message):
                             position = self._parse_position_from_status(message)
@@ -1264,7 +1280,7 @@ class FluidNCController(MotionController):
                                     self.last_position_update = current_time
                                     
                                     if position_changed:
-                                        logger.debug(f"Background monitor updated position: {old_position} → {position}")
+                                        logger.info(f"🔄 Position changed: {old_position} → {position}")
                                     else:
                                         logger.debug(f"Background monitor refreshed position: {position}")
                             

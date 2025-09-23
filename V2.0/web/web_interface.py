@@ -398,6 +398,37 @@ class ScannerWebInterface:
                 self.logger.error(f"Home API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
 
+        @self.app.route('/api/debug/position')
+        def api_debug_position():
+            """Debug endpoint for position updates"""
+            try:
+                debug_info = {}
+                
+                if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+                    motion_controller = self.orchestrator.motion_controller
+                    
+                    # Get positions from different sources
+                    debug_info['adapter_position'] = motion_controller.current_position.__dict__ if hasattr(motion_controller.current_position, '__dict__') else str(motion_controller.current_position)
+                    
+                    if hasattr(motion_controller, 'controller'):
+                        controller = motion_controller.controller
+                        debug_info['controller_position'] = controller.current_position.__dict__ if hasattr(controller.current_position, '__dict__') else str(controller.current_position)
+                        debug_info['last_update'] = getattr(controller, 'last_position_update', 0)
+                        debug_info['monitor_running'] = getattr(controller, 'monitor_running', False)
+                        debug_info['background_task_done'] = controller.background_monitor_task.done() if controller.background_monitor_task else True
+                    
+                    debug_info['timestamp'] = time.time()
+                    
+                return jsonify({
+                    'success': True,
+                    'debug': debug_info,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Debug position API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
         @self.app.route('/api/jog', methods=['POST'])
         def api_jog():
             """Handle jog movement commands"""
@@ -809,16 +840,47 @@ class ScannerWebInterface:
                 try:
                     motion_controller = self.orchestrator.motion_controller
                     
+                    # Get position timestamp for debugging lag
+                    current_time = datetime.now().isoformat()
+                    
                     # With background monitoring, we can rely on cached position being current
-                    # No need to force fresh position updates on every status request
+                    # But add a fallback for when position seems stale
                     position = motion_controller.current_position
+                    
+                    # If position seems stale (> 2 seconds old), force a fresh update
+                    if hasattr(motion_controller, 'controller') and hasattr(motion_controller.controller, 'last_position_update'):
+                        last_update_time = motion_controller.controller.last_position_update
+                        current_timestamp = time.time()
+                        age_seconds = current_timestamp - last_update_time if last_update_time > 0 else 999
+                        
+                        if age_seconds > 2.0:  # Position data is stale
+                            try:
+                                self.logger.debug(f"Position data stale ({age_seconds:.1f}s), forcing fresh update")
+                                fresh_position = asyncio.run(motion_controller.get_current_position())
+                                position = fresh_position
+                                self.logger.debug(f"Fresh position retrieved: {position}")
+                            except Exception as pos_e:
+                                self.logger.warning(f"Could not get fresh position: {pos_e}")
+                    
+                    # Also get debugging info
+                    last_update_time = getattr(motion_controller, 'last_position_update', 0) if hasattr(motion_controller, 'controller') else 0
+                    monitor_running = False
+                    if hasattr(motion_controller, 'controller') and hasattr(motion_controller.controller, 'last_position_update'):
+                        if not hasattr(locals(), 'last_update_time'):  # Avoid redefinition
+                            last_update_time = motion_controller.controller.last_position_update
+                        # Check if background monitor is running
+                        if hasattr(motion_controller.controller, 'is_background_monitor_running'):
+                            monitor_running = motion_controller.controller.is_background_monitor_running()
                     
                     # Get status information from controller properties
                     connected = motion_controller.is_connected() if hasattr(motion_controller, 'is_connected') else False
                     homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
                     current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
                     
-                    self.logger.debug(f"Motion controller cached position: {position}")
+                    current_timestamp = time.time()
+                    age_seconds = current_timestamp - last_update_time if last_update_time > 0 else -1
+                    
+                    self.logger.debug(f"Position: {position} | Last update: {age_seconds:.1f}s ago | Monitor running: {monitor_running}")
                     self.logger.debug(f"Motion controller status: connected={connected}, homed={homed}, status={current_status}")
                     
                     # Convert Position4D to dict for JSON serialization
@@ -1006,9 +1068,18 @@ class ScannerWebInterface:
             # Execute the jog movement
             result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=speed)
             
+            # Force fresh position update after jog movement
+            try:
+                fresh_position = await self.orchestrator.motion_controller.get_current_position()
+                self.logger.info(f"🎯 Fresh position after jog: {fresh_position}")
+                cached_position = fresh_position
+            except Exception as pos_e:
+                self.logger.warning(f"Could not get fresh position after jog: {pos_e}")
+                # Fall back to cached position from controller
+                cached_position = self.orchestrator.motion_controller.current_position
+            
             # Get updated position from cached value (updated by move_relative)
             motion_controller = self.orchestrator.motion_controller
-            cached_position = motion_controller.current_position
             
             # Convert Position4D to dict for JSON response
             if hasattr(cached_position, '__dict__'):

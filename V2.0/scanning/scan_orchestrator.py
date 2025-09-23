@@ -347,7 +347,19 @@ class MotionControllerAdapter:
         
     async def get_current_position(self):
         """Asynchronous wrapper for getting current position"""
-        return await self.controller.get_current_position()
+        fresh_pos = await self.controller.get_current_position()
+        self.logger.debug(f"Adapter get_current_position returning: {fresh_pos}")
+        return fresh_pos
+        
+    async def force_position_update(self):
+        """Force an immediate position update for debugging"""
+        try:
+            fresh_pos = await self.controller.get_current_position()
+            self.logger.info(f"🔧 Forced position update: {fresh_pos}")
+            return fresh_pos
+        except Exception as e:
+            self.logger.error(f"Force position update failed: {e}")
+            return self.current_position
         
     async def emergency_stop(self) -> bool:
         return await self.controller.emergency_stop()
@@ -373,7 +385,11 @@ class MotionControllerAdapter:
     def current_position(self):
         """Access the cached current position from the underlying controller"""
         if hasattr(self.controller, 'current_position'):
-            return self.controller.current_position
+            pos = self.controller.current_position
+            # Add debugging to see when position is accessed
+            import time
+            self.logger.debug(f"Adapter returning position: {pos} at {time.time()}")
+            return pos
         else:
             # Fallback - create a basic position object
             from core.types import Position4D
