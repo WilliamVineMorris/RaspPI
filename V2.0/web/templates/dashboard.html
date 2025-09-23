@@ -86,53 +86,71 @@
     <section class="camera-panel">
         <h2>Live Camera Feed</h2>
         <div class="camera-grid">
-            <div class="camera-container" style="grid-column: 1 / -1; max-width: 600px; margin: 0 auto;">
-                <h3>Camera 0 (Primary)</h3>
+            <div class="camera-container" style="grid-column: 1 / -1; max-width: 800px; margin: 0 auto;">
+                <h3>Camera 0 - Native 1080p Stream</h3>
                 <div class="camera-feed-wrapper">
                     <img id="camera0Feed" 
                          src="/camera/0?t=0" 
-                         alt="Camera 0 Feed" 
+                         alt="Camera 0 - 1080p Stream" 
                          class="camera-feed"
-                         style="width: 100%; height: auto; border-radius: 8px;"
-                         onload="cameraStreamWorking = true; console.log('Camera 0 stream loaded successfully');"
-                         onerror="console.log('Camera 0 stream error, retrying...'); setTimeout(() => { const timestamp = Date.now(); this.src = '/camera/0?t=' + timestamp; }, 3000);">
+                         style="width: 100%; height: auto; border-radius: 8px; max-width: 1080px;"
+                         onload="cameraStreamWorking = true; console.log('Camera 0 native 1080p stream loaded');"
+                         onerror="console.log('Camera 0 stream error, retrying...'); setTimeout(() => { const timestamp = Date.now(); this.src = '/camera/0?t=' + timestamp; }, 2000);">
                     <div class="camera-overlay">
-                        <button class="camera-control" onclick="captureFromCamera(0)">📸 Capture</button>
+                        <button class="camera-control" onclick="captureFromCamera(0)">📸 Capture High-Res</button>
                     </div>
                 </div>
                 <div class="camera-info">
-                    <small>Camera 1 available for scanning but not shown in live feed</small>
+                    <small>🎥 Live 1080p stream • 📸 High-res capture available during scanning</small>
                 </div>
             </div>
         </div>
     </section>
 
     <script>
-        // Enhanced camera stream management
+        // High-performance camera stream management
         let cameraStreamWorking = false;
         let refreshInterval = null;
+        let streamCheckInterval = null;
         
         function startCameraRefresh() {
-            // Initial load
+            // Initial load with immediate refresh
             refreshCameraStream();
             
-            // Periodic refresh every 30 seconds to prevent stale streams
-            refreshInterval = setInterval(refreshCameraStream, 30000);
+            // Reduced refresh interval for smoother streaming
+            refreshInterval = setInterval(refreshCameraStream, 15000);  // Every 15 seconds
+            
+            // Monitor stream health
+            streamCheckInterval = setInterval(checkStreamHealth, 5000);  // Every 5 seconds
         }
         
         function refreshCameraStream() {
             const camera0Feed = document.getElementById('camera0Feed');
             if (camera0Feed) {
                 const timestamp = Date.now();
-                console.log('Refreshing Camera 0 stream...');
+                console.log('Refreshing Camera 0 native 1080p stream...');
                 camera0Feed.src = '/camera/0?t=' + timestamp;
             }
+        }
+        
+        function checkStreamHealth() {
+            const camera0Feed = document.getElementById('camera0Feed');
+            if (camera0Feed && !cameraStreamWorking) {
+                console.log('Camera stream health check - refreshing...');
+                refreshCameraStream();
+            }
+            // Reset flag for next check
+            cameraStreamWorking = false;
         }
         
         function stopCameraRefresh() {
             if (refreshInterval) {
                 clearInterval(refreshInterval);
                 refreshInterval = null;
+            }
+            if (streamCheckInterval) {
+                clearInterval(streamCheckInterval);
+                streamCheckInterval = null;
             }
         }
         

@@ -1068,12 +1068,12 @@ class ScannerWebInterface:
                 
                 time.sleep(0.1)  # 10 FPS for disabled camera
         
-        # Simplified Camera 0 streaming
-        self.logger.info(f"STREAM START: Camera 0 simplified stream initialized")
+        # High-performance Camera 0 streaming
+        self.logger.info(f"STREAM START: Camera 0 optimized streaming initialized")
         
         frame_counter = 0
         last_log_time = 0
-        fps_target = 15  # Reduced FPS for stability
+        fps_target = 20  # Increased FPS with optimizations
         frame_interval = 1.0 / fps_target
         last_frame_time = 0
         
@@ -1099,26 +1099,22 @@ class ScannerWebInterface:
                 orchestrator = getattr(self, 'orchestrator', None)
                 
                 if orchestrator and hasattr(orchestrator, 'camera_manager'):
-                    # Direct Camera 0 access with consistent ID mapping
+                    # Native 1080p streaming with minimal processing
                     try:
                         # Always use 'camera_1' for Camera 0 hardware
                         frame = orchestrator.camera_manager.get_preview_frame('camera_1')
                         
                         if frame is not None and frame.size > 0:
                             if should_log:
-                                self.logger.info(f"STREAM SUCCESS: Camera 0 frame captured, shape: {frame.shape}")
+                                self.logger.info(f"STREAM SUCCESS: Native 1080p frame received, shape: {frame.shape}")
                             
-                            # Optimize frame size - keep reasonable resolution
-                            height, width = frame.shape[:2]
-                            max_width = 640  # Reduced for better performance
-                            if width > max_width:
-                                scale = max_width / width
-                                new_width = int(width * scale)
-                                new_height = int(height * scale)
-                                frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
-                            
-                            # Simple JPEG encoding with good quality
-                            encode_params = [cv2.IMWRITE_JPEG_QUALITY, 80]
+                            # Frame is already optimized, just encode efficiently
+                            # Use maximum quality JPEG encoding for crisp 1080p display
+                            encode_params = [
+                                cv2.IMWRITE_JPEG_QUALITY, 90,  # High quality for 1080p
+                                cv2.IMWRITE_JPEG_OPTIMIZE, 1,  # Optimize file size
+                                cv2.IMWRITE_JPEG_PROGRESSIVE, 1  # Progressive JPEG for faster loading
+                            ]
                             ret, jpeg_buffer = cv2.imencode('.jpg', frame, encode_params)
                             
                             if ret and len(jpeg_buffer) > 0:
@@ -1131,14 +1127,14 @@ class ScannerWebInterface:
                                 continue
                             else:
                                 if should_log:
-                                    self.logger.warning("STREAM WARNING: JPEG encoding failed for Camera 0")
+                                    self.logger.warning("STREAM WARNING: JPEG encoding failed for native 1080p")
                         else:
                             if should_log:
-                                self.logger.warning("STREAM WARNING: No frame data received from Camera 0")
+                                self.logger.warning("STREAM WARNING: No native frame data received")
                     
                     except Exception as e:
                         if should_log:
-                            self.logger.error(f"STREAM ERROR: Camera 0 capture failed: {e}")
+                            self.logger.error(f"STREAM ERROR: Native 1080p capture failed: {e}")
                 else:
                     if should_log:
                         self.logger.warning("STREAM WARNING: No orchestrator available")

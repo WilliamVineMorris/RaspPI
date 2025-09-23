@@ -12,6 +12,8 @@ implemented when the motion and camera modules are complete.
 import asyncio
 import logging
 import time
+import cv2
+import numpy as np
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union, Protocol, TYPE_CHECKING
@@ -328,29 +330,120 @@ class CameraManagerAdapter:
         self.config_manager = config_manager
         self.logger = logging.getLogger(__name__)
         
-        # Camera resource locking to prevent simultaneous access
-        import threading
-        self._camera_locks = {0: threading.Lock(), 1: threading.Lock()}
-        self._global_camera_lock = threading.Lock()  # For camera list access
-        self._camera_access_count = {0: 0, 1: 0}  # Track simultaneous access attempts
+        # Dual-mode camera system for optimized streaming and capture
+        self._streaming_mode = True  # Start in streaming-only mode
+        self._is_scanning = False
         
-        # Sequential access strategy to prevent V4L2 buffer conflicts
-        self._global_access_lock = threading.Lock()  # Prevent any simultaneous camera access
-        self._last_camera_access = {0: 0, 1: 0}  # Track timing for staggered access
-        self._camera_priority_order = [0, 1]  # Camera 0 gets priority, then Camera 1
-        self._camera_startup_status = {0: False, 1: False}  # Track successful startups
-        self._streaming_mode = True  # Start in streaming-only mode (Camera 0 only)
+        # Picamera2 dual-configuration system
+        self._stream_config = None    # 1080p streaming configuration
+        self._capture_config = None   # High-res capture configuration
+        self._current_mode = "streaming"  # Current camera mode
+        
+        # Performance and resource management
+        self._camera_instances = {}   # Store camera instances for each mode
+        self._last_mode_switch = 0
+        self._mode_switch_cooldown = 1.0  # Minimum seconds between mode switches
+        
+        # Camera resource locking (simplified for dual-mode)
+        import threading
+        self._mode_lock = threading.Lock()  # Lock for mode switching
+        self._capture_lock = threading.Lock()  # Lock for captures
+        
+        self.logger.info("CAMERA: Dual-mode system initialized (1080p streaming + high-res capture)")
         
     async def initialize(self) -> bool:
-        # Initialize controller but only activate Camera 0 for streaming to prevent interference
-        result = await self.controller.initialize()
-        
-        if result:
-            # Temporarily disable Camera 1 to prevent MJPEG interference
-            self.logger.info("CAMERA INIT: Only Camera 0 active for streaming, Camera 1 reserved for scanning")
-            self._streaming_mode = True  # Flag to indicate we're in streaming-only mode
-        
-        return result
+        """Initialize dual-mode camera system with optimized configurations"""
+        try:
+            # Initialize the underlying controller
+            result = await self.controller.initialize()
+            
+            if result:
+                # Setup dual-mode configurations using Picamera2 native functions
+                await self._setup_dual_mode_configurations()
+                self.logger.info("CAMERA: Dual-mode system initialized successfully")
+                return True
+            else:
+                self.logger.error("CAMERA: Failed to initialize underlying controller")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"CAMERA: Dual-mode initialization failed: {e}")
+            return False
+    
+    async def _setup_dual_mode_configurations(self):
+        """Setup optimized camera configurations for streaming and capture"""
+        try:
+            # Only configure Camera 0 for dual-mode operation
+            camera_id = 0
+            
+            if hasattr(self.controller, 'cameras') and camera_id in self.controller.cameras:
+                camera = self.controller.cameras[camera_id]
+                
+                if camera:
+                    # Create 1080p streaming configuration (optimized for speed)
+                    self._stream_config = camera.create_video_configuration(
+                        main={"size": (1920, 1080), "format": "RGB888"},
+                        lores={"size": (640, 480), "format": "YUV420"},  # Thumbnail for processing
+                        display="lores"  # Use low-res for display efficiency
+                    )
+                    
+                    # Create high-resolution capture configuration (optimized for quality)
+                    self._capture_config = camera.create_still_configuration(
+                        main={"size": (4608, 2592), "format": "RGB888"},  # Full sensor resolution
+                        lores={"size": (1920, 1080), "format": "YUV420"},  # Preview
+                        display="lores"
+                    )
+                    
+                    # Start in streaming mode
+                    camera.configure(self._stream_config)
+                    camera.start()
+                    
+                    self._current_mode = "streaming"
+                    self.logger.info("CAMERA: Dual-mode configurations created - 1080p stream / 4K capture")
+                    
+        except Exception as e:
+            self.logger.error(f"CAMERA: Failed to setup dual-mode configurations: {e}")
+    
+    async def _switch_camera_mode(self, target_mode: str):
+        """Efficiently switch between streaming and capture modes"""
+        try:
+            current_time = time.time()
+            
+            # Check cooldown to prevent rapid switching
+            if current_time - self._last_mode_switch < self._mode_switch_cooldown:
+                return False
+            
+            with self._mode_lock:
+                if self._current_mode == target_mode:
+                    return True  # Already in target mode
+                
+                camera_id = 0
+                if hasattr(self.controller, 'cameras') and camera_id in self.controller.cameras:
+                    camera = self.controller.cameras[camera_id]
+                    
+                    if camera:
+                        # Stop current mode
+                        if hasattr(camera, 'stop'):
+                            camera.stop()
+                        
+                        # Switch configuration
+                        if target_mode == "streaming":
+                            camera.configure(self._stream_config)
+                        elif target_mode == "capture":
+                            camera.configure(self._capture_config)
+                        
+                        # Restart with new configuration
+                        camera.start()
+                        
+                        self._current_mode = target_mode
+                        self._last_mode_switch = current_time
+                        
+                        self.logger.info(f"CAMERA: Switched to {target_mode} mode")
+                        return True
+                        
+        except Exception as e:
+            self.logger.error(f"CAMERA: Mode switch to {target_mode} failed: {e}")
+            return False
         
     async def capture_all(self, output_dir: Path, filename_base: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Capture from all available cameras"""
@@ -445,118 +538,148 @@ class CameraManagerAdapter:
     
     def get_preview_frame(self, camera_id):
         """
-        Get a preview frame from the specified camera with direct capture
+        Get optimized preview frame using Picamera2 native streaming
         
-        Args:
-            camera_id: Camera identifier (int or string)
-            
-        Returns:
-            numpy.ndarray: Camera frame in BGR format, or None if failed
+        Uses dual-mode system:
+        - Streaming mode: 1080p with minimal processing
+        - Capture mode: High-res with full quality
         """
         try:
-            import cv2
-            import numpy as np
-            import time
-            
-            # Rate-limited logging
             current_time = time.time()
+            
+            # Rate-limited debug logging
             if not hasattr(self, '_last_debug_log') or (current_time - self._last_debug_log) > 20.0:
-                self.logger.info(f"CAMERA DEBUG: get_preview_frame called for camera {camera_id} (type: {type(camera_id)})")
+                self.logger.info(f"CAMERA: Native preview frame requested for {camera_id}")
                 self._last_debug_log = current_time
             
-            # Handle camera ID mapping - convert string IDs if necessary
-            mapped_camera_id = camera_id
+            # Only Camera 0 supported in current implementation
+            if camera_id not in [0, '0', 'camera_1']:
+                return None
+            
+            # Map camera ID
+            mapped_camera_id = 0
             if isinstance(camera_id, str) and camera_id.startswith('camera_'):
-                # Extract numeric part from 'camera_1' -> 0, 'camera_2' -> 1, etc.
                 try:
-                    numeric_id = int(camera_id.split('_')[1]) - 1
-                    mapped_camera_id = numeric_id
+                    mapped_camera_id = int(camera_id.split('_')[1]) - 1
                 except (ValueError, IndexError):
-                    self.logger.warning(f"CAMERA ERROR: Could not parse camera ID: {camera_id}")
                     return None
             
-            # Check if we have access to the real camera controller
-            if not hasattr(self.controller, 'cameras'):
-                self.logger.warning(f"CAMERA ERROR: Controller has no cameras attribute")
-                return None
+            # Access Camera 0 directly
+            if hasattr(self.controller, 'cameras') and mapped_camera_id in self.controller.cameras:
+                camera = self.controller.cameras[mapped_camera_id]
                 
-            cameras = self.controller.cameras
-            if cameras is None or mapped_camera_id not in cameras:
-                self.logger.warning(f"CAMERA ERROR: Camera {mapped_camera_id} not available")
-                return None
-            
-            # Priority check: Only Camera 0 for web streaming
-            if mapped_camera_id != 0:
-                return None
-            
-            camera = cameras.get(mapped_camera_id)
-            if not camera:
-                self.logger.warning(f"CAMERA ERROR: Camera {mapped_camera_id} is None")
-                return None
-            
-            # Direct capture without threading for web streaming
-            try:
-                # Make sure camera is started
-                if not hasattr(camera, 'started') or not camera.started:
-                    camera.start()
-                    time.sleep(0.1)  # Brief wait for camera to start
-                
-                # Direct capture - this is working based on logs
-                array = camera.capture_array("main")
-                
-                if array is not None and array.size > 0:
-                    # The logs show successful capture with shape (6944, 9152, 3)
-                    # Problem might be with color format - let's try different approach
-                    
-                    if len(array.shape) == 3 and array.shape[2] == 3:
-                        # The logs show Blue channel dominant: [41.x, 5.x, 8.x] indicates color channel issue
-                        # Let's fix the color format by trying no conversion first, then RGB->BGR if needed
+                if camera and hasattr(camera, 'capture_array'):
+                    try:
+                        # Ensure we're in streaming mode for live preview
+                        if self._current_mode != "streaming":
+                            asyncio.create_task(self._switch_camera_mode("streaming"))
+                            time.sleep(0.1)  # Brief wait for mode switch
                         
-                        # Try without conversion first (camera might already be in BGR)
-                        frame_bgr = array.copy()
+                        # Use Picamera2's native capture with streaming-optimized config
+                        # This gets the 1080p main stream directly without additional processing
+                        frame_array = camera.capture_array("main")
                         
-                        # Check color channel balance to determine if conversion is needed
-                        mean_values = np.mean(frame_bgr, axis=(0,1))
-                        
-                        # If Blue channel (index 0 in BGR) is much higher than Red/Green, we likely have RGB data
-                        if mean_values[0] > (mean_values[1] + mean_values[2]):
-                            # Blue dominant suggests RGB input - try different conversions
-                            self.logger.info(f"CAMERA DEBUG: Blue dominant ({mean_values[0]:.1f}), trying RGB->BGR conversion")
-                            frame_bgr = cv2.cvtColor(array, cv2.COLOR_RGB2BGR)
-                        else:
-                            # Try direct copy or alternative color space
-                            self.logger.info(f"CAMERA DEBUG: Balanced channels ({mean_values}), using direct copy")
-                            frame_bgr = array.copy()
-                        
-                        # Validate frame data
-                        if frame_bgr.shape[0] > 0 and frame_bgr.shape[1] > 0:
-                            # Rate-limited success logging
+                        if frame_array is not None and frame_array.size > 0:
+                            # Convert RGB to BGR for web display (minimal processing)
+                            frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
+                            
+                            # Optional: Apply minimal enhancement for better web display
+                            # Only if the frame appears too dark/flat
+                            mean_brightness = np.mean(frame_bgr)
+                            if mean_brightness < 80:  # Dark frame
+                                frame_bgr = cv2.convertScaleAbs(frame_bgr, alpha=1.2, beta=15)
+                            
+                            # Performance logging
                             if not hasattr(self, '_last_success_log') or (current_time - self._last_success_log) > 20.0:
-                                self.logger.info(f"CAMERA SUCCESS: Frame captured for camera {mapped_camera_id}: {frame_bgr.shape}, dtype: {frame_bgr.dtype}")
-                                # Check if frame has actual data (not all zeros/blues)
-                                mean_values = np.mean(frame_bgr, axis=(0,1))
-                                self.logger.info(f"CAMERA DEBUG: Frame mean BGR values: {mean_values}")
+                                self.logger.info(f"CAMERA: Native 1080p frame captured: {frame_bgr.shape}, dtype: {frame_bgr.dtype}")
                                 self._last_success_log = current_time
                             
                             return frame_bgr
                         else:
-                            self.logger.warning(f"CAMERA WARNING: Invalid frame dimensions: {frame_bgr.shape}")
-                    else:
-                        self.logger.warning(f"CAMERA WARNING: Unexpected array shape: {array.shape}")
+                            self.logger.warning(f"CAMERA: Empty frame from native capture")
+                            
+                    except Exception as capture_error:
+                        if not hasattr(self, '_last_error_log') or (current_time - self._last_error_log) > 10.0:
+                            self.logger.error(f"CAMERA: Native capture failed: {capture_error}")
+                            self._last_error_log = current_time
                 else:
-                    self.logger.warning(f"CAMERA WARNING: Empty or invalid array from camera {mapped_camera_id}")
-                
-            except Exception as e:
-                # Rate-limited error logging
-                if not hasattr(self, '_last_error_log') or (current_time - self._last_error_log) > 10.0:
-                    self.logger.error(f"CAMERA ERROR: Direct capture failed for camera {mapped_camera_id}: {e}")
-                    self._last_error_log = current_time
+                    self.logger.warning(f"CAMERA: Camera {mapped_camera_id} not available or missing capture method")
+            else:
+                self.logger.warning(f"CAMERA: No camera available for ID {camera_id}")
                 
             return None
+            
+        except Exception as e:
+            self.logger.error(f"CAMERA: Error in native preview frame for {camera_id}: {e}")
+            return None
+    
+    async def capture_high_resolution(self, camera_id, settings=None):
+        """
+        Capture high-resolution photo for scanning using native Picamera2 functions
+        
+        Args:
+            camera_id: Camera identifier
+            settings: Optional camera settings
+            
+        Returns:
+            numpy.ndarray: High-resolution image or None if failed
+        """
+        try:
+            with self._capture_lock:
+                # Switch to capture mode for maximum quality
+                await self._switch_camera_mode("capture")
+                
+                # Only Camera 0 supported
+                mapped_camera_id = 0
+                if isinstance(camera_id, str) and camera_id.startswith('camera_'):
+                    try:
+                        mapped_camera_id = int(camera_id.split('_')[1]) - 1
+                    except (ValueError, IndexError):
+                        return None
+                
+                if hasattr(self.controller, 'cameras') and mapped_camera_id in self.controller.cameras:
+                    camera = self.controller.cameras[mapped_camera_id]
+                    
+                    if camera and hasattr(camera, 'capture_array'):
+                        # Apply custom settings if provided
+                        if settings:
+                            # Convert settings to Picamera2 controls
+                            controls = {}
+                            if hasattr(settings, 'exposure_time') and settings.exposure_time:
+                                controls['ExposureTime'] = int(settings.exposure_time * 1000000)  # Convert to microseconds
+                            if hasattr(settings, 'iso') and settings.iso:
+                                controls['AnalogueGain'] = settings.iso / 100.0
+                            
+                            if controls:
+                                camera.set_controls(controls)
+                        
+                        # Capture full resolution image using main stream
+                        self.logger.info("CAMERA: Capturing high-resolution image (4K+)")
+                        
+                        # Use still capture for maximum quality
+                        image_array = camera.capture_array("main")
+                        
+                        if image_array is not None and image_array.size > 0:
+                            # Convert RGB to BGR for consistency
+                            image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                            
+                            self.logger.info(f"CAMERA: High-res capture successful: {image_bgr.shape}, dtype: {image_bgr.dtype}")
+                            return image_bgr
+                        else:
+                            self.logger.error("CAMERA: High-res capture returned empty array")
+                            
+                # Switch back to streaming mode
+                await self._switch_camera_mode("streaming")
                 
         except Exception as e:
-            self.logger.error(f"CAMERA ERROR: Error in get_preview_frame for camera {camera_id}: {e}")
-            return None
+            self.logger.error(f"CAMERA: High-resolution capture failed: {e}")
+            # Ensure we switch back to streaming mode on error
+            try:
+                await self._switch_camera_mode("streaming")
+            except:
+                pass
+                
+        return None
     
     def set_scanning_mode(self, is_scanning: bool):
         """Set scanning mode to optimize camera usage"""
