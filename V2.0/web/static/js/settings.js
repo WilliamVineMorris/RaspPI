@@ -1,8 +1,7 @@
 /**
- * Settings JavaScript - Comprehensive system configuration interface
+ * Settings JavaScript - Hardware-ready system configuration interface
  * 
- * Provides complete system settings management with real-time updates,
- * validation, and maintenance operations.
+ * Simplified for hardware testing with essential configuration management.
  */
 
 // Settings management functionality
@@ -10,19 +9,14 @@ const SettingsManager = {
     // Configuration
     config: {
         autoSaveDelay: 2000,        // Auto-save delay for settings
-        diagnosticUpdateInterval: 5000,  // Diagnostic data update interval
-        logUpdateInterval: 3000,    // Log viewer update interval
-        maxLogLines: 100           // Maximum log lines to display
+        validationTimeout: 1000     // Input validation timeout
     },
 
     // State management
     state: {
         currentSection: 'motion',
         hasUnsavedChanges: false,
-        originalSettings: new Map(),
-        autoSaveTimer: null,
-        diagnosticTimer: null,
-        logTimer: null
+        autoSaveTimer: null
     },
 
     /**
@@ -33,16 +27,8 @@ const SettingsManager = {
         
         this.setupNavigation();
         this.setupFormHandlers();
-        this.setupSliderUpdates();
         this.loadCurrentSettings();
-        this.startDiagnosticUpdates();
-        this.startLogUpdates();
         
-        // Listen for status updates
-        document.addEventListener('scanner:statusUpdate', (event) => {
-            this.handleStatusUpdate(event.detail.status);
-        });
-
         // Warn about unsaved changes
         window.addEventListener('beforeunload', (e) => {
             if (this.state.hasUnsavedChanges) {
