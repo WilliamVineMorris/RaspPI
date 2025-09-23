@@ -14,7 +14,10 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Union, Protocol
+from typing import Dict, Any, Optional, List, Union, Protocol, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
 
 from core.config_manager import ConfigManager
 from core.events import EventBus, EventPriority
@@ -399,11 +402,92 @@ class CameraManagerAdapter:
     def get_current_settings(self) -> Dict[str, Any]:
         return {'controller_type': 'PiCamera', 'is_connected': self.controller.is_connected()}
     
-    def get_preview_frame(self, camera_id: int) -> None:
-        """Placeholder for camera preview frame (not implemented for real hardware)"""
-        # Real hardware streaming would require a different approach
-        # For now, return None to indicate no preview available
-        return None
+    def get_preview_frame(self, camera_id: int) -> Optional[Any]:
+        """Get a preview frame from the specified camera for streaming"""
+        try:
+            import asyncio
+            import tempfile
+            import cv2
+            import numpy as np
+            from pathlib import Path
+            from camera.base import CameraSettings, ImageFormat
+            
+            # Convert camera_id to camera string format
+            camera_str = f"camera_{camera_id}"
+            
+            # Create a temporary file for the capture
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                temp_path = Path(temp_file.name)
+            
+            try:
+                # Create preview settings (smaller resolution for streaming)
+                settings = CameraSettings(
+                    resolution=(640, 480),  # Lower resolution for streaming
+                    format=ImageFormat.JPEG,  # Use ImageFormat enum
+                    quality=70  # Lower quality for faster processing
+                )
+                
+                # Run async capture in sync context using a new event loop
+                try:
+                    # Try to use existing event loop
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If loop is running, we need to use a thread
+                        import concurrent.futures
+                        import threading
+                        
+                        def capture_in_thread():
+                            # Create new event loop for this thread
+                            new_loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(new_loop)
+                            try:
+                                return new_loop.run_until_complete(
+                                    self.controller.capture_image(camera_id, settings, temp_path)
+                                )
+                            finally:
+                                new_loop.close()
+                        
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future = executor.submit(capture_in_thread)
+                            success = future.result(timeout=5.0)  # 5 second timeout
+                    else:
+                        # No running loop, can use directly
+                        success = loop.run_until_complete(
+                            self.controller.capture_image(camera_id, settings, temp_path)
+                        )
+                except RuntimeError:
+                    # No event loop exists, create one
+                    success = asyncio.run(
+                        self.controller.capture_image(camera_id, settings, temp_path)
+                    )
+                
+                if success and temp_path.exists():
+                    # Read the captured image
+                    frame = cv2.imread(str(temp_path))
+                    
+                    # Clean up temp file
+                    temp_path.unlink()
+                    
+                    if frame is not None:
+                        self.logger.debug(f"Successfully captured preview frame from camera {camera_id}")
+                        return frame
+                    else:
+                        self.logger.warning(f"Failed to read captured image from camera {camera_id}")
+                        return None
+                else:
+                    self.logger.warning(f"Camera capture failed for camera {camera_id}")
+                    return None
+                    
+            except Exception as e:
+                self.logger.error(f"Error during camera capture for camera {camera_id}: {e}")
+                # Clean up temp file if it exists
+                if temp_path.exists():
+                    temp_path.unlink()
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Error setting up camera preview for camera {camera_id}: {e}")
+            return None
     
     def get_status(self) -> Dict[str, Any]:
         """Get camera manager status"""
