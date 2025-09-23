@@ -522,6 +522,8 @@ class ScannerWebInterface:
         def camera_stream(camera_id):
             """MJPEG camera stream with proper ID mapping"""
             try:
+                self.logger.info(f"Camera stream request for camera {camera_id}")
+                
                 # Map frontend camera IDs (0, 1) to backend camera IDs
                 # Frontend: Camera 0, Camera 1
                 # Backend might use: 0, 1 or 'camera_1', 'camera_2' or other formats
@@ -530,31 +532,34 @@ class ScannerWebInterface:
                 mapped_id = camera_id
                 
                 # Check if we need to map IDs for different systems
-                if self.orchestrator and hasattr(self.orchestrator, 'camera_adapter'):
+                if self.orchestrator and hasattr(self.orchestrator, 'camera_manager'):
                     # Get available cameras to determine the ID format
                     try:
-                        status = self.orchestrator.camera_adapter.get_status()
+                        status = self.orchestrator.get_camera_status()
                         available_cameras = status.get('cameras', [])
-                        self.logger.debug(f"Available cameras: {available_cameras}")
+                        self.logger.info(f"Available cameras for mapping: {available_cameras}")
                         
                         # If backend uses string IDs like 'camera_1', 'camera_2'
                         if available_cameras and isinstance(available_cameras[0], str):
                             if 'camera_' in str(available_cameras[0]):
                                 # Map 0 -> 'camera_1', 1 -> 'camera_2', etc.
                                 mapped_id = f'camera_{camera_id + 1}'
-                                self.logger.debug(f"Mapped camera ID {camera_id} to {mapped_id}")
+                                self.logger.info(f"Mapped camera ID {camera_id} to {mapped_id}")
                         
                     except Exception as mapping_error:
-                        self.logger.debug(f"Camera ID mapping error: {mapping_error}")
+                        self.logger.warning(f"Camera ID mapping error: {mapping_error}")
                         # Use original ID if mapping fails
                         pass
                 
+                self.logger.info(f"Starting camera stream generation for mapped ID: {mapped_id}")
                 return Response(
                     self._generate_camera_stream(mapped_id),
                     mimetype='multipart/x-mixed-replace; boundary=frame'
                 )
             except Exception as e:
                 self.logger.error(f"Camera stream error for camera {camera_id}: {e}")
+                import traceback
+                self.logger.error(f"Full traceback: {traceback.format_exc()}")
                 # Return empty response that will trigger onerror in HTML
                 return Response("", status=404)
     
@@ -1033,6 +1038,8 @@ class ScannerWebInterface:
         import numpy as np
         from io import BytesIO
         
+        self.logger.info(f"=== _generate_camera_stream ENTRY for camera_id: {camera_id} (type: {type(camera_id)}) ===")
+        
         # Cache for error recovery
         last_frame = None
         frame_cache_time = 0
@@ -1046,8 +1053,13 @@ class ScannerWebInterface:
         
         self.logger.info(f"Starting camera stream for camera {camera_id} (type: {type(camera_id)})")
         
+        frame_counter = 0
         while True:
+            frame_counter += 1
             current_time = time.time()
+            
+            if frame_counter <= 5:  # Log first 5 iterations
+                self.logger.info(f"Camera {camera_id} stream iteration {frame_counter}")
             
             # Frame rate control
             time_since_last = current_time - last_frame_time
@@ -1061,10 +1073,17 @@ class ScannerWebInterface:
                 frame = None
                 orchestrator = getattr(self, 'orchestrator', None)
                 
+                if frame_counter <= 3:  # Log first 3 iterations
+                    self.logger.info(f"Orchestrator available: {orchestrator is not None}")
+                    if orchestrator:
+                        self.logger.info(f"Orchestrator type: {type(orchestrator).__name__}")
+                        self.logger.info(f"Has camera_manager: {hasattr(orchestrator, 'camera_manager')}")
+                
                 if orchestrator and hasattr(orchestrator, 'camera_manager'):
                     # Use the camera manager's get_preview_frame method
                     try:
-                        self.logger.debug(f"Calling orchestrator.camera_manager.get_preview_frame({camera_id})")
+                        if frame_counter <= 3:  # Log first 3 attempts
+                            self.logger.info(f"Calling orchestrator.camera_manager.get_preview_frame({camera_id})")
                         
                         # Check if we need to map camera ID
                         mapped_camera_id = camera_id
@@ -1073,19 +1092,27 @@ class ScannerWebInterface:
                             try:
                                 camera_status = orchestrator.get_camera_status()
                                 available_cameras = camera_status.get('cameras', [])
-                                self.logger.debug(f"Available cameras: {available_cameras}")
+                                if frame_counter <= 2:  # Log first 2 attempts
+                                    self.logger.info(f"Available cameras: {available_cameras}")
                                 
                                 # If backend uses 'camera_X' format, map integer IDs
                                 if available_cameras and all(isinstance(cam, str) and cam.startswith('camera_') for cam in available_cameras):
                                     mapped_camera_id = f"camera_{camera_id + 1}"  # Map 0->camera_1, 1->camera_2
-                                    self.logger.info(f"Mapped camera ID {camera_id} to {mapped_camera_id}")
+                                    if frame_counter <= 2:  # Log first 2 attempts
+                                        self.logger.info(f"Mapped camera ID {camera_id} to {mapped_camera_id}")
                             except Exception as mapping_error:
-                                self.logger.warning(f"Camera ID mapping failed: {mapping_error}")
+                                if frame_counter <= 2:
+                                    self.logger.warning(f"Camera ID mapping failed: {mapping_error}")
                         
                         frame = orchestrator.camera_manager.get_preview_frame(mapped_camera_id)
-                        self.logger.debug(f"get_preview_frame returned: {type(frame)} {frame.shape if frame is not None and hasattr(frame, 'shape') else 'None'}")
+                        
+                        if frame_counter <= 5:  # Log first 5 attempts
+                            self.logger.info(f"get_preview_frame returned: {type(frame)} {frame.shape if frame is not None and hasattr(frame, 'shape') else 'None/Invalid'}")
                         
                         if frame is not None and frame.size > 0:
+                            if frame_counter <= 3:  # Log first 3 successful frames
+                                self.logger.info(f"SUCCESS: Got valid frame for camera {camera_id}, shape: {frame.shape}")
+                            
                             # Optimize frame size if too large
                             height, width = frame.shape[:2]
                             max_width = 800
@@ -1107,6 +1134,9 @@ class ScannerWebInterface:
                             if ret and len(jpeg_buffer) > 0:
                                 jpeg_data = jpeg_buffer.tobytes()
                                 
+                                if frame_counter <= 2:  # Log first 2 successful encodes
+                                    self.logger.info(f"SUCCESS: Encoded JPEG for camera {camera_id}, size: {len(jpeg_data)} bytes")
+                                
                                 # Cache successful frame
                                 last_frame = jpeg_data
                                 frame_cache_time = current_time
@@ -1117,12 +1147,19 @@ class ScannerWebInterface:
                                        b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
                                        jpeg_data + b'\r\n')
                                 continue
+                            else:
+                                if frame_counter <= 5:
+                                    self.logger.warning(f"JPEG encoding failed for camera {camera_id}")
+                        else:
+                            if frame_counter <= 5:
+                                self.logger.warning(f"No valid frame data for camera {camera_id}: {type(frame)}")
                     
                     except Exception as adapter_error:
-                        self.logger.error(f"Camera adapter error for camera {camera_id}: {adapter_error}")
-                        self.logger.error(f"Exception type: {type(adapter_error).__name__}")
-                        import traceback
-                        self.logger.error(f"Full traceback: {traceback.format_exc()}")
+                        if frame_counter <= 10:  # Log first 10 errors
+                            self.logger.error(f"Camera adapter error for camera {camera_id} (iteration {frame_counter}): {adapter_error}")
+                            if frame_counter <= 3:  # Full traceback for first 3 errors
+                                import traceback
+                                self.logger.error(f"Full traceback: {traceback.format_exc()}")
                         error_count += 1
                 
                 # Error handling
