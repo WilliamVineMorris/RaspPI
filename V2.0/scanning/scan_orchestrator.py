@@ -1272,6 +1272,27 @@ class ScanOrchestrator:
             'last_error': self.current_scan.errors[-1].message if self.current_scan.errors else None
         }
     
+    def get_camera_status(self) -> Dict[str, Any]:
+        """Get camera system status"""
+        try:
+            return self.camera_manager.get_status()
+        except Exception as e:
+            self.logger.error(f"Error getting camera status: {e}")
+            return {
+                'cameras': [],
+                'active_cameras': [],
+                'initialized': False,
+                'error': str(e)
+            }
+    
+    def get_preview_frame(self, camera_id) -> Optional[Any]:
+        """Get a preview frame from a specific camera"""
+        try:
+            return self.camera_manager.get_preview_frame(camera_id)
+        except Exception as e:
+            self.logger.error(f"Error getting preview frame for camera {camera_id}: {e}")
+            return None
+    
     def create_grid_pattern(self, 
                            x_range: tuple[float, float],
                            y_range: tuple[float, float],

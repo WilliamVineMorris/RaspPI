@@ -1061,10 +1061,29 @@ class ScannerWebInterface:
                 frame = None
                 orchestrator = getattr(self, 'orchestrator', None)
                 
-                if orchestrator and hasattr(orchestrator, 'camera_adapter'):
-                    # Use the camera adapter's get_preview_frame method
+                if orchestrator and hasattr(orchestrator, 'camera_manager'):
+                    # Use the camera manager's get_preview_frame method
                     try:
-                        frame = orchestrator.camera_adapter.get_preview_frame(camera_id)
+                        self.logger.debug(f"Calling orchestrator.camera_manager.get_preview_frame({camera_id})")
+                        
+                        # Check if we need to map camera ID
+                        mapped_camera_id = camera_id
+                        if isinstance(camera_id, int):
+                            # Get available cameras to check format
+                            try:
+                                camera_status = orchestrator.get_camera_status()
+                                available_cameras = camera_status.get('cameras', [])
+                                self.logger.debug(f"Available cameras: {available_cameras}")
+                                
+                                # If backend uses 'camera_X' format, map integer IDs
+                                if available_cameras and all(isinstance(cam, str) and cam.startswith('camera_') for cam in available_cameras):
+                                    mapped_camera_id = f"camera_{camera_id + 1}"  # Map 0->camera_1, 1->camera_2
+                                    self.logger.info(f"Mapped camera ID {camera_id} to {mapped_camera_id}")
+                            except Exception as mapping_error:
+                                self.logger.warning(f"Camera ID mapping failed: {mapping_error}")
+                        
+                        frame = orchestrator.camera_manager.get_preview_frame(mapped_camera_id)
+                        self.logger.debug(f"get_preview_frame returned: {type(frame)} {frame.shape if frame is not None and hasattr(frame, 'shape') else 'None'}")
                         
                         if frame is not None and frame.size > 0:
                             # Optimize frame size if too large
@@ -1100,7 +1119,10 @@ class ScannerWebInterface:
                                 continue
                     
                     except Exception as adapter_error:
-                        self.logger.debug(f"Camera adapter error for camera {camera_id}: {adapter_error}")
+                        self.logger.error(f"Camera adapter error for camera {camera_id}: {adapter_error}")
+                        self.logger.error(f"Exception type: {type(adapter_error).__name__}")
+                        import traceback
+                        self.logger.error(f"Full traceback: {traceback.format_exc()}")
                         error_count += 1
                 
                 # Error handling
@@ -1123,11 +1145,11 @@ class ScannerWebInterface:
                     if orchestrator:
                         cv2.putText(error_img, 'Orchestrator: OK', (10, 150), 
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
-                        if hasattr(orchestrator, 'camera_adapter'):
-                            cv2.putText(error_img, 'Adapter: OK', (10, 170), 
+                        if hasattr(orchestrator, 'camera_manager'):
+                            cv2.putText(error_img, 'Camera Mgr: OK', (10, 170), 
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
                         else:
-                            cv2.putText(error_img, 'No Adapter', (10, 170), 
+                            cv2.putText(error_img, 'No Camera Mgr', (10, 170), 
                                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
                     else:
                         cv2.putText(error_img, 'No Orchestrator', (10, 150), 
