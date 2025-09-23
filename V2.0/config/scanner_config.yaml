@@ -113,8 +113,8 @@ cameras:
   
   # Color Format Configuration
   color_format:
-    default_mode: "bgr_direct"  # Camera outputs BGR natively, display expects BGR
-    # Available modes: auto, rgb_to_bgr, bgr_direct, bgr_to_rgb
+    default_mode: "raw_test"  # Testing raw camera output - no conversion
+    # Available modes: auto, rgb_to_bgr, bgr_direct, bgr_to_rgb, raw_test
     
   camera_1:
     port: 0
