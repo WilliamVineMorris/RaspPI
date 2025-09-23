@@ -445,9 +445,14 @@ class SessionManager(StorageManager):
             logger.error(f"Failed to store file: {e}")
             raise StorageError(f"File storage failed: {e}")
     
-    async def retrieve_file(self, file_id: str) -> Optional[bytes]:
-        """Retrieve file data by ID"""
+    async def retrieve_file(self, file_id: str) -> Tuple[bytes, StorageMetadata]:
+        """Retrieve file data and metadata by ID"""
         try:
+            # Get metadata first
+            metadata = await self.get_metadata(file_id)
+            if not metadata:
+                raise StorageError(f"File {file_id} not found")
+            
             # Check cache first
             if file_id in self._file_cache:
                 file_info = self._file_cache[file_id]
@@ -464,7 +469,7 @@ class SessionManager(StorageManager):
                             logger.error(f"Integrity check failed for file {file_id}")
                             raise StorageError(f"File integrity check failed: {file_id}")
                     
-                    return data
+                    return data, metadata
             
             # Search for file if not in cache
             for session_id in self.sessions_index:
@@ -1151,3 +1156,140 @@ class SessionManager(StorageManager):
         except Exception as e:
             logger.error(f"File search failed: {e}")
             return []
+
+    async def archive_old_sessions(self, days_old: int = 30) -> int:
+        """Archive old scan sessions"""
+        try:
+            cutoff_date = datetime.now().timestamp() - (days_old * 24 * 3600)
+            archived_count = 0
+            
+            archive_path = self.base_storage_path / 'archive'
+            archive_path.mkdir(exist_ok=True)
+            
+            for session_id, session in list(self.sessions_index.items()):
+                # Convert start_time to timestamp if it's a string
+                session_time = session.start_time
+                if isinstance(session_time, str):
+                    session_time = datetime.fromisoformat(session_time).timestamp()
+                elif isinstance(session_time, datetime):
+                    session_time = session_time.timestamp()
+                else:
+                    session_time = float(session_time)
+                
+                if session_time < cutoff_date and session.status == 'completed':
+                    session_path = self.base_storage_path / 'sessions' / session_id
+                    archive_session_path = archive_path / session_id
+                    
+                    if session_path.exists():
+                        # Move session to archive
+                        shutil.move(str(session_path), str(archive_session_path))
+                        
+                        # Update session status in index
+                        session.status = 'archived'
+                        archived_count += 1
+            
+            if archived_count > 0:
+                await self._save_sessions_index()
+            
+            logger.info(f"Archived {archived_count} old sessions")
+            return archived_count
+            
+        except Exception as e:
+            logger.error(f"Failed to archive old sessions: {e}")
+            return 0
+
+    # Additional missing abstract methods
+    async def sync_locations(self, source: str, destination: str) -> bool:
+        """Synchronize data between storage locations"""
+        try:
+            if source not in self.storage_locations or destination not in self.storage_locations:
+                logger.error(f"Storage locations not found: {source} or {destination}")
+                return False
+            
+            source_path = self.storage_locations[source].path
+            dest_path = self.storage_locations[destination].path
+            
+            # Simple sync implementation - copy all files
+            for item in source_path.rglob('*'):
+                if item.is_file():
+                    relative_path = item.relative_to(source_path)
+                    dest_file = dest_path / relative_path
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(item, dest_file)
+            
+            logger.info(f"Synced data from {source} to {destination}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Sync failed: {e}")
+            return False
+    
+    async def verify_integrity(self, file_id: str) -> bool:
+        """Verify file integrity using checksum"""
+        try:
+            metadata = await self.get_metadata(file_id)
+            if not metadata:
+                return False
+            
+            file_data, _ = await self.retrieve_file(file_id)
+            if not file_data:
+                return False
+            
+            # Calculate current checksum
+            import hashlib
+            current_checksum = hashlib.md5(file_data).hexdigest()
+            
+            return current_checksum == metadata.checksum
+            
+        except Exception as e:
+            logger.error(f"Integrity verification failed for {file_id}: {e}")
+            return False
+    
+    async def export_session(self, session_id: str, export_path: Path, 
+                           format: str = "zip") -> Path:
+        """Export session data to external format"""
+        try:
+            session = await self.get_session(session_id)
+            if not session:
+                raise StorageError(f"Session {session_id} not found")
+            
+            if format == "zip":
+                export_file = export_path / f"{session.scan_name}_{session_id}.zip"
+                # This would typically be implemented with the backup logic
+                await self.backup_session(session_id, str(export_path))
+                return export_file
+            else:
+                # Directory export
+                export_dir = export_path / f"{session.scan_name}_{session_id}"
+                export_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Copy session files
+                session_path = self.base_storage_path / 'sessions' / session_id
+                if session_path.exists():
+                    shutil.copytree(session_path, export_dir, dirs_exist_ok=True)
+                
+                return export_dir
+                
+        except Exception as e:
+            logger.error(f"Export failed for session {session_id}: {e}")
+            raise StorageError(f"Export failed: {e}")
+    
+    async def generate_report(self, session_id: str) -> Dict[str, Any]:
+        """Generate scan session report"""
+        # This is already implemented above in the SessionManager
+        return await self._generate_session_report(session_id)
+    
+    async def cleanup_temp_files(self) -> bool:
+        """Clean up temporary files"""
+        try:
+            temp_path = self.base_storage_path / 'temp'
+            if temp_path.exists():
+                shutil.rmtree(temp_path)
+                temp_path.mkdir(exist_ok=True)
+            
+            logger.info("Cleaned up temporary files")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Temp file cleanup failed: {e}")
+            return False
