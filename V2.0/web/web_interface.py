@@ -927,37 +927,28 @@ class ScannerWebInterface:
                     # Get position timestamp for debugging lag
                     current_time = datetime.now().isoformat()
                     
-                    # With background monitoring, we can rely on cached position being current
-                    # But add a fallback for when position seems stale
+                    # Always use cached position from background monitor - NEVER call async from sync
+                    # This prevents event loop conflicts that cause delays
                     position = motion_controller.current_position
                     
-                    # If position seems stale (> 2 seconds old), force a fresh update
-                    if hasattr(motion_controller, 'controller') and hasattr(motion_controller.controller, 'last_position_update'):
-                        last_update_time = motion_controller.controller.last_position_update
-                        current_timestamp = time.time()
-                        age_seconds = current_timestamp - last_update_time if last_update_time > 0 else 999
-                        
-                        # Only force fresh update if position is really stale AND we're not getting asyncio errors
-                        if age_seconds > 5.0:  # Increased threshold to avoid excessive calls
-                            try:
-                                self.logger.debug(f"Position data very stale ({age_seconds:.1f}s), forcing fresh update")
-                                # Use thread-safe approach - don't call async from sync context
-                                fresh_position = asyncio.run(motion_controller.get_current_position())
-                                position = fresh_position
-                                self.logger.debug(f"Fresh position retrieved: {position}")
-                            except Exception as pos_e:
-                                self.logger.debug(f"Could not get fresh position (event loop issue): {pos_e}")
-                                # Fall back to cached position - don't spam errors
-                    
-                    # Also get debugging info
-                    last_update_time = getattr(motion_controller, 'last_position_update', 0) if hasattr(motion_controller, 'controller') else 0
+                    # Get debugging info about position freshness
+                    last_update_time = 0
+                    data_age = 999.0
                     monitor_running = False
-                    if hasattr(motion_controller, 'controller') and hasattr(motion_controller.controller, 'last_position_update'):
-                        if not hasattr(locals(), 'last_update_time'):  # Avoid redefinition
-                            last_update_time = motion_controller.controller.last_position_update
-                        # Check if background monitor is running
-                        if hasattr(motion_controller.controller, 'is_background_monitor_running'):
-                            monitor_running = motion_controller.controller.is_background_monitor_running()
+                    
+                    if hasattr(motion_controller, 'controller'):
+                        controller = motion_controller.controller
+                        if hasattr(controller, 'last_position_update'):
+                            last_update_time = controller.last_position_update
+                            data_age = time.time() - last_update_time if last_update_time > 0 else 999.0
+                        if hasattr(controller, 'is_background_monitor_running'):
+                            monitor_running = controller.is_background_monitor_running()
+                    
+                    # Log if data seems stale but don't try to fix it synchronously
+                    if data_age > 2.0:
+                        self.logger.debug(f"⚠️  Position data is {data_age:.1f}s old, monitor_running={monitor_running}")
+                    else:
+                        self.logger.debug(f"✅ Position data is fresh ({data_age:.1f}s old)")
                     
                     # Get status information from controller properties
                     connected = motion_controller.is_connected() if hasattr(motion_controller, 'is_connected') else False
@@ -976,10 +967,18 @@ class ScannerWebInterface:
                             'x': getattr(position, 'x', 0.0),
                             'y': getattr(position, 'y', 0.0), 
                             'z': getattr(position, 'z', 0.0),
-                            'c': getattr(position, 'c', 0.0)
+                            'c': getattr(position, 'c', 0.0),
+                            'data_age_seconds': round(data_age, 2),
+                            'last_update_time': last_update_time,
+                            'monitor_running': monitor_running
                         }
                     else:
-                        position_dict = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
+                        position_dict = {
+                            'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0,
+                            'data_age_seconds': 999.0,
+                            'last_update_time': 0,
+                            'monitor_running': False
+                        }
                     
                     # Convert MotionStatus enum to string
                     status_str = str(current_status).split('.')[-1].lower() if hasattr(current_status, 'name') else str(current_status).lower()

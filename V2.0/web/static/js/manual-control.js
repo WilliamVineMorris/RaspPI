@@ -51,7 +51,7 @@ const ManualControl = {
      * Start periodic position updates to keep UI synchronized
      */
     startPositionUpdateTimer() {
-        // Update position display every 500ms to match FluidNC's 200ms auto-report capability
+        // Update position display every 250ms to be very responsive to FluidNC's 200ms auto-reports
         setInterval(async () => {
             if (!this.state.isJogging) {
                 try {
@@ -64,7 +64,7 @@ const ManualControl = {
                     ScannerBase.log('Periodic position update failed: ' + error.message);
                 }
             }
-        }, 500); // Reduced from 2000ms to 500ms for more responsive updates
+        }, 250); // Reduced from 500ms to 250ms for maximum responsiveness
     },
 
     /**
@@ -709,17 +709,32 @@ const ManualControl = {
                 body: JSON.stringify(payload)
             });
 
-            // Immediately request updated position after jog command
-            setTimeout(async () => {
+            // Immediately request updated position after jog command with multiple checks
+            // to catch the movement completion reliably
+            let checkCount = 0;
+            const maxChecks = 10;
+            const checkInterval = 200; // Check every 200ms
+            
+            const checkPosition = async () => {
+                checkCount++;
                 try {
                     const status = await ScannerBase.apiRequest('/api/status');
                     if (status.motion && status.motion.position) {
                         this.updatePositionDisplays(status.motion.position);
+                        
+                        // Continue checking for a few more cycles to ensure we catch the final position
+                        if (checkCount < maxChecks) {
+                            setTimeout(checkPosition, checkInterval);
+                        }
                     }
                 } catch (error) {
-                    // Ignore errors for immediate updates
+                    // Ignore errors for immediate updates but stop checking
+                    ScannerBase.log('Position check failed: ' + error.message);
                 }
-            }, 100); // Wait 100ms for command to execute
+            };
+            
+            // Start checking after a brief delay
+            setTimeout(checkPosition, 100);
 
         } catch (error) {
             ScannerBase.showAlert(`Jog command failed: ${error.message}`, 'error');
