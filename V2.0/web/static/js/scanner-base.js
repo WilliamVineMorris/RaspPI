@@ -224,11 +224,12 @@ window.ScannerBase = {
         this.updateDetailedStatus(data);
         
         // Dispatch status update event for Dashboard and other listeners
+        // Always dispatch the extracted data object (not the raw API response)
         const statusEvent = new CustomEvent('scanner:statusUpdate', {
-            detail: { status: data }
+            detail: { status: data }  // data is always the extracted object here
         });
         document.dispatchEvent(statusEvent);
-        console.log('Dispatched scanner:statusUpdate event with data:', data);
+        console.log('Dispatched scanner:statusUpdate event with extracted data:', data);
     },
 
     /**

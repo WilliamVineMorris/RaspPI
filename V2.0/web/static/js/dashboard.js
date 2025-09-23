@@ -230,6 +230,8 @@ const Dashboard = {
             connectionElement.textContent = connected ? 'Connected' : 'Disconnected';
             connectionElement.className = `status-value ${connected ? 'connected' : 'disconnected'}`;
             console.log('Updated motionConnection:', connected);
+        } else {
+            console.log('motionConnection element not found!');
         }
 
         // Update homed status
@@ -239,6 +241,8 @@ const Dashboard = {
             homedElement.textContent = homed ? 'Yes' : 'No';
             homedElement.className = `status-value ${homed ? 'homed' : 'not-homed'}`;
             console.log('Updated motionHomed:', homed);
+        } else {
+            console.log('motionHomed element not found!');
         }
 
         // Update position display
@@ -265,6 +269,9 @@ const Dashboard = {
             const activity = status.motion.activity || 'idle';
             activityElement.textContent = this.formatMotionActivity(activity);
             activityElement.className = `status-value ${this.getActivityClass(activity)}`;
+            console.log('Updated motionActivity:', activity);
+        } else {
+            console.log('motionActivity element not found!');
         }
 
         // Update FluidNC status
@@ -272,6 +279,7 @@ const Dashboard = {
         if (fluidncElement) {
             const fluidncStatus = status.motion.fluidnc_status || 'Unknown';
             fluidncElement.textContent = fluidncStatus;
+            console.log('Updated fluidncStatus:', fluidncStatus);
             
             // Color code FluidNC status
             let statusClass = 'idle';
