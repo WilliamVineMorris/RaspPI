@@ -111,6 +111,10 @@ def add_file_management_endpoints(app, web_interface):
             return send_file(safe_path, as_attachment=True)
             
         except Exception as e:
+            # Check if this is a werkzeug HTTPException (from abort())
+            from werkzeug.exceptions import HTTPException
+            if isinstance(e, HTTPException):
+                raise e  # Re-raise HTTP exceptions to preserve status codes
             logger.error(f"File download error: {e}")
             abort(500, description=str(e))
     
@@ -139,6 +143,10 @@ def add_file_management_endpoints(app, web_interface):
                            download_name=f"{session_id}_export.zip")
             
         except Exception as e:
+            # Check if this is a werkzeug HTTPException (from abort())
+            from werkzeug.exceptions import HTTPException
+            if isinstance(e, HTTPException):
+                raise e  # Re-raise HTTP exceptions to preserve status codes
             logger.error(f"Session export error: {e}")
             abort(500, description=str(e))
 

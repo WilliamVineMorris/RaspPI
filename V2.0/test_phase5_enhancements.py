@@ -198,13 +198,13 @@ def test_settings_api():
         data = json.loads(response.data)
         assert data['success'] == True, f"Settings get returned success=False: {data}"
         assert 'motion' in data['data'], f"Motion config missing from: {data['data'].keys()}"
-        assert 'camera' in data['data'], f"Camera config missing from: {data['data'].keys()}"
+        assert 'cameras' in data['data'], f"Cameras config missing from: {data['data'].keys()}"
         logger.info("✅ Get settings working")
         
         # Test updating settings
         update_data = {
             'motion': {'test_setting': True},
-            'camera': {'test_resolution': [1920, 1080]}
+            'cameras': {'test_resolution': [1920, 1080]}
         }
         
         response = client.post('/api/settings/update',
