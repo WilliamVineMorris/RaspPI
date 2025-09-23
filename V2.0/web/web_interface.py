@@ -1429,17 +1429,14 @@ class ScannerWebInterface:
                 
                 time.sleep(0.1)  # 10 FPS for disabled camera
         
-        # Optimized Camera 0 streaming for Pi performance
-        self.logger.debug(f"STREAM START: Camera 0 performance-optimized streaming initialized")
+        # High-performance Camera 0 streaming - original smooth performance
+        self.logger.debug(f"STREAM START: Camera 0 high-performance streaming initialized")
         
         frame_counter = 0
         last_log_time = 0
-        fps_target = 20  # Maintained at 20 FPS as requested
+        fps_target = 20  # Original 20 FPS target
         frame_interval = 1.0 / fps_target
         last_frame_time = 0
-        frame_cache = None  # Add frame caching
-        cache_duration = 0.5  # Cache frames for 500ms
-        last_cache_time = 0
         
         while True:
             frame_counter += 1
@@ -1463,65 +1460,50 @@ class ScannerWebInterface:
                 orchestrator = getattr(self, 'orchestrator', None)
                 
                 if orchestrator and hasattr(orchestrator, 'camera_manager'):
-                    # Use frame caching to reduce Pi CPU load
-                    current_cache_time = time.time()
-                    
-                    # Only get new frame if cache expired
-                    if frame_cache is None or (current_cache_time - last_cache_time) > cache_duration:
-                        try:
-                            # Always use 'camera_1' for Camera 0 hardware
-                            fresh_frame = orchestrator.camera_manager.get_preview_frame('camera_1')
-                            
-                            if fresh_frame is not None and fresh_frame.size > 0:
-                                frame_cache = fresh_frame
-                                last_cache_time = current_cache_time
-                                if should_log:
-                                    self.logger.debug(f"STREAM CACHE: Fresh frame cached, shape: {fresh_frame.shape}")
-                            elif frame_cache is None:
-                                # First time - create fallback
-                                frame_cache = self._create_fallback_frame("Camera 0 - Initializing")
-                                last_cache_time = current_cache_time
-                        except Exception as e:
-                            if should_log:
-                                self.logger.error(f"STREAM ERROR: Frame capture failed: {e}")
-                            if frame_cache is None:
-                                frame_cache = self._create_fallback_frame("Camera 0 - Error")
-                    
-                    # Use cached frame for encoding
-                    frame = frame_cache
-                    
-                    if frame is not None and frame.size > 0:
-                        # Optimized encoding for Pi performance
-                        encode_params = [
-                            cv2.IMWRITE_JPEG_QUALITY, 70,  # Reduced quality for performance (was 90)
-                            cv2.IMWRITE_JPEG_OPTIMIZE, 1
-                        ]
-                        ret, jpeg_buffer = cv2.imencode('.jpg', frame, encode_params)
+                    # High-performance streaming with direct frame access
+                    try:
+                        # Always use 'camera_1' for Camera 0 hardware
+                        frame = orchestrator.camera_manager.get_preview_frame('camera_1')
                         
-                        if ret and len(jpeg_buffer) > 0:
-                            jpeg_data = jpeg_buffer.tobytes()
+                        if frame is not None and frame.size > 0:
+                            if should_log:
+                                self.logger.debug(f"STREAM SUCCESS: High-performance frame received, shape: {frame.shape}")
                             
-                            yield (b'--frame\r\n'
-                                   b'Content-Type: image/jpeg\r\n'
-                                   b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
-                                   jpeg_data + b'\r\n')
-                            continue
+                            # Original high-quality encoding for smooth streaming
+                            encode_params = [
+                                cv2.IMWRITE_JPEG_QUALITY, 90,  # High quality for smooth experience
+                                cv2.IMWRITE_JPEG_OPTIMIZE, 1,  # Optimize file size
+                                cv2.IMWRITE_JPEG_PROGRESSIVE, 1  # Progressive JPEG for faster loading
+                            ]
+                            ret, jpeg_buffer = cv2.imencode('.jpg', frame, encode_params)
+                            
+                            if ret and len(jpeg_buffer) > 0:
+                                jpeg_data = jpeg_buffer.tobytes()
+                                
+                                yield (b'--frame\r\n'
+                                       b'Content-Type: image/jpeg\r\n'
+                                       b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
+                                       jpeg_data + b'\r\n')
+                                continue
+                            else:
+                                if should_log:
+                                    self.logger.warning("STREAM WARNING: JPEG encoding failed")
                         else:
                             if should_log:
-                                self.logger.warning("STREAM WARNING: JPEG encoding failed")
+                                self.logger.warning("STREAM WARNING: No frame data received")
                     
-                    if should_log:
-                        self.logger.warning("STREAM WARNING: No frame data available")
+                    except Exception as e:
+                        if should_log:
+                            self.logger.error(f"STREAM ERROR: Frame capture failed: {e}")
                 else:
                     if should_log:
                         self.logger.warning("STREAM WARNING: No orchestrator available")
                 
                 # Lightweight fallback for unavailable camera
-                if frame_cache is None:
-                    frame_cache = self._create_fallback_frame("Camera 0 - No Signal")
+                fallback_frame = self._create_fallback_frame("Camera 0 - No Signal")
                 
-                # Encode cached fallback frame
-                ret, jpeg_buffer = cv2.imencode('.jpg', frame_cache, [cv2.IMWRITE_JPEG_QUALITY, 50])
+                # Encode fallback frame with lower quality
+                ret, jpeg_buffer = cv2.imencode('.jpg', fallback_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
                 if ret:
                     jpeg_data = jpeg_buffer.tobytes()
                     yield (b'--frame\r\n'

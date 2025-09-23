@@ -315,18 +315,18 @@
             // Initial load with immediate refresh
             refreshCameraStream();
             
-            // Optimized refresh interval for Pi performance (was 15s, now 30s)
-            refreshInterval = setInterval(refreshCameraStream, 30000);  // Every 30 seconds
+            // Original refresh interval for smooth streaming
+            refreshInterval = setInterval(refreshCameraStream, 15000);  // Every 15 seconds
             
-            // Reduced stream health monitoring for Pi performance (was 5s, now 15s)
-            streamCheckInterval = setInterval(checkStreamHealth, 15000);  // Every 15 seconds
+            // Original stream health monitoring
+            streamCheckInterval = setInterval(checkStreamHealth, 5000);  // Every 5 seconds
         }
         
         function refreshCameraStream() {
             const camera0Feed = document.getElementById('camera0Feed');
             if (camera0Feed) {
                 const timestamp = Date.now();
-                console.log('Refreshing Camera 0 optimized stream for Pi performance...');
+                console.log('Refreshing Camera 0 high-performance stream...');
                 camera0Feed.src = '/camera/0?t=' + timestamp;
             }
         }
