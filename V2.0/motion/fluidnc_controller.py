@@ -381,9 +381,38 @@ class FluidNCController(MotionController):
                 await asyncio.sleep(0.2)
                 
                 # Start background monitoring task to continuously process auto-reports
+                logger.info("🔧 Starting background status monitor task...")
                 self.monitor_running = True
-                self.background_monitor_task = asyncio.create_task(self._background_status_monitor())
-                logger.info("Started background status monitoring task")
+                try:
+                    # Ensure we have a proper event loop
+                    try:
+                        loop = asyncio.get_running_loop()
+                        logger.debug(f"📍 Using running event loop: {id(loop)}")
+                    except RuntimeError:
+                        logger.warning("⚠️  No running event loop detected, attempting to get event loop")
+                        loop = asyncio.get_event_loop()
+                        logger.debug(f"📍 Using event loop: {id(loop)}")
+                    
+                    # Create the background task
+                    self.background_monitor_task = loop.create_task(self._background_status_monitor())
+                    task_id = id(self.background_monitor_task)
+                    logger.info(f"✅ Background monitor task created successfully: {task_id}")
+                    
+                    # Add done callback for debugging
+                    def task_done_callback(task):
+                        if task.cancelled():
+                            logger.info("🛑 Background monitor task was cancelled")
+                        elif task.exception():
+                            logger.error(f"💥 Background monitor task failed: {task.exception()}")
+                        else:
+                            logger.info("✅ Background monitor task completed successfully")
+                    
+                    self.background_monitor_task.add_done_callback(task_done_callback)
+                    
+                except Exception as task_e:
+                    logger.error(f"❌ Failed to create background monitor task: {task_e}")
+                    logger.exception("Task creation error details:")
+                    self.monitor_running = False
                 
             except FluidNCCommandError as e:
                 logger.warning(f"Auto-report setup failed: {e}")
@@ -635,9 +664,16 @@ class FluidNCController(MotionController):
     async def get_current_position(self) -> Position4D:
         """Get current 4DOF position from FluidNC"""
         try:
-            # Always try to get fresh position from FluidNC
-            response = await self._get_status_response()
-            logger.debug(f"Status response for position: {response}")
+            # Always try to get fresh position from FluidNC, but with timeout protection
+            try:
+                response = await asyncio.wait_for(self._get_status_response(), timeout=1.5)
+                logger.debug(f"Status response for position: {response}")
+            except asyncio.TimeoutError:
+                logger.warning("⏰ Status response timed out - using cached position")
+                return self.current_position
+            except Exception as e:
+                logger.error(f"❌ Status request failed: {e}")
+                return self.current_position
             
             # Parse position from status response
             if response:
@@ -708,6 +744,7 @@ class FluidNCController(MotionController):
         """
         Read all available messages from FluidNC serial buffer.
         This captures both responses and unsolicited messages like debug output.
+        Safe for background monitor use - doesn't use connection lock.
         
         Returns:
             List of message strings received
@@ -719,12 +756,22 @@ class FluidNCController(MotionController):
             
         try:
             # Read all available data without blocking
-            while self.serial_connection.in_waiting > 0:
+            message_count = 0
+            max_messages = 50  # Limit to prevent runaway loops
+            
+            while self.serial_connection.in_waiting > 0 and message_count < max_messages:
                 try:
                     line = self.serial_connection.readline().decode('utf-8').strip()
                     if line:
                         messages.append(line)
-                        logger.debug(f"FluidNC message: {line}")
+                        message_count += 1
+                        
+                        # Reduce logging frequency for background monitor
+                        if message_count <= 3:  # Only log first few messages
+                            logger.debug(f"FluidNC message: {line}")
+                        elif message_count == 4:
+                            logger.debug(f"FluidNC: ... (received {self.serial_connection.in_waiting} more bytes)")
+                            
                 except UnicodeDecodeError:
                     # Skip malformed messages
                     continue
@@ -736,6 +783,19 @@ class FluidNCController(MotionController):
             logger.error(f"Error reading FluidNC messages: {e}")
             
         return messages
+    
+    async def _query_position_direct(self) -> Position4D:
+        """Query position directly - used by background monitor to avoid lock conflicts"""
+        try:
+            response = await self._get_status_response()
+            if response:
+                position = self._parse_position_from_status(response)
+                if position:
+                    return position
+            return self.current_position
+        except Exception as e:
+            logger.error(f"Direct position query failed: {e}")
+            return self.current_position
     
     # Homing Operations
     async def home(self) -> bool:
@@ -1242,25 +1302,38 @@ class FluidNCController(MotionController):
         
         try:
             message_count = 0
-            while self.monitor_running and self.is_connected():
+            consecutive_errors = 0
+            max_consecutive_errors = 10
+            
+            while self.monitor_running and self.is_connected() and consecutive_errors < max_consecutive_errors:
                 try:
                     # Read any available messages from FluidNC (including auto-reports)
-                    messages = await self._read_all_messages()
+                    # Use a timeout to avoid hanging
+                    try:
+                        messages = await asyncio.wait_for(self._read_all_messages(), timeout=1.0)
+                        consecutive_errors = 0  # Reset error count on success
+                    except asyncio.TimeoutError:
+                        logger.debug("Background monitor: read timeout, continuing...")
+                        await asyncio.sleep(0.1)
+                        continue
+                    except Exception as read_e:
+                        consecutive_errors += 1
+                        logger.warning(f"Background monitor read error ({consecutive_errors}/{max_consecutive_errors}): {read_e}")
+                        await asyncio.sleep(0.2)
+                        continue
                     
                     if messages:
                         message_count += len(messages)
-                        if message_count % 10 == 0:  # Log every 10th batch of messages
-                            logger.info(f"📈 Background monitor processed {message_count} messages so far")
+                        if message_count % 20 == 0:  # Log every 20th batch of messages (reduced frequency)
+                            logger.debug(f"� Background monitor processed {message_count} messages so far")
                     
                     current_time = time.time()
                     
                     for message in messages:
-                        # Log any status messages we receive
-                        if '<' in message and '>' in message:
-                            logger.debug(f"📡 Background monitor received: {message}")
-                        
                         # Process status reports that contain position information
                         if '<' in message and '>' in message and ('MPos:' in message or 'WPos:' in message):
+                            logger.debug(f"📡 Processing status message: {message[:60]}...")
+                            
                             position = self._parse_position_from_status(message)
                             if position:
                                 # Always update position immediately during movement

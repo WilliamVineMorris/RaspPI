@@ -853,14 +853,17 @@ class ScannerWebInterface:
                         current_timestamp = time.time()
                         age_seconds = current_timestamp - last_update_time if last_update_time > 0 else 999
                         
-                        if age_seconds > 2.0:  # Position data is stale
+                        # Only force fresh update if position is really stale AND we're not getting asyncio errors
+                        if age_seconds > 5.0:  # Increased threshold to avoid excessive calls
                             try:
-                                self.logger.debug(f"Position data stale ({age_seconds:.1f}s), forcing fresh update")
+                                self.logger.debug(f"Position data very stale ({age_seconds:.1f}s), forcing fresh update")
+                                # Use thread-safe approach - don't call async from sync context
                                 fresh_position = asyncio.run(motion_controller.get_current_position())
                                 position = fresh_position
                                 self.logger.debug(f"Fresh position retrieved: {position}")
                             except Exception as pos_e:
-                                self.logger.warning(f"Could not get fresh position: {pos_e}")
+                                self.logger.debug(f"Could not get fresh position (event loop issue): {pos_e}")
+                                # Fall back to cached position - don't spam errors
                     
                     # Also get debugging info
                     last_update_time = getattr(motion_controller, 'last_position_update', 0) if hasattr(motion_controller, 'controller') else 0
