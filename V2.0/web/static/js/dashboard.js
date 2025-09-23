@@ -544,8 +544,8 @@ const Dashboard = {
                 method: 'POST'
             });
 
-            // Show immediate confirmation that homing started (activity log only)
-            ScannerBase.addLogEntry('✅ Homing request sent - monitoring progress...', 'success');
+            // Don't show immediate confirmation - wait for actual homing detection
+            ScannerBase.addLogEntry('⏳ Homing request sent - waiting for FluidNC to start homing sequence...', 'info');
 
             // Start progress monitoring
             let checkCount = 0;
@@ -563,21 +563,21 @@ const Dashboard = {
                     // Update progress display
                     ScannerBase.showLoading(`🏠 Homing in progress... (${elapsed}s)`);
                     
-                    // Check if homing is complete - need MINIMUM TIME + idle status + homed flag
-                    // Prevent premature completion detection by requiring at least 15 seconds
-                    const minimumHomingTime = 15; // seconds
+                    // Check if homing is complete - need MINIMUM TIME + idle status + homed flag + confirmed homing was detected
+                    // Prevent premature completion detection by requiring at least 20 seconds and confirmed homing sequence
+                    const minimumHomingTime = 20; // seconds - increased for better reliability
                     const isHomed = status.motion.homed || status.motion.is_homed || false;
-                    if (status.motion && status.motion.status === 'idle' && isHomed && elapsed >= minimumHomingTime) {
-                        // Additional validation: ensure we've detected active homing before completion
-                        if (!homingDetected) {
-                            ScannerBase.addLogEntry(`⚠️ Premature completion detected (${elapsed}s) - waiting for actual homing sequence...`, 'warning');
+                    if (status.motion && status.motion.status === 'idle' && isHomed && elapsed >= minimumHomingTime && homingDetected) {
+                        // Additional validation: check if we've had enough time for real homing
+                        if (elapsed < 15) {
+                            ScannerBase.addLogEntry(`⚠️ Completion too quick (${elapsed}s) - continuing to monitor...`, 'warning');
                             return; // Continue monitoring
                         }
                         
-                        // Add a small delay to ensure coordinates are properly set
+                        // Add a delay to ensure coordinates are properly set
                         ScannerBase.showLoading(`✅ Homing complete - finalizing coordinates... (${elapsed}s)`);
                         
-                        // Wait 2 seconds before declaring completion
+                        // Wait 3 seconds before declaring completion
                         setTimeout(() => {
                             // Homing completed successfully
                             clearInterval(progressInterval);
@@ -586,7 +586,7 @@ const Dashboard = {
                             ScannerBase.hideLoading();
                             // Use overlay alert only for final success (important message)
                             ScannerBase.showAlert('🎉 All axes homed successfully!', 'success', 5000, false);
-                            ScannerBase.addLogEntry(`✅ Homing completed successfully in ${elapsed + 2} seconds`, 'success');
+                            ScannerBase.addLogEntry(`✅ Homing completed successfully in ${elapsed + 3} seconds`, 'success');
                             
                             // Re-enable button
                             if (homeButton) {
@@ -594,7 +594,7 @@ const Dashboard = {
                                 homeButton.textContent = homeButton.dataset.originalText || '🏠 Home All';
                                 homeButton.style.opacity = '1';
                             }
-                        }, 2000);
+                        }, 3000);
                         return;
                     }
                     
@@ -604,7 +604,7 @@ const Dashboard = {
                         (status.motion.raw_status && status.motion.raw_status.includes('<Home|')))) {
                         if (!homingDetected) {
                             homingDetected = true;
-                            ScannerBase.addLogEntry(`🔄 Homing sequence detected (FluidNC: ${status.motion.fluidnc_status || 'Unknown'})`, 'info');
+                            ScannerBase.addLogEntry(`🔄 Homing sequence started (FluidNC: ${status.motion.fluidnc_status || 'Homing'})`, 'info');
                         }
                         ScannerBase.showLoading(`🏠 Physical homing in progress... (${elapsed}s)`);
                         
@@ -626,10 +626,10 @@ const Dashboard = {
                         throw new Error('Motion controller reported error during homing');
                     }
                     
-                    // Update progress every 10 seconds with more detailed logging
-                    if (checkCount % 10 === 0) {
-                        const phase = homingDetected ? 'coordinate reset' : 'waiting for homing start';
-                        ScannerBase.addLogEntry(`⏳ Homing process: ${phase}... (${elapsed}s elapsed)`, 'info');
+                    // Update progress every 15 seconds with more detailed logging
+                    if (checkCount % 15 === 0) {
+                        const phase = homingDetected ? 'coordinate reset/finalizing' : 'waiting for homing to start';
+                        ScannerBase.addLogEntry(`⏳ Homing progress: ${phase}... (${elapsed}s elapsed)`, 'info');
                         ScannerBase.log(`Homing status check: motion.status=${status.motion?.status}, fluidnc_status=${status.motion?.fluidnc_status}, homed=${status.motion?.homed || status.motion?.is_homed}, homingDetected=${homingDetected}, phase=${phase}, raw_status=${status.motion?.raw_status?.substring(0,50) || 'none'}`);
                     }
                     
