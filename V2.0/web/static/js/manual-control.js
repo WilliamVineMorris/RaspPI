@@ -829,37 +829,44 @@ const ManualControl = {
                         ScannerBase.showLoading(`⏳ Waiting for homing to start... (${elapsed}s)`);
                     }
                     
-                    // STRICT completion criteria - all must be true:
+                    // ULTRA-STRICT completion criteria - ALL must be true:
                     // 1. Homing was actually detected (not initial state)
-                    // 2. At least 30 seconds since homing was detected
-                    // 3. Motion is idle AND homed
-                    // 4. At least 45 seconds total elapsed time
+                    // 2. At least 45 seconds since homing was detected (multi-axis takes time)
+                    // 3. Motion is idle (NOT <Home|...> state) AND homed
+                    // 4. At least 60 seconds total elapsed time (conservative for multi-axis)
                     // 5. State transition from not-homed to homed occurred
+                    // 6. NO fluidnc_status indicating active homing
                     const homingElapsed = homingStartTime ? Math.round((Date.now() - homingStartTime) / 1000) : 0;
-                    const minimumHomingTime = 30; // seconds since homing detection
-                    const minimumTotalTime = 45; // seconds total
+                    const minimumHomingTime = 45; // seconds since homing detection (increased for multi-axis)
+                    const minimumTotalTime = 60; // seconds total (increased for multi-axis)
+                    
+                    // Additional check: ensure FluidNC is NOT in active homing state
+                    const isActivelyHoming = motionState === 'homing' || 
+                                           fluidncState === 'Homing' || 
+                                           (status.motion?.raw_status && status.motion.raw_status.includes('<Home|'));
                     
                     if (homingDetected && 
                         homingElapsed >= minimumHomingTime && 
                         elapsed >= minimumTotalTime &&
                         status.motion && 
-                        status.motion.status === 'idle' && 
+                        motionState === 'idle' &&  // Must be idle, not <Home|...>
+                        !isActivelyHoming &&       // Must NOT be actively homing
                         isHomed &&
                         initialHomedState !== null) {
                         
                         // Additional safety check: ensure we had a state transition
                         if (initialHomedState === true && isHomed === true) {
                             ScannerBase.addLogEntry(`⚠️ No state transition detected - may have been already homed. Continuing to monitor...`, 'warning');
-                            if (elapsed < 60) { // Give it more time
+                            if (elapsed < 90) { // Give it even more time for multi-axis
                                 return;
                             }
                         }
                         
                         // Final validation before completion
-                        ScannerBase.addLogEntry(`🔍 Final validation: homingDetected=${homingDetected}, homingElapsed=${homingElapsed}s, totalElapsed=${elapsed}s, motionIdle=${status.motion.status === 'idle'}, isHomed=${isHomed}`, 'info');
+                        ScannerBase.addLogEntry(`🔍 Final validation: homingDetected=${homingDetected}, homingElapsed=${homingElapsed}s, totalElapsed=${elapsed}s, motionState=${motionState}, isActivelyHoming=${isActivelyHoming}, isHomed=${isHomed}`, 'info');
                         
                         // Add a delay to ensure coordinates are properly set
-                        ScannerBase.showLoading(`✅ Homing complete - finalizing coordinates... (${elapsed}s total)`);
+                        ScannerBase.showLoading(`✅ All axes homed - finalizing coordinates... (${elapsed}s total)`);
                         
                         // Wait 5 seconds before declaring completion
                         setTimeout(() => {
@@ -870,7 +877,7 @@ const ManualControl = {
                             ScannerBase.hideLoading();
                             // Use overlay alert only for final success (important message)
                             ScannerBase.showAlert('🎉 All axes homed successfully!', 'success', 5000, false);
-                            ScannerBase.addLogEntry(`✅ Homing completed successfully in ${elapsed + 5} seconds (${homingElapsed + 5}s since detection)`, 'success');
+                            ScannerBase.addLogEntry(`✅ All axes homing completed successfully in ${elapsed + 5} seconds (${homingElapsed + 5}s since detection)`, 'success');
                             
                             // Re-enable button with original text
                             if (homeButton) {
