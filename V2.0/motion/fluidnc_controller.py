@@ -889,9 +889,9 @@ class FluidNCController(MotionController):
                 stable_count = 0
                 logger.debug(f"Position changing: {last_position} → {current_pos}")
             
-            # Check FluidNC status for movement completion (more reliable than position)
-            if self.status == MotionStatus.IDLE and stable_count >= 1:
-                logger.info("✅ Movement completed - FluidNC reports IDLE and position stable")
+            # Check FluidNC status for movement completion (ONLY after movement was detected)
+            if movement_started and self.status == MotionStatus.IDLE and stable_count >= 1:
+                logger.info("✅ Movement completed - FluidNC reports IDLE after movement detected")
                 return
             
             # Movement complete when:
