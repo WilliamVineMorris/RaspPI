@@ -896,17 +896,17 @@ class FluidNCController(MotionController):
                 return
             
             # Movement complete when:
-            # 1. Movement was detected AND position stable for 2+ checks (100ms)
+            # 1. Movement was detected AND position stable for 1+ checks (50ms) - faster detection
             # 2. OR extended timeout for movement detection (allow for slow movements)
-            if movement_started and stable_count >= 2:
+            if movement_started and stable_count >= 1:
                 logger.info("✅ Movement completed - position stable after movement")
                 return
-            elif not movement_started and (time.time() - start_time) > 8.0:
+            elif not movement_started and (time.time() - start_time) > 3.0:  # Reduced from 8s to 3s
                 logger.info("✅ Movement completed - extended timeout (assuming quick/undetected movement)")
                 return
                 
             last_position = current_pos
-            await asyncio.sleep(0.05)  # Check every 50ms - optimized for faster movement detection
+            await asyncio.sleep(0.02)  # Check every 20ms - maximum responsiveness
         
         # Timeout reached - try one final recovery attempt
         elapsed = time.time() - start_time
@@ -1919,6 +1919,10 @@ class FluidNCController(MotionController):
             'SETTING',  # Setting-related errors during configuration
             'INVALID COMMAND',  # Command format errors
             'UNKNOWN COMMAND',  # Command not recognized
+            'BAD GCODE NUMBER FORMAT',  # Specific error message from FluidNC
+            'BAD G-CODE NUMBER FORMAT',  # Alternative formatting
+            'MSG:ERR: BAD GCODE',  # FluidNC message format errors
+            'MSG:ERR: BAD G-CODE',  # FluidNC message format errors  
         ]
         
         # Check if this matches a known recoverable error pattern
