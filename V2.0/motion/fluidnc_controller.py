@@ -282,8 +282,9 @@ class FluidNCController(MotionController):
         # During initialization, check serial connection first
         # Status might still be DISCONNECTED during setup
         if self.serial_connection and self.serial_connection.is_open:
-            # If we're not in an error state, consider connected
-            return self.status not in [MotionStatus.ERROR, MotionStatus.EMERGENCY_STOP]
+            # Connected as long as serial is open - don't let minor errors break monitoring
+            # Only emergency stop should be considered a connection failure
+            return self.status != MotionStatus.EMERGENCY_STOP
         return False
     
     # Serial Communication
@@ -1832,9 +1833,15 @@ class FluidNCController(MotionController):
                                 if old_status != self.status:
                                     logger.info("🏠 Homing in progress")
                             elif any(keyword in message_upper for keyword in ['ERROR', 'ERR']):
-                                self.status = MotionStatus.ERROR
-                                if old_status != self.status:
-                                    logger.error(f"❌ ERROR STATE: {message_clean}")
+                                # Check if this is a recoverable error vs fatal error
+                                if self._is_recoverable_error(message_clean):
+                                    # Log but don't change status for minor errors
+                                    logger.warning(f"⚠️ Minor FluidNC error (recoverable): {message_clean}")
+                                else:
+                                    # Only set ERROR status for serious issues
+                                    self.status = MotionStatus.ERROR
+                                    if old_status != self.status:
+                                        logger.error(f"❌ FATAL ERROR STATE: {message_clean}")
                             
                             # ENHANCED POSITION PARSING - Try on ALL messages that might contain coordinates
                             # FluidNC sends position data in various formats and contexts
@@ -1897,6 +1904,30 @@ class FluidNCController(MotionController):
         finally:
             logger.info("🛑 Background status monitor stopped")
             self.monitor_running = False
+    
+    def _is_recoverable_error(self, message: str) -> bool:
+        """Determine if a FluidNC error message represents a recoverable error that shouldn't stop monitoring"""
+        message_upper = message.upper()
+        
+        # Common recoverable errors that shouldn't shut down the monitor
+        recoverable_patterns = [
+            'ERROR:2',  # Bad G-code format/setting - often from configuration commands
+            'ERROR:3',  # Bad command format - often from startup sequences  
+            'ERROR:20', # Unsupported or invalid statement
+            'ERROR:21', # Soft limit error
+            'ERROR:22', # Homing failed
+            'SETTING',  # Setting-related errors during configuration
+            'INVALID COMMAND',  # Command format errors
+            'UNKNOWN COMMAND',  # Command not recognized
+        ]
+        
+        # Check if this matches a known recoverable error pattern
+        for pattern in recoverable_patterns:
+            if pattern in message_upper:
+                return True
+                
+        # Default to non-recoverable for unknown errors to be safe
+        return False
     
     async def get_status(self) -> MotionStatus:
         """Get current motion controller status"""
