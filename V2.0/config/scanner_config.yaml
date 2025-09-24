@@ -84,6 +84,30 @@ motion:
       servo_controlled: true        # RC servo on gpio.26
       continuous: false             # Limited range servo
   
+  # Feedrate Configuration - Per Axis and Operating Mode
+  feedrates:
+    # MANUAL/JOG MODE - Fast and responsive for web interface jog commands
+    manual_mode:
+      x_axis: 300.0              # mm/min - 30% of max (1000) - very responsive
+      y_axis: 300.0              # mm/min - 30% of max (1000) - very responsive  
+      z_axis: 200.0              # deg/min - 25% of max (800) - good rotation speed
+      c_axis: 1000.0             # deg/min - 20% of max (5000) - fast servo response
+      description: "Fast feedrates for responsive web interface jog commands"
+      
+    # SCANNING MODE - Slower and precise for automated scanning operations  
+    scanning_mode:
+      x_axis: 150.0              # mm/min - 15% of max - precise positioning
+      y_axis: 150.0              # mm/min - 15% of max - precise positioning
+      z_axis: 100.0              # deg/min - 12.5% of max - smooth rotation
+      c_axis: 500.0              # deg/min - 10% of max - precise camera positioning
+      description: "Slower, precise feedrates for automated scanning operations"
+      
+    # CONFIGURATION OPTIONS
+    options:
+      allow_override: true       # Allow runtime feedrate override
+      validate_limits: true     # Validate against max_feedrate limits
+      apply_acceleration: true   # Use acceleration profiles
+      
   # Safety Configuration (Matching FluidNC requirements)
   safety:
     enable_limits: true

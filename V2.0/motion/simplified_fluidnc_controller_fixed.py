@@ -58,6 +58,12 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         self.current_position = Position4D()  # Tracked from machine
         self.target_position = Position4D()
         
+        # Operating mode for feedrate selection
+        self.operating_mode = "manual_mode"  # Default to manual/jog mode
+        
+        # Feedrate configuration per mode and axis
+        self.feedrate_config = config.get('feedrates', {})
+        
         # Capabilities and limits
         self.capabilities = MotionCapabilities(
             max_feedrate=config.get('max_feedrate', 1000.0),
@@ -188,15 +194,28 @@ class SimplifiedFluidNCControllerFixed(MotionController):
     
     # Motion Commands
     async def move_to_position(self, position: Position4D, feedrate: Optional[float] = None) -> bool:
-        """Move to absolute position with safety validation"""
+        """Move to absolute position with safety validation and intelligent feedrate"""
         try:
             # Validate position
             if not self._validate_position_limits(position):
                 raise MotionSafetyError(f"Position {position} exceeds limits")
             
-            # Set feedrate if specified
-            if feedrate:
-                await self._send_command(f"F{feedrate}")
+            # Calculate movement delta for feedrate selection
+            current = await self.get_position()
+            delta = Position4D(
+                position.x - current.x,
+                position.y - current.y,
+                position.z - current.z,
+                position.c - current.c
+            )
+            
+            # Use provided feedrate or get optimal feedrate based on current mode
+            if feedrate is None:
+                feedrate = self.get_optimal_feedrate(delta)
+                logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
+            
+            # Set feedrate
+            await self._send_command(f"F{feedrate}")
             
             # Send absolute movement (G90 is default, but ensure it)
             await self._send_command("G90")
@@ -216,7 +235,8 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 self._emit_event("motion_completed", {
                     "target_position": position.to_dict(),
                     "actual_position": self.current_position.to_dict(),
-                    "feedrate": feedrate
+                    "feedrate": feedrate,
+                    "operating_mode": self.operating_mode
                 })
                 
                 logger.info(f"✅ Absolute move to: {position}")
@@ -231,7 +251,7 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             return False
     
     async def move_relative(self, delta: Position4D, feedrate: Optional[float] = None) -> bool:
-        """Move relative to current position with improved handling"""
+        """Move relative to current position with intelligent feedrate selection"""
         try:
             # Get current position from machine
             current = await self.get_position()
@@ -248,9 +268,13 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             if not self._validate_position_limits(target):
                 raise MotionSafetyError(f"Relative move {delta} would exceed limits")
             
-            # Set feedrate if specified  
-            if feedrate:
-                await self._send_command(f"F{feedrate}")
+            # Use provided feedrate or get optimal feedrate based on current mode
+            if feedrate is None:
+                feedrate = self.get_optimal_feedrate(delta)
+                logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
+            
+            # Set feedrate
+            await self._send_command(f"F{feedrate}")
             
             # Use absolute positioning to avoid coordinate drift
             # This is more reliable than relative mode
@@ -274,7 +298,8 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                     "delta": delta.to_dict(),
                     "target_position": target.to_dict(),
                     "actual_position": self.current_position.to_dict(),
-                    "feedrate": feedrate
+                    "feedrate": feedrate,
+                    "operating_mode": self.operating_mode
                 })
                 
                 logger.info(f"✅ Relative move: {delta}")
@@ -677,6 +702,153 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             self.event_bus.publish(event_name, data, source_module="fluidnc_controller")
         except Exception as e:
             logger.error(f"❌ Event emission error: {event_name} - {e}")
+    
+    # Feedrate Management
+    def set_operating_mode(self, mode: str) -> bool:
+        """
+        Set operating mode for feedrate selection
+        
+        Args:
+            mode: "manual_mode" for jog/web interface, "scanning_mode" for automated scanning
+            
+        Returns:
+            bool: True if mode was set successfully
+        """
+        valid_modes = ["manual_mode", "scanning_mode"]
+        
+        if mode not in valid_modes:
+            logger.error(f"❌ Invalid operating mode: {mode}. Valid modes: {valid_modes}")
+            return False
+            
+        old_mode = self.operating_mode
+        self.operating_mode = mode
+        
+        logger.info(f"🔧 Operating mode changed: {old_mode} → {mode}")
+        
+        # Emit mode change event
+        self._emit_event("operating_mode_changed", {
+            "old_mode": old_mode,
+            "new_mode": mode,
+            "feedrates": self.get_current_feedrates()
+        })
+        
+        return True
+    
+    def get_operating_mode(self) -> str:
+        """Get current operating mode"""
+        return self.operating_mode
+    
+    def get_current_feedrates(self) -> Dict[str, float]:
+        """Get feedrates for current operating mode"""
+        mode_config = self.feedrate_config.get(self.operating_mode, {})
+        
+        return {
+            'x_axis': mode_config.get('x_axis', 100.0),
+            'y_axis': mode_config.get('y_axis', 100.0),
+            'z_axis': mode_config.get('z_axis', 100.0),
+            'c_axis': mode_config.get('c_axis', 100.0)
+        }
+    
+    def get_feedrate_for_axis(self, axis: str) -> float:
+        """
+        Get feedrate for specific axis in current operating mode
+        
+        Args:
+            axis: 'x', 'y', 'z', or 'c'
+            
+        Returns:
+            float: Feedrate for the axis
+        """
+        axis_key = f"{axis.lower()}_axis"
+        current_feedrates = self.get_current_feedrates()
+        
+        return current_feedrates.get(axis_key, 100.0)
+    
+    def get_optimal_feedrate(self, position_delta: Position4D) -> float:
+        """
+        Get optimal feedrate based on the movement and current mode
+        
+        Chooses the limiting feedrate based on which axes are moving
+        
+        Args:
+            position_delta: Movement delta to analyze
+            
+        Returns:
+            float: Optimal feedrate for the movement
+        """
+        feedrates = []
+        
+        # Check which axes are moving and get their feedrates
+        if abs(position_delta.x) > 0.001:
+            feedrates.append(self.get_feedrate_for_axis('x'))
+        if abs(position_delta.y) > 0.001:
+            feedrates.append(self.get_feedrate_for_axis('y'))
+        if abs(position_delta.z) > 0.001:
+            feedrates.append(self.get_feedrate_for_axis('z'))
+        if abs(position_delta.c) > 0.001:
+            feedrates.append(self.get_feedrate_for_axis('c'))
+        
+        # Use the minimum feedrate (most conservative)
+        if feedrates:
+            return min(feedrates)
+        else:
+            return self.get_feedrate_for_axis('x')  # Default
+    
+    def get_all_feedrate_configurations(self) -> Dict[str, Any]:
+        """Get complete feedrate configuration for all modes"""
+        return self.feedrate_config.copy()
+    
+    def update_feedrate_config(self, mode: str, axis: str, feedrate: float) -> bool:
+        """
+        Update feedrate for specific mode and axis
+        
+        Args:
+            mode: "manual_mode" or "scanning_mode"
+            axis: "x_axis", "y_axis", "z_axis", or "c_axis"
+            feedrate: New feedrate value
+            
+        Returns:
+            bool: True if updated successfully
+        """
+        if mode not in ["manual_mode", "scanning_mode"]:
+            logger.error(f"❌ Invalid mode: {mode}")
+            return False
+            
+        if axis not in ["x_axis", "y_axis", "z_axis", "c_axis"]:
+            logger.error(f"❌ Invalid axis: {axis}")
+            return False
+            
+        # Validate against max feedrate limits
+        axis_letter = axis.split('_')[0]
+        axis_limits = self.limits.get(axis_letter)
+        max_feedrate = axis_limits.max_feedrate if axis_limits else 1000.0
+        
+        if feedrate > max_feedrate:
+            logger.warning(f"⚠️ Feedrate {feedrate} exceeds max {max_feedrate} for {axis}")
+            feedrate = max_feedrate
+        
+        if feedrate <= 0:
+            logger.error(f"❌ Invalid feedrate: {feedrate}")
+            return False
+        
+        # Update configuration
+        if mode not in self.feedrate_config:
+            self.feedrate_config[mode] = {}
+            
+        old_feedrate = self.feedrate_config[mode].get(axis, 0.0)
+        self.feedrate_config[mode][axis] = feedrate
+        
+        logger.info(f"🔧 Feedrate updated: {mode}.{axis} {old_feedrate} → {feedrate}")
+        
+        # Emit configuration change event
+        self._emit_event("feedrate_config_changed", {
+            "mode": mode,
+            "axis": axis,
+            "old_feedrate": old_feedrate,
+            "new_feedrate": feedrate
+        })
+        
+        return True
     
     # Statistics and Info
     def get_stats(self) -> Dict[str, Any]:
