@@ -1391,7 +1391,7 @@ class ScannerWebInterface:
             import threading
             def home_task():
                 try:
-                    result = self.orchestrator.motion_controller.home_axes(axes)
+                    result = self.orchestrator.motion_controller.home_axes_sync(axes)
                     self.logger.info(f"Homing sequence completed for axes: {axes}, result: {result}")
                 except Exception as e:
                     self.logger.error(f"Homing failed: {e}")

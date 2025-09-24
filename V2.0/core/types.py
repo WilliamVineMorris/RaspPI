@@ -32,6 +32,19 @@ class Position4D:
         """Calculate 3D distance to another position (ignoring rotation)"""
         return ((self.x - other.x)**2 + (self.y - other.y)**2 + (self.z - other.z)**2)**0.5
     
+    def to_dict(self) -> Dict[str, float]:
+        """Convert position to dictionary for JSON serialization"""
+        return {
+            'x': self.x,
+            'y': self.y,
+            'z': self.z,
+            'c': self.c
+        }
+    
+    def copy(self) -> 'Position4D':
+        """Create a copy of this position"""
+        return Position4D(x=self.x, y=self.y, z=self.z, c=self.c)
+    
     def __str__(self) -> str:
         return f"Position4D(x={self.x:.2f}, y={self.y:.2f}, z={self.z:.2f}, c={self.c:.2f})"
 

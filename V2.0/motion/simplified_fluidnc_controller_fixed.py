@@ -381,6 +381,21 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             self.stats['errors_encountered'] += 1
             return False
     
+    def home_axes_sync(self, axes: Optional[list] = None) -> bool:
+        """Synchronous version of home_axes for web interface"""
+        import asyncio
+        try:
+            # Create new event loop for synchronous execution
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self.home_axes(axes))
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.error(f"❌ Synchronous homing failed: {e}")
+            return False
+    
     async def emergency_stop(self) -> bool:
         """Emergency stop - immediate halt"""
         try:
