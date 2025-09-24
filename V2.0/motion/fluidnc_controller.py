@@ -945,7 +945,8 @@ class FluidNCController(MotionController):
             
             # FAST COMPLETION: If FluidNC reports IDLE and position is stable, movement is done
             # (Handles very fast movements that complete before detection)
-            if self.status == MotionStatus.IDLE and stable_count >= 2 and (time.time() - start_time) > 0.5:
+            # IMPORTANT: Only trigger after sufficient time for FluidNC to update position
+            if self.status == MotionStatus.IDLE and stable_count >= 3 and (time.time() - start_time) > 1.0:
                 logger.info("✅ Movement completed - FluidNC IDLE with stable position (fast movement)")
                 return
             
@@ -2150,7 +2151,50 @@ class FluidNCController(MotionController):
                 # Force immediate position update for responsive UI
                 try:
                     logger.info("🔍 Querying final position after movement completion...")
+                    
+                    # Store pre-movement position for verification
+                    pre_movement_position = Position4D(
+                        x=self.current_position.x,
+                        y=self.current_position.y,
+                        z=self.current_position.z,
+                        c=self.current_position.c
+                    )
+                    
                     fresh_position = await self.get_current_position()
+                    
+                    # Verify position has actually changed (detect premature completion)
+                    position_changed = (
+                        abs(fresh_position.x - pre_movement_position.x) > 0.001 or
+                        abs(fresh_position.y - pre_movement_position.y) > 0.001 or
+                        abs(fresh_position.z - pre_movement_position.z) > 0.001 or
+                        abs(fresh_position.c - pre_movement_position.c) > 0.001
+                    )
+                    
+                    if not position_changed:
+                        logger.warning(f"⚠️  Position hasn't changed yet - movement may still be in progress")
+                        logger.warning(f"Pre: {pre_movement_position} → Post: {fresh_position}")
+                        
+                        # Give FluidNC more time to update position (up to 2 more seconds)
+                        position_finally_changed = False
+                        for retry in range(10):  # 10 retries x 200ms = 2 seconds max
+                            await asyncio.sleep(0.2)
+                            retry_position = await self.get_current_position()
+                            
+                            retry_changed = (
+                                abs(retry_position.x - pre_movement_position.x) > 0.001 or
+                                abs(retry_position.y - pre_movement_position.y) > 0.001 or
+                                abs(retry_position.z - pre_movement_position.z) > 0.001 or
+                                abs(retry_position.c - pre_movement_position.c) > 0.001
+                            )
+                            
+                            if retry_changed:
+                                fresh_position = retry_position
+                                position_finally_changed = True
+                                logger.info(f"✅ Position updated after {(retry + 1) * 0.2:.1f}s: {fresh_position}")
+                                break
+                        
+                        if not position_finally_changed:
+                            logger.warning(f"⚠️  Position still unchanged after 2s - using current position")
                     
                     # CRITICAL: Update position timestamp to mark this as fresh data
                     # This prevents background monitor from immediately overwriting it with stale data
