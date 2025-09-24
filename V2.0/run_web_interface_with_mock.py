@@ -20,57 +20,23 @@ logging.basicConfig(
 )
 
 def create_mock_orchestrator():
-    """Create a mock orchestrator for testing manual controls"""
-    from datetime import datetime
-    from core.types import Position4D
-    
-    class MockMotionController:
-        """Mock motion controller that simulates movement"""
+    """Create a proper mock orchestrator using the working system"""
+    try:
+        from web.start_web_interface import create_mock_orchestrator as create_proper_mock
+        print("✅ Using proper mock orchestrator from working system")
+        return create_proper_mock()
+    except ImportError as e:
+        print(f"⚠️ Could not import proper mock, creating minimal fallback: {e}")
         
-        def __init__(self):
-            self.current_position = Position4D(0, 0, 0, 0)
-            self.connected = True
-            
-        async def move_relative(self, delta, feedrate=None, command_id=None):
-            """Simulate relative movement"""
-            print(f"🎮 Mock Movement: {delta} at feedrate {feedrate}")
-            # Update position
-            self.current_position = Position4D(
-                self.current_position.x + delta.x,
-                self.current_position.y + delta.y,
-                self.current_position.z + delta.z,
-                self.current_position.c + delta.c
-            )
-            print(f"📍 New Position: {self.current_position}")
-            return True
-            
-        async def get_position(self):
-            return self.current_position
-            
-        def is_connected(self):
-            return True
-            
-        def get_status(self):
-            return "idle"
-    
-    class MockCameraManager:
-        """Mock camera manager"""
-        def __init__(self):
-            self.available_cameras = 2
-            
-        def get_camera_count(self):
-            return self.available_cameras
-    
-    class MockOrchestrator:
-        """Mock orchestrator with working motion controller"""
-        
-        def __init__(self):
-            self.current_scan = None
-            self.motion_controller = MockMotionController()
-            self.camera_manager = MockCameraManager()
-            print("✅ Mock orchestrator created with motion controller")
-            
-    return MockOrchestrator()
+        # Fallback minimal mock if import fails
+        class MockOrchestrator:
+            def __init__(self):
+                self.current_scan = None
+                self.motion_controller = None
+                self.camera_manager = None
+                print("⚠️ Using minimal fallback mock orchestrator")
+                
+        return MockOrchestrator()
 
 def main():
     print("🚀 Starting Web Interface with Mock Orchestrator")
