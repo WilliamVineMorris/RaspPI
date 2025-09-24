@@ -41,6 +41,7 @@ try:
     from scanning.scan_patterns import GridScanPattern, CylindricalScanPattern
     from scanning.scan_state import ScanStatus, ScanPhase
     from scanning.scan_orchestrator import ScanOrchestrator
+    from timing_logger import timing_logger
     SCANNER_MODULES_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Could not import scanner modules: {e}")
@@ -569,7 +570,15 @@ class ScannerWebInterface:
         @self.app.route('/api/jog', methods=['POST'])
         def api_jog():
             """Handle jog movement commands"""
+            # Start timing logging
+            command_id = timing_logger.log_backend_received(
+                command_type="jog",
+                command_data=request.get_json() or {}
+            )
+            
             try:
+                timing_logger.log_backend_start(command_id, "api_jog")
+                
                 data = request.get_json() or {}
                 
                 # Validate jog parameters
@@ -580,9 +589,11 @@ class ScannerWebInterface:
                 speed = data.get('speed', 10.0)  # Fallback if config fails
                 
                 if axis not in ['x', 'y', 'z', 'c']:
+                    timing_logger.log_backend_complete(command_id, success=False, error="Invalid axis")
                     return jsonify({"success": False, "error": "Invalid axis"}), 400
                 
                 if direction not in ['+', '-']:
+                    timing_logger.log_backend_complete(command_id, success=False, error="Invalid direction")
                     return jsonify({"success": False, "error": "Invalid direction"}), 400
                 
                 # Use enhanced feedrates from configuration for manual control
@@ -648,7 +659,9 @@ class ScannerWebInterface:
                 delta_values[axis] = move_distance
                 
                 # Execute the movement using Position4D format with enhanced feedrate
-                result = asyncio.run(self._execute_jog_command(delta_values, speed))
+                result = asyncio.run(self._execute_jog_command(delta_values, speed, command_id))
+                
+                timing_logger.log_backend_complete(command_id, success=True)
                 
                 return jsonify({
                     'success': True,
@@ -657,6 +670,7 @@ class ScannerWebInterface:
                 })
                 
             except Exception as e:
+                timing_logger.log_backend_complete(command_id, success=False, error=str(e))
                 self.logger.error(f"Jog command error: {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
@@ -1467,9 +1481,12 @@ class ScannerWebInterface:
     
     # Command execution methods with robust error handling
     
-    async def _execute_jog_command(self, delta_values: Dict[str, float], speed: float) -> Dict[str, Any]:
+    async def _execute_jog_command(self, delta_values: Dict[str, float], speed: float, command_id: Optional[str] = None) -> Dict[str, Any]:
         """Execute jog movement with Position4D format"""
         try:
+            if command_id:
+                timing_logger.log_motion_controller_start(command_id, "_execute_jog_command")
+            
             if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
                 raise HardwareError("Motion controller not available")
             
@@ -1483,7 +1500,7 @@ class ScannerWebInterface:
                         'z': delta_values['z'], 'c': delta_values['c']}
             
             # Execute the jog movement (this now includes immediate position update)
-            result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=speed)
+            result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=speed, command_id=command_id)
             
             # Get the fresh position that was just updated by move_relative
             cached_position = self.orchestrator.motion_controller.current_position

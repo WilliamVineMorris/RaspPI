@@ -23,6 +23,13 @@ from motion.base import MotionController, Position4D, MotionStatus, MotionCapabi
 from core.events import EventBus
 from core.exceptions import MotionError, MotionSafetyError, ConfigurationError
 
+# Import timing logger
+try:
+    from timing_logger import timing_logger
+    TIMING_AVAILABLE = True
+except ImportError:
+    TIMING_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -268,7 +275,7 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             self.stats['errors_encountered'] += 1
             return False
     
-    async def move_relative(self, delta: Position4D, feedrate: Optional[float] = None) -> bool:
+    async def move_relative(self, delta: Position4D, feedrate: Optional[float] = None, command_id: Optional[str] = None) -> bool:
         """Move relative to current position with intelligent feedrate selection"""
         try:
             # Get current position from machine
@@ -292,17 +299,17 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
             
             # Set feedrate
-            await self._send_command(f"F{feedrate}")
+            await self._send_command(f"F{feedrate}", command_id)
             
             # Use absolute positioning to avoid coordinate drift
             # This is more reliable than relative mode
-            success, response = await self._send_command("G90")
+            success, response = await self._send_command("G90", command_id)
             if not success:
                 return False
             
             # Send absolute move to calculated target
             gcode = f"G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
-            success, response = await self._send_command(gcode)
+            success, response = await self._send_command(gcode, command_id)
             
             if success:
                 self.target_position = target.copy()
@@ -785,20 +792,30 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             return False
     
     # Helper Methods
-    async def _send_command(self, command: str) -> tuple[bool, str]:
+    async def _send_command(self, command: str, command_id: Optional[str] = None) -> tuple[bool, str]:
         """Send command using fixed protocol with motion completion"""
         try:
             self.stats['commands_sent'] += 1
+            
+            # Log FluidNC command send
+            if TIMING_AVAILABLE and command_id:
+                timing_logger.log_fluidnc_send(command_id, command)
             
             # Use the fixed protocol with motion completion waiting
             success, response = await asyncio.get_event_loop().run_in_executor(
                 None, self.protocol.send_command_with_motion_wait, command
             )
             
+            # Log FluidNC response
+            if TIMING_AVAILABLE and command_id:
+                timing_logger.log_fluidnc_response(command_id, response)
+            
             return success, response
             
         except Exception as e:
             logger.error(f"❌ Command send error: {command} - {e}")
+            if TIMING_AVAILABLE and command_id:
+                timing_logger.log_error(command_id, str(e), "fluidnc_send")
             return False, str(e)
     
     async def _update_current_position(self):

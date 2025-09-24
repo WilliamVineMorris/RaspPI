@@ -162,6 +162,9 @@ class SimplifiedFluidNCProtocolFixed:
         This is the key fix - we wait for the machine to return to Idle state
         after motion commands before considering the command complete.
         """
+        start_time = time.time()
+        logger.debug(f"🕐 [TIMING] Starting command: {command}")
+        
         with self.command_lock:
             if not self.is_connected():
                 return False, "Not connected"
@@ -170,7 +173,12 @@ class SimplifiedFluidNCProtocolFixed:
             current_time = time.time()
             time_since_last = current_time - self.last_command_time
             if time_since_last < self.command_delay:
-                time.sleep(self.command_delay - time_since_last)
+                delay_needed = self.command_delay - time_since_last
+                logger.debug(f"⏳ [TIMING] Command delay: {delay_needed*1000:.1f}ms")
+                time.sleep(delay_needed)
+            
+            command_ready_time = time.time()
+            logger.debug(f"🕐 [TIMING] Command ready after: {(command_ready_time-start_time)*1000:.1f}ms")
             
             try:
                 logger.debug(f"📤 Command: {command}")
@@ -186,8 +194,14 @@ class SimplifiedFluidNCProtocolFixed:
                 self.stats['commands_sent'] += 1
                 self.last_command_time = time.time()
                 
+                command_sent_time = time.time()
+                logger.debug(f"📤 [TIMING] Command sent after: {(command_sent_time-start_time)*1000:.1f}ms")
+                
                 # Wait for immediate response (ok/error)
                 immediate_response = self._wait_for_immediate_response(self.command_timeout)
+                response_received_time = time.time() 
+                logger.debug(f"📥 [TIMING] Response received after: {(response_received_time-start_time)*1000:.1f}ms")
+                
                 if not immediate_response:
                     self.stats['timeouts'] += 1
                     return False, "Command timeout"
@@ -196,20 +210,26 @@ class SimplifiedFluidNCProtocolFixed:
                 is_motion_command = self._is_motion_command(command)
                 
                 if is_motion_command:
-                    logger.debug(f"⏳ Waiting for motion completion: {command}")
+                    logger.debug(f"⏳ [TIMING] Starting motion wait: {command}")
+                    motion_wait_start = time.time()
                     self.stats['motion_commands'] += 1
                     
                     # Wait for motion to complete (machine returns to Idle)
                     if self._wait_for_motion_completion():
-                        logger.debug(f"✅ Motion completed: {command}")
+                        motion_complete_time = time.time()
+                        logger.debug(f"✅ [TIMING] Motion completed: {command} - Motion wait: {(motion_complete_time-motion_wait_start)*1000:.1f}ms")
+                        logger.debug(f"🏁 [TIMING] Total command time: {(motion_complete_time-start_time)*1000:.1f}ms")
                         return True, immediate_response
                     else:
-                        logger.warning(f"⚠️ Motion completion timeout: {command}")
+                        motion_timeout_time = time.time()
+                        logger.warning(f"⚠️ [TIMING] Motion completion timeout: {command} - Timeout after: {(motion_timeout_time-motion_wait_start)*1000:.1f}ms")
                         self.stats['motion_timeouts'] += 1
                         # Still return success as the command was accepted
                         return True, immediate_response
                 else:
                     # Non-motion command, immediate response is sufficient
+                    non_motion_complete_time = time.time()
+                    logger.debug(f"🏁 [TIMING] Non-motion command completed: {(non_motion_complete_time-start_time)*1000:.1f}ms")
                     return True, immediate_response
                 
             except Exception as e:
