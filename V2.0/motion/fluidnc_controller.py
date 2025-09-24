@@ -1074,6 +1074,7 @@ class FluidNCController(MotionController):
                                         c=wc     # Work coordinate for C (tilt, user-relevant)
                                     )
                                     logger.debug(f"✅ Parsed hybrid position - Work X,Y,C: ({wx:.3f},{wy:.3f},{wc:.3f}), Machine Z: {mz:.3f}")
+                                    logger.debug(f"📊 Coordinate details: MPos=({mx:.3f},{my:.3f},{mz:.3f},{mc:.3f}) WPos=({wx:.3f},{wy:.3f},{wz:.3f},{wc:.3f})")
                                     return position
                             except (ValueError, IndexError) as e:
                                 logger.debug(f"Work coordinate parsing failed, using machine only: {e}")
@@ -2027,9 +2028,17 @@ class FluidNCController(MotionController):
             if result:
                 # Wait for movement to complete 
                 await self._wait_for_movement_complete()
-                # Position will be updated automatically by background monitor
-                # No need for explicit status query - avoid competing with background monitor
-                logger.info(f"Position updated after relative move: {self.current_position}")
+                
+                # Small delay to ensure FluidNC position is fully settled
+                await asyncio.sleep(0.05)  # 50ms settlement time
+                
+                # Force immediate position update for responsive UI
+                try:
+                    fresh_position = await self.get_current_position()
+                    logger.info(f"Position updated after relative move: {fresh_position}")
+                except Exception as e:
+                    logger.warning(f"Could not get fresh position after relative move: {e}")
+                    logger.info(f"Position updated after relative move: {self.current_position}")
             
             return result
             

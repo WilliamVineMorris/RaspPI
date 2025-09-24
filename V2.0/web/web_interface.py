@@ -1213,18 +1213,12 @@ class ScannerWebInterface:
                 delta = {'x': delta_values['x'], 'y': delta_values['y'], 
                         'z': delta_values['z'], 'c': delta_values['c']}
             
-            # Execute the jog movement
+            # Execute the jog movement (this now includes immediate position update)
             result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=speed)
             
-            # Force fresh position update after jog movement
-            try:
-                fresh_position = await self.orchestrator.motion_controller.get_current_position()
-                self.logger.info(f"🎯 Fresh position after jog: {fresh_position}")
-                cached_position = fresh_position
-            except Exception as pos_e:
-                self.logger.warning(f"Could not get fresh position after jog: {pos_e}")
-                # Fall back to cached position from controller
-                cached_position = self.orchestrator.motion_controller.current_position
+            # Get the fresh position that was just updated by move_relative
+            cached_position = self.orchestrator.motion_controller.current_position
+            self.logger.info(f"🎯 Fresh position after jog: {cached_position}")
             
             # Get updated position from cached value (updated by move_relative)
             motion_controller = self.orchestrator.motion_controller
