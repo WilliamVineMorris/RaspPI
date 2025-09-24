@@ -1598,7 +1598,7 @@ class ScannerWebInterface:
                 delta = delta_values
             
             # Execute the movement
-            result = await self.orchestrator.motion_controller.move_relative(delta)
+            result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=None)
             
             # Get updated position from cached value
             motion_controller = self.orchestrator.motion_controller
