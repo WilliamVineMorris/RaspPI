@@ -1224,19 +1224,22 @@ class ScannerWebInterface:
                         except:
                             pass
                     
-                    homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
-                    # Get real-time status from protocol instead of cached controller status
+                    # Get real-time status AND homed state from protocol instead of cached controller values
                     try:
                         if hasattr(motion_controller, 'protocol') and motion_controller.protocol:
                             protocol_status = motion_controller.protocol.get_current_status()
                             current_status = protocol_status.state if protocol_status else 'unknown'
-                            self.logger.info(f"🔍 Direct protocol status: {current_status}")
+                            # Get homed status from protocol - check if position indicates homing complete
+                            homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
+                            self.logger.info(f"🔍 Direct protocol status: {current_status}, homed: {homed}")
                         else:
                             current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
-                            self.logger.info(f"🔍 Controller cached status: {current_status}")
+                            homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
+                            self.logger.info(f"🔍 Controller cached status: {current_status}, homed: {homed}")
                     except Exception as status_err:
                         self.logger.warning(f"Status retrieval error: {status_err}")
                         current_status = 'unknown'
+                        homed = False
                     
                     current_timestamp = time.time()
                     age_seconds = current_timestamp - last_update_time if last_update_time > 0 else -1

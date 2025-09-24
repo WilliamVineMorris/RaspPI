@@ -568,16 +568,16 @@ const Dashboard = {
                         ScannerBase.showLoading(`⏳ Waiting for homing to start... (${elapsed}s)`);
                     }
                     
-                    // ULTRA-STRICT completion criteria - ALL must be true:
+                    // OPTIMIZED completion criteria for 22-second homing - ALL must be true:
                     // 1. Homing was actually detected (not initial state)
-                    // 2. At least 45 seconds since homing was detected (multi-axis takes time)
+                    // 2. At least 20 seconds since homing was detected (our homing takes ~22s)
                     // 3. Motion is idle (NOT <Home|...> state) AND homed
-                    // 4. At least 60 seconds total elapsed time (conservative for multi-axis)
+                    // 4. At least 25 seconds total elapsed time (matches our 22s + buffer)
                     // 5. State transition from not-homed to homed occurred
                     // 6. NO fluidnc_status indicating active homing
                     const homingElapsed = homingStartTime ? Math.round((Date.now() - homingStartTime) / 1000) : 0;
-                    const minimumHomingTime = 45; // seconds since homing detection (increased for multi-axis)
-                    const minimumTotalTime = 60; // seconds total (increased for multi-axis)
+                    const minimumHomingTime = 20; // seconds since homing detection (optimized for 22s homing)
+                    const minimumTotalTime = 25; // seconds total (optimized for 22s homing)
                     
                     // Additional check: ensure FluidNC is NOT in active homing state
                     const isActivelyHoming = motionState === 'homing' || 
@@ -596,7 +596,7 @@ const Dashboard = {
                         // Additional safety check: ensure we had a state transition
                         if (initialHomedState === true && isHomed === true) {
                             ScannerBase.addLogEntry(`⚠️ No state transition detected - may have been already homed. Continuing to monitor...`, 'warning');
-                            if (elapsed < 90) { // Give it even more time for multi-axis
+                            if (elapsed < 30) { // Give it reasonable time for 22s homing
                                 return;
                             }
                         }
@@ -604,10 +604,10 @@ const Dashboard = {
                         // Final validation before completion
                         ScannerBase.addLogEntry(`🔍 Final validation: homingDetected=${homingDetected}, homingElapsed=${homingElapsed}s, totalElapsed=${elapsed}s, motionState=${motionState}, isActivelyHoming=${isActivelyHoming}, isHomed=${isHomed}`, 'info');
                         
-                        // Add a delay to ensure coordinates are properly set
+                        // Add a short delay to ensure coordinates are properly set
                         ScannerBase.showLoading(`✅ All axes homed - finalizing coordinates... (${elapsed}s total)`);
                         
-                        // Wait 5 seconds before declaring completion
+                        // Wait 2 seconds before declaring completion (reduced from 5s)
                         setTimeout(() => {
                             // Homing completed successfully
                             clearInterval(progressInterval);
@@ -616,7 +616,7 @@ const Dashboard = {
                             ScannerBase.hideLoading();
                             // Use overlay alert only for final success (important message)
                             ScannerBase.showAlert('🎉 All axes homed successfully!', 'success', 5000, false);
-                            ScannerBase.addLogEntry(`✅ All axes homing completed successfully in ${elapsed + 5} seconds (${homingElapsed + 5}s since detection)`, 'success');
+                            ScannerBase.addLogEntry(`✅ All axes homing completed successfully in ${elapsed + 2} seconds (${homingElapsed + 2}s since detection)`, 'success');
                             
                             // Re-enable button
                             if (homeButton) {
@@ -624,7 +624,7 @@ const Dashboard = {
                                 homeButton.textContent = homeButton.dataset.originalText || '🏠 Home All';
                                 homeButton.style.opacity = '1';
                             }
-                        }, 5000);
+                        }, 2000);
                         return;
                     }
                     
