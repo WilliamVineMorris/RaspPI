@@ -1934,7 +1934,7 @@ class ScannerWebInterface:
                     self.logger.error(f"STREAM CRITICAL: Unexpected error in Camera 0 stream: {e}")
                 time.sleep(0.1)
     
-    def start_web_server(self, host='0.0.0.0', port=8080, debug=False, use_reloader=None):
+    def start_web_server(self, host='0.0.0.0', port=8080, debug=False, use_reloader=None, production=False):
         """Start the Flask web server"""
         try:
             self._running = True
@@ -1943,15 +1943,66 @@ class ScannerWebInterface:
             # Start background thread for status updates
             self._start_status_updater()
             
-            # Determine reloader setting
-            if use_reloader is None:
-                use_reloader = debug
-            
-            # Run the Flask app directly (no SocketIO)
-            self.app.run(host=host, port=port, debug=debug, use_reloader=use_reloader)
+            if production and not debug:
+                # Use Gunicorn for production
+                self._start_gunicorn_server(host, port)
+            else:
+                # Use Flask development server
+                # Determine reloader setting
+                if use_reloader is None:
+                    use_reloader = debug
+                
+                # Run the Flask app directly (no SocketIO)
+                self.app.run(host=host, port=port, debug=debug, use_reloader=use_reloader)
             
         except Exception as e:
             self.logger.error(f"Failed to start web server: {e}")
+            raise
+    
+    def _start_gunicorn_server(self, host, port):
+        """Start Gunicorn WSGI server for production"""
+        try:
+            from gunicorn.app.base import BaseApplication
+            
+            class StandaloneApplication(BaseApplication):
+                def __init__(self, app, options=None):
+                    self.options = options or {}
+                    self.application = app
+                    super().__init__()
+                
+                def load_config(self):
+                    config = {key: value for key, value in self.options.items()
+                             if key in self.cfg.settings and value is not None}
+                    for key, value in config.items():
+                        self.cfg.set(key.lower(), value)
+                
+                def load(self):
+                    return self.application
+            
+            options = {
+                'bind': f'{host}:{port}',
+                'workers': 4,
+                'worker_class': 'sync',
+                'worker_connections': 1000,
+                'max_requests': 1000,
+                'max_requests_jitter': 50,
+                'preload_app': True,
+                'timeout': 30,
+                'keepalive': 2,
+                'access_logfile': '-',
+                'error_logfile': '-',
+                'capture_output': True,
+                'enable_stdio_inheritance': True
+            }
+            
+            self.logger.info("🚀 Starting Gunicorn WSGI server for production")
+            StandaloneApplication(self.app, options).run()
+            
+        except ImportError:
+            self.logger.warning("Gunicorn not available, falling back to Flask development server")
+            self.app.run(host=host, port=port, debug=False, use_reloader=False)
+        except Exception as e:
+            self.logger.error(f"Failed to start Gunicorn server: {e}")
             raise
     
     def stop_web_server(self):

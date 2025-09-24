@@ -92,7 +92,23 @@ class FluidNCController(MotionController):
                 # Fallback to threading lock if no event loop
                 import threading
                 self.connection_lock = threading.Lock()
+        else:
+            # Force recreation to ensure compatibility with current event loop
+            # This prevents "bound to different event loop" errors
+            logger.debug("Recreating connection lock to ensure event loop compatibility")
+            try:
+                self.connection_lock = asyncio.Lock()
+                logger.debug("Recreated connection lock in current event loop")
+            except Exception:
+                import threading
+                self.connection_lock = threading.Lock()
+                logger.debug("Using threading lock as fallback")
         return self.connection_lock
+    
+    def reset_connection_lock(self):
+        """Reset connection lock - useful when switching event loops"""
+        logger.info("Resetting connection lock")
+        self.connection_lock = None
     
     class _LockContextManager:
         """Async context manager that handles both asyncio.Lock and threading.Lock"""

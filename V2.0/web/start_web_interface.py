@@ -388,7 +388,8 @@ def start_web_interface(
     orchestrator=None,
     host: str = "0.0.0.0",
     port: int = 5000,
-    debug: bool = False
+    debug: bool = False,
+    production: bool = False
 ):
     """Start the web interface with orchestrator"""
     try:
@@ -402,12 +403,14 @@ def start_web_interface(
         
         # Start server
         print(f"🚀 Starting web interface on http://{host}:{port}")
-        if use_reloader:
+        if production and not debug:
+            print("🏭 Production mode with Gunicorn WSGI server")
+        elif use_reloader:
             print("🔄 Debug mode with auto-reloader enabled (mock mode)")
         else:
             print("🔧 Debug mode without auto-reloader (hardware mode)")
             
-        web_interface.start_web_server(host=host, port=port, debug=debug, use_reloader=use_reloader)
+        web_interface.start_web_server(host=host, port=port, debug=debug, use_reloader=use_reloader, production=production)
         
     except KeyboardInterrupt:
         print("\n🛑 Shutting down web interface...")
@@ -491,7 +494,8 @@ def main():
             orchestrator=orchestrator,
             host=args.host,
             port=args.port,
-            debug=args.debug
+            debug=args.debug,
+            production=(args.mode == "production")
         )
     except Exception as e:
         logger.error(f"Failed to start web interface: {e}")
