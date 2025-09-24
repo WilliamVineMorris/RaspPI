@@ -1230,10 +1230,10 @@ class ScannerWebInterface:
                         if hasattr(motion_controller, 'protocol') and motion_controller.protocol:
                             protocol_status = motion_controller.protocol.get_current_status()
                             current_status = protocol_status.state if protocol_status else 'unknown'
-                            self.logger.debug(f"🔍 Direct protocol status: {current_status}")
+                            self.logger.info(f"🔍 Direct protocol status: {current_status}")
                         else:
                             current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
-                            self.logger.debug(f"🔍 Controller cached status: {current_status}")
+                            self.logger.info(f"🔍 Controller cached status: {current_status}")
                     except Exception as status_err:
                         self.logger.warning(f"Status retrieval error: {status_err}")
                         current_status = 'unknown'
@@ -1266,14 +1266,14 @@ class ScannerWebInterface:
                     # Convert MotionStatus enum to string
                     status_str = str(current_status).split('.')[-1].lower() if hasattr(current_status, 'name') else str(current_status).lower()
                     
-                    # FORCE STATUS CORRECTION - if we know we're connected, don't show disconnected status
-                    # But preserve valid operational states like 'home' during homing
-                    if connected and status_str == 'disconnected':
-                        status_str = 'idle'  # Show idle instead of disconnected when we know we're connected
-                        self.logger.info(f"🔧 Corrected status from 'disconnected' to 'idle' since connection is verified")
-                    elif status_str == 'home':
-                        # Don't correct 'home' state - it's valid during homing operations
-                        self.logger.debug(f"✅ Preserving 'home' status - homing in progress")
+                    # USE REAL PROTOCOL STATUS - no more forced corrections
+                    # Let the actual protocol status show through to the web interface
+                    if status_str == 'home':
+                        self.logger.info(f"🏠 Showing HOMING status in web UI - homing in progress")
+                    elif status_str == 'idle':
+                        self.logger.info(f"✅ Showing IDLE status in web UI - system ready")
+                    else:
+                        self.logger.info(f"📊 Showing {status_str.upper()} status in web UI")
                     
                     # Get alarm state information
                     alarm_info = {
