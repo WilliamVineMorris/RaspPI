@@ -110,6 +110,40 @@ class FluidNCController(MotionController):
         logger.info("Resetting connection lock")
         self.connection_lock = None
     
+    def check_background_monitor_status(self) -> Dict[str, Any]:
+        """Check if background monitor is running properly"""
+        status = {
+            'monitor_running': self.monitor_running,
+            'has_task': hasattr(self, 'background_monitor_task'),
+            'task_done': False,
+            'task_exception': None,
+            'last_update_age': None,
+            'recommendation': None
+        }
+        
+        if hasattr(self, 'background_monitor_task') and self.background_monitor_task:
+            status['task_done'] = self.background_monitor_task.done()
+            if status['task_done']:
+                try:
+                    status['task_exception'] = self.background_monitor_task.exception()
+                except Exception:
+                    pass
+        
+        # Check how stale the position data is
+        if hasattr(self, 'last_position_update') and self.last_position_update:
+            import time
+            age = time.time() - self.last_position_update
+            status['last_update_age'] = age
+            
+            if age > 5.0:
+                status['recommendation'] = 'restart_monitor'
+            elif age > 2.0:
+                status['recommendation'] = 'check_connection'
+            else:
+                status['recommendation'] = 'healthy'
+        
+        return status
+    
     class _LockContextManager:
         """Async context manager that handles both asyncio.Lock and threading.Lock"""
         def __init__(self, lock):
@@ -1521,6 +1555,10 @@ class FluidNCController(MotionController):
             except:
                 pass  # Ignore timeout or cancellation errors
             
+        # Reset connection lock to ensure event loop compatibility
+        self.reset_connection_lock()
+        logger.info("Reset connection lock for event loop compatibility")
+        
         # Start new monitor
         if self.is_connected():
             self.monitor_running = True
@@ -1528,8 +1566,23 @@ class FluidNCController(MotionController):
                 loop = asyncio.get_running_loop()
                 self.background_monitor_task = loop.create_task(self._background_status_monitor())
                 logger.info(f"✅ Background monitor restarted: {id(self.background_monitor_task)}")
+                
+                # Wait a moment to check if it starts properly
+                await asyncio.sleep(0.5)
+                if self.background_monitor_task.done():
+                    exception = self.background_monitor_task.exception()
+                    if exception:
+                        logger.error(f"Background monitor failed immediately: {exception}")
+                        self.monitor_running = False
+                    else:
+                        logger.warning("Background monitor exited cleanly (unexpected)")
+                else:
+                    logger.info("✅ Background monitor is running properly")
+                    
             except Exception as e:
                 logger.error(f"❌ Failed to restart background monitor: {e}")
+                import traceback
+                traceback.print_exc()
                 self.monitor_running = False
         else:
             logger.warning("⚠️  Cannot restart monitor - not connected to FluidNC")
