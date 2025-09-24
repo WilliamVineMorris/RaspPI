@@ -646,6 +646,77 @@ class FluidNCController(MotionController):
                 logger.error(f"Error reading status response: {e}")
                 raise FluidNCConnectionError(f"Failed to read status response: {e}")
 
+    async def _get_status_response_unlocked(self) -> Optional[str]:
+        """
+        Get status response from FluidNC WITHOUT connection lock
+        
+        Use this version only when you already hold the connection lock
+        to prevent double-locking in hybrid status update scenarios.
+        """
+        if not self.is_connected():
+            raise FluidNCConnectionError("Not connected to FluidNC")
+
+        try:
+            if not self.serial_connection:
+                raise FluidNCConnectionError("Serial connection not established")
+                
+            # Send status query
+            command = '?\n'
+            self.serial_connection.write(command.encode('utf-8'))
+            self.serial_connection.flush()
+            
+            logger.debug("Sent status query: ? (unlocked)")
+            
+            # Read response lines with proper FluidNC protocol handling
+            response_lines = []
+            timeout = 2.0  # Shorter timeout for status queries
+            start_time = time.time()
+            status_response = None
+            
+            while time.time() - start_time < timeout:
+                if self.serial_connection.in_waiting > 0:
+                    line = self.serial_connection.readline().decode('utf-8').strip()
+                    if line:
+                        response_lines.append(line)
+                        logger.debug(f"Received line: '{line}'")
+                        
+                        # Check for actual status response (starts with <)
+                        if line.startswith('<') and line.endswith('>'):
+                            logger.debug(f"Found status response: {line}")
+                            status_response = line
+                            break
+                        
+                        # If we get an error, return it immediately
+                        if line.startswith('error:') or line == 'error':
+                            return line
+                            
+                        # Skip acknowledgments and info messages
+                        if line == 'ok' or line.startswith('[MSG:INFO:') or line.startswith('[GC:') or line.startswith('[G54:'):
+                            continue
+                else:
+                    await asyncio.sleep(0.01)
+            
+            # Return the status response if we found one
+            if status_response:
+                return status_response
+            
+            # Filter and log non-status responses
+            status_lines = [line for line in response_lines 
+                          if not (line == 'ok' or line.startswith('[MSG:INFO:') or 
+                                 line.startswith('[GC:') or line.startswith('[G54:'))]
+            
+            if status_lines:
+                all_response = '\n'.join(status_lines)
+                logger.warning(f"No proper status response found, got: {all_response}")
+                return all_response
+            else:
+                logger.debug("Only acknowledgment responses received, no status data")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error reading status response: {e}")
+            raise FluidNCConnectionError(f"Failed to read status response: {e}")
+
     # Position and Movement
     async def move_to_position(self, position: Position4D, feedrate: Optional[float] = None) -> bool:
         """Move to specified 4DOF position"""
@@ -1472,11 +1543,12 @@ class FluidNCController(MotionController):
     # Status Updates
     async def _update_status(self):
         """
-        Update controller status - RELIES EXCLUSIVELY on background monitor data
+        Update controller status - HYBRID approach for optimal performance
         
-        CRITICAL FIX: Never make manual serial queries while background monitor is running
-        to prevent serial port conflicts and data corruption. The background monitor
-        processing FluidNC auto-reports is the single source of truth.
+        SMART CONFLICT PREVENTION:
+        - Use background monitor data when it's receiving auto-reports (during movement)
+        - Fall back to manual queries when auto-reports stop (during idle periods)
+        - Prevent conflicts by checking if background monitor is actively receiving data
         """
         try:
             if not self.is_connected():
@@ -1484,46 +1556,48 @@ class FluidNCController(MotionController):
                 logger.debug("Status update: disconnected")
                 return
             
-            # Check if background monitor is providing data
+            # Check if background monitor is providing fresh data
             current_time = time.time()
             data_age = current_time - self.last_position_update if self.last_position_update > 0 else 999.0
             
-            # ALWAYS use background monitor data if it's running - never compete with it
-            if self.is_background_monitor_running():
-                logger.debug(f"Using background monitor data (age: {data_age:.1f}s)")
-                # Status is being updated by background monitor - this is correct
-                
-                # If data is getting stale, log warning but don't interfere
-                if data_age > 5.0:
-                    logger.warning(f"Background monitor data is stale ({data_age:.1f}s) but not interfering to prevent serial conflicts")
-                
+            # Use background monitor data if it's fresh (actively receiving auto-reports)
+            if self.is_background_monitor_running() and data_age < 3.0:
+                logger.debug(f"Using fresh background monitor data (age: {data_age:.1f}s)")
                 return
             
-            # Background monitor not running - only then is it safe to make manual queries
-            logger.info("Background monitor not running, safe to make manual status query")
-            try:
-                response = await self._get_status_response()
-                logger.debug(f"Manual status response: {response}")
+            # Background monitor data is stale OR not running - safe to make manual query
+            # This happens during idle periods when FluidNC stops sending auto-reports
+            if data_age > 3.0:
+                logger.debug(f"Background monitor data stale ({data_age:.1f}s) - making careful manual query")
+            else:
+                logger.debug("Background monitor not running - making manual status query")
                 
-                if response:
-                    # Parse status from manual query
-                    if 'Idle' in response:
-                        self.status = MotionStatus.IDLE
-                    elif 'Run' in response or 'Jog' in response:
-                        self.status = MotionStatus.MOVING
-                    elif 'Home' in response:
-                        self.status = MotionStatus.HOMING
-                    elif 'Alarm' in response:
-                        self.status = MotionStatus.ALARM
-                    elif 'Error' in response:
-                        self.status = MotionStatus.ERROR
+            try:
+                # Use connection lock to prevent conflicts with any background operations
+                lock = await self._get_connection_lock()
+                async with self._LockContextManager(lock):
+                    response = await self._get_status_response_unlocked()  # Use unlocked version since we have the lock
+                    logger.debug(f"Manual status response: {response}")
                     
-                    # Update position from manual query
-                    position = self._parse_position_from_status(response)
-                    if position:
-                        self.current_position = position
-                        self.last_position_update = current_time
-                        logger.debug(f"Position updated via manual query: {position}")
+                    if response:
+                        # Parse status from manual query
+                        if 'Idle' in response:
+                            self.status = MotionStatus.IDLE
+                        elif 'Run' in response or 'Jog' in response:
+                            self.status = MotionStatus.MOVING
+                        elif 'Home' in response:
+                            self.status = MotionStatus.HOMING
+                        elif 'Alarm' in response:
+                            self.status = MotionStatus.ALARM
+                        elif 'Error' in response:
+                            self.status = MotionStatus.ERROR
+                        
+                        # Update position from manual query
+                        position = self._parse_position_from_status(response)
+                        if position:
+                            self.current_position = position
+                            self.last_position_update = current_time
+                            logger.debug(f"Position updated via manual query: {position}")
                 
             except Exception as query_e:
                 logger.warning(f"Manual status query failed: {query_e}")
