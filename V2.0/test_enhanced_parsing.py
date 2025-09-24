@@ -61,17 +61,19 @@ def enhanced_parse_position_from_status(status_response: str) -> Optional[Positi
         # ENHANCED: Multiple parsing strategies for different FluidNC message formats
         
         # Strategy 1: Standard MPos/WPos parsing (most common)
-        # Handle both 4-axis and 6-axis machines flexibly
+        # Handle both 4-axis and 6-axis machines flexibly with case-insensitive matching
         mpos_patterns = [
-            r'MPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,([\d\.-]+),([\d\.-]+))?',  # 4 or 6 axis
-            r'MPos:([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',         # With spaces
-            r'MPos:\s*([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)'                         # Leading spaces
+            r'[Mm][Pp]os:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,([\d\.-]+),([\d\.-]+))?',  # 4 or 6 axis, case-insensitive
+            r'[Mm][Pp]os:([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',         # With spaces around commas
+            r'[Mm][Pp]os:\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',      # Leading and trailing spaces
+            r'[Mm][Pp]os\s*:\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)'    # Spaces around colon
         ]
         
         wpos_patterns = [
-            r'WPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,([\d\.-]+),([\d\.-]+))?',  # 4 or 6 axis
-            r'WPos:([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',         # With spaces
-            r'WPos:\s*([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)'                         # Leading spaces
+            r'[Ww][Pp]os:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,([\d\.-]+),([\d\.-]+))?',  # 4 or 6 axis, case-insensitive
+            r'[Ww][Pp]os:([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',         # With spaces around commas
+            r'[Ww][Pp]os:\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',      # Leading and trailing spaces
+            r'[Ww][Pp]os\s*:\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)'    # Spaces around colon
         ]
         
         mpos_match = None
@@ -91,18 +93,29 @@ def enhanced_parse_position_from_status(status_response: str) -> Optional[Positi
         
         # Strategy 2: Extract any coordinate data even from partial messages
         if not mpos_match and not wpos_match:
-            # Look for any position-like data patterns
+            # Look for any position-like data patterns (case-insensitive and flexible spacing)
             coord_patterns = [
-                r'(?:MPos|WPos|Pos):\s*([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)',
-                r'X:([\d\.-]+)\s*Y:([\d\.-]+)\s*Z:([\d\.-]+)\s*C:([\d\.-]+)',
-                r'X([\d\.-]+)\s*Y([\d\.-]+)\s*Z([\d\.-]+)\s*C([\d\.-]+)'
+                r'(?:[Mm][Pp]os|[Ww][Pp]os|[Pp]os)\s*:\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',  # Generic Pos with flexible spacing
+                r'X\s*:\s*([\d\.-]+)\s*Y\s*:\s*([\d\.-]+)\s*Z\s*:\s*([\d\.-]+)\s*C\s*:\s*([\d\.-]+)',                    # X: Y: Z: C: format
+                r'X([\d\.-]+)\s*Y([\d\.-]+)\s*Z([\d\.-]+)\s*C([\d\.-]+)',                                                # X Y Z C format without colons
+                r'([Xx])\s*([\d\.-]+)\s*([Yy])\s*([\d\.-]+)\s*([Zz])\s*([\d\.-]+)\s*([Cc])\s*([\d\.-]+)'                # Flexible axis labels
             ]
             
             for pattern in coord_patterns:
                 coord_match = re.search(pattern, clean_response)
                 if coord_match:
-                    # Treat as machine position if no explicit type found
-                    mpos_match = coord_match
+                    # For the flexible axis pattern, extract only the numeric values
+                    if len(coord_match.groups()) > 4:
+                        # This is the flexible axis pattern - extract every other group (the numbers)
+                        coords = [coord_match.group(i) for i in [2, 4, 6, 8]]
+                        # Create a mock match object for consistent processing
+                        class MockMatch:
+                            def groups(self):
+                                return coords
+                        mpos_match = MockMatch()
+                    else:
+                        # Standard coordinate pattern
+                        mpos_match = coord_match
                     break
         
         # Process the matched position data
