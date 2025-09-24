@@ -153,7 +153,7 @@ class FluidNCProtocol:
             logger.error(f"Failed to send immediate command '{command}': {e}")
             raise FluidNCConnectionError(f"Immediate command failed: {e}")
     
-    async def send_line_command(self, command: str, timeout: float = 5.0) -> str:
+    async def send_line_command(self, command: str, timeout: float = 10.0) -> str:
         """
         Send line-based command and wait for ok/error response
         These are queued and processed sequentially by FluidNC
@@ -178,17 +178,26 @@ class FluidNCProtocol:
             logger.debug(f"📤 Command[{cmd_id}]: {command.strip()}")
             self.stats['commands_sent'] += 1
             
-            # Wait for response
+            # Wait for response with longer timeout
             try:
                 response = await asyncio.wait_for(response_future, timeout)
                 logger.debug(f"📥 Response[{cmd_id}]: {response}")
                 return response
             except asyncio.TimeoutError:
                 logger.error(f"⏰ Command timeout[{cmd_id}]: {command}")
-                raise FluidNCCommandError(f"Command timeout: {command}")
+                # Don't raise immediately - maybe FluidNC is busy
+                # Try waiting a bit more for delayed response
+                try:
+                    response = await asyncio.wait_for(response_future, 2.0)
+                    logger.warning(f"📥 Delayed response[{cmd_id}]: {response}")
+                    return response
+                except asyncio.TimeoutError:
+                    logger.error(f"❌ Final timeout[{cmd_id}]: {command}")
+                    raise FluidNCCommandError(f"Command timeout: {command}")
         
         except Exception as e:
-            logger.error(f"Failed to send line command '{command}': {e}")
+            if not isinstance(e, FluidNCCommandError):
+                logger.error(f"Failed to send line command '{command}': {e}")
             raise
         finally:
             # Clean up command tracking
@@ -232,6 +241,7 @@ class FluidNCProtocol:
                         message_buffer = message_buffer[line_end + 1:]
                         
                         if raw_message:
+                            logger.debug(f"📨 Raw message: {repr(raw_message)}")
                             await self._process_message(raw_message)
                     
                     # Small delay to prevent busy waiting
@@ -292,11 +302,13 @@ class FluidNCProtocol:
         elif raw in ['ok', 'OK']:
             message.type = MessageType.COMMAND_RESPONSE
             message.data = {'status': 'ok'}
+            logger.debug(f"📋 Parsed OK response: {raw}")
         elif raw.startswith('error:') or raw == 'error':
             message.type = MessageType.COMMAND_RESPONSE
             error_match = re.match(r'error:(\d+)', raw)
             error_code = int(error_match.group(1)) if error_match else 0
             message.data = {'status': 'error', 'code': error_code}
+            logger.debug(f"📋 Parsed ERROR response: {raw} -> code: {error_code}")
         
         # Alarm messages: ALARM:N
         elif raw.startswith('ALARM:'):
@@ -384,17 +396,33 @@ class FluidNCProtocol:
     async def _handle_command_response(self, message: FluidNCMessage):
         """Handle command response (ok/error)"""
         # Find oldest pending command and resolve it
-        if self.pending_commands and message.data:
-            # Get oldest command
-            cmd_id = next(iter(self.pending_commands))
-            future = self.pending_commands.pop(cmd_id)
-            
-            if not future.done():
+        if not self.pending_commands or not message.data:
+            logger.debug("📥 Response received but no pending commands")
+            return
+        
+        # Get oldest command (FIFO)
+        cmd_id = next(iter(self.pending_commands))
+        future = self.pending_commands.get(cmd_id)
+        
+        if future and not future.done():
+            try:
                 if message.data.get('status') == 'ok':
                     future.set_result('ok')
+                    logger.debug(f"✅ Command completed[{cmd_id}]: ok")
                 else:
-                    error_msg = f"error:{message.data['code']}" if 'code' in message.data else 'error'
+                    error_msg = f"error:{message.data.get('code', 'unknown')}"
                     future.set_result(error_msg)
+                    logger.debug(f"❌ Command failed[{cmd_id}]: {error_msg}")
+                
+                # Remove from pending only after successfully setting result
+                self.pending_commands.pop(cmd_id, None)
+                
+            except Exception as e:
+                logger.error(f"Error handling command response: {e}")
+                # Ensure command is removed even if there's an error
+                self.pending_commands.pop(cmd_id, None)
+        else:
+            logger.debug(f"📥 Response for completed/missing command[{cmd_id}]")
     
     async def _handle_alarm(self, message: FluidNCMessage):
         """Handle alarm messages"""
