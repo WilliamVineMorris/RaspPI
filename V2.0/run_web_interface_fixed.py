@@ -38,8 +38,23 @@ def start_web_interface_fixed():
     try:
         logger.info("🚀 Initializing Scanner System...")
         
+        # Initialize config manager first
+        from core.config_manager import ConfigManager
+        from pathlib import Path
+        
+        # Use the existing scanner config
+        config_file = Path(__file__).parent / "config" / "scanner_config.yaml"
+        
+        if not config_file.exists():
+            logger.error(f"❌ Configuration file not found: {config_file}")
+            logger.info("💡 Make sure you're running from the V2.0 directory")
+            sys.exit(1)
+        
+        config_manager = ConfigManager(str(config_file))
+        logger.info("✅ Config manager initialized")
+        
         # Initialize orchestrator
-        orchestrator = ScanOrchestrator()
+        orchestrator = ScanOrchestrator(config_manager)
         logger.info("✅ Orchestrator initialized")
         
         # Initialize web interface
