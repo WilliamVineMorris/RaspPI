@@ -214,9 +214,6 @@ def create_mock_orchestrator():
         def _connected(self):
             """Mock connection property"""
             return True  # Always connected in mock mode
-            )
-            print(f"Mock: Homing axes {axes}")
-            return True
             
         def emergency_stop(self):
             print("Mock: EMERGENCY STOP!")
