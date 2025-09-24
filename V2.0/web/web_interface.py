@@ -556,13 +556,33 @@ class ScannerWebInterface:
                 direction = data.get('direction', '')
                 mode = data.get('mode', 'step')
                 distance = data.get('distance', 1.0)
-                speed = data.get('speed', 10.0)
+                speed = data.get('speed', 10.0)  # Fallback if config fails
                 
                 if axis not in ['x', 'y', 'z', 'c']:
                     return jsonify({"success": False, "error": "Invalid axis"}), 400
                 
                 if direction not in ['+', '-']:
                     return jsonify({"success": False, "error": "Invalid direction"}), 400
+                
+                # Use enhanced feedrates from configuration for manual control
+                try:
+                    if self.orchestrator and hasattr(self.orchestrator, 'config_manager'):
+                        config_manager = self.orchestrator.config_manager
+                        manual_feedrates = config_manager.get('feedrates.manual_mode', {})
+                        
+                        # Get appropriate feedrate for the axis
+                        if axis in ['x', 'y']:
+                            speed = manual_feedrates.get(f'{axis}_axis', speed)
+                        elif axis == 'z':
+                            speed = manual_feedrates.get('z_axis', speed)
+                        elif axis == 'c':
+                            speed = manual_feedrates.get('c_axis', speed)
+                        
+                        self.logger.info(f"🚀 Using enhanced manual feedrate for {axis}-axis: {speed}")
+                    else:
+                        self.logger.warning("⚠️ Config manager not available, using default feedrate")
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Could not load enhanced feedrates, using default: {e}")
                 
                 # Convert to the correct format expected by _execute_move_command
                 move_distance = distance if direction == '+' else -distance
@@ -575,7 +595,7 @@ class ScannerWebInterface:
                 delta_values = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
                 delta_values[axis] = move_distance
                 
-                # Execute the movement using Position4D format
+                # Execute the movement using Position4D format with enhanced feedrate
                 result = asyncio.run(self._execute_jog_command(delta_values, speed))
                 
                 return jsonify({
@@ -620,6 +640,86 @@ class ScannerWebInterface:
             except Exception as e:
                 self.logger.error(f"Emergency stop API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/debug/feedrates', methods=['GET'])
+        def api_debug_feedrates():
+            """Debug endpoint to check current feedrate configuration"""
+            try:
+                feedrates = {}
+                if self.orchestrator and hasattr(self.orchestrator, 'config_manager'):
+                    config_manager = self.orchestrator.config_manager
+                    feedrates = {
+                        'manual_mode': config_manager.get('feedrates.manual_mode', {}),
+                        'scanning_mode': config_manager.get('feedrates.scanning_mode', {}),
+                        'options': config_manager.get('feedrates.options', {})
+                    }
+                
+                return jsonify({
+                    'success': True,
+                    'feedrates': feedrates,
+                    'config_available': self.orchestrator is not None and hasattr(self.orchestrator, 'config_manager'),
+                    'timestamp': datetime.now().isoformat()
+                })
+            except Exception as e:
+                self.logger.error(f"Debug feedrates error: {e}")
+                return jsonify({"success": False, "error": str(e)}), 500
+        
+        @self.app.route('/api/debug/connection', methods=['GET'])
+        def api_debug_connection():
+            """Debug endpoint to check connection status details"""
+            try:
+                connection_info = {}
+                
+                if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+                    motion_controller = self.orchestrator.motion_controller
+                    connection_info = {
+                        'orchestrator_available': True,
+                        'motion_controller_available': True,
+                        'has_protocol': hasattr(motion_controller, 'protocol'),
+                        'protocol_connected': None,
+                        '_connected_property': None,
+                        'refresh_status': None,
+                        'serial_connection': None,
+                        'connection_errors': []
+                    }
+                    
+                    # Test different connection methods
+                    try:
+                        if hasattr(motion_controller, 'protocol'):
+                            connection_info['protocol_connected'] = motion_controller.protocol.is_connected()
+                            if hasattr(motion_controller.protocol, 'serial_connection'):
+                                connection_info['serial_connection'] = {
+                                    'exists': motion_controller.protocol.serial_connection is not None,
+                                    'is_open': motion_controller.protocol.serial_connection.is_open if motion_controller.protocol.serial_connection else False
+                                }
+                    except Exception as e:
+                        connection_info['connection_errors'].append(f"Protocol check failed: {e}")
+                    
+                    try:
+                        connection_info['_connected_property'] = motion_controller._connected
+                    except Exception as e:
+                        connection_info['connection_errors'].append(f"_connected property failed: {e}")
+                    
+                    try:
+                        if hasattr(motion_controller, 'refresh_connection_status'):
+                            connection_info['refresh_status'] = motion_controller.refresh_connection_status()
+                    except Exception as e:
+                        connection_info['connection_errors'].append(f"Refresh status failed: {e}")
+                else:
+                    connection_info = {
+                        'orchestrator_available': self.orchestrator is not None,
+                        'motion_controller_available': False,
+                        'error': 'Motion controller not available'
+                    }
+                
+                return jsonify({
+                    'success': True,
+                    'connection_info': connection_info,
+                    'timestamp': datetime.now().isoformat()
+                })
+            except Exception as e:
+                self.logger.error(f"Debug connection error: {e}")
+                return jsonify({"success": False, "error": str(e)}), 500
         
         @self.app.route('/api/scan/start', methods=['POST'])
         def api_scan_start():
@@ -1010,8 +1110,25 @@ class ScannerWebInterface:
                     # Force refresh connection status to avoid stale cached values
                     try:
                         connected = motion_controller.protocol.is_connected() if hasattr(motion_controller, 'protocol') else False
-                    except:
+                        self.logger.debug(f"Direct protocol connection check: {connected}")
+                    except Exception as e:
+                        self.logger.warning(f"Protocol connection check failed: {e}")
                         connected = getattr(motion_controller, '_connected', False) if hasattr(motion_controller, '_connected') else False
+                        self.logger.debug(f"Fallback connection check: {connected}")
+                    
+                    # Additional connection verification
+                    if not connected:
+                        self.logger.warning("❌ Motion controller appears disconnected - checking deeper...")
+                        # Try multiple ways to verify connection
+                        if hasattr(motion_controller, 'refresh_connection_status'):
+                            try:
+                                refreshed_status = motion_controller.refresh_connection_status()
+                                self.logger.debug(f"Refreshed connection status: {refreshed_status}")
+                                connected = refreshed_status
+                            except Exception as e:
+                                self.logger.error(f"Connection refresh failed: {e}")
+                    
+                    self.logger.info(f"🔌 Final connection status for web UI: {connected}")
                     
                     homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
                     current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
