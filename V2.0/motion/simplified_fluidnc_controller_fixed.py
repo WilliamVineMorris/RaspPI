@@ -375,9 +375,20 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 homing_command = f"$H{axis_string}"
                 logger.info(f"🏠 Selective homing ({homing_command})")
             
-            # Send homing command
+            # Send homing command - temporarily increase motion timeout for homing
             logger.info(f"🏠 Sending: {homing_command}")
-            success, response = await self._send_command(homing_command)
+            
+            # Save original timeout and increase for homing
+            original_timeout = self.protocol.motion_timeout
+            self.protocol.motion_timeout = 60.0  # Increase to 60s for homing
+            
+            try:
+                success, response = await asyncio.get_event_loop().run_in_executor(
+                    None, self.protocol.send_command, homing_command
+                )
+            finally:
+                # Always restore original timeout
+                self.protocol.motion_timeout = original_timeout
             
             if not success:
                 logger.error(f"❌ Homing command failed: {response}")

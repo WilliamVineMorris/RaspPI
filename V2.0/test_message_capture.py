@@ -108,14 +108,21 @@ def test_homing_message_detection():
         
         logger.info("🏠 Starting homing with message monitoring...")
         
-        # Send homing command
-        success, response = protocol.send_command("$H")
-        logger.info(f"Homing command sent: {success}, response: {response}")
+        # Send homing command - increase timeout temporarily for homing
+        original_timeout = protocol.motion_timeout
+        protocol.motion_timeout = 60.0  # Increase to 60s for homing
         
-        if not success:
-            logger.error("❌ Homing command failed")
-            protocol.disconnect()
-            return False
+        try:
+            success, response = protocol.send_command("$H")
+            logger.info(f"Homing command sent: {success}, response: {response}")
+            
+            if not success:
+                logger.error("❌ Homing command failed")
+                protocol.disconnect()  
+                return False
+        finally:
+            # Restore original timeout  
+            protocol.motion_timeout = original_timeout
         
         # Monitor for completion messages
         timeout = 45.0
