@@ -381,6 +381,15 @@ class FluidNCController(MotionController):
                 await self._send_command('$Report/Interval=200')  # 200ms auto-report for responsive monitoring
                 await asyncio.sleep(0.2)
                 
+                # Verify auto-report is enabled
+                logger.info("Verifying auto-report configuration...")
+                verify_response = await self._send_command('$Report/Interval')
+                logger.info(f"Auto-report setting: {verify_response}")
+                
+                # Also ensure status report mask includes position
+                await self._send_command('$10=3')  # Enable position reports
+                await asyncio.sleep(0.1)
+                
                 # Start background monitoring task to continuously process auto-reports
                 logger.info("🔧 Starting background status monitor task...")
                 self.monitor_running = True
@@ -416,6 +425,13 @@ class FluidNCController(MotionController):
                     
                     self.background_monitor_task.add_done_callback(task_done_callback)
                     
+                    # Immediate verification that monitor is running
+                    await asyncio.sleep(0.2)  # Give it a moment to start
+                    if self.is_background_monitor_running():
+                        logger.info("✅ Background monitor verified as running")
+                    else:
+                        logger.error("❌ Background monitor failed to start properly")
+                        
                 except Exception as task_e:
                     logger.error(f"❌ Failed to create background monitor task: {task_e}")
                     logger.exception("Task creation error details:")
@@ -606,14 +622,55 @@ class FluidNCController(MotionController):
         while time.time() - start_time < timeout:
             current_pos = self.current_position
             current_time = time.time()
+            elapsed_time = current_time - start_time
+            
+            # DEADLOCK PREVENTION: Log progress every 5 seconds
+            if elapsed_time > 5.0 and int(elapsed_time) % 5 == 0:
+                logger.warning(f"⏱️  Movement completion waiting for {elapsed_time:.1f}s - checking for deadlock...")
+                
+                # After 15 seconds, try emergency completion check
+                if elapsed_time > 15.0:
+                    logger.warning("🚨 Long wait detected - attempting emergency completion check...")
+                    try:
+                        emergency_status = await self._get_status_response()
+                        if emergency_status and 'Idle' in emergency_status:
+                            logger.warning("✅ Emergency check: FluidNC is Idle - completing movement")
+                            return
+                    except:
+                        pass
             
             # Check how fresh our background monitor data is
             data_age = current_time - self.last_position_update if self.last_position_update else float('inf')
             
+            # DEADLOCK FIX: Don't wait indefinitely for background monitor data
+            # If data is stale, try to get fresh position directly from FluidNC
             if data_age > 2.0:
-                logger.debug(f"⚠️  Background data is stale ({data_age:.1f}s old), waiting for fresh data...")
+                logger.debug(f"⚠️  Background data is stale ({data_age:.1f}s old), querying FluidNC directly...")
+                try:
+                    # Get position directly from FluidNC to break deadlock
+                    status_response = await self._get_status_response()
+                    if status_response:
+                        fresh_position = self._parse_position_from_status(status_response)
+                        if fresh_position:
+                            self.current_position = fresh_position
+                            self.last_position_update = current_time
+                            logger.debug(f"📍 Retrieved fresh position: {fresh_position}")
+                            current_pos = fresh_position
+                        else:
+                            # If we can't get position, check for idle status to avoid infinite wait
+                            if 'Idle' in status_response:
+                                logger.info("✅ FluidNC reports Idle - assuming movement complete")
+                                return
+                    
+                    # If still no fresh data after direct query, continue with timeout logic
+                    if current_time - self.last_position_update > 5.0:
+                        logger.warning("⚠️  Unable to get fresh position data, continuing with timeout...")
+                        
+                except Exception as e:
+                    logger.debug(f"Direct position query failed: {e}")
+                
+                # Don't get stuck in infinite loop - continue with timeout logic
                 await asyncio.sleep(0.1)
-                continue
             
             # Check if position has changed from initial (indicates movement started)
             position_changed_from_initial = (
@@ -655,9 +712,33 @@ class FluidNCController(MotionController):
             last_position = current_pos
             await asyncio.sleep(0.1)  # Check every 100ms - fast response while avoiding CPU waste
         
-        # Timeout reached
+        # Timeout reached - try one final recovery attempt
         elapsed = time.time() - start_time
-        logger.error(f"Movement timeout after {elapsed:.1f} seconds")
+        logger.warning(f"⚠️ Movement timeout after {elapsed:.1f} seconds - attempting recovery...")
+        
+        # TIMEOUT RECOVERY: Try final status check to avoid unnecessary exception
+        try:
+            final_status = await asyncio.wait_for(self._get_status_response(), timeout=2.0)
+            if final_status:
+                logger.info(f"Final FluidNC status: {final_status}")
+                
+                # Update position from final status if possible
+                final_position = self._parse_position_from_status(final_status)
+                if final_position:
+                    self.current_position = final_position
+                    self.last_position_update = time.time()
+                    logger.info(f"📍 Updated final position: {final_position}")
+                
+                # If FluidNC reports idle, movement is actually complete
+                if 'Idle' in final_status:
+                    logger.info("✅ Recovery successful: FluidNC is Idle - movement completed")
+                    return
+                    
+        except Exception as recovery_e:
+            logger.debug(f"Final recovery attempt failed: {recovery_e}")
+        
+        # Only raise timeout error if we really can't determine completion
+        logger.error(f"Movement timeout after {elapsed:.1f} seconds - final position: {self.current_position}")
         raise MotionTimeoutError(f"Movement timeout exceeded ({elapsed:.1f}s)")
     
     async def get_current_position(self) -> Position4D:
@@ -754,29 +835,42 @@ class FluidNCController(MotionController):
             return messages
             
         try:
-            # Read all available data without blocking
+            # Read all available data without blocking - optimized for background monitor
             message_count = 0
-            max_messages = 50  # Limit to prevent runaway loops
+            max_messages = 100  # Increased limit for better auto-report capture
+            timeout_start = time.time()
+            max_read_time = 0.5  # Max 500ms to read all messages
             
-            while self.serial_connection.in_waiting > 0 and message_count < max_messages:
+            while (self.serial_connection.in_waiting > 0 and 
+                   message_count < max_messages and 
+                   time.time() - timeout_start < max_read_time):
                 try:
+                    # Use shorter timeout for individual readline operations
+                    self.serial_connection.timeout = 0.1
                     line = self.serial_connection.readline().decode('utf-8').strip()
+                    
                     if line:
                         messages.append(line)
                         message_count += 1
                         
-                        # Reduce logging frequency for background monitor
-                        if message_count <= 3:  # Only log first few messages
-                            logger.debug(f"FluidNC message: {line}")
-                        elif message_count == 4:
-                            logger.debug(f"FluidNC: ... (received {self.serial_connection.in_waiting} more bytes)")
+                        # Only log position/status messages to avoid spam
+                        if ('<' in line and '>' in line and 
+                            ('MPos:' in line or 'WPos:' in line or 'Idle' in line or 'Run' in line)):
+                            logger.debug(f"📡 Status: {line}")
+                        elif message_count <= 2:  # Log first couple non-status messages
+                            logger.debug(f"FluidNC: {line}")
                             
                 except UnicodeDecodeError:
-                    # Skip malformed messages
+                    # Skip malformed messages but continue reading
+                    logger.debug("Skipped malformed message")
                     continue
                 except Exception as e:
-                    logger.warning(f"Error reading message: {e}")
+                    logger.debug(f"Message read error: {e}")
                     break
+            
+            # Restore normal timeout
+            if self.serial_connection:
+                self.serial_connection.timeout = self.timeout
                     
         except Exception as e:
             logger.error(f"Error reading FluidNC messages: {e}")
@@ -1332,17 +1426,19 @@ class FluidNCController(MotionController):
             message_count = 0
             consecutive_errors = 0
             max_consecutive_errors = 10
+            position_updates = 0
+            last_log_time = time.time()
             
             while self.monitor_running and self.is_connected() and consecutive_errors < max_consecutive_errors:
                 try:
                     # Read any available messages from FluidNC (including auto-reports)
-                    # Use a timeout to avoid hanging
+                    # Use a shorter timeout to be more responsive
                     try:
-                        messages = await asyncio.wait_for(self._read_all_messages(), timeout=1.0)
+                        messages = await asyncio.wait_for(self._read_all_messages(), timeout=0.5)
                         consecutive_errors = 0  # Reset error count on success
                     except asyncio.TimeoutError:
-                        logger.debug("Background monitor: read timeout, continuing...")
-                        await asyncio.sleep(0.1)
+                        # Timeout is normal - just continue monitoring
+                        await asyncio.sleep(0.05)  # Shorter sleep for more responsiveness
                         continue
                     except Exception as read_e:
                         consecutive_errors += 1
@@ -1352,53 +1448,69 @@ class FluidNCController(MotionController):
                     
                     if messages:
                         message_count += len(messages)
-                        if message_count % 20 == 0:  # Log every 20th batch of messages (reduced frequency)
-                            logger.debug(f"� Background monitor processed {message_count} messages so far")
+                        
+                        # Log activity less frequently but track position updates
+                        current_time = time.time()
+                        if current_time - last_log_time > 10.0:  # Log every 10 seconds
+                            logger.info(f"📊 Background monitor: {message_count} messages, {position_updates} position updates")
+                            last_log_time = current_time
                     
                     current_time = time.time()
                     
                     for message in messages:
                         # Process status reports that contain position information
                         if '<' in message and '>' in message and ('MPos:' in message or 'WPos:' in message):
-                            logger.debug(f"📡 Processing status message: {message[:60]}...")
                             
                             position = self._parse_position_from_status(message)
                             if position:
-                                # Always update position immediately during movement
+                                # Always update position - this is critical for web UI responsiveness
                                 old_position = self.current_position
-                                position_changed = position != old_position
-                                
-                                # Update more frequently during active movement
-                                is_moving = self.status == MotionStatus.MOVING
-                                should_update = (
-                                    position_changed or  # Always update if position changed
-                                    is_moving or  # Always update during movement
-                                    current_time - self.last_position_update > 0.5  # Force update every 500ms
+                                position_changed = (
+                                    abs(position.x - old_position.x) > 0.001 or
+                                    abs(position.y - old_position.y) > 0.001 or
+                                    abs(position.z - old_position.z) > 0.001 or
+                                    abs(position.c - old_position.c) > 0.001
                                 )
                                 
-                                if should_update:
-                                    self.current_position = position
-                                    self.last_position_update = current_time
-                                    
-                                    if position_changed:
-                                        logger.info(f"🔄 Position changed: {old_position} → {position}")
-                                    else:
-                                        logger.debug(f"Background monitor refreshed position: {position}")
+                                # CRITICAL FIX: Always update position and timestamp for web UI
+                                self.current_position = position
+                                self.last_position_update = current_time
+                                position_updates += 1
+                                
+                                if position_changed:
+                                    logger.info(f"🔄 Position update #{position_updates}: {old_position} → {position}")
+                                else:
+                                    logger.debug(f"📍 Position refresh #{position_updates}: {position}")
+                            else:
+                                logger.warning(f"❌ Failed to parse position from: {message}")
                             
-                            # Update status from the same message
+                            # Update status from the same message - this is important for movement completion
                             if 'Idle' in message:
+                                if self.status != MotionStatus.IDLE:
+                                    logger.debug("Status: IDLE")
                                 self.status = MotionStatus.IDLE
                             elif 'Run' in message or 'Jog' in message:
+                                if self.status != MotionStatus.MOVING:
+                                    logger.debug("Status: MOVING")
                                 self.status = MotionStatus.MOVING
                             elif 'Home' in message:
+                                if self.status != MotionStatus.HOMING:
+                                    logger.debug("Status: HOMING")
                                 self.status = MotionStatus.HOMING
                             elif 'Alarm' in message:
+                                if self.status != MotionStatus.ALARM:
+                                    logger.warning("Status: ALARM")
                                 self.status = MotionStatus.ALARM
                             elif 'Error' in message:
+                                if self.status != MotionStatus.ERROR:
+                                    logger.error("Status: ERROR")
                                 self.status = MotionStatus.ERROR
                     
-                    # Sleep briefly to avoid overwhelming the system
-                    await asyncio.sleep(0.05)  # 50ms intervals for processing
+                    # Adaptive sleep timing based on activity
+                    if messages:
+                        await asyncio.sleep(0.02)  # 20ms when active - very responsive
+                    else:
+                        await asyncio.sleep(0.1)   # 100ms when idle - conserve CPU
                     
                 except Exception as e:
                     logger.debug(f"Background monitor processing error: {e}")
