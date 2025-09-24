@@ -14,8 +14,8 @@ Created: September 24, 2025
 
 import asyncio
 import logging
-from typing import Optional, Dict, Any
 import time
+from typing import Optional, Dict, Any
 
 # Import the fixed protocol
 from motion.simplified_fluidnc_protocol_fixed import SimplifiedFluidNCProtocolFixed, FluidNCStatus
@@ -868,3 +868,90 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         })
         
         return stats
+    
+    # Additional Methods for Scan Orchestrator Compatibility
+    async def initialize(self) -> bool:
+        """Initialize the motion controller (alias for connect)"""
+        return await self.connect()
+    
+    async def shutdown(self) -> bool:
+        """Shutdown the motion controller (alias for disconnect)"""
+        return await self.disconnect()
+    
+    async def home(self) -> bool:
+        """Home all axes - placeholder implementation"""
+        try:
+            # Send homing command
+            success, response = await self._send_command("$H")
+            if success:
+                self.motion_status = MotionStatus.HOMING
+                self.stats['homing_completed'] += 1
+                
+                # Wait for homing to complete by monitoring status
+                # This is a simplified implementation
+                timeout = 60.0  # 60 second homing timeout
+                start_time = time.time()
+                
+                while (time.time() - start_time) < timeout:
+                    await asyncio.sleep(0.5)
+                    status = await self.get_status()
+                    
+                    if status == MotionStatus.IDLE:
+                        logger.info("✅ Homing completed successfully")
+                        return True
+                    elif status == MotionStatus.ALARM:
+                        logger.error("❌ Homing failed - alarm state")
+                        return False
+                
+                logger.error("❌ Homing timeout")
+                return False
+            else:
+                logger.error(f"❌ Homing command failed: {response}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Homing failed: {e}")
+            return False
+    
+    async def move_to(self, x: float, y: float) -> bool:
+        """Move to X,Y position (compatibility method)"""
+        current = await self.get_position()
+        target = Position4D(x=x, y=y, z=current.z, c=current.c)
+        return await self.move_to_position(target)
+    
+    async def move_z_to(self, z: float) -> bool:
+        """Move Z axis to position (compatibility method)"""
+        current = await self.get_position()
+        target = Position4D(x=current.x, y=current.y, z=z, c=current.c)
+        return await self.move_to_position(target)
+    
+    async def rotate_to(self, c: float) -> bool:
+        """Rotate C axis to position (compatibility method)"""
+        current = await self.get_position()
+        target = Position4D(x=current.x, y=current.y, z=current.z, c=c)
+        return await self.move_to_position(target)
+    
+    def get_current_settings(self) -> Dict[str, Any]:
+        """Get current motion settings (compatibility method)"""
+        return {
+            'operating_mode': self.get_operating_mode(),
+            'current_feedrates': self.get_current_feedrates(),
+            'motion_limits': {
+                axis: {
+                    'min': limits.min_limit,
+                    'max': limits.max_limit,
+                    'max_feedrate': limits.max_feedrate
+                } for axis, limits in self.limits.items()
+            },
+            'controller_config': {
+                'port': self.port,
+                'baud_rate': self.baud_rate,
+                'timeout': self.protocol.command_timeout if hasattr(self.protocol, 'command_timeout') else 10.0
+            },
+            'capabilities': {
+                'axes_count': self.capabilities.axes_count if self.capabilities else 4,
+                'supports_homing': True,
+                'supports_feedrate_config': True,
+                'supports_operating_modes': True
+            }
+        }

@@ -1267,8 +1267,8 @@ class ScanOrchestrator:
         else:
             # Import and use real hardware controllers with adapters
             try:
-                # Use Enhanced Protocol Bridge Controller for improved performance
-                from motion.protocol_bridge import ProtocolBridgeController as FluidNCController
+                # Use NEW SimplifiedFluidNCControllerFixed for timeout fixes and intelligent feedrates
+                from motion.simplified_fluidnc_controller_fixed import SimplifiedFluidNCControllerFixed
                 from camera.pi_camera_controller import PiCameraController
                 from lighting.gpio_led_controller import GPIOLEDController
                 from storage.session_manager import SessionManager
@@ -1278,19 +1278,48 @@ class ScanOrchestrator:
                 lighting_config = config_manager.get('lighting', {})
                 storage_config = config_manager.get('storage', {})
                 
-                # Create hardware controllers with enhanced protocol
-                # Enhanced protocol provides sub-second response times and real-time updates
-                fluidnc_controller = FluidNCController(motion_config)
+                # Create motion controller configuration with feedrates from YAML
+                controller_config = {
+                    'port': motion_config.get('controller', {}).get('port', '/dev/ttyUSB0'),
+                    'baud_rate': motion_config.get('controller', {}).get('baudrate', 115200),
+                    'command_timeout': motion_config.get('controller', {}).get('timeout', 30.0),
+                    'motion_limits': {
+                        'x': {
+                            'min': motion_config.get('axes', {}).get('x_axis', {}).get('min_limit', 0.0),
+                            'max': motion_config.get('axes', {}).get('x_axis', {}).get('max_limit', 200.0),
+                            'max_feedrate': motion_config.get('axes', {}).get('x_axis', {}).get('max_feedrate', 1000.0)
+                        },
+                        'y': {
+                            'min': motion_config.get('axes', {}).get('y_axis', {}).get('min_limit', 0.0),
+                            'max': motion_config.get('axes', {}).get('y_axis', {}).get('max_limit', 200.0),
+                            'max_feedrate': motion_config.get('axes', {}).get('y_axis', {}).get('max_feedrate', 1000.0)
+                        },
+                        'z': {
+                            'min': motion_config.get('axes', {}).get('z_axis', {}).get('min_limit', -180.0),
+                            'max': motion_config.get('axes', {}).get('z_axis', {}).get('max_limit', 180.0),
+                            'max_feedrate': motion_config.get('axes', {}).get('z_axis', {}).get('max_feedrate', 800.0)
+                        },
+                        'c': {
+                            'min': motion_config.get('axes', {}).get('c_axis', {}).get('min_limit', -90.0),
+                            'max': motion_config.get('axes', {}).get('c_axis', {}).get('max_limit', 90.0),
+                            'max_feedrate': motion_config.get('axes', {}).get('c_axis', {}).get('max_feedrate', 5000.0)
+                        }
+                    },
+                    'feedrates': motion_config.get('feedrates', {})  # Include feedrate configuration
+                }
+                
+                # Create hardware controllers - NEW enhanced controller with timeout fixes and feedrate management
+                fluidnc_controller = SimplifiedFluidNCControllerFixed(controller_config)
                 pi_camera_controller = PiCameraController(camera_config)
                 gpio_lighting_controller = GPIOLEDController(lighting_config)
                 session_manager = SessionManager(storage_config)
                 
-                # Wrap with adapters to match protocol interface
-                self.motion_controller = MotionControllerAdapter(fluidnc_controller)
+                # NEW: Direct use without adapter - SimplifiedFluidNCControllerFixed implements full MotionController interface
+                self.motion_controller = fluidnc_controller  # No adapter needed!
                 self.camera_manager = CameraManagerAdapter(pi_camera_controller, config_manager)
                 self.lighting_controller = LightingControllerAdapter(gpio_lighting_controller)
                 self.storage_manager = session_manager
-                self.logger.info("Initialized with real hardware controllers and storage manager")
+                self.logger.info("✅ Initialized with NEW SimplifiedFluidNCControllerFixed - timeout fixes and intelligent feedrates enabled!")
             except ImportError as e:
                 self.logger.warning(f"Hardware modules not available, falling back to mocks: {e}")
                 self.motion_controller = MockMotionController(config_manager)

@@ -260,7 +260,10 @@ class ScannerWebInterface:
         self._setup_routes()
         self._setup_orchestrator_integration()
         
-        self.logger.info("Scanner web interface initialized")
+        # Integrate feedrate management system
+        self._setup_feedrate_integration()
+        
+        self.logger.info("Scanner web interface initialized with enhanced feedrate management")
     
     def _setup_routes(self):
         """Setup Flask routes"""
@@ -905,6 +908,30 @@ class ScannerWebInterface:
         # This will be implemented to listen to orchestrator events
         # Note: SocketIO functionality temporarily removed for simplified deployment
         pass
+    
+    def _setup_feedrate_integration(self):
+        """Setup intelligent feedrate management for web interface"""
+        try:
+            # Import the feedrate integration module
+            from web_interface_feedrate_integration import integrate_feedrate_system
+            
+            # Integrate the feedrate system
+            success = integrate_feedrate_system(self)
+            
+            if success:
+                self.logger.info("✅ Feedrate system integrated successfully")
+                self.logger.info("  • Intelligent jog feedrate selection enabled")
+                self.logger.info("  • Operating mode switching available")
+                self.logger.info("  • Runtime feedrate configuration supported")
+            else:
+                self.logger.warning("⚠️ Feedrate system integration partially failed")
+                
+        except ImportError as e:
+            self.logger.warning(f"⚠️ Feedrate integration module not found: {e}")
+            self.logger.info("  • Web interface will use basic feedrate handling")
+        except Exception as e:
+            self.logger.error(f"❌ Feedrate integration failed: {e}")
+            self.logger.info("  • Web interface will use fallback feedrate handling")
     
     # Core system interface methods
     
