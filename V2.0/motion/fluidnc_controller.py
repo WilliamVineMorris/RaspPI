@@ -999,24 +999,21 @@ class FluidNCController(MotionController):
                 clean_response.startswith('[echo:')):
                 return None
             
-            # Must contain angle brackets for FluidNC status format
-            if not ('<' in clean_response and '>' in clean_response):
-                return None
-            
             # ENHANCED: Multiple parsing strategies for different FluidNC message formats
             
-            # Strategy 1: Standard MPos/WPos parsing (most common)
-            # Handle both 4-axis and 6-axis machines flexibly
+            # Strategy 1: Standard MPos/WPos parsing with case-insensitive and flexible spacing
             mpos_patterns = [
-                r'MPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,([\d\.-]+),([\d\.-]+))?',  # 4 or 6 axis
-                r'MPos:([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',         # With spaces
-                r'MPos:\s*([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)'                         # Leading spaces
+                r'[Mm][Pp]os:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,([\d\.-]+),([\d\.-]+))?',  # 4 or 6 axis, case-insensitive
+                r'[Mm][Pp]os:([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',         # With spaces around commas
+                r'[Mm][Pp]os:\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',      # Leading and trailing spaces
+                r'[Mm][Pp]os\s*:\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)'    # Spaces around colon
             ]
             
             wpos_patterns = [
-                r'WPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,([\d\.-]+),([\d\.-]+))?',  # 4 or 6 axis
-                r'WPos:([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',         # With spaces
-                r'WPos:\s*([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)'                         # Leading spaces
+                r'[Ww][Pp]os:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,([\d\.-]+),([\d\.-]+))?',  # 4 or 6 axis, case-insensitive
+                r'[Ww][Pp]os:([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',         # With spaces around commas
+                r'[Ww][Pp]os:\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',      # Leading and trailing spaces
+                r'[Ww][Pp]os\s*:\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)'    # Spaces around colon
             ]
             
             mpos_match = None
@@ -1034,13 +1031,18 @@ class FluidNCController(MotionController):
                 if wpos_match:
                     break
             
+            # Special handling for standalone WPos (if no MPos found, treat WPos as position source)
+            if not mpos_match and wpos_match:
+                # Use WPos data as primary position source for standalone WPos messages
+                mpos_match = wpos_match
+            
             # Strategy 2: Extract any coordinate data even from partial messages
             if not mpos_match and not wpos_match:
-                # Look for any position-like data patterns
+                # Look for any position-like data patterns (case-insensitive and flexible spacing)
                 coord_patterns = [
-                    r'(?:MPos|WPos|Pos):\s*([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)',
-                    r'X:([\d\.-]+)\s*Y:([\d\.-]+)\s*Z:([\d\.-]+)\s*C:([\d\.-]+)',
-                    r'X([\d\.-]+)\s*Y([\d\.-]+)\s*Z([\d\.-]+)\s*C([\d\.-]+)'
+                    r'(?:[Mm][Pp]os|[Ww][Pp]os|[Pp]os)\s*:\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',  # Generic Pos with flexible spacing
+                    r'X\s*:\s*([\d\.-]+)\s*Y\s*:\s*([\d\.-]+)\s*Z\s*:\s*([\d\.-]+)\s*C\s*:\s*([\d\.-]+)',                    # X: Y: Z: C: format
+                    r'X([\d\.-]+)\s*Y([\d\.-]+)\s*Z([\d\.-]+)\s*C([\d\.-]+)'                                                 # X Y Z C format without colons
                 ]
                 
                 for pattern in coord_patterns:
