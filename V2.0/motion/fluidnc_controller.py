@@ -479,7 +479,7 @@ class FluidNCController(MotionController):
         Get status response from FluidNC, handling the ok acknowledgment properly
         
         FluidNC responds to ? queries with:
-        1. "ok" (command acknowledgment)
+        1. "ok" (command acknowledgment)  
         2. "<status>" (actual status)
         
         We want to return only the actual status line.
@@ -499,24 +499,31 @@ class FluidNCController(MotionController):
                 
                 logger.debug("Sent status query: ?")
                 
-                # Read response lines
+                # Read response lines with proper FluidNC protocol handling
                 response_lines = []
-                timeout = self.timeout
+                timeout = 2.0  # Shorter timeout for status queries
                 start_time = time.time()
+                status_response = None
                 
                 while time.time() - start_time < timeout:
                     if self.serial_connection.in_waiting > 0:
                         line = self.serial_connection.readline().decode('utf-8').strip()
                         if line:
                             response_lines.append(line)
-                            logger.debug(f"Received line: {line}")
+                            logger.debug(f"Received line: '{line}'")
+                            
+                            # Skip "ok" acknowledgments - we want the actual status
+                            if line == 'ok':
+                                logger.debug("Skipping 'ok' acknowledgment")
+                                continue
                             
                             # Check for actual status response (starts with <)
                             if line.startswith('<') and line.endswith('>'):
                                 logger.debug(f"Found status response: {line}")
-                                return line
+                                status_response = line
+                                break
                             
-                            # If we get an error, return it
+                            # If we get an error, return it immediately
                             if line.startswith('error:') or line == 'error':
                                 return line
                                 
@@ -530,7 +537,11 @@ class FluidNCController(MotionController):
                     else:
                         await asyncio.sleep(0.01)
                 
-                # If we got here, we didn't find a proper status response
+                # Return the status response if we found one
+                if status_response:
+                    return status_response
+                
+                # If we didn't find a proper status response, check what we got
                 # Filter out non-status responses for logging
                 status_lines = [line for line in response_lines 
                               if not (line == 'ok' or line.startswith('[MSG:INFO:') or 
@@ -546,7 +557,9 @@ class FluidNCController(MotionController):
                 
             except Exception as e:
                 logger.error(f"Error reading status response: {e}")
-                raise FluidNCConnectionError(f"Failed to read status response: {e}")    # Position and Movement
+                raise FluidNCConnectionError(f"Failed to read status response: {e}")
+
+    # Position and Movement
     async def move_to_position(self, position: Position4D, feedrate: Optional[float] = None) -> bool:
         """Move to specified 4DOF position"""
         try:
@@ -800,6 +813,17 @@ class FluidNCController(MotionController):
     def _parse_position_from_status(self, status_response: str) -> Optional[Position4D]:
         """Parse position from FluidNC status response"""
         try:
+            # Skip obvious non-status responses to reduce log spam
+            if not status_response or status_response.strip() in ['ok', 'error', '']:
+                return None
+            
+            # Skip info messages and other non-status responses
+            if (status_response.startswith('[MSG:') or 
+                status_response.startswith('[GC:') or 
+                status_response.startswith('[G54:') or
+                not ('<' in status_response and '>' in status_response)):
+                return None
+            
             # FluidNC status format: <Idle|MPos:0.000,0.000,0.000,0.000,0.000,0.000|WPos:0.000,0.000,0.000,0.000,0.000,0.000|FS:0,0>
             
             # Parse both machine (MPos) and work (WPos) coordinates
@@ -827,7 +851,11 @@ class FluidNCController(MotionController):
                 
                 return position
             else:
-                logger.warning(f"Could not match any position pattern in: {status_response}")
+                # Only log warning for actual status-like messages that failed to parse
+                if '<' in status_response and '>' in status_response:
+                    logger.warning(f"Could not match position pattern in status: {status_response}")
+                else:
+                    logger.debug(f"Non-status response (no position data): {status_response}")
                 return None
                 
         except Exception as e:
@@ -1356,47 +1384,67 @@ class FluidNCController(MotionController):
     
     # Status Updates
     async def _update_status(self):
-        """Update controller status from FluidNC"""
+        """
+        Update controller status - OPTIMIZED to use background monitor data
+        
+        With auto-reporting enabled, we should rely on the background monitor
+        for all status updates instead of making manual queries that compete
+        with the auto-report stream.
+        """
         try:
             if not self.is_connected():
                 self.status = MotionStatus.DISCONNECTED
                 logger.debug("Status update: disconnected")
                 return
             
-            # Get status from FluidNC
-            response = await self._send_command('?')
-            logger.debug(f"Status response: {response}")
+            # Check if background monitor is providing fresh data
+            current_time = time.time()
+            data_age = current_time - self.last_position_update if self.last_position_update > 0 else 999.0
             
-            # Parse status
-            if response and 'Idle' in response:
-                self.status = MotionStatus.IDLE
-            elif response and ('Run' in response or 'Jog' in response):
-                self.status = MotionStatus.MOVING
-            elif response and 'Home' in response:
-                self.status = MotionStatus.HOMING
-            elif response and 'Alarm' in response:
-                self.status = MotionStatus.ALARM
-            elif response and 'Error' in response:
-                self.status = MotionStatus.ERROR
+            # If background monitor is working well, use its data
+            if self.is_background_monitor_running() and data_age < 1.0:
+                logger.debug(f"Using background monitor data (age: {data_age:.1f}s)")
+                # Status is already being updated by background monitor - no need to query
+                return
+            
+            # Only make manual query if background monitor is failing or data is very stale
+            if data_age > 3.0:
+                logger.warning(f"Background monitor data is stale ({data_age:.1f}s), making manual status query")
+                try:
+                    response = await self._get_status_response()  # Use proper status method
+                    logger.debug(f"Manual status response: {response}")
+                    
+                    if response:
+                        # Parse status from manual query
+                        if 'Idle' in response:
+                            self.status = MotionStatus.IDLE
+                        elif 'Run' in response or 'Jog' in response:
+                            self.status = MotionStatus.MOVING
+                        elif 'Home' in response:
+                            self.status = MotionStatus.HOMING
+                        elif 'Alarm' in response:
+                            self.status = MotionStatus.ALARM
+                        elif 'Error' in response:
+                            self.status = MotionStatus.ERROR
+                        
+                        # Update position from manual query
+                        position = self._parse_position_from_status(response)
+                        if position:
+                            self.current_position = position
+                            self.last_position_update = current_time
+                            logger.debug(f"Position updated via manual query: {position}")
+                    
+                except Exception as query_e:
+                    logger.warning(f"Manual status query failed: {query_e}")
+                    # Don't change status if query fails - keep existing status
             else:
-                # If we can't parse status but have a response, assume connected but unknown
-                if response:
-                    logger.warning(f"Unknown status format: {response}")
-                else:
-                    logger.warning("No status response received")
-            
-            # Always attempt to update position if we have a response, even before homing
-            if response:
-                position = self._parse_position_from_status(response)
-                if position:
-                    self.current_position = position
-                    logger.debug(f"Position updated in status: {position}")
-                else:
-                    logger.debug("Could not parse position from status response")
+                logger.debug(f"Background monitor data acceptable (age: {data_age:.1f}s), skipping manual query")
                 
         except Exception as e:
             logger.error(f"Status update failed: {e}")
-            self.status = MotionStatus.ERROR
+            # Only set error status if we're not getting any background updates
+            if self.last_position_update == 0 or (time.time() - self.last_position_update) > 5.0:
+                self.status = MotionStatus.ERROR
 
     def is_background_monitor_running(self) -> bool:
         """Check if background monitoring task is running"""
