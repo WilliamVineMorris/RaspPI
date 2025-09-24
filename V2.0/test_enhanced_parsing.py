@@ -91,6 +91,11 @@ def enhanced_parse_position_from_status(status_response: str) -> Optional[Positi
             if wpos_match:
                 break
         
+        # Special handling for standalone WPos (if no MPos found, treat WPos as position source)
+        if not mpos_match and wpos_match:
+            # Use WPos data as primary position source for standalone WPos messages
+            mpos_match = wpos_match
+        
         # Strategy 2: Extract any coordinate data even from partial messages
         if not mpos_match and not wpos_match:
             # Look for any position-like data patterns (case-insensitive and flexible spacing)
