@@ -1956,78 +1956,44 @@ class ScannerWebInterface:
                 time.sleep(0.1)
     
     def start_web_server(self, host='0.0.0.0', port=8080, debug=False, use_reloader=None, production=False):
-        """Start the Flask web server"""
+        """Start the Flask web server (simplified - Flask only)"""
         try:
             self._running = True
-            self.logger.info(f"Starting web interface on http://{host}:{port}")
+            self.logger.info(f"🌐 Starting Flask web interface on http://{host}:{port}")
             
             # Start background thread for status updates
             self._start_status_updater()
             
-            if production and not debug:
-                # Use Gunicorn for production
-                self._start_gunicorn_server(host, port)
+            # Always use Flask - it's more reliable for Pi hardware with camera streaming
+            # Determine reloader setting
+            if use_reloader is None:
+                use_reloader = debug and not production
+            
+            # Configure Flask for Pi hardware
+            flask_config = {
+                'host': host,
+                'port': port,
+                'debug': debug,
+                'use_reloader': use_reloader,
+                'threaded': True,  # Enable threading for camera streams
+                'processes': 1     # Single process to avoid resource conflicts
+            }
+            
+            if production:
+                self.logger.info("🏭 Running Flask in production mode (threaded, no reloader)")
+                flask_config['debug'] = False
+                flask_config['use_reloader'] = False
             else:
-                # Use Flask development server
-                # Determine reloader setting
-                if use_reloader is None:
-                    use_reloader = debug
-                
-                # Run the Flask app directly (no SocketIO)
-                self.app.run(host=host, port=port, debug=debug, use_reloader=use_reloader)
+                self.logger.info("🔧 Running Flask in development mode")
+            
+            # Run the Flask app directly
+            self.app.run(**flask_config)
             
         except Exception as e:
             self.logger.error(f"Failed to start web server: {e}")
             raise
     
-    def _start_gunicorn_server(self, host, port):
-        """Start Gunicorn WSGI server for production"""
-        try:
-            from gunicorn.app.base import BaseApplication
-            
-            class StandaloneApplication(BaseApplication):
-                def __init__(self, app, options=None):
-                    self.options = options or {}
-                    self.application = app
-                    super().__init__()
-                
-                def load_config(self):
-                    config = {key: value for key, value in self.options.items()
-                             if key in self.cfg.settings and value is not None}
-                    for key, value in config.items():
-                        self.cfg.set(key.lower(), value)
-                
-                def load(self):
-                    return self.application
-            
-            # Pi-optimized Gunicorn configuration
-            options = {
-                'bind': f'{host}:{port}',
-                'workers': 2,  # Reduced for Pi hardware
-                'worker_class': 'sync',
-                'worker_connections': 100,  # Reduced for Pi
-                'max_requests': 500,  # Lower to prevent memory issues
-                'max_requests_jitter': 25,
-                'preload_app': False,  # Disable preload for Pi
-                'timeout': 60,  # Longer timeout for Pi
-                'keepalive': 5,
-                'access_logfile': '-',
-                'error_logfile': '-',
-                'log_level': 'info',
-                'capture_output': True
-            }
-            
-            self.logger.info("🏭 Starting optimized Gunicorn WSGI server for Pi")
-            StandaloneApplication(self.app, options).run()
-            
-        except ImportError:
-            self.logger.warning("Gunicorn not available, falling back to Flask development server")
-            self.logger.info("🔧 Install gunicorn for production: pip3 install gunicorn")
-            self.app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
-        except Exception as e:
-            self.logger.error(f"Gunicorn failed ({e}), falling back to Flask development server")
-            self.logger.info("🔧 Using Flask fallback for compatibility")
-            self.app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
+    # Gunicorn removed - Flask is more reliable for Pi hardware with camera streaming
     
     def stop_web_server(self):
         """Stop the web server"""
