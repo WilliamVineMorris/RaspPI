@@ -6,6 +6,8 @@ Fixed web interface startup with better Gunicorn configuration and fallback opti
 import argparse
 import sys
 import os
+import signal
+import logging
 
 def start_web_interface_fixed():
     """Start web interface with improved configuration"""
@@ -34,6 +36,26 @@ def start_web_interface_fixed():
                        help='Force Flask dev server even in production mode')
     
     args = parser.parse_args()
+    
+    # Global shutdown handler
+    orchestrator = None
+    web_interface = None
+    
+    def signal_handler(signum, frame):
+        logger.info(f"🛑 Received signal {signum}, initiating graceful shutdown...")
+        if web_interface:
+            web_interface._running = False
+        if orchestrator:
+            try:
+                loop = asyncio.get_event_loop()
+                loop.run_until_complete(orchestrator.shutdown())
+            except:
+                pass
+        sys.exit(0)
+    
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
     
     try:
         logger.info("🚀 Initializing Scanner System...")

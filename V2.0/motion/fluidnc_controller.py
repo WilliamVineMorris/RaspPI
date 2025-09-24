@@ -1495,7 +1495,7 @@ class FluidNCController(MotionController):
                 return
             
             # Only make manual query if background monitor is failing or data is very stale
-            if data_age > 3.0:
+            if data_age > 8.0:
                 logger.warning(f"Background monitor data is stale ({data_age:.1f}s), making manual status query")
                 try:
                     response = await self._get_status_response()  # Use proper status method
@@ -1680,7 +1680,7 @@ class FluidNCController(MotionController):
                                         logger.debug(f"❌ Could not parse position from: {message[:100]}...")
                         
                         # Periodic activity logging
-                        if current_time - last_log_time > 15.0:  # Log every 15 seconds
+                        if current_time - last_log_time > 30.0:  # Log every 30 seconds to reduce noise
                             logger.info(f"📊 Monitor active: {message_count} messages, {position_updates} position updates, Status: {self.status.name}")
                             last_log_time = current_time
                     

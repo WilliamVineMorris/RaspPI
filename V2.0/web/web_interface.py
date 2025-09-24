@@ -1817,8 +1817,9 @@ class ScannerWebInterface:
         import numpy as np
         
         # Only allow Camera 0 streaming
-        if camera_id not in [0, '0', 'camera_1']:
-            self.logger.warning(f"STREAM DISABLED: Camera {camera_id} streaming disabled, only Camera 0 supported")
+        # Enable both cameras - Camera 0 and Camera 1
+        if camera_id not in [0, '0', 1, '1', 'camera_1', 'camera_2']:
+            self.logger.warning(f"STREAM DISABLED: Camera {camera_id} not supported, only Camera 0 and 1 supported")
             # Generate a simple "Camera Disabled" frame
             while True:
                 # Create a simple disabled camera frame
@@ -1847,8 +1848,8 @@ class ScannerWebInterface:
                 
                 time.sleep(0.1)  # 10 FPS for disabled camera
         
-        # High-performance Camera 0 streaming - original smooth performance
-        self.logger.debug(f"STREAM START: Camera 0 high-performance streaming initialized")
+        # High-performance camera streaming - supports both cameras
+        self.logger.debug(f"STREAM START: Camera {camera_id} high-performance streaming initialized")
         
         frame_counter = 0
         last_log_time = 0
@@ -1863,7 +1864,7 @@ class ScannerWebInterface:
             # Log every 20 seconds to reduce noise
             should_log = (current_time - last_log_time) > 20.0
             if should_log:
-                self.logger.debug(f"STREAM STATUS: Camera 0 - Frame {frame_counter}")
+                self.logger.debug(f"STREAM STATUS: Camera {camera_id} - Frame {frame_counter}")
                 last_log_time = current_time
             
             # Frame rate control
@@ -1880,8 +1881,22 @@ class ScannerWebInterface:
                 if orchestrator and hasattr(orchestrator, 'camera_manager'):
                     # High-performance streaming with direct frame access
                     try:
-                        # Always use 'camera_1' for Camera 0 hardware
-                        frame = orchestrator.camera_manager.get_preview_frame('camera_1')
+                        # Check if we should stop streaming (graceful shutdown)
+                        if not getattr(self, '_running', True):
+                            self.logger.info("STREAM SHUTDOWN: Graceful camera stream termination")
+                            break
+                            
+                        # Map camera_id to the correct backend camera
+                        if camera_id in [0, '0']:
+                            camera_key = 'camera_1'
+                        elif camera_id in [1, '1']:
+                            camera_key = 'camera_2'
+                        elif camera_id in ['camera_1', 'camera_2']:
+                            camera_key = camera_id
+                        else:
+                            camera_key = 'camera_1'  # Default fallback
+                            
+                        frame = orchestrator.camera_manager.get_preview_frame(camera_key)
                         
                         if frame is not None and frame.size > 0:
                             if should_log:
@@ -1910,6 +1925,9 @@ class ScannerWebInterface:
                             if should_log:
                                 self.logger.warning("STREAM WARNING: No frame data received")
                     
+                    except (SystemExit, KeyboardInterrupt):
+                        self.logger.info("STREAM SHUTDOWN: Camera stream terminated by signal")
+                        break
                     except Exception as e:
                         if should_log:
                             self.logger.error(f"STREAM ERROR: Frame capture failed: {e}")
@@ -1918,7 +1936,7 @@ class ScannerWebInterface:
                         self.logger.warning("STREAM WARNING: No orchestrator available")
                 
                 # Lightweight fallback for unavailable camera
-                fallback_frame = self._create_fallback_frame("Camera 0 - No Signal")
+                fallback_frame = self._create_fallback_frame(f"Camera {camera_id} - No Signal")
                 
                 # Encode fallback frame with lower quality
                 ret, jpeg_buffer = cv2.imencode('.jpg', fallback_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
@@ -1929,9 +1947,12 @@ class ScannerWebInterface:
                            b'Content-Length: ' + str(len(jpeg_data)).encode() + b'\r\n\r\n' +
                            jpeg_data + b'\r\n')
                 
+            except (SystemExit, KeyboardInterrupt):
+                self.logger.info("STREAM SHUTDOWN: Camera stream generator terminated gracefully")
+                break
             except Exception as e:
                 if should_log:
-                    self.logger.error(f"STREAM CRITICAL: Unexpected error in Camera 0 stream: {e}")
+                    self.logger.error(f"STREAM CRITICAL: Unexpected error in Camera {camera_id} stream: {e}")
                 time.sleep(0.1)
     
     def start_web_server(self, host='0.0.0.0', port=8080, debug=False, use_reloader=None, production=False):
