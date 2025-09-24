@@ -1073,8 +1073,8 @@ class FluidNCController(MotionController):
                                         z=mz,    # Machine coordinate for Z (continuous rotation, prevents accumulation)
                                         c=wc     # Work coordinate for C (tilt, user-relevant)
                                     )
-                                    logger.debug(f"✅ Parsed hybrid position - Work X,Y,C: ({wx:.3f},{wy:.3f},{wc:.3f}), Machine Z: {mz:.3f}")
-                                    logger.debug(f"📊 Coordinate details: MPos=({mx:.3f},{my:.3f},{mz:.3f},{mc:.3f}) WPos=({wx:.3f},{wy:.3f},{wz:.3f},{wc:.3f})")
+                                    logger.info(f"✅ Parsed hybrid position - Work X,Y,C: ({wx:.3f},{wy:.3f},{wc:.3f}), Machine Z: {mz:.3f}")
+                                    logger.info(f"📊 Coordinate details: MPos=({mx:.3f},{my:.3f},{mz:.3f},{mc:.3f}) WPos=({wx:.3f},{wy:.3f},{wz:.3f},{wc:.3f})")
                                     return position
                             except (ValueError, IndexError) as e:
                                 logger.debug(f"Work coordinate parsing failed, using machine only: {e}")
@@ -2034,11 +2034,12 @@ class FluidNCController(MotionController):
                 
                 # Force immediate position update for responsive UI
                 try:
+                    logger.info("🔍 Querying final position after movement completion...")
                     fresh_position = await self.get_current_position()
-                    logger.info(f"Position updated after relative move: {fresh_position}")
+                    logger.info(f"📍 Final position after relative move: {fresh_position}")
                 except Exception as e:
                     logger.warning(f"Could not get fresh position after relative move: {e}")
-                    logger.info(f"Position updated after relative move: {self.current_position}")
+                    logger.info(f"📍 Final position after relative move (cached): {self.current_position}")
             
             return result
             
