@@ -842,7 +842,7 @@ class FluidNCController(MotionController):
         logger.info("Waiting for movement completion...")
         
         # Give movement time to start and be detected by background monitor
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.05)  # Reduced from 0.1s to 0.05s for faster response
         
         # Store initial position for movement detection
         initial_position = Position4D(
@@ -943,13 +943,19 @@ class FluidNCController(MotionController):
                 logger.info("✅ Movement completed - FluidNC reports IDLE after movement detected")
                 return
             
+            # FAST COMPLETION: If FluidNC reports IDLE and position is stable, movement is done
+            # (Handles very fast movements that complete before detection)
+            if self.status == MotionStatus.IDLE and stable_count >= 2 and (time.time() - start_time) > 0.5:
+                logger.info("✅ Movement completed - FluidNC IDLE with stable position (fast movement)")
+                return
+            
             # Movement complete when:
-            # 1. Movement was detected AND position stable for 1+ checks (50ms) - faster detection
-            # 2. OR extended timeout for movement detection (allow for slow movements)
+            # 1. Movement was detected AND position stable for 1+ checks (20ms) - faster detection
+            # 2. OR extended timeout for movement detection (reduced for small movements)
             if movement_started and stable_count >= 1:
                 logger.info("✅ Movement completed - position stable after movement")
                 return
-            elif not movement_started and (time.time() - start_time) > 3.0:  # Reduced from 8s to 3s
+            elif not movement_started and (time.time() - start_time) > 1.5:  # Reduced from 3s to 1.5s for responsiveness
                 logger.info("✅ Movement completed - extended timeout (assuming quick/undetected movement)")
                 return
                 
