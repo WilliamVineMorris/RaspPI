@@ -55,7 +55,7 @@ class FluidNCController(MotionController):
         
         # Serial connection
         self.serial_connection: Optional[serial.Serial] = None
-        self.connection_lock = asyncio.Lock()
+        self.connection_lock = None  # Will be created lazily in the correct event loop
         
         # Motion state
         self.current_position = Position4D()
@@ -77,6 +77,41 @@ class FluidNCController(MotionController):
         
         # Load axis configuration from config
         self._load_axis_config()
+    
+    async def _get_connection_lock(self):
+        """Get connection lock, creating it in the current event loop if needed"""
+        if self.connection_lock is None:
+            try:
+                # Try to get the current event loop
+                loop = asyncio.get_running_loop()
+                # Create the lock in the current event loop
+                self.connection_lock = asyncio.Lock()
+                logger.debug("Created connection lock in current event loop")
+            except RuntimeError as e:
+                logger.error(f"No event loop running, using threading lock: {e}")
+                # Fallback to threading lock if no event loop
+                import threading
+                self.connection_lock = threading.Lock()
+        return self.connection_lock
+    
+    class _LockContextManager:
+        """Async context manager that handles both asyncio.Lock and threading.Lock"""
+        def __init__(self, lock):
+            self.lock = lock
+            self.is_async = hasattr(lock, '__aenter__')
+        
+        async def __aenter__(self):
+            if self.is_async:
+                await self.lock.__aenter__()
+            else:
+                self.lock.__enter__()
+            return self
+        
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            if self.is_async:
+                await self.lock.__aexit__(exc_type, exc_val, exc_tb)
+            else:
+                self.lock.__exit__(exc_type, exc_val, exc_tb)
     
     def _load_axis_config(self):
         """Load axis configuration from system config"""
@@ -256,7 +291,8 @@ class FluidNCController(MotionController):
         if not self.is_connected():
             raise FluidNCConnectionError("Not connected to FluidNC")
         
-        async with self.connection_lock:
+        lock = await self._get_connection_lock()
+        async with self._LockContextManager(lock):
             try:
                 if not self.serial_connection:
                     raise FluidNCConnectionError("Serial connection not established")
@@ -487,7 +523,8 @@ class FluidNCController(MotionController):
         if not self.is_connected():
             raise FluidNCConnectionError("Not connected to FluidNC")
 
-        async with self.connection_lock:
+        lock = await self._get_connection_lock()
+        async with self._LockContextManager(lock):
             try:
                 if not self.serial_connection:
                     raise FluidNCConnectionError("Serial connection not established")
