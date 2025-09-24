@@ -233,7 +233,7 @@ def enhance_web_interface_jog_endpoint(web_interface_instance):
     # Store original jog method
     original_execute_jog = web_interface_instance._execute_jog_command
     
-    async def enhanced_execute_jog_command(delta_values: Dict[str, float], speed: Optional[float] = None) -> Dict[str, Any]:
+    async def enhanced_execute_jog_command(delta_values: Dict[str, float], speed: float, command_id: Optional[str] = None) -> Dict[str, Any]:
         """Enhanced jog command with intelligent feedrate selection"""
         try:
             # Use feedrate manager if available
@@ -263,12 +263,12 @@ def enhance_web_interface_jog_endpoint(web_interface_instance):
                 speed = 200.0  # Conservative fallback
             
             # Execute with selected feedrate
-            return await original_execute_jog(delta_values, speed)
+            return await original_execute_jog(delta_values, speed, command_id)
             
         except Exception as e:
             logger.error(f"❌ Enhanced jog command failed: {e}")
             # Fallback to original method
-            return await original_execute_jog(delta_values, speed or 100.0)
+            return await original_execute_jog(delta_values, speed or 100.0, command_id)
     
     # Replace the method
     web_interface_instance._execute_jog_command = enhanced_execute_jog_command
