@@ -810,6 +810,56 @@ body {
 .lighting-control-panel { grid-area: lighting; }
 .manual-status-panel { grid-area: status; }
 
+/* System Alarm/Status Panel */
+.system-alarm-panel {
+    margin-bottom: 1rem;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    text-align: center;
+    font-size: 14px;
+    line-height: 1.4;
+    border: 2px solid;
+    transition: all 0.3s ease;
+}
+
+/* Alarm state styles */
+.system-alarm-panel.alarm-state {
+    background-color: #ffebee;
+    color: #c62828;
+    border-color: #c62828;
+    animation: pulse-alarm 2s infinite;
+}
+
+.system-alarm-panel.error-state {
+    background-color: #fce4ec;
+    color: #ad1457;
+    border-color: #ad1457;
+}
+
+.system-alarm-panel.not-homed {
+    background-color: #fff9c4;
+    color: #f57c00;
+    border-color: #ff9800;
+}
+
+.system-alarm-panel.ready-state {
+    background-color: #e8f5e8;
+    color: #2e7d32;
+    border-color: #4caf50;
+}
+
+.system-alarm-panel.disconnected {
+    background-color: #f3e5f5;
+    color: #7b1fa2;
+    border-color: #9c27b0;
+}
+
+@keyframes pulse-alarm {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
 /* Position controls */
 .current-position {
     margin-bottom: 1.5rem;

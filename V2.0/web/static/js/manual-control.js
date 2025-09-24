@@ -1392,66 +1392,60 @@ const ManualControl = {
     },
 
     /**
-     * Update alarm state display
+     * Update alarm state display with improved positioning and alarm state handling
      */
     updateAlarmStateDisplay(motionStatus) {
-        // Find or create alarm status display
-        let alarmDisplay = document.getElementById('alarmStatusDisplay');
+        // Use the dedicated system alarm panel
+        let alarmDisplay = document.getElementById('systemAlarmPanel');
         if (!alarmDisplay) {
-            const statusSection = document.querySelector('.motion-status, .system-status, .current-position');
-            if (statusSection) {
-                alarmDisplay = document.createElement('div');
-                alarmDisplay.id = 'alarmStatusDisplay';
-                alarmDisplay.style.cssText = 'margin: 10px 0; padding: 10px; border-radius: 5px; font-weight: bold;';
-                statusSection.appendChild(alarmDisplay);
-            }
+            ScannerBase.log('System alarm panel not found in DOM', 'error');
+            return;
         }
 
-        if (alarmDisplay && motionStatus.alarm) {
-            const alarm = motionStatus.alarm;
+        if (alarmDisplay && motionStatus) {
+            // Clear all previous CSS classes and use CSS-based styling
+            alarmDisplay.className = 'system-alarm-panel';
             
-            if (alarm.is_alarm) {
-                alarmDisplay.style.backgroundColor = '#ffebee';
-                alarmDisplay.style.color = '#c62828';
-                alarmDisplay.style.border = '2px solid #c62828';
+            // Priority-based status display (highest priority first)
+            if (motionStatus.alarm && motionStatus.alarm.is_alarm) {
+                // HIGHEST PRIORITY: Alarm State - Critical Safety Issue
+                alarmDisplay.className += ' alarm-state';
                 let message = '🚨 ALARM STATE - Movement Blocked';
-                if (alarm.alarm_code) {
-                    message += ` (Code: ${alarm.alarm_code})`;
+                if (motionStatus.alarm.alarm_code) {
+                    message += ` (Code: ${motionStatus.alarm.alarm_code})`;
                 }
-                if (alarm.message) {
-                    message += `<br><small>${alarm.message}</small>`;
-                }
-                alarmDisplay.innerHTML = message;
-                alarmDisplay.style.display = 'block';
-            } else if (alarm.is_error) {
-                alarmDisplay.style.backgroundColor = '#fff3e0';
-                alarmDisplay.style.color = '#ef6c00';
-                alarmDisplay.style.border = '2px solid #ef6c00';
-                let message = '⚠️ ERROR STATE - Movement Blocked';
-                if (alarm.message) {
-                    message += `<br><small>${alarm.message}</small>`;
+                if (motionStatus.alarm.message && motionStatus.alarm.message.trim()) {
+                    message += `<br><small>${motionStatus.alarm.message}</small>`;
                 }
                 alarmDisplay.innerHTML = message;
                 alarmDisplay.style.display = 'block';
-            } else if (motionStatus.status === 'disconnected') {
-                alarmDisplay.style.backgroundColor = '#f3e5f5';
-                alarmDisplay.style.color = '#7b1fa2';
-                alarmDisplay.style.border = '2px solid #7b1fa2';
+                
+            } else if (motionStatus.alarm && motionStatus.alarm.is_error) {
+                // HIGH PRIORITY: Error State - System Problem
+                alarmDisplay.className += ' error-state';
+                let message = '❌ ERROR STATE - Movement Blocked';
+                if (motionStatus.alarm.message && motionStatus.alarm.message.trim()) {
+                    message += `<br><small>${motionStatus.alarm.message}</small>`;
+                }
+                alarmDisplay.innerHTML = message;
+                alarmDisplay.style.display = 'block';
+                
+            } else if (!motionStatus.connected || motionStatus.status === 'disconnected') {
+                // HIGH PRIORITY: Hardware Disconnected
+                alarmDisplay.className += ' disconnected';
                 alarmDisplay.innerHTML = '🔌 DISCONNECTED - Check FluidNC Connection';
                 alarmDisplay.style.display = 'block';
+                
+            } else if (!motionStatus.homed) {
+                // MEDIUM PRIORITY: Not Homed Warning (better positioned now)
+                alarmDisplay.className += ' not-homed';
+                alarmDisplay.innerHTML = '⚠️ Not Homed - Consider homing for accurate positioning';
+                alarmDisplay.style.display = 'block';
+                
             } else {
-                // System is OK
-                if (motionStatus.homed) {
-                    alarmDisplay.style.backgroundColor = '#e8f5e8';
-                    alarmDisplay.style.color = '#2e7d32';
-                    alarmDisplay.style.border = '2px solid #4caf50';
-                    alarmDisplay.innerHTML = '✅ System Ready - Homed and Safe for Movement';
-                } else {
-                    alarmDisplay.style.backgroundColor = '#fff9c4';
-                    alarmDisplay.style.color = '#f57c00';
-                    alarmDisplay.style.border = '2px solid #ff9800';
-                    alarmDisplay.innerHTML = '⚠️ Not Homed - Consider homing for accurate positioning';
-                }
+                // LOW PRIORITY: System Ready - All Good
+                alarmDisplay.className += ' ready-state';
+                alarmDisplay.innerHTML = '✅ System Ready - Homed and Safe for Movement';
                 alarmDisplay.style.display = 'block';
             }
         } else if (alarmDisplay) {
