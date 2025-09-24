@@ -1472,11 +1472,11 @@ class FluidNCController(MotionController):
     # Status Updates
     async def _update_status(self):
         """
-        Update controller status - OPTIMIZED to use background monitor data
+        Update controller status - RELIES EXCLUSIVELY on background monitor data
         
-        With auto-reporting enabled, we should rely on the background monitor
-        for all status updates instead of making manual queries that compete
-        with the auto-report stream.
+        CRITICAL FIX: Never make manual serial queries while background monitor is running
+        to prevent serial port conflicts and data corruption. The background monitor
+        processing FluidNC auto-reports is the single source of truth.
         """
         try:
             if not self.is_connected():
@@ -1484,53 +1484,55 @@ class FluidNCController(MotionController):
                 logger.debug("Status update: disconnected")
                 return
             
-            # Check if background monitor is providing fresh data
+            # Check if background monitor is providing data
             current_time = time.time()
             data_age = current_time - self.last_position_update if self.last_position_update > 0 else 999.0
             
-            # If background monitor is working well, use its data
-            if self.is_background_monitor_running() and data_age < 1.0:
+            # ALWAYS use background monitor data if it's running - never compete with it
+            if self.is_background_monitor_running():
                 logger.debug(f"Using background monitor data (age: {data_age:.1f}s)")
-                # Status is already being updated by background monitor - no need to query
+                # Status is being updated by background monitor - this is correct
+                
+                # If data is getting stale, log warning but don't interfere
+                if data_age > 5.0:
+                    logger.warning(f"Background monitor data is stale ({data_age:.1f}s) but not interfering to prevent serial conflicts")
+                
                 return
             
-            # Only make manual query if background monitor is failing or data is very stale
-            if data_age > 8.0:
-                logger.warning(f"Background monitor data is stale ({data_age:.1f}s), making manual status query")
-                try:
-                    response = await self._get_status_response()  # Use proper status method
-                    logger.debug(f"Manual status response: {response}")
+            # Background monitor not running - only then is it safe to make manual queries
+            logger.info("Background monitor not running, safe to make manual status query")
+            try:
+                response = await self._get_status_response()
+                logger.debug(f"Manual status response: {response}")
+                
+                if response:
+                    # Parse status from manual query
+                    if 'Idle' in response:
+                        self.status = MotionStatus.IDLE
+                    elif 'Run' in response or 'Jog' in response:
+                        self.status = MotionStatus.MOVING
+                    elif 'Home' in response:
+                        self.status = MotionStatus.HOMING
+                    elif 'Alarm' in response:
+                        self.status = MotionStatus.ALARM
+                    elif 'Error' in response:
+                        self.status = MotionStatus.ERROR
                     
-                    if response:
-                        # Parse status from manual query
-                        if 'Idle' in response:
-                            self.status = MotionStatus.IDLE
-                        elif 'Run' in response or 'Jog' in response:
-                            self.status = MotionStatus.MOVING
-                        elif 'Home' in response:
-                            self.status = MotionStatus.HOMING
-                        elif 'Alarm' in response:
-                            self.status = MotionStatus.ALARM
-                        elif 'Error' in response:
-                            self.status = MotionStatus.ERROR
-                        
-                        # Update position from manual query
-                        position = self._parse_position_from_status(response)
-                        if position:
-                            self.current_position = position
-                            self.last_position_update = current_time
-                            logger.debug(f"Position updated via manual query: {position}")
-                    
-                except Exception as query_e:
-                    logger.warning(f"Manual status query failed: {query_e}")
-                    # Don't change status if query fails - keep existing status
-            else:
-                logger.debug(f"Background monitor data acceptable (age: {data_age:.1f}s), skipping manual query")
+                    # Update position from manual query
+                    position = self._parse_position_from_status(response)
+                    if position:
+                        self.current_position = position
+                        self.last_position_update = current_time
+                        logger.debug(f"Position updated via manual query: {position}")
+                
+            except Exception as query_e:
+                logger.warning(f"Manual status query failed: {query_e}")
+                # Don't change status if query fails - keep existing status
                 
         except Exception as e:
             logger.error(f"Status update failed: {e}")
             # Only set error status if we're not getting any background updates
-            if self.last_position_update == 0 or (time.time() - self.last_position_update) > 5.0:
+            if self.last_position_update == 0 or (time.time() - self.last_position_update) > 10.0:
                 self.status = MotionStatus.ERROR
 
     def is_background_monitor_running(self) -> bool:
@@ -1607,8 +1609,8 @@ class FluidNCController(MotionController):
                         messages = await asyncio.wait_for(self._read_all_messages(), timeout=0.2)
                         consecutive_errors = 0  # Reset error count on success
                     except asyncio.TimeoutError:
-                        # Timeout is normal - just continue monitoring with minimal delay
-                        await asyncio.sleep(0.01)  # 10ms sleep for maximum responsiveness
+                        # Timeout is normal - just continue monitoring with balanced responsiveness
+                        await asyncio.sleep(0.05)  # 50ms sleep - balance between responsiveness and CPU usage
                         continue
                     except Exception as read_e:
                         consecutive_errors += 1
@@ -1723,7 +1725,10 @@ class FluidNCController(MotionController):
     
     async def get_alarm_state(self) -> Dict[str, Any]:
         """
-        Get detailed alarm state information from FluidNC
+        Get detailed alarm state information from FluidNC - USES BACKGROUND MONITOR DATA
+        
+        CRITICAL FIX: Never make serial queries while background monitor is running
+        to prevent serial port conflicts. Use cached status from background monitor.
         
         Returns:
             Dict containing alarm information:
@@ -1733,26 +1738,23 @@ class FluidNCController(MotionController):
             - can_move: bool - whether movement is allowed
         """
         try:
-            await self._update_status()  # Ensure current status
+            await self._update_status()  # This now safely uses background monitor data
             
-            # Get current status response
-            status_response = await self._get_status_response()
-            
+            # Use current status from background monitor - don't make additional serial queries
             alarm_info = {
                 'is_alarm': self.status == MotionStatus.ALARM,
                 'is_error': self.status == MotionStatus.ERROR,
                 'alarm_code': None,
-                'message': status_response or "",
+                'message': f"Status: {self.status.name}",  # Use current status instead of raw response
                 'can_move': self.status not in [MotionStatus.ALARM, MotionStatus.ERROR],
                 'status': self.status.name,
                 'is_homed': self.is_homed
             }
             
-            # Extract alarm code if in alarm state
-            if status_response and 'Alarm' in status_response:
-                alarm_match = re.search(r'Alarm:(\d+)', status_response)
-                if alarm_match:
-                    alarm_info['alarm_code'] = alarm_match.group(1)
+            # Note: Alarm code extraction would require background monitor enhancement
+            # For now, provide general alarm state without specific codes to avoid serial conflicts
+            if self.status == MotionStatus.ALARM:
+                alarm_info['message'] = "System in alarm state - check background monitor logs for details"
             
             return alarm_info
             
