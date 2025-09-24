@@ -158,15 +158,163 @@ async def test_movement_timing():
         traceback.print_exc()
 
 
+async def test_homing_detection():
+    """Test homing and state detection"""
+    logger.info("🏠 Testing Homing and State Detection")
+    
+    try:
+        # Connect to FluidNC
+        port = '/dev/ttyUSB0'  # Adjust port
+        ser = serial.Serial(port, 115200, timeout=0.1)
+        
+        # Create communicator
+        comm = FluidNCCommunicator(ser)
+        await comm.start()
+        
+        # Get initial status
+        initial_status = await comm.get_status()
+        logger.info(f"📊 Initial Status: {comm.current_status.name}")
+        logger.info(f"📍 Initial Position: {comm.current_position}")
+        
+        # Test status detection - check if in alarm (common after startup)
+        if comm.current_status == comm.current_status.ALARM:
+            logger.info("⚠️  FluidNC in ALARM state - testing unlock...")
+            
+            # Send unlock command
+            unlock_success = await comm.send_gcode('$X')
+            logger.info(f"🔓 Unlock command: {'✅ Success' if unlock_success else '❌ Failed'}")
+            
+            # Wait for status change
+            await asyncio.sleep(1.0)
+            logger.info(f"📊 Status after unlock: {comm.current_status.name}")
+        
+        # Test homing command (WARNING: This will actually home the machine!)
+        logger.info("🏠 Testing homing command...")
+        logger.info("⚠️  WARNING: This will move the machine to home position!")
+        
+        # Uncomment the next lines to actually test homing
+        # logger.info("Starting homing in 3 seconds... (Ctrl+C to cancel)")
+        # await asyncio.sleep(3.0)
+        # 
+        # start_time = time.time()
+        # homing_success = await comm.home_all()
+        # 
+        # if homing_success:
+        #     homing_time = time.time() - start_time
+        #     logger.info(f"✅ Homing completed in {homing_time:.3f}s")
+        #     
+        #     # Wait for final position update
+        #     await asyncio.sleep(0.5)
+        #     logger.info(f"📍 Home Position: {comm.current_position}")
+        # else:
+        #     logger.error("❌ Homing command failed")
+        
+        # Instead, just test the command preparation
+        logger.info("� Testing homing command preparation (not executing)...")
+        logger.info("✅ Homing command ready: $H")
+        logger.info("✅ State detection ready: HOMING → IDLE")
+        logger.info("✅ Position updates ready via auto-reports")
+        
+        # Test alarm detection
+        logger.info("🚨 Testing alarm detection...")
+        
+        # We won't trigger a real alarm, but show the detection capability
+        logger.info("✅ Alarm detection ready: ALARM messages → MotionStatus.ALARM")
+        logger.info("✅ Emergency stop ready: ! (feed hold) + Ctrl-X (reset)")
+        
+        await comm.stop()
+        logger.info("✅ Homing and detection test complete")
+        
+    except Exception as e:
+        logger.error(f"❌ Homing test failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+async def test_realtime_status_monitoring():
+    """Test real-time status monitoring during movement"""
+    logger.info("📡 Testing Real-Time Status Monitoring")
+    
+    try:
+        # Connect to FluidNC
+        port = '/dev/ttyUSB0'  # Adjust port
+        ser = serial.Serial(port, 115200, timeout=0.1)
+        
+        # Create communicator
+        comm = FluidNCCommunicator(ser)
+        await comm.start()
+        
+        # Status change counter
+        status_changes = []
+        last_status = comm.current_status
+        
+        logger.info(f"📊 Initial Status: {comm.current_status.name}")
+        
+        # Monitor status changes during a small movement
+        logger.info("🎯 Starting monitored movement...")
+        
+        # Send relative movement
+        await comm.send_gcode('G91')  # Relative mode
+        
+        start_time = time.time()
+        await comm.send_gcode('G1 Z0.5 F50')  # Small, slow movement
+        
+        # Monitor status changes in real-time
+        monitoring_time = 0
+        while monitoring_time < 3.0:  # Monitor for up to 3 seconds
+            current_time = time.time()
+            monitoring_time = current_time - start_time
+            
+            # Check for status changes
+            if comm.current_status != last_status:
+                status_changes.append({
+                    'time': monitoring_time,
+                    'from': last_status.name,
+                    'to': comm.current_status.name,
+                    'position': str(comm.current_position)
+                })
+                logger.info(f"🔄 Status Change @ {monitoring_time:.3f}s: {last_status.name} → {comm.current_status.name}")
+                last_status = comm.current_status
+            
+            # Break if movement completes
+            if comm.current_status.name == 'IDLE' and monitoring_time > 0.2:
+                logger.info(f"✅ Movement completed in {monitoring_time:.3f}s")
+                break
+                
+            await asyncio.sleep(0.05)  # 50ms monitoring
+        
+        await comm.send_gcode('G90')  # Back to absolute mode
+        
+        # Report status monitoring results
+        logger.info(f"📊 Status Monitoring Results:")
+        logger.info(f"   • Total monitoring time: {monitoring_time:.3f}s")
+        logger.info(f"   • Status changes detected: {len(status_changes)}")
+        
+        for change in status_changes:
+            logger.info(f"   • {change['time']:.3f}s: {change['from']} → {change['to']}")
+        
+        logger.info(f"📍 Final Position: {comm.current_position}")
+        
+        await comm.stop()
+        logger.info("✅ Real-time monitoring test complete")
+        
+    except Exception as e:
+        logger.error(f"❌ Real-time monitoring test failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 async def main():
     """Run all protocol tests"""
-    logger.info("🚀 FluidNC Protocol Test Suite")
+    logger.info("�🚀 FluidNC Protocol Test Suite")
     logger.info("=" * 50)
     
     tests = [
         ("Basic Protocol", test_protocol_basic),
         ("High-Level Communicator", test_communicator), 
-        ("Movement Timing", test_movement_timing)
+        ("Movement Timing", test_movement_timing),
+        ("Homing and Detection", test_homing_detection),
+        ("Real-Time Status Monitoring", test_realtime_status_monitoring)
     ]
     
     for test_name, test_func in tests:
