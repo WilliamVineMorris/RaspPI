@@ -393,21 +393,42 @@ class ScannerWebInterface:
         
         @self.app.route('/api/home', methods=['POST'])
         def api_home():
-            """Home axes"""
+            """Home axes with enhanced logging"""
             try:
+                self.logger.info(f"🏠 HOME API called - Method: {request.method}")
+                self.logger.info(f"🏠 Request headers: {dict(request.headers)}")
+                
                 data = request.get_json() or {}
+                self.logger.info(f"🏠 Request data: {data}")
+                
                 axes = data.get('axes', ['x', 'y', 'z', 'c'])  # Default: home all
+                self.logger.info(f"🏠 Homing axes: {axes}")
                 
+                # Check if orchestrator and motion controller are available
+                if not self.orchestrator:
+                    self.logger.error("❌ No orchestrator available")
+                    return jsonify({'success': False, 'error': 'Orchestrator not available'}), 500
+                    
+                if not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
+                    self.logger.error("❌ No motion controller available")
+                    return jsonify({'success': False, 'error': 'Motion controller not available'}), 500
+                
+                self.logger.info(f"🏠 Orchestrator and motion controller available, executing home command...")
                 result = self._execute_home_command(axes)
+                self.logger.info(f"🏠 Home command result: {result}")
                 
-                return jsonify({
+                response = {
                     'success': True,
                     'data': result,
                     'timestamp': datetime.now().isoformat()
-                })
+                }
+                self.logger.info(f"🏠 Sending response: {response}")
+                return jsonify(response)
                 
             except Exception as e:
-                self.logger.error(f"Home API error: {e}")
+                self.logger.error(f"❌ Home API error: {e}")
+                import traceback
+                self.logger.error(f"❌ Home API traceback: {traceback.format_exc()}")
                 return jsonify({'success': False, 'error': str(e)}), 500
 
         @self.app.route('/api/debug/position')
@@ -1204,7 +1225,18 @@ class ScannerWebInterface:
                             pass
                     
                     homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
-                    current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
+                    # Get real-time status from protocol instead of cached controller status
+                    try:
+                        if hasattr(motion_controller, 'protocol') and motion_controller.protocol:
+                            protocol_status = motion_controller.protocol.get_current_status()
+                            current_status = protocol_status.state if protocol_status else 'unknown'
+                            self.logger.debug(f"🔍 Direct protocol status: {current_status}")
+                        else:
+                            current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
+                            self.logger.debug(f"🔍 Controller cached status: {current_status}")
+                    except Exception as status_err:
+                        self.logger.warning(f"Status retrieval error: {status_err}")
+                        current_status = 'unknown'
                     
                     current_timestamp = time.time()
                     age_seconds = current_timestamp - last_update_time if last_update_time > 0 else -1
@@ -1605,19 +1637,27 @@ class ScannerWebInterface:
             import threading
             def home_task():
                 try:
+                    self.logger.info(f"🏠 Starting homing task in background thread for axes: {axes}")
                     # Double-check motion controller is still available
                     if self.orchestrator and self.orchestrator.motion_controller:
+                        self.logger.info(f"🏠 Motion controller available, calling home_axes_sync...")
                         result = self.orchestrator.motion_controller.home_axes_sync(axes)
-                        self.logger.info(f"Homing sequence completed for axes: {axes}, result: {result}")
+                        self.logger.info(f"🏠 Homing sequence completed for axes: {axes}, result: {result}")
+                        if not result:
+                            self.logger.error(f"❌ Homing failed - home_axes_sync returned False")
                     else:
-                        self.logger.error("Motion controller became unavailable during homing")
+                        self.logger.error("❌ Motion controller became unavailable during homing")
                 except Exception as e:
-                    self.logger.error(f"Homing failed: {e}")
+                    self.logger.error(f"❌ Homing task exception: {e}")
+                    import traceback
+                    self.logger.error(f"❌ Homing traceback: {traceback.format_exc()}")
             
             # Start homing thread
-            home_thread = threading.Thread(target=home_task)
+            self.logger.info(f"🏠 Creating homing thread for axes: {axes}")
+            home_thread = threading.Thread(target=home_task, name=f"HomingThread-{'-'.join(axes)}")
             home_thread.daemon = True
             home_thread.start()
+            self.logger.info(f"🏠 Homing thread started: {home_thread.name}")
             
             # Return immediate response
             return {
