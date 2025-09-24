@@ -366,6 +366,10 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         try:
             logger.info("🏠 Starting ENHANCED homing with debug message detection")
             
+            # Reset homed status at start of homing
+            self.is_homed = False
+            logger.info(f"🔄 Reset is_homed flag to False at homing start")
+            
             # Determine homing command
             if axes is None or (isinstance(axes, list) and set([ax.upper() for ax in axes]) == {'X', 'Y', 'Z', 'C'}):
                 homing_command = "$H"
@@ -505,6 +509,10 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             logger.info(f"✅ ENHANCED homing completed successfully!")
             logger.info(f"📊 Duration: {elapsed:.1f}s, Axes detected: {axes_homed}")
             logger.info(f"📍 Final position: {self.current_position}")
+            
+            # CRITICAL: Set homed status for web interface
+            self.is_homed = True
+            logger.info(f"🎯 Controller is_homed flag set to True")
             
             return True
             
