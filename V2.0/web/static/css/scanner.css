@@ -556,6 +556,17 @@ body {
     transform: translateY(-1px);
 }
 
+.action-btn.warning {
+    background-color: #ff6b35;
+    color: white;
+    border: 1px solid #e55a2b;
+}
+
+.action-btn.warning:hover {
+    background-color: #e55a2b;
+    transform: translateY(-1px);
+}
+
 .action-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;

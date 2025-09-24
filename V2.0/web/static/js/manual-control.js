@@ -1349,7 +1349,7 @@ const ManualControl = {
      */
     async restartBackgroundMonitor() {
         try {
-            const response = await fetch('/api/debug/restart-monitor', {
+            const response = await fetch('/api/restart-monitor', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             });
