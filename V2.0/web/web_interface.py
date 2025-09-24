@@ -1235,9 +1235,13 @@ class ScannerWebInterface:
                     status_str = str(current_status).split('.')[-1].lower() if hasattr(current_status, 'name') else str(current_status).lower()
                     
                     # FORCE STATUS CORRECTION - if we know we're connected, don't show disconnected status
+                    # But preserve valid operational states like 'home' during homing
                     if connected and status_str == 'disconnected':
                         status_str = 'idle'  # Show idle instead of disconnected when we know we're connected
                         self.logger.info(f"🔧 Corrected status from 'disconnected' to 'idle' since connection is verified")
+                    elif status_str == 'home':
+                        # Don't correct 'home' state - it's valid during homing operations
+                        self.logger.debug(f"✅ Preserving 'home' status - homing in progress")
                     
                     # Get alarm state information
                     alarm_info = {
@@ -1252,9 +1256,10 @@ class ScannerWebInterface:
                     # The basic alarm info from status is sufficient for web interface
                     self.logger.debug(f"Using basic alarm info: {alarm_info}")
                     
-                    # Determine activity based on status
+                    # Determine activity based on status - Enhanced with 'home' state support
                     activity_map = {
                         'homing': 'homing',
+                        'home': 'homing',  # FluidNC reports 'Home' state during homing
                         'moving': 'moving', 
                         'jogging': 'jogging',
                         'idle': 'idle',
@@ -1265,9 +1270,13 @@ class ScannerWebInterface:
                     activity = activity_map.get(status_str, 'unknown')
                     
                     # FORCE ACTIVITY CORRECTION - if connected, don't show disconnected activity
+                    # But preserve valid operational activities like 'homing'
                     if connected and activity == 'disconnected':
                         activity = 'idle'
                         self.logger.info(f"🔧 Corrected activity from 'disconnected' to 'idle' since connection is verified")
+                    elif activity == 'homing':
+                        # Don't correct homing activity - it's valid during homing operations
+                        self.logger.debug(f"✅ Preserving 'homing' activity - operation in progress")
                     
                     status['motion'].update({
                         'connected': connected,
