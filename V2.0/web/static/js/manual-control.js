@@ -1349,10 +1349,24 @@ const ManualControl = {
      */
     async restartBackgroundMonitor() {
         try {
-            const response = await fetch('/api/restart-monitor', {
+            console.log('🔧 Attempting background monitor restart...');
+            
+            const response = await fetch('/api/debug/restart-monitor', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             });
+            
+            console.log(`📊 Response status: ${response.status}, content-type: ${response.headers.get('content-type')}`);
+            
+            // Check if response is actually JSON
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('application/json')) {
+                const text = await response.text();
+                console.error('❌ Expected JSON response, got:', contentType);
+                console.error('Response text:', text.substring(0, 200) + '...');
+                ScannerBase.showAlert('Server returned invalid response format', 'error');
+                return null;
+            }
             
             const result = await response.json();
             
@@ -1366,7 +1380,13 @@ const ManualControl = {
             return result;
         } catch (error) {
             console.error('Failed to restart background monitor:', error);
-            ScannerBase.showAlert(`Restart error: ${error.message}`, 'error');
+            
+            // Better error message for JSON parse errors
+            if (error.name === 'SyntaxError' && error.message.includes('token')) {
+                ScannerBase.showAlert('Server response parsing error - check browser console', 'error');
+            } else {
+                ScannerBase.showAlert(`Restart error: ${error.message}`, 'error');
+            }
             return null;
         }
     },
