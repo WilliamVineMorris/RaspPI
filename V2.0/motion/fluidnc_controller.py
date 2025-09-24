@@ -1012,6 +1012,10 @@ class FluidNCController(MotionController):
                     # Only update cached position if parsing succeeds and values seem reasonable
                     # Before homing, FluidNC may report arbitrary values, but we still want to show them
                     self.current_position = position
+                    
+                    # Update timestamp to mark this as fresh data (prevents background monitor overwrites)
+                    self.last_position_update = time.time()
+                    
                     logger.debug(f"Updated current position from FluidNC: {position}")
                     return position
                 else:
@@ -1915,10 +1919,18 @@ class FluidNCController(MotionController):
                                         abs(position.c - old_position.c) > 0.001
                                     )
                                     
-                                    # ALWAYS update position and timestamp for web UI responsiveness
-                                    self.current_position = position
-                                    self.last_position_update = current_time
-                                    position_updates += 1
+                                    # SMART UPDATE: Don't overwrite very recent fresh position data from movement commands
+                                    # This prevents background monitor from immediately overwriting position data retrieved
+                                    # right after movement completion, improving web UI responsiveness
+                                    data_age = current_time - self.last_position_update if self.last_position_update else 999.0
+                                    
+                                    if data_age > 1.0 or position_changed:  # Update if data is >1s old OR position actually changed
+                                        self.current_position = position
+                                        self.last_position_update = current_time
+                                        position_updates += 1
+                                    else:
+                                        # Skip update - we have fresher data from a recent movement command
+                                        logger.debug(f"⏭️  Skipping background position update (fresh data {data_age:.1f}s old)")
                                     
                                     # Enhanced position change logging
                                     if position_changed:
@@ -2139,6 +2151,11 @@ class FluidNCController(MotionController):
                 try:
                     logger.info("🔍 Querying final position after movement completion...")
                     fresh_position = await self.get_current_position()
+                    
+                    # CRITICAL: Update position timestamp to mark this as fresh data
+                    # This prevents background monitor from immediately overwriting it with stale data
+                    self.last_position_update = time.time()
+                    
                     logger.info(f"📍 Final position after relative move: {fresh_position}")
                 except Exception as e:
                     logger.warning(f"Could not get fresh position after relative move: {e}")
