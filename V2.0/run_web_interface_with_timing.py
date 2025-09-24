@@ -42,8 +42,13 @@ if __name__ == "__main__":
     print("=" * 60)
     
     try:
-        # Create web interface
-        web_interface = ScannerWebInterface()
+        # Create mock orchestrator first (needed for manual controls)
+        print("Creating orchestrator...")
+        from web.start_web_interface import create_mock_orchestrator
+        orchestrator = create_mock_orchestrator()
+        
+        # Create web interface with orchestrator
+        web_interface = ScannerWebInterface(orchestrator=orchestrator)
         
         # Start the web server
         print("🌐 Starting web server...")
