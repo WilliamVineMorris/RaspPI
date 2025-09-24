@@ -281,7 +281,7 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             self.stats['errors_encountered'] += 1
             return False
     
-    async def move_relative(self, delta: Position4D, feedrate: Optional[float] = None, command_id: Optional[str] = None) -> bool:
+    async def move_relative(self, delta: Position4D, feedrate: Optional[float] = None) -> bool:
         """Move relative to current position with intelligent feedrate selection"""
         try:
             # Get current position from machine
@@ -305,17 +305,17 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
             
             # Set feedrate
-            await self._send_command(f"F{feedrate}", command_id)
+            await self._send_command(f"F{feedrate}")
             
             # Use absolute positioning to avoid coordinate drift
             # This is more reliable than relative mode
-            success, response = await self._send_command("G90", command_id)
+            success, response = await self._send_command("G90")
             if not success:
                 return False
             
             # Send absolute move to calculated target
             gcode = f"G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
-            success, response = await self._send_command(gcode, command_id)
+            success, response = await self._send_command(gcode)
             
             if success:
                 self.target_position = target.copy()

@@ -92,9 +92,30 @@ except ImportError as e:
         def __init__(self, *args, **kwargs):
             pass
     
+    class MockMotionController:
+        def __init__(self):
+            self.current_position = Position4D(x=0.0, y=0.0, z=0.0, c=0.0)
+        
+        async def move_relative(self, delta: Position4D, feedrate: Optional[float] = None) -> bool:
+            # Simulate successful movement by updating position
+            self.current_position.x += delta.x
+            self.current_position.y += delta.y
+            self.current_position.z += delta.z
+            self.current_position.c += delta.c
+            return True
+        
+        async def get_position(self) -> Position4D:
+            return self.current_position
+        
+        async def home_all(self) -> bool:
+            self.current_position = Position4D(x=0.0, y=0.0, z=0.0, c=0.0)
+            return True
+
     class ScanOrchestrator:
         def __init__(self, *args, **kwargs):
             self.scan_status = ScanStatus.IDLE
+            # Create mock motion controller
+            self.motion_controller = MockMotionController()
         
         async def get_status(self):
             return {"status": self.scan_status}
@@ -104,6 +125,9 @@ except ImportError as e:
         
         async def emergency_stop(self):
             return True
+        
+        def get_camera_status(self):
+            return {"camera_active": False, "last_capture": None}
 
 logger = logging.getLogger(__name__)
 
@@ -1523,10 +1547,7 @@ class ScannerWebInterface:
                         'z': delta_values['z'], 'c': delta_values['c']}
             
             # Execute the jog movement (this now includes immediate position update)
-            if TIMING_LOGGER_AVAILABLE and command_id:
-                result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=speed, command_id=command_id)
-            else:
-                result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=speed)
+            result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=speed)
             
             # Get the fresh position that was just updated by move_relative
             cached_position = self.orchestrator.motion_controller.current_position
