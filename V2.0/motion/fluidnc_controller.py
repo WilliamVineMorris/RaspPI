@@ -858,7 +858,7 @@ class FluidNCController(MotionController):
                 # Don't get stuck in infinite loop - continue with timeout logic
                 await asyncio.sleep(0.1)
             
-            # Check if position has changed from initial (indicates movement started)
+            # Check if movement started using multiple indicators
             position_changed_from_initial = (
                 abs(current_pos.x - initial_position.x) > 0.001 or
                 abs(current_pos.y - initial_position.y) > 0.001 or
@@ -866,9 +866,13 @@ class FluidNCController(MotionController):
                 abs(current_pos.c - initial_position.c) > 0.001
             )
             
-            if position_changed_from_initial and not movement_started:
+            # FluidNC status is more reliable than position changes for movement detection
+            fluidnc_reports_movement = (self.status == MotionStatus.MOVING)
+            
+            if (position_changed_from_initial or fluidnc_reports_movement) and not movement_started:
                 movement_started = True
-                logger.debug(f"Movement started: {initial_position} → {current_pos}")
+                detection_method = "position change" if position_changed_from_initial else "FluidNC status"
+                logger.info(f"🚀 Movement started (detected via {detection_method}): {initial_position} → {current_pos}")
             
             # Check if position is stable (no change from last check)
             position_stable = (
@@ -885,14 +889,19 @@ class FluidNCController(MotionController):
                 stable_count = 0
                 logger.debug(f"Position changing: {last_position} → {current_pos}")
             
+            # Check FluidNC status for movement completion (more reliable than position)
+            if self.status == MotionStatus.IDLE and stable_count >= 1:
+                logger.info("✅ Movement completed - FluidNC reports IDLE and position stable")
+                return
+            
             # Movement complete when:
             # 1. Movement was detected AND position stable for 2+ checks (100ms)
-            # 2. OR timeout for movement detection (assume quick movement)
+            # 2. OR extended timeout for movement detection (allow for slow movements)
             if movement_started and stable_count >= 2:
-                logger.info("✅ Movement completed - position stable")
+                logger.info("✅ Movement completed - position stable after movement")
                 return
-            elif not movement_started and (time.time() - start_time) > 3.0:
-                logger.info("✅ Movement completed - no movement detected (quick completion)")
+            elif not movement_started and (time.time() - start_time) > 8.0:
+                logger.info("✅ Movement completed - extended timeout (assuming quick/undetected movement)")
                 return
                 
             last_position = current_pos
