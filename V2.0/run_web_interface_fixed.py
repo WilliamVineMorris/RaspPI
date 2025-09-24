@@ -55,7 +55,21 @@ def start_web_interface_fixed():
         
         # Initialize orchestrator
         orchestrator = ScanOrchestrator(config_manager)
-        logger.info("✅ Orchestrator initialized")
+        
+        # Initialize all hardware connections
+        logger.info("🔌 Initializing hardware connections...")
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(orchestrator.initialize())
+            logger.info("✅ Orchestrator and hardware initialized")
+        except Exception as e:
+            logger.error(f"❌ Hardware initialization failed: {e}")
+            logger.info("🔧 Some hardware may not be available - continuing with available components")
+        finally:
+            # Don't close the loop - web interface needs it
+            pass
         
         # Initialize web interface
         web_interface = ScannerWebInterface(orchestrator)
