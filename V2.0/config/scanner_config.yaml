@@ -88,19 +88,19 @@ motion:
   feedrates:
     # MANUAL/JOG MODE - Fast and responsive for web interface jog commands
     manual_mode:
-      x_axis: 800.0              # mm/min - 80% of max (1000) - very fast and responsive
-      y_axis: 800.0              # mm/min - 80% of max (1000) - very fast and responsive  
-      z_axis: 600.0              # deg/min - 75% of max (800) - fast rotation speed
-      c_axis: 3000.0             # deg/min - 60% of max (5000) - very fast servo response
-      description: "Fast feedrates for responsive web interface jog commands"
+      x_axis: 950.0              # mm/min - 95% of max (1000) - near maximum speed
+      y_axis: 950.0              # mm/min - 95% of max (1000) - near maximum speed  
+      z_axis: 750.0              # deg/min - 94% of max (800) - near maximum rotation
+      c_axis: 4800.0             # deg/min - 96% of max (5000) - near maximum servo speed
+      description: "Near-maximum feedrates for very responsive web interface"
       
-    # SCANNING MODE - Slower and precise for automated scanning operations  
+    # SCANNING MODE - Fast but precise for automated scanning operations  
     scanning_mode:
-      x_axis: 150.0              # mm/min - 15% of max - precise positioning
-      y_axis: 150.0              # mm/min - 15% of max - precise positioning
-      z_axis: 100.0              # deg/min - 12.5% of max - smooth rotation
-      c_axis: 500.0              # deg/min - 10% of max - precise camera positioning
-      description: "Slower, precise feedrates for automated scanning operations"
+      x_axis: 850.0              # mm/min - 85% of max - fast precision positioning
+      y_axis: 850.0              # mm/min - 85% of max - fast precision positioning
+      z_axis: 650.0              # deg/min - 81% of max - fast smooth rotation
+      c_axis: 4000.0             # deg/min - 80% of max - fast precise camera positioning
+      description: "High-speed feedrates for faster automated scanning operations"
       
     # CONFIGURATION OPTIONS
     options:

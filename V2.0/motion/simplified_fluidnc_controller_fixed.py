@@ -171,10 +171,23 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         """Check if connected to FluidNC"""
         return self.protocol.is_connected()
     
+    def refresh_connection_status(self) -> bool:
+        """Force refresh connection status (synchronous)"""
+        try:
+            return self.protocol.is_connected()
+        except Exception as e:
+            logger.debug(f"Connection status refresh failed: {e}")
+            return False
+    
     @property
     def _connected(self) -> bool:
         """Synchronous connection status for web interface"""
-        return self.protocol.is_connected()
+        try:
+            # Force refresh connection status to avoid stale cached values
+            return self.protocol.is_connected()
+        except Exception as e:
+            logger.debug(f"Connection check failed: {e}")
+            return False
     
     # Position and Status
     async def get_position(self) -> Position4D:
@@ -370,8 +383,31 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             if success:
                 logger.info(f"🏠 Homing command sent successfully, response: {response}")
                 
-                # Wait a moment for homing to complete
-                await asyncio.sleep(1.0)
+                # Wait for homing to actually complete by monitoring status
+                homing_timeout = 30.0  # 30 seconds timeout
+                homing_start_time = time.time()
+                
+                logger.info("🏠 Waiting for homing to complete...")
+                
+                while time.time() - homing_start_time < homing_timeout:
+                    # Get current status from FluidNC
+                    status = self.protocol.get_current_status()
+                    
+                    if status and status.state:
+                        logger.debug(f"🏠 Homing status: {status.state}")
+                        
+                        # Check if homing is complete (state should return to Idle)
+                        if status.state.lower() in ['idle', 'run']:
+                            logger.info("🏠 Homing completed - FluidNC returned to operational state")
+                            break
+                        elif status.state.lower() in ['alarm', 'error']:
+                            logger.error(f"🏠 Homing failed - FluidNC in alarm/error state: {status.state}")
+                            return False
+                    
+                    # Short delay before checking again
+                    await asyncio.sleep(0.5)
+                else:
+                    logger.warning("🏠 Homing timeout - assuming completed")
                 
                 # Update position after homing
                 await self._update_current_position()

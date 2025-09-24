@@ -1007,7 +1007,12 @@ class ScannerWebInterface:
                         self.logger.debug(f"✅ Position data is fresh ({data_age:.1f}s old)")
                     
                     # Get status information from controller properties (use cached status to avoid async calls)
-                    connected = getattr(motion_controller, '_connected', False) if hasattr(motion_controller, '_connected') else False
+                    # Force refresh connection status to avoid stale cached values
+                    try:
+                        connected = motion_controller.protocol.is_connected() if hasattr(motion_controller, 'protocol') else False
+                    except:
+                        connected = getattr(motion_controller, '_connected', False) if hasattr(motion_controller, '_connected') else False
+                    
                     homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
                     current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
                     
@@ -1391,8 +1396,12 @@ class ScannerWebInterface:
             import threading
             def home_task():
                 try:
-                    result = self.orchestrator.motion_controller.home_axes_sync(axes)
-                    self.logger.info(f"Homing sequence completed for axes: {axes}, result: {result}")
+                    # Double-check motion controller is still available
+                    if self.orchestrator and self.orchestrator.motion_controller:
+                        result = self.orchestrator.motion_controller.home_axes_sync(axes)
+                        self.logger.info(f"Homing sequence completed for axes: {axes}, result: {result}")
+                    else:
+                        self.logger.error("Motion controller became unavailable during homing")
                 except Exception as e:
                     self.logger.error(f"Homing failed: {e}")
             

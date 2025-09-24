@@ -139,9 +139,14 @@ window.ScannerBase = {
                 // Extract the data from the API response
                 const status = response.data || response;
                 this.handleStatusUpdate(status);
-                if (!this.state.connected) {
-                    this.state.connected = true;
-                    this.updateConnectionStatus(true);
+                
+                // Determine system connection based on motion controller status
+                const motionConnected = Boolean(status.motion?.connected);
+                const systemConnected = motionConnected; // Base system connection on motion controller
+                
+                if (systemConnected !== this.state.connected) {
+                    this.state.connected = systemConnected;
+                    this.updateConnectionStatus(systemConnected);
                 }
             })
             .catch(error => {
