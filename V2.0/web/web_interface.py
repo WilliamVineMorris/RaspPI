@@ -1263,17 +1263,28 @@ class ScannerWebInterface:
                             'monitor_running': False
                         }
                     
-                    # Convert MotionStatus enum to string
-                    status_str = str(current_status).split('.')[-1].lower() if hasattr(current_status, 'name') else str(current_status).lower()
+                    # Convert MotionStatus enum to string and map to frontend-expected values
+                    raw_status = str(current_status).split('.')[-1].lower() if hasattr(current_status, 'name') else str(current_status).lower()
                     
-                    # USE REAL PROTOCOL STATUS - no more forced corrections
-                    # Let the actual protocol status show through to the web interface
-                    if status_str == 'home':
-                        self.logger.info(f"🏠 Showing HOMING status in web UI - homing in progress")
+                    # Map backend status to frontend-expected status values
+                    status_map = {
+                        'home': 'homing',  # FluidNC 'Home' state → frontend 'homing' 
+                        'idle': 'idle',
+                        'moving': 'moving',
+                        'jogging': 'jogging',
+                        'error': 'error',
+                        'alarm': 'alarm',
+                        'disconnected': 'disconnected'
+                    }
+                    status_str = status_map.get(raw_status, raw_status)
+                    
+                    # USE REAL PROTOCOL STATUS - properly mapped for frontend
+                    if status_str == 'homing':
+                        self.logger.info(f"🏠 Showing HOMING status in web UI - homing in progress (raw: {raw_status})")
                     elif status_str == 'idle':
-                        self.logger.info(f"✅ Showing IDLE status in web UI - system ready")
+                        self.logger.info(f"✅ Showing IDLE status in web UI - system ready (raw: {raw_status})")
                     else:
-                        self.logger.info(f"📊 Showing {status_str.upper()} status in web UI")
+                        self.logger.info(f"📊 Showing {status_str.upper()} status in web UI (raw: {raw_status})")
                     
                     # Get alarm state information
                     alarm_info = {
