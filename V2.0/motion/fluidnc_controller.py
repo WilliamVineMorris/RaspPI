@@ -969,56 +969,138 @@ class FluidNCController(MotionController):
             return self.current_position
     
     def _parse_position_from_status(self, status_response: str) -> Optional[Position4D]:
-        """Parse position from FluidNC status response"""
+        """
+        Enhanced FluidNC status parsing - handles all message formats and variations
+        
+        FluidNC status formats can include:
+        - <Idle|MPos:0.000,0.000,0.000,0.000|WPos:0.000,0.000,0.000,0.000|FS:0,0>
+        - <Run|MPos:10.000,20.000,30.000,40.000|WPos:10.000,20.000,30.000,40.000|FS:100,500>
+        - <Jog|MPos:5.123,10.456,15.789,20.012|FS:0,0>
+        - <Home|MPos:0.000,0.000,0.000,0.000>
+        - Status reports with varying numbers of axes (4-6)
+        - Position-only reports or reports with additional data
+        """
         try:
-            # Skip obvious non-status responses to reduce log spam
-            if not status_response or status_response.strip() in ['ok', 'error', '']:
+            # Skip completely empty or simple responses
+            if not status_response or len(status_response.strip()) < 3:
                 return None
             
-            # Skip info messages and other non-status responses
-            if (status_response.startswith('[MSG:') or 
-                status_response.startswith('[GC:') or 
-                status_response.startswith('[G54:') or
-                not ('<' in status_response and '>' in status_response)):
+            # Skip obvious non-status responses
+            clean_response = status_response.strip()
+            if clean_response in ['ok', 'error', 'OK', 'ERROR']:
                 return None
             
-            # FluidNC status format: <Idle|MPos:0.000,0.000,0.000,0.000,0.000,0.000|WPos:0.000,0.000,0.000,0.000,0.000,0.000|FS:0,0>
+            # Skip info/debug messages but allow status reports
+            if (clean_response.startswith('[MSG:') or 
+                clean_response.startswith('[GC:') or 
+                clean_response.startswith('[G54:') or
+                clean_response.startswith('[VER:') or
+                clean_response.startswith('[OPT:') or
+                clean_response.startswith('[echo:')):
+                return None
             
-            # Parse both machine (MPos) and work (WPos) coordinates
-            mpos_match = re.search(r'MPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,[\d\.-]+,[\d\.-]+)?', status_response)
-            wpos_match = re.search(r'WPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,[\d\.-]+,[\d\.-]+)?', status_response)
+            # Must contain angle brackets for FluidNC status format
+            if not ('<' in clean_response and '>' in clean_response):
+                return None
             
-            # Before homing, work coordinates may not be reliable, so prioritize machine coordinates
-            if mpos_match:
-                mx, my, mz, mc = map(float, mpos_match.groups())
-                
+            # ENHANCED: Multiple parsing strategies for different FluidNC message formats
+            
+            # Strategy 1: Standard MPos/WPos parsing (most common)
+            # Handle both 4-axis and 6-axis machines flexibly
+            mpos_patterns = [
+                r'MPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,([\d\.-]+),([\d\.-]+))?',  # 4 or 6 axis
+                r'MPos:([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',         # With spaces
+                r'MPos:\s*([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)'                         # Leading spaces
+            ]
+            
+            wpos_patterns = [
+                r'WPos:([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)(?:,([\d\.-]+),([\d\.-]+))?',  # 4 or 6 axis
+                r'WPos:([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)\s*,\s*([\d\.-]+)',         # With spaces
+                r'WPos:\s*([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)'                         # Leading spaces
+            ]
+            
+            mpos_match = None
+            wpos_match = None
+            
+            # Try multiple MPos patterns
+            for pattern in mpos_patterns:
+                mpos_match = re.search(pattern, clean_response)
+                if mpos_match:
+                    break
+            
+            # Try multiple WPos patterns  
+            for pattern in wpos_patterns:
+                wpos_match = re.search(pattern, clean_response)
                 if wpos_match:
-                    # If we have both, use work coordinates for X, Y, C but machine for Z
-                    wx, wy, wz, wc = map(float, wpos_match.groups())
-                    position = Position4D(
-                        x=wx,    # Work coordinate for X
-                        y=wy,    # Work coordinate for Y  
-                        z=mz,    # Machine coordinate for Z (prevents accumulation)
-                        c=wc     # Work coordinate for C
-                    )
-                    logger.debug(f"Parsed hybrid position - Work X,Y,C: ({wx},{wy},{wc}), Machine Z: {mz}")
-                else:
-                    # Only machine coordinates available (likely before homing)
-                    position = Position4D(x=mx, y=my, z=mz, c=mc)
-                    logger.debug(f"Parsed machine position only: X={mx}, Y={my}, Z={mz}, C={mc}")
+                    break
+            
+            # Strategy 2: Extract any coordinate data even from partial messages
+            if not mpos_match and not wpos_match:
+                # Look for any position-like data patterns
+                coord_patterns = [
+                    r'(?:MPos|WPos|Pos):\s*([\d\.-]+),([\d\.-]+),([\d\.-]+),([\d\.-]+)',
+                    r'X:([\d\.-]+)\s*Y:([\d\.-]+)\s*Z:([\d\.-]+)\s*C:([\d\.-]+)',
+                    r'X([\d\.-]+)\s*Y([\d\.-]+)\s*Z([\d\.-]+)\s*C([\d\.-]+)'
+                ]
                 
-                return position
-            else:
-                # Only log warning for actual status-like messages that failed to parse
-                if '<' in status_response and '>' in status_response:
-                    logger.warning(f"Could not match position pattern in status: {status_response}")
-                else:
-                    logger.debug(f"Non-status response (no position data): {status_response}")
-                return None
+                for pattern in coord_patterns:
+                    coord_match = re.search(pattern, clean_response)
+                    if coord_match:
+                        # Treat as machine position if no explicit type found
+                        mpos_match = coord_match
+                        break
+            
+            # Process the matched position data
+            if mpos_match:
+                try:
+                    # Extract first 4 coordinate values (X, Y, Z, C)
+                    coords = [float(x) for x in mpos_match.groups()[:4] if x is not None]
+                    
+                    if len(coords) >= 4:
+                        mx, my, mz, mc = coords[:4]
+                        
+                        # If we also have work coordinates, use hybrid approach
+                        if wpos_match:
+                            try:
+                                wcoords = [float(x) for x in wpos_match.groups()[:4] if x is not None]
+                                if len(wcoords) >= 4:
+                                    wx, wy, wz, wc = wcoords[:4]
+                                    position = Position4D(
+                                        x=wx,    # Work coordinate for X (preferred for user interface)
+                                        y=wy,    # Work coordinate for Y (preferred for user interface)
+                                        z=mz,    # Machine coordinate for Z (continuous rotation, prevents accumulation)
+                                        c=wc     # Work coordinate for C (tilt, user-relevant)
+                                    )
+                                    logger.debug(f"✅ Parsed hybrid position - Work X,Y,C: ({wx:.3f},{wy:.3f},{wc:.3f}), Machine Z: {mz:.3f}")
+                                    return position
+                            except (ValueError, IndexError) as e:
+                                logger.debug(f"Work coordinate parsing failed, using machine only: {e}")
+                        
+                        # Use machine coordinates only
+                        position = Position4D(x=mx, y=my, z=mz, c=mc)
+                        logger.debug(f"✅ Parsed machine position: X={mx:.3f}, Y={my:.3f}, Z={mz:.3f}, C={mc:.3f}")
+                        return position
+                    else:
+                        logger.debug(f"Insufficient coordinates found: {len(coords)} (need 4)")
+                        
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Coordinate conversion error: {e}")
+            
+            # Strategy 3: Log unrecognized status format for debugging
+            if '<' in clean_response and '>' in clean_response:
+                # This looks like a status message but we couldn't parse it
+                logger.info(f"🔍 Unrecognized status format (will improve parsing): {clean_response}")
+                
+                # Try to extract any numeric data for debugging
+                numbers = re.findall(r'[\d\.-]+', clean_response)
+                if len(numbers) >= 4:
+                    logger.info(f"🔢 Found {len(numbers)} numbers in message: {numbers[:8]}")  # Show first 8 numbers
+            
+            return None
                 
         except Exception as e:
-            logger.error(f"Failed to parse position from status: {e}")
-            logger.error(f"Status response was: {status_response}")
+            logger.error(f"❌ Position parsing exception: {e}")
+            logger.error(f"📄 Message was: {status_response}")
             return None
     
     async def _read_all_messages(self) -> list[str]:
@@ -1697,15 +1779,25 @@ class FluidNCController(MotionController):
                     if messages:
                         message_count += len(messages)
                         
-                        # Process each message immediately for maximum responsiveness
+                        # ENHANCED: Process ALL messages comprehensively for maximum data capture
                         for message in messages:
-                            # ENHANCED: Process status reports with position information
-                            if '<' in message and '>' in message:
-                                # Extract and update status first for safety checks
-                                old_status = self.status
-                                
-                                # Parse status for safety-critical alarm detection
-                                if 'Alarm' in message:
+                            message_clean = message.strip()
+                            
+                            # Skip empty messages
+                            if not message_clean:
+                                continue
+                            
+                            # Log all significant messages for debugging (but not spam)
+                            if len(message_clean) > 2 and message_clean not in ['ok', 'OK', 'error', 'ERROR']:
+                                logger.debug(f"🔍 Processing: {message_clean}")
+                            
+                            # COMPREHENSIVE STATUS AND POSITION DETECTION
+                            # Try to extract both status and position from ANY FluidNC message
+                            old_status = self.status
+                            message_upper = message_clean.upper()
+                            
+                            # Enhanced status pattern matching for all FluidNC message types
+                            if any(keyword in message_upper for keyword in ['ALARM', 'ALRM']):
                                     self.status = MotionStatus.ALARM
                                     if old_status != self.status:
                                         logger.warning(f"🚨 ALARM STATE DETECTED: {message}")
@@ -1724,36 +1816,46 @@ class FluidNCController(MotionController):
                                     self.status = MotionStatus.HOMING
                                     if old_status != self.status:
                                         logger.info("🏠 Homing in progress")
-                                elif 'Error' in message:
-                                    self.status = MotionStatus.ERROR
-                                    if old_status != self.status:
-                                        logger.error(f"❌ ERROR STATE: {message}")
-                                
-                                # CRITICAL: Always parse and update position for web UI responsiveness
-                                if 'MPos:' in message or 'WPos:' in message:
-                                    position = self._parse_position_from_status(message)
-                                    if position:
-                                        # Store old position for change detection
-                                        old_position = self.current_position
-                                        position_changed = (
-                                            abs(position.x - old_position.x) > 0.001 or
-                                            abs(position.y - old_position.y) > 0.001 or
-                                            abs(position.z - old_position.z) > 0.001 or
-                                            abs(position.c - old_position.c) > 0.001
-                                        )
-                                        
-                                        # ALWAYS update position and timestamp for web UI
-                                        self.current_position = position
-                                        self.last_position_update = current_time
-                                        position_updates += 1
-                                        
-                                        # Log position changes for movement tracking
-                                        if position_changed:
-                                            logger.info(f"🔄 Position #{position_updates}: {old_position} → {position}")
-                                        else:
-                                            logger.debug(f"📍 Position refresh #{position_updates}: {position}")
+                            elif any(keyword in message_upper for keyword in ['ERROR', 'ERR']):
+                                self.status = MotionStatus.ERROR
+                                if old_status != self.status:
+                                    logger.error(f"❌ ERROR STATE: {message_clean}")
+                            
+                            # ENHANCED POSITION PARSING - Try on ALL messages that might contain coordinates
+                            # FluidNC sends position data in various formats and contexts
+                            position_found = False
+                            
+                            # Try parsing position from ANY message that might contain position data
+                            if any(indicator in message_upper for indicator in ['MPOS', 'WPOS', 'POS:', 'X:', 'Y:', 'Z:', 'C:', '<', '>']):
+                                position = self._parse_position_from_status(message_clean)
+                                if position:
+                                    position_found = True
+                                    # Store old position for change detection
+                                    old_position = self.current_position
+                                    position_changed = (
+                                        abs(position.x - old_position.x) > 0.001 or
+                                        abs(position.y - old_position.y) > 0.001 or
+                                        abs(position.z - old_position.z) > 0.001 or
+                                        abs(position.c - old_position.c) > 0.001
+                                    )
+                                    
+                                    # ALWAYS update position and timestamp for web UI responsiveness
+                                    self.current_position = position
+                                    self.last_position_update = current_time
+                                    position_updates += 1
+                                    
+                                    # Enhanced position change logging
+                                    if position_changed:
+                                        logger.info(f"🔄 Position #{position_updates}: {old_position} → {position}")
                                     else:
-                                        logger.debug(f"❌ Could not parse position from: {message[:100]}...")
+                                        logger.debug(f"📍 Position refresh #{position_updates}: {position}")
+                            
+                            # Log messages that look like they should contain position data but failed to parse
+                            if not position_found and any(indicator in message_upper for indicator in ['POS', 'COORDINATE', 'LOCATION', 'X', 'Y', 'Z', 'C']):
+                                if '<' in message_clean and '>' in message_clean:
+                                    logger.info(f"🔍 Potential position message not parsed: {message_clean}")
+                                elif len([x for x in re.findall(r'[\d\.-]+', message_clean) if len(x) > 1]) >= 4:
+                                    logger.info(f"🔢 Message with 4+ numbers not parsed: {message_clean}")
                         
                         # Periodic activity logging
                         if current_time - last_log_time > 30.0:  # Log every 30 seconds to reduce noise
