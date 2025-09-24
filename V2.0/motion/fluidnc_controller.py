@@ -933,7 +933,7 @@ class FluidNCController(MotionController):
             # Always try to get fresh position from FluidNC, but with timeout protection
             try:
                 response = await asyncio.wait_for(self._get_status_response(), timeout=1.5)
-                logger.debug(f"Status response for position: {response}")
+                logger.info(f"📡 FluidNC status response for position query: {response}")
             except asyncio.TimeoutError:
                 logger.warning("⏰ Status response timed out - using cached position")
                 return self.current_position
@@ -1081,7 +1081,8 @@ class FluidNCController(MotionController):
                         
                         # Use machine coordinates only
                         position = Position4D(x=mx, y=my, z=mz, c=mc)
-                        logger.debug(f"✅ Parsed machine position: X={mx:.3f}, Y={my:.3f}, Z={mz:.3f}, C={mc:.3f}")
+                        logger.info(f"✅ Parsed machine-only position: X={mx:.3f}, Y={my:.3f}, Z={mz:.3f}, C={mc:.3f}")
+                        logger.info(f"📊 Coordinate source: Machine coordinates only from: {clean_response}")
                         return position
                     else:
                         logger.debug(f"Insufficient coordinates found: {len(coords)} (need 4)")
