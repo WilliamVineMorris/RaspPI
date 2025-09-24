@@ -51,7 +51,7 @@ class FluidNCController(MotionController):
         # Serial connection settings
         self.port = config.get('port', '/dev/ttyUSB0')
         self.baudrate = config.get('baudrate', 115200)
-        self.timeout = config.get('timeout', 10.0)
+        self.timeout = config.get('timeout', 2.0)  # Reduced from 10s to 2s for faster responsiveness
         
         # Serial connection
         self.serial_connection: Optional[serial.Serial] = None
@@ -359,7 +359,9 @@ class FluidNCController(MotionController):
                 logger.info(f"Sent command: {command.strip()}")
                 
                 if wait_for_response:
-                    response = await self._read_response()
+                    # Use smart timeout based on command type
+                    smart_timeout = self._get_command_timeout(command.strip())
+                    response = await self._read_response(timeout_override=smart_timeout)
                     logger.info(f"Received response: {response}")
                     return response
                 
@@ -369,6 +371,52 @@ class FluidNCController(MotionController):
                 raise FluidNCCommandError(f"Command transmission failed: {e}")
             except Exception as e:
                 raise FluidNCError(f"Unexpected command error: {e}")
+    
+    def _get_command_timeout(self, command: str) -> float:
+        """Get appropriate timeout for different command types"""
+        command_upper = command.upper()
+        
+        # Quick commands that should respond immediately
+        quick_commands = ['G90', 'G91', 'G21', 'G94', 'M5', 'M9']
+        if any(cmd in command_upper for cmd in quick_commands):
+            return 0.5  # 500ms for simple mode commands
+        
+        # Status and query commands
+        if command_upper.startswith('?') or '$' in command_upper:
+            return 0.3  # 300ms for status queries
+        
+        # Movement commands need more time
+        if command_upper.startswith(('G0', 'G1', 'G2', 'G3')):
+            return 1.0  # 1 second for movement commands
+        
+        # Homing and special commands
+        if 'HOME' in command_upper or '$H' in command_upper:
+            return 30.0  # 30 seconds for homing
+        
+        # Default timeout for unknown commands
+        return self.timeout
+    
+    async def _ensure_ready_for_commands(self):
+        """Ensure FluidNC is ready to accept new commands (not busy with previous operations)"""
+        max_wait = 3.0  # Maximum 3 seconds to wait
+        start_time = time.time()
+        
+        while time.time() - start_time < max_wait:
+            # Check if FluidNC is idle and ready
+            if self.status == MotionStatus.IDLE:
+                return  # Ready for commands
+            
+            # If moving, wait a bit
+            if self.status == MotionStatus.MOVING:
+                await asyncio.sleep(0.1)
+                continue
+            
+            # For other states, just continue (might be ready)
+            break
+        
+        # Even if not perfectly idle, proceed after timeout to avoid infinite wait
+        if self.status == MotionStatus.MOVING:
+            logger.warning(f"⚠️  Proceeding with command despite FluidNC still moving after {max_wait}s wait")
     
     async def _read_response(self, timeout_override: Optional[float] = None) -> str:
         """Read response from FluidNC"""
@@ -2061,6 +2109,9 @@ class FluidNCController(MotionController):
             # Validate target position
             if not self._validate_position(target):
                 return False
+            
+            # Ensure FluidNC is ready before mode changes
+            await self._ensure_ready_for_commands()
             
             # Set relative mode and execute
             await self._send_command("G91")  # Relative positioning
