@@ -462,7 +462,7 @@ class ScannerWebInterface:
                         debug_info['last_position_update'] = getattr(controller, 'last_position_update', 0)
                         debug_info['current_time'] = time.time()
                         debug_info['data_age'] = time.time() - getattr(controller, 'last_position_update', 0)
-                        debug_info['is_connected'] = controller.is_connected() if hasattr(controller, 'is_connected') else False
+                        debug_info['is_connected'] = getattr(controller, '_connected', False) if hasattr(controller, '_connected') else False
                         
                         # Get task details if available
                         if controller.background_monitor_task:
@@ -1006,8 +1006,8 @@ class ScannerWebInterface:
                     else:
                         self.logger.debug(f"✅ Position data is fresh ({data_age:.1f}s old)")
                     
-                    # Get status information from controller properties
-                    connected = motion_controller.is_connected() if hasattr(motion_controller, 'is_connected') else False
+                    # Get status information from controller properties (use cached status to avoid async calls)
+                    connected = getattr(motion_controller, '_connected', False) if hasattr(motion_controller, '_connected') else False
                     homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
                     current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
                     
@@ -1048,37 +1048,9 @@ class ScannerWebInterface:
                         'message': ''
                     }
                     
-                    # Try to get detailed alarm information from the controller
-                    if hasattr(motion_controller, 'controller') and hasattr(motion_controller.controller, 'get_alarm_state'):
-                        try:
-                            # Get alarm details asynchronously but safely
-                            import concurrent.futures
-                            import asyncio
-                            
-                            def get_alarm_info():
-                                # Run in a separate thread to avoid blocking the main web thread
-                                loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(loop)
-                                try:
-                                    return loop.run_until_complete(motion_controller.controller.get_alarm_state())
-                                except Exception as e:
-                                    self.logger.warning(f"Could not get alarm details: {e}")
-                                    return alarm_info
-                                finally:
-                                    loop.close()
-                            
-                            # Quick async call with timeout
-                            with concurrent.futures.ThreadPoolExecutor() as executor:
-                                future = executor.submit(get_alarm_info)
-                                try:
-                                    detailed_alarm_info = future.result(timeout=0.1)  # 100ms timeout
-                                    alarm_info.update(detailed_alarm_info)
-                                except concurrent.futures.TimeoutError:
-                                    self.logger.debug("Alarm info timeout - using basic status")
-                                except Exception as e:
-                                    self.logger.debug(f"Alarm info error: {e}")
-                        except Exception as e:
-                            self.logger.debug(f"Could not get detailed alarm info: {e}")
+                    # Skip detailed alarm information to avoid async complications in sync context
+                    # The basic alarm info from status is sufficient for web interface
+                    self.logger.debug(f"Using basic alarm info: {alarm_info}")
                     
                     # Determine activity based on status
                     activity_map = {
@@ -1113,7 +1085,8 @@ class ScannerWebInterface:
             if self.orchestrator and hasattr(self.orchestrator, 'camera_manager') and self.orchestrator.camera_manager:
                 self.logger.debug(f"Checking camera manager status...")
                 try:
-                    camera_status = self.orchestrator.camera_manager.get_status()
+                    # Use orchestrator's synchronous method to avoid async issues
+                    camera_status = self.orchestrator.get_camera_status()
                     self.logger.debug(f"Camera status from adapter: {camera_status}")
                     
                     status['cameras'].update({

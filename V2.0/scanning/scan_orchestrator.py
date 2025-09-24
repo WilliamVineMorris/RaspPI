@@ -1425,7 +1425,7 @@ class ScanOrchestrator:
         """Perform system health check"""
         try:
             # Check motion controller
-            if not self.motion_controller.is_connected():
+            if not await self.motion_controller.is_connected():
                 self.logger.error("Motion controller not connected")
                 return False
             
@@ -1919,7 +1919,18 @@ class ScanOrchestrator:
     def get_camera_status(self) -> Dict[str, Any]:
         """Get camera system status"""
         try:
-            return self.camera_manager.get_status()
+            # Use synchronous version to avoid coroutine in web interface
+            if hasattr(self.camera_manager, 'get_status_sync'):
+                camera_status = self.camera_manager.get_status_sync()
+            else:
+                # Fallback for other camera controllers
+                camera_status = self.camera_manager.get_status()
+            
+            # Convert CameraStatus to dict if needed
+            if hasattr(camera_status, '__dict__'):
+                return camera_status.__dict__
+            else:
+                return camera_status
         except Exception as e:
             self.logger.error(f"Error getting camera status: {e}")
             return {

@@ -231,6 +231,10 @@ class PiCameraController(CameraController):
         """Get camera status"""
         return self.status
     
+    def get_status_sync(self) -> CameraStatus:
+        """Get camera status synchronously for web interface"""
+        return self.status
+    
     async def list_cameras(self) -> List[str]:
         """Get list of available camera identifiers"""
         return [f"camera{cid}" for cid, info in self.camera_info.items() if info.is_available]

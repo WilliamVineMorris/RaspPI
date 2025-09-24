@@ -171,6 +171,11 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         """Check if connected to FluidNC"""
         return self.protocol.is_connected()
     
+    @property
+    def _connected(self) -> bool:
+        """Synchronous connection status for web interface"""
+        return self.protocol.is_connected()
+    
     # Position and Status
     async def get_position(self) -> Position4D:
         """Get current position (from machine feedback)"""
