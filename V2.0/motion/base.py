@@ -70,6 +70,10 @@ class Position4D:
             (self.y - other.y) ** 2
             # Note: Z and C are rotational, distance calculation may need adjustment
         )
+    
+    def copy(self) -> 'Position4D':
+        """Create a copy of this position"""
+        return Position4D(x=self.x, y=self.y, z=self.z, c=self.c)
 
 
 @dataclass
