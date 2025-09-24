@@ -294,13 +294,20 @@ class SimplifiedFluidNCProtocolFixed:
                     # Capture all raw messages for homing detection
                     self._capture_raw_message(line)
                     
-                    # Handle status reports (update current status)
+                    # Handle status reports (update current status) - with error protection
                     if line.startswith('<') and line.endswith('>'):
-                        self._parse_status_report(line)
+                        try:
+                            self._parse_status_report(line)
+                        except Exception as parse_error:
+                            logger.warning(f"🔧 Status parsing recovered from error: {parse_error}")
+                            # Continue processing other messages even if this one fails
                         continue
                     
-                    # Skip info messages (but we already captured them)
+                    # Handle debug/info messages (but we already captured them)
                     if line.startswith('[') and line.endswith(']'):
+                        # Track debug messages for statistics
+                        if "[MSG:DBG:" in line or "[MSG:Homed:" in line:
+                            self.stats['debug_messages_captured'] += 1
                         continue
                     
                     # Command response
@@ -317,7 +324,7 @@ class SimplifiedFluidNCProtocolFixed:
             return None
     
     def _parse_status_report(self, status_line: str):
-        """Parse status report and update current status"""
+        """Parse status report and update current status - Enhanced with error handling"""
         try:
             # Example: <Idle|MPos:0.000,0.000,0.000,0.000|FS:0,0>
             if not (status_line.startswith('<') and status_line.endswith('>')):
@@ -335,40 +342,77 @@ class SimplifiedFluidNCProtocolFixed:
             # Initialize status
             status = FluidNCStatus(state=state)
             
-            # Parse other parts
+            # Parse other parts with enhanced error handling
             for part in parts[1:]:
-                if part.startswith('MPos:'):
-                    # Machine position
-                    coords = part[5:].split(',')
-                    if len(coords) >= 4:
-                        status.machine_position = {
-                            'x': float(coords[0]),
-                            'y': float(coords[1]),
-                            'z': float(coords[2]),
-                            'a': float(coords[3])
-                        }
-                        # Use machine position as work position for now
-                        status.position = status.machine_position.copy()
-                        status.work_position = status.machine_position.copy()
-                
-                elif part.startswith('WPos:'):
-                    # Work position
-                    coords = part[5:].split(',')
-                    if len(coords) >= 4:
-                        status.work_position = {
-                            'x': float(coords[0]),
-                            'y': float(coords[1]),
-                            'z': float(coords[2]),
-                            'a': float(coords[3])
-                        }
-                        status.position = status.work_position.copy()
-                
-                elif part.startswith('FS:'):
-                    # Feed and spindle
-                    fs_parts = part[3:].split(',')
-                    if len(fs_parts) >= 2:
-                        status.feed_rate = float(fs_parts[0])
-                        status.spindle_speed = float(fs_parts[1])
+                try:
+                    if part.startswith('MPos:'):
+                        # Machine position with safe float parsing
+                        coords = part[5:].split(',')
+                        if len(coords) >= 4:
+                            # Validate each coordinate before parsing
+                            parsed_coords = []
+                            for coord in coords[:4]:  # Only take first 4
+                                # Clean up potential corruption (multiple decimals, etc.)
+                                clean_coord = coord.strip()
+                                if clean_coord.count('.') > 1:
+                                    # Handle corrupted coordinates like '0.0000.673'
+                                    logger.warning(f"🔧 Fixing corrupted coordinate: '{clean_coord}'")
+                                    # Take the first valid float part
+                                    parts_split = clean_coord.split('.')
+                                    if len(parts_split) >= 2:
+                                        clean_coord = f"{parts_split[0]}.{parts_split[1]}"
+                                
+                                parsed_coords.append(float(clean_coord))
+                            
+                            if len(parsed_coords) >= 4:
+                                status.machine_position = {
+                                    'x': parsed_coords[0],
+                                    'y': parsed_coords[1], 
+                                    'z': parsed_coords[2],
+                                    'a': parsed_coords[3]
+                                }
+                                # Use machine position as work position for now
+                                status.position = status.machine_position.copy()
+                                status.work_position = status.machine_position.copy()
+                    
+                    elif part.startswith('WPos:'):
+                        # Work position with safe parsing
+                        coords = part[5:].split(',')
+                        if len(coords) >= 4:
+                            parsed_coords = []
+                            for coord in coords[:4]:
+                                clean_coord = coord.strip()
+                                if clean_coord.count('.') > 1:
+                                    logger.warning(f"🔧 Fixing corrupted work coordinate: '{clean_coord}'")
+                                    parts_split = clean_coord.split('.')
+                                    if len(parts_split) >= 2:
+                                        clean_coord = f"{parts_split[0]}.{parts_split[1]}"
+                                parsed_coords.append(float(clean_coord))
+                            
+                            if len(parsed_coords) >= 4:
+                                status.work_position = {
+                                    'x': parsed_coords[0],
+                                    'y': parsed_coords[1],
+                                    'z': parsed_coords[2],
+                                    'a': parsed_coords[3]
+                                }
+                                status.position = status.work_position.copy()
+                    
+                    elif part.startswith('FS:'):
+                        # Feed and spindle with safe parsing
+                        fs_parts = part[3:].split(',')
+                        if len(fs_parts) >= 2:
+                            try:
+                                status.feed_rate = float(fs_parts[0].strip())
+                                status.spindle_speed = float(fs_parts[1].strip())
+                            except ValueError:
+                                # Skip corrupted feed/spindle data
+                                pass
+                                
+                except ValueError as ve:
+                    # Skip corrupted parts but continue parsing other parts
+                    logger.debug(f"🔧 Skipping corrupted status part: '{part}' - {ve}")
+                    continue
             
             # Update current status
             self.current_status = status

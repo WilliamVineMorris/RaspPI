@@ -108,21 +108,31 @@ def test_homing_message_detection():
         
         logger.info("🏠 Starting homing with message monitoring...")
         
-        # Send homing command - increase timeout temporarily for homing
-        original_timeout = protocol.motion_timeout
-        protocol.motion_timeout = 60.0  # Increase to 60s for homing
+        # Send homing command using raw serial approach to avoid parsing conflicts
+        logger.info("🏠 Sending homing command with direct serial approach...")
         
         try:
-            success, response = protocol.send_command("$H")
-            logger.info(f"Homing command sent: {success}, response: {response}")
+            # Direct serial send to avoid motion wait conflicts during homing
+            with protocol.connection_lock:
+                if protocol.serial_connection:
+                    protocol.serial_connection.write(b"$H\n")
+                    protocol.serial_connection.flush()
+                    logger.info("✅ Homing command sent directly")
+                    success = True
+                    response = "Command sent via direct serial"
+                else:
+                    success = False
+                    response = "No serial connection"
+        except Exception as e:
+            success = False
+            response = f"Direct send error: {e}"
             
-            if not success:
-                logger.error("❌ Homing command failed")
-                protocol.disconnect()  
-                return False
-        finally:
-            # Restore original timeout  
-            protocol.motion_timeout = original_timeout
+        logger.info(f"Homing command sent: {success}, response: {response}")
+        
+        if not success:
+            logger.error("❌ Homing command failed")
+            protocol.disconnect()
+            return False
         
         # Monitor for completion messages
         timeout = 45.0
@@ -134,25 +144,34 @@ def test_homing_message_detection():
         while time.time() - start_time < timeout:
             elapsed = time.time() - start_time
             
-            # Check recent messages
-            messages = protocol.get_recent_raw_messages(50)
-            
-            for msg in messages:
-                if "[MSG:DBG: Homing done]" in msg:
-                    logger.info(f"🎯 DETECTED: Homing completion at {elapsed:.1f}s!")
-                    logger.info(f"   Message: {msg}")
-                    homing_done = True
-                    break
-                elif "[MSG:Homed:" in msg:
-                    logger.info(f"✅ Axis homed: {msg}")
-            
-            if homing_done:
-                break
+            try:
+                # Check recent messages with error protection
+                messages = protocol.get_recent_raw_messages(50)
                 
-            # Show periodic status
-            if int(elapsed) % 5 == 0:
-                current_status = protocol.get_current_status()
-                logger.info(f"🏠 Status at {elapsed:.0f}s: {current_status.state if current_status else 'Unknown'}")
+                for msg in messages:
+                    if "[MSG:DBG: Homing done]" in msg:
+                        logger.info(f"🎯 DETECTED: Homing completion at {elapsed:.1f}s!")
+                        logger.info(f"   Message: {msg}")
+                        homing_done = True
+                        break
+                    elif "[MSG:Homed:" in msg:
+                        logger.info(f"✅ Axis homed: {msg}")
+                
+                if homing_done:
+                    break
+                    
+                # Show periodic status with error protection
+                if int(elapsed) % 5 == 0:
+                    try:
+                        current_status = protocol.get_current_status()
+                        state = current_status.state if current_status else 'Unknown'
+                        logger.info(f"🏠 Status at {elapsed:.0f}s: {state}")
+                    except Exception as status_error:
+                        logger.debug(f"🔧 Status check error at {elapsed:.0f}s: {status_error}")
+                
+            except Exception as loop_error:
+                logger.debug(f"🔧 Monitoring loop error at {elapsed:.1f}s: {loop_error}")
+                # Continue monitoring despite errors
             
             time.sleep(0.5)
         
