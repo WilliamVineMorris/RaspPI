@@ -9,9 +9,9 @@
 window.ScannerBase = {
     // Configuration
     config: {
-        updateInterval: 2000,           // Base status update interval (ms) - for idle periods
-        fastUpdateInterval: 500,        // Fast update interval (ms) - during movement
-        requestTimeout: 5000,           // API request timeout (ms) - faster failure detection
+        updateInterval: 1000,           // Base status update interval (ms) - faster for better responsiveness
+        fastUpdateInterval: 250,        // Fast update interval (ms) - much faster during movement
+        requestTimeout: 2000,           // API request timeout (ms) - faster failure detection for web UI responsiveness
         showDebugLogs: true,            // Enable debug logging to troubleshoot position delays
         debug: true                     // Master debug flag for position debugging
     },

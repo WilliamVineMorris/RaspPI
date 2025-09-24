@@ -393,8 +393,8 @@ class FluidNCController(MotionController):
         if 'HOME' in command_upper or '$H' in command_upper:
             return 30.0  # 30 seconds for homing
         
-        # Default timeout for unknown commands
-        return self.timeout
+        # Default timeout for unknown commands - reduced for web UI responsiveness
+        return 1.0  # Reduced from 2.0s to 1.0s for faster web response
     
     async def _ensure_ready_for_commands(self):
         """Ensure FluidNC is ready to accept new commands (not busy with previous operations)"""
@@ -1921,11 +1921,12 @@ class FluidNCController(MotionController):
                                         logger.debug(f"📍 Position refresh #{position_updates}: {position}")
                             
                             # Log messages that look like they should contain position data but failed to parse
-                            if not position_found and any(indicator in message_upper for indicator in ['POS', 'COORDINATE', 'LOCATION', 'X', 'Y', 'Z', 'C']):
-                                if '<' in message_clean and '>' in message_clean:
-                                    logger.info(f"🔍 Potential position message not parsed: {message_clean}")
-                                elif len([x for x in re.findall(r'[\d\.-]+', message_clean) if len(x) > 1]) >= 4:
-                                    logger.info(f"🔢 Message with 4+ numbers not parsed: {message_clean}")
+                            # OPTIMIZED: Reduce verbose logging to improve web UI performance
+                            if not position_found and any(indicator in message_upper for indicator in ['POS', 'COORDINATE', 'LOCATION']) and '<' in message_clean and '>' in message_clean:
+                                # Only log actual position messages we failed to parse, not G-code state messages
+                                if not any(gcode in message_upper for gcode in ['[GC:', 'G0', 'G54', 'G17', 'G21', 'G90', 'G94']):
+                                    logger.debug(f"� Potential position message not parsed: {message_clean}")
+                            # Skip logging G-code state messages that aren't position data - reduces web UI overhead
                         
                         # Periodic activity logging
                         if current_time - last_log_time > 30.0:  # Log every 30 seconds to reduce noise

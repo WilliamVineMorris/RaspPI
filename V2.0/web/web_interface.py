@@ -314,11 +314,20 @@ class ScannerWebInterface:
         # API endpoints for robust command/data transfer
         @self.app.route('/api/status')
         def api_status():
-            """Get current system status"""
+            """Get current system status with performance monitoring"""
+            start_time = time.time()
             try:
+                status_data = self._get_system_status()
+                response_time = (time.time() - start_time) * 1000  # Convert to milliseconds
+                
+                # Log slow responses for debugging web UI delays
+                if response_time > 100:  # Log if >100ms
+                    self.logger.warning(f"⚠️ Slow status API response: {response_time:.1f}ms")
+                
                 return jsonify({
                     'success': True,
-                    'data': self._get_system_status(),
+                    'data': status_data,
+                    'response_time_ms': round(response_time, 1),
                     'timestamp': datetime.now().isoformat()
                 })
             except Exception as e:
