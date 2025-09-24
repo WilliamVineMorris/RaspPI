@@ -73,6 +73,11 @@ class SimplifiedFluidNCProtocolFixed:
         self.command_delay = 0.1
         self.motion_timeout = 30.0  # Maximum time to wait for motion completion
         
+        # Message capture for enhanced homing detection
+        self.recent_raw_messages: list[str] = []
+        self.max_message_history = 100
+        self.message_lock = threading.RLock()
+        
         # Statistics
         self.stats: Dict[str, Any] = {
             'commands_sent': 0,
@@ -80,7 +85,8 @@ class SimplifiedFluidNCProtocolFixed:
             'timeouts': 0,
             'motion_commands': 0,
             'motion_timeouts': 0,
-            'connection_time': 0.0
+            'connection_time': 0.0,
+            'debug_messages_captured': 0
         }
     
     def connect(self) -> bool:
@@ -285,12 +291,15 @@ class SimplifiedFluidNCProtocolFixed:
                     if not line:
                         continue
                     
+                    # Capture all raw messages for homing detection
+                    self._capture_raw_message(line)
+                    
                     # Handle status reports (update current status)
                     if line.startswith('<') and line.endswith('>'):
                         self._parse_status_report(line)
                         continue
                     
-                    # Skip info messages
+                    # Skip info messages (but we already captured them)
                     if line.startswith('[') and line.endswith(']'):
                         continue
                     
@@ -389,6 +398,8 @@ class SimplifiedFluidNCProtocolFixed:
             while time.time() - start_time < 3.0:
                 if self.serial_connection.in_waiting > 0:
                     response = self.serial_connection.readline().decode('utf-8', errors='ignore').strip()
+                    # Capture all messages
+                    self._capture_raw_message(response)
                     if response.startswith('<') and response.endswith('>'):
                         self._parse_status_report(response)
                         return True
@@ -446,6 +457,10 @@ class SimplifiedFluidNCProtocolFixed:
                 if self.serial_connection and self.serial_connection.in_waiting > 0:
                     line = self.serial_connection.readline().decode('utf-8', errors='ignore').strip()
                     
+                    # Capture all messages for homing detection
+                    if line:
+                        self._capture_raw_message(line)
+                    
                     if line.startswith('<') and line.endswith('>'):
                         self._parse_status_report(line)
                 
@@ -461,6 +476,24 @@ class SimplifiedFluidNCProtocolFixed:
     def get_current_status(self) -> Optional[FluidNCStatus]:
         """Get current status"""
         return self.current_status
+    
+    def get_recent_raw_messages(self, count: int = 20) -> list[str]:
+        """Get recent raw messages for debug message detection"""
+        with self.message_lock:
+            return self.recent_raw_messages[-count:] if self.recent_raw_messages else []
+    
+    def _capture_raw_message(self, message: str):
+        """Capture raw message for homing detection"""
+        with self.message_lock:
+            self.recent_raw_messages.append(f"{time.time():.3f}: {message}")
+            
+            # Limit history size
+            if len(self.recent_raw_messages) > self.max_message_history:
+                self.recent_raw_messages = self.recent_raw_messages[-self.max_message_history:]
+            
+            # Count debug messages
+            if "[MSG:DBG:" in message or "[MSG:Homed:" in message:
+                self.stats['debug_messages_captured'] += 1
     
     def add_status_callback(self, callback: Callable[[FluidNCStatus], None]):
         """Add status callback"""

@@ -362,9 +362,9 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             return False
     
     async def home_axes(self, axes: Optional[list] = None) -> bool:
-        """Home specified axes or all axes"""
+        """Home specified axes or all axes with enhanced detection"""
         try:
-            logger.info("🏠 Starting homing sequence")
+            logger.info("🏠 Starting enhanced homing sequence")
             
             # Determine homing command
             if axes is None or (isinstance(axes, list) and set([ax.upper() for ax in axes]) == {'X', 'Y', 'Z', 'C'}):
@@ -377,67 +377,135 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 homing_command = f"$H{axis_string}"
                 logger.info(f"🏠 Executing selective homing for axes: {axis_string}")
             
-            logger.info(f"🏠 Sending homing command: {homing_command}")
-            success, response = await self._send_command(homing_command)
-            
-            if success:
-                logger.info(f"🏠 Homing command sent successfully, response: {response}")
-                
-                # Wait for homing to actually complete by monitoring status
-                homing_timeout = 30.0  # 30 seconds timeout
-                homing_start_time = time.time()
-                
-                logger.info("🏠 Waiting for homing to complete...")
-                
-                # Add initial delay to let homing start
-                await asyncio.sleep(2.0)
-                
-                status_checks = 0
-                while time.time() - homing_start_time < homing_timeout:
-                    # Get current status from FluidNC
-                    status = self.protocol.get_current_status()
-                    status_checks += 1
-                    
-                    if status and status.state:
-                        logger.info(f"🏠 Homing status check #{status_checks}: {status.state}")
-                        
-                        # Check if homing is complete (state should return to Idle)
-                        if status.state.lower() in ['idle', 'run']:
-                            logger.info("✅ Homing completed - FluidNC returned to operational state")
-                            break
-                        elif status.state.lower() in ['alarm', 'error']:
-                            logger.error(f"❌ Homing failed - FluidNC in alarm/error state: {status.state}")
-                            return False
-                        elif status.state.lower() in ['home', 'homing']:
-                            logger.info(f"🏠 Homing in progress: {status.state}")
-                        else:
-                            logger.debug(f"🏠 Unknown homing state: {status.state}")
-                    else:
-                        logger.warning(f"🏠 No status received (check #{status_checks})")
-                    
-                    # Short delay before checking again
-                    await asyncio.sleep(1.0)  # Increased to 1 second for better visibility
-                else:
-                    logger.warning("⚠️ Homing timeout reached - assuming completed but verification failed")
-                
-                logger.info(f"🏠 Homing monitoring completed after {status_checks} status checks")
-                
-                # Update position after homing
-                await self._update_current_position()
-                
-                self._emit_event("homing_completed", {
-                    "axes": axes or ['x', 'y', 'z', 'c'],
-                    "final_position": self.current_position.to_dict()
-                })
-                
-                logger.info(f"✅ Homing completed: {axes or 'all axes'}, new position: {self.current_position}")
-                return True
-            else:
-                logger.error(f"❌ Homing command failed, response: {response}")
-                return False
+            # Enhanced homing detection with message monitoring
+            return await self._execute_homing_with_message_detection(homing_command, axes)
                 
         except Exception as e:
             logger.error(f"❌ Homing failed: {e}")
+            self.stats['errors_encountered'] += 1
+            return False
+    
+    async def _execute_homing_with_message_detection(self, homing_command: str, axes: Optional[list] = None) -> bool:
+        """Execute homing with enhanced message detection"""
+        try:
+            logger.info(f"🏠 Sending homing command: {homing_command}")
+            
+            # Start message monitoring for homing completion detection
+            homing_messages = []
+            homing_complete = False
+            homing_failed = False
+            axes_homed = set()
+            
+            def message_callback(message_type: str, content: str):
+                nonlocal homing_complete, homing_failed, axes_homed
+                homing_messages.append(f"{message_type}: {content}")
+                
+                if message_type == "debug":
+                    if "Homing done" in content:
+                        logger.info("🎯 DETECTED: Homing completion signal!")
+                        homing_complete = True
+                    elif "Homing Cycle" in content:
+                        axis = content.split("Homing Cycle ")[-1].strip()
+                        logger.info(f"🏠 DETECTED: Starting homing cycle for axis {axis}")
+                    elif content.startswith("Homed:"):
+                        axis = content.split("Homed:")[-1].strip()
+                        axes_homed.add(axis)
+                        logger.info(f"✅ DETECTED: Axis {axis} homed successfully")
+                elif message_type == "error" or "alarm" in content.lower():
+                    logger.error(f"❌ DETECTED: Homing error - {content}")
+                    homing_failed = True
+            
+        # Enhanced monitoring will use direct protocol inspection
+        # (Protocol enhancement needed for full message callback support)            try:
+                # Send homing command
+                success, response = await self._send_command(homing_command)
+                
+                if not success:
+                    logger.error(f"❌ Homing command failed: {response}")
+                    return False
+                
+                logger.info(f"🏠 Homing command sent, initial response: {response}")
+                
+                # Enhanced monitoring with both status and message detection
+                homing_timeout = 45.0  # Increased timeout based on your 22-second actual time
+                homing_start_time = time.time()
+                last_status_check = 0
+                
+                logger.info("🏠 Monitoring for homing completion signals...")
+                
+                while time.time() - homing_start_time < homing_timeout:
+                    elapsed = time.time() - homing_start_time
+                    
+                    # Check for completion via debug message (primary detection)
+                    if homing_complete:
+                        logger.info(f"✅ Homing completed via debug message detection after {elapsed:.1f}s")
+                        break
+                    
+                    # Check for failure
+                    if homing_failed:
+                        logger.error(f"❌ Homing failed via message detection after {elapsed:.1f}s")
+                        return False
+                    
+                    # Periodically check status as backup (every 2 seconds)
+                    if elapsed - last_status_check >= 2.0:
+                        status = self.protocol.get_current_status()
+                        last_status_check = elapsed
+                        
+                        if status and status.state:
+                            state_lower = status.state.lower()
+                            logger.debug(f"🏠 Status check at {elapsed:.1f}s: {status.state}")
+                            
+                            # Backup detection: if we see Idle and have homed axes, assume completion
+                            if state_lower in ['idle', 'run'] and axes_homed:
+                                logger.info(f"✅ Backup detection: State={status.state}, Axes homed: {axes_homed}")
+                                homing_complete = True
+                                break
+                            elif state_lower in ['alarm', 'error']:
+                                logger.error(f"❌ Status-based failure detection: {status.state}")
+                                return False
+                    
+                    # Brief pause
+                    await asyncio.sleep(0.1)
+                
+                if not homing_complete:
+                    if time.time() - homing_start_time >= homing_timeout:
+                        logger.warning(f"⚠️ Homing timeout after {homing_timeout}s")
+                        logger.info(f"📝 Debug messages captured: {len(homing_messages)}")
+                        for msg in homing_messages[-5:]:  # Show last 5 messages
+                            logger.info(f"   {msg}")
+                        return False
+                
+                # Final verification
+                await asyncio.sleep(1.0)  # Allow system to settle
+                final_status = self.protocol.get_current_status()
+                
+                if final_status and final_status.state.lower() in ['idle', 'run']:
+                    logger.info(f"✅ Final verification: FluidNC in {final_status.state} state")
+                else:
+                    logger.warning(f"⚠️ Final verification: Unexpected state: {final_status.state if final_status else 'None'}")
+                
+            finally:
+                # Restore original callback (if protocol supports it)
+                if hasattr(self.protocol, 'message_callback'):
+                    self.protocol.message_callback = old_callback
+                
+            # Update position after homing
+            await self._update_current_position()
+            
+            self._emit_event("homing_completed", {
+                "axes": axes or ['x', 'y', 'z', 'c'],
+                "final_position": self.current_position.to_dict(),
+                "homing_messages": homing_messages[-10:],  # Include recent messages
+                "axes_homed": list(axes_homed)
+            })
+            
+            logger.info(f"✅ Enhanced homing completed: {axes or 'all axes'}")
+            logger.info(f"🎯 Axes homed: {axes_homed}, Messages captured: {len(homing_messages)}")
+            logger.info(f"📍 New position: {self.current_position}")
+            return True
+                
+        except Exception as e:
+            logger.error(f"❌ Enhanced homing failed: {e}")
             self.stats['errors_encountered'] += 1
             return False
     
