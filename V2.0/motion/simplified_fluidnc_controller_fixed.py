@@ -304,18 +304,25 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 feedrate = self.get_optimal_feedrate(delta)
                 logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
             
-            # Set feedrate
-            await self._send_command(f"F{feedrate}")
-            
-            # Use absolute positioning to avoid coordinate drift
-            # This is more reliable than relative mode
-            success, response = await self._send_command("G90")
-            if not success:
-                return False
-            
-            # Send absolute move to calculated target
-            gcode = f"G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
-            success, response = await self._send_command(gcode)
+            # Optimize for manual operations: combine commands to reduce delays
+            if self.operating_mode == "manual_mode":
+                # For manual jogging, combine feedrate and move into single command
+                # FluidNC supports F parameter directly in move commands
+                gcode = f"G90 G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f} F{feedrate}"
+                success, response = await self._send_command(gcode, priority="high")
+            else:
+                # For scan operations, use separate commands for precision and reliability
+                # Set feedrate
+                await self._send_command(f"F{feedrate}", priority="normal")
+                
+                # Use absolute positioning to avoid coordinate drift
+                success, response = await self._send_command("G90", priority="normal")
+                if not success:
+                    return False
+                
+                # Send absolute move to calculated target
+                gcode = f"G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
+                success, response = await self._send_command(gcode, priority="normal")
             
             if success:
                 self.target_position = target.copy()
@@ -798,8 +805,14 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             return False
     
     # Helper Methods
-    async def _send_command(self, command: str, command_id: Optional[str] = None) -> tuple[bool, str]:
-        """Send command using fixed protocol with motion completion"""
+    async def _send_command(self, command: str, command_id: Optional[str] = None, priority: str = "normal") -> tuple[bool, str]:
+        """Send command using fixed protocol with motion completion
+        
+        Args:
+            command: G-code command to send
+            command_id: Optional command ID for timing tracking
+            priority: Command priority ("high" for manual operations, "normal" for scans)
+        """
         try:
             self.stats['commands_sent'] += 1
             
@@ -807,9 +820,9 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             if TIMING_AVAILABLE and command_id:
                 timing_logger.log_fluidnc_send(command_id, command)
             
-            # Use the fixed protocol with motion completion waiting
+            # Use the fixed protocol with motion completion waiting and priority
             success, response = await asyncio.get_event_loop().run_in_executor(
-                None, self.protocol.send_command_with_motion_wait, command
+                None, self.protocol.send_command_with_motion_wait, command, priority
             )
             
             # Log FluidNC response

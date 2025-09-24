@@ -70,7 +70,8 @@ class SimplifiedFluidNCProtocolFixed:
         # Command execution with motion completion
         self.command_lock = threading.RLock()
         self.last_command_time = 0
-        self.command_delay = 0.1
+        self.command_delay = 0.02  # Reduced from 0.1s to 20ms for responsiveness
+        self.manual_command_delay = 0.01  # Even faster for manual operations - 10ms
         self.motion_timeout = 30.0  # Maximum time to wait for motion completion
         
         # Message capture for enhanced homing detection
@@ -155,26 +156,39 @@ class SimplifiedFluidNCProtocolFixed:
                 self.serial_connection is not None and 
                 self.serial_connection.is_open)
     
-    def send_command_with_motion_wait(self, command: str) -> Tuple[bool, str]:
+    def send_command_with_motion_wait(self, command: str, priority: str = "normal") -> Tuple[bool, str]:
         """
         Send command and wait for motion completion if it's a motion command
         
         This is the key fix - we wait for the machine to return to Idle state
         after motion commands before considering the command complete.
+        
+        Args:
+            command: G-code command to send
+            priority: Command priority ("high" for manual operations, "normal" for scans)
         """
         start_time = time.time()
-        logger.debug(f"🕐 [TIMING] Starting command: {command}")
+        logger.debug(f"🕐 [TIMING] Starting {priority} priority command: {command}")
         
         with self.command_lock:
             if not self.is_connected():
                 return False, "Not connected"
             
-            # Enforce command delay
+            # Enforce command delay (priority-aware)
             current_time = time.time()
             time_since_last = current_time - self.last_command_time
-            if time_since_last < self.command_delay:
-                delay_needed = self.command_delay - time_since_last
-                logger.debug(f"⏳ [TIMING] Command delay: {delay_needed*1000:.1f}ms")
+            
+            # Use faster delay for high priority (manual) operations
+            if priority == "high":
+                active_delay = self.manual_command_delay
+                delay_type = "High-priority"
+            else:
+                active_delay = self.command_delay
+                delay_type = "Standard"
+            
+            if time_since_last < active_delay:
+                delay_needed = active_delay - time_since_last
+                logger.debug(f"⏳ [TIMING] {delay_type} command delay: {delay_needed*1000:.1f}ms")
                 time.sleep(delay_needed)
             
             command_ready_time = time.time()
