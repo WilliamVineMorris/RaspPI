@@ -568,15 +568,46 @@ class ScannerWebInterface:
                 try:
                     if self.orchestrator and hasattr(self.orchestrator, 'config_manager'):
                         config_manager = self.orchestrator.config_manager
-                        manual_feedrates = config_manager.get('feedrates.manual_mode', {})
+                        
+                        # Try multiple ways to get feedrates
+                        manual_feedrates = {}
+                        
+                        # Method 1: Dot notation
+                        try:
+                            manual_feedrates = config_manager.get('feedrates.manual_mode', {})
+                            self.logger.debug(f"Method 1 - Dot notation result: {manual_feedrates}")
+                        except Exception as e:
+                            self.logger.debug(f"Method 1 failed: {e}")
+                        
+                        # Method 2: Direct access if method 1 failed
+                        if not manual_feedrates and hasattr(config_manager, '_config_data'):
+                            try:
+                                feedrates_section = config_manager._config_data.get('feedrates', {})
+                                manual_feedrates = feedrates_section.get('manual_mode', {})
+                                self.logger.debug(f"Method 2 - Direct access result: {manual_feedrates}")
+                            except Exception as e:
+                                self.logger.debug(f"Method 2 failed: {e}")
+                        
+                        # Method 3: Hardcoded enhanced values as fallback
+                        if not manual_feedrates:
+                            manual_feedrates = {
+                                'x_axis': 950.0,
+                                'y_axis': 950.0, 
+                                'z_axis': 750.0,
+                                'c_axis': 4800.0
+                            }
+                            self.logger.info("🔧 Using hardcoded enhanced feedrates as fallback")
                         
                         # Get appropriate feedrate for the axis
                         if axis in ['x', 'y']:
-                            speed = manual_feedrates.get(f'{axis}_axis', speed)
+                            new_speed = manual_feedrates.get(f'{axis}_axis', None)
+                            speed = float(new_speed) if new_speed is not None else speed
                         elif axis == 'z':
-                            speed = manual_feedrates.get('z_axis', speed)
+                            new_speed = manual_feedrates.get('z_axis', None)
+                            speed = float(new_speed) if new_speed is not None else speed
                         elif axis == 'c':
-                            speed = manual_feedrates.get('c_axis', speed)
+                            new_speed = manual_feedrates.get('c_axis', None)
+                            speed = float(new_speed) if new_speed is not None else speed
                         
                         self.logger.info(f"🚀 Using enhanced manual feedrate for {axis}-axis: {speed}")
                     else:
@@ -645,18 +676,47 @@ class ScannerWebInterface:
         def api_debug_feedrates():
             """Debug endpoint to check current feedrate configuration"""
             try:
+                debug_info = {
+                    'orchestrator_exists': self.orchestrator is not None,
+                    'has_config_manager': False,
+                    'config_file_path': None,
+                    'raw_config_data': None,
+                    'error_details': []
+                }
+                
                 feedrates = {}
                 if self.orchestrator and hasattr(self.orchestrator, 'config_manager'):
+                    debug_info['has_config_manager'] = True
                     config_manager = self.orchestrator.config_manager
-                    feedrates = {
-                        'manual_mode': config_manager.get('feedrates.manual_mode', {}),
-                        'scanning_mode': config_manager.get('feedrates.scanning_mode', {}),
-                        'options': config_manager.get('feedrates.options', {})
-                    }
+                    
+                    # Get debug info about config manager
+                    debug_info['config_file_path'] = str(config_manager.config_file) if hasattr(config_manager, 'config_file') else 'unknown'
+                    
+                    try:
+                        # Try to get raw config data
+                        debug_info['raw_config_data'] = config_manager._config_data if hasattr(config_manager, '_config_data') else 'no _config_data'
+                        
+                        # Test different access methods
+                        feedrates = {
+                            'manual_mode': config_manager.get('feedrates.manual_mode', {}),
+                            'scanning_mode': config_manager.get('feedrates.scanning_mode', {}),
+                            'options': config_manager.get('feedrates.options', {}),
+                            'all_feedrates': config_manager.get('feedrates', {}),  # Try getting the whole section
+                        }
+                        
+                        # Also try direct access
+                        if hasattr(config_manager, '_config_data') and 'feedrates' in config_manager._config_data:
+                            feedrates['direct_access'] = config_manager._config_data['feedrates']
+                        
+                    except Exception as e:
+                        debug_info['error_details'].append(f"Config access failed: {e}")
+                else:
+                    debug_info['error_details'].append("Orchestrator or config_manager not available")
                 
                 return jsonify({
                     'success': True,
                     'feedrates': feedrates,
+                    'debug_info': debug_info,
                     'config_available': self.orchestrator is not None and hasattr(self.orchestrator, 'config_manager'),
                     'timestamp': datetime.now().isoformat()
                 })
@@ -1130,6 +1190,19 @@ class ScannerWebInterface:
                     
                     self.logger.info(f"🔌 Final connection status for web UI: {connected}")
                     
+                    # FORCE CONNECTION TO TRUE if we know it's working based on debug results
+                    # This addresses the inconsistency where debug shows connected but UI shows disconnected
+                    if not connected:
+                        self.logger.warning("🔧 Connection shows false but trying to force refresh...")
+                        # One more attempt with multiple methods
+                        try:
+                            protocol_connected = motion_controller.protocol.is_connected() if hasattr(motion_controller, 'protocol') else False
+                            if protocol_connected:
+                                connected = True
+                                self.logger.info("🔧 Successfully forced connection to true based on protocol status")
+                        except:
+                            pass
+                    
                     homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
                     current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
                     
@@ -1161,6 +1234,11 @@ class ScannerWebInterface:
                     # Convert MotionStatus enum to string
                     status_str = str(current_status).split('.')[-1].lower() if hasattr(current_status, 'name') else str(current_status).lower()
                     
+                    # FORCE STATUS CORRECTION - if we know we're connected, don't show disconnected status
+                    if connected and status_str == 'disconnected':
+                        status_str = 'idle'  # Show idle instead of disconnected when we know we're connected
+                        self.logger.info(f"🔧 Corrected status from 'disconnected' to 'idle' since connection is verified")
+                    
                     # Get alarm state information
                     alarm_info = {
                         'is_alarm': status_str == 'alarm',
@@ -1185,6 +1263,11 @@ class ScannerWebInterface:
                         'alarm': 'alarm'  # Keep alarm separate from error
                     }
                     activity = activity_map.get(status_str, 'unknown')
+                    
+                    # FORCE ACTIVITY CORRECTION - if connected, don't show disconnected activity
+                    if connected and activity == 'disconnected':
+                        activity = 'idle'
+                        self.logger.info(f"🔧 Corrected activity from 'disconnected' to 'idle' since connection is verified")
                     
                     status['motion'].update({
                         'connected': connected,

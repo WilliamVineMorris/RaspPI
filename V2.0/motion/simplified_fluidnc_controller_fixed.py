@@ -389,25 +389,38 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 
                 logger.info("🏠 Waiting for homing to complete...")
                 
+                # Add initial delay to let homing start
+                await asyncio.sleep(2.0)
+                
+                status_checks = 0
                 while time.time() - homing_start_time < homing_timeout:
                     # Get current status from FluidNC
                     status = self.protocol.get_current_status()
+                    status_checks += 1
                     
                     if status and status.state:
-                        logger.debug(f"🏠 Homing status: {status.state}")
+                        logger.info(f"🏠 Homing status check #{status_checks}: {status.state}")
                         
                         # Check if homing is complete (state should return to Idle)
                         if status.state.lower() in ['idle', 'run']:
-                            logger.info("🏠 Homing completed - FluidNC returned to operational state")
+                            logger.info("✅ Homing completed - FluidNC returned to operational state")
                             break
                         elif status.state.lower() in ['alarm', 'error']:
-                            logger.error(f"🏠 Homing failed - FluidNC in alarm/error state: {status.state}")
+                            logger.error(f"❌ Homing failed - FluidNC in alarm/error state: {status.state}")
                             return False
+                        elif status.state.lower() in ['home', 'homing']:
+                            logger.info(f"🏠 Homing in progress: {status.state}")
+                        else:
+                            logger.debug(f"🏠 Unknown homing state: {status.state}")
+                    else:
+                        logger.warning(f"🏠 No status received (check #{status_checks})")
                     
                     # Short delay before checking again
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(1.0)  # Increased to 1 second for better visibility
                 else:
-                    logger.warning("🏠 Homing timeout - assuming completed")
+                    logger.warning("⚠️ Homing timeout reached - assuming completed but verification failed")
+                
+                logger.info(f"🏠 Homing monitoring completed after {status_checks} status checks")
                 
                 # Update position after homing
                 await self._update_current_position()
