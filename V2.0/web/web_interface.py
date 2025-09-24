@@ -489,21 +489,41 @@ class ScannerWebInterface:
                     if hasattr(motion_controller, 'controller') and hasattr(motion_controller.controller, 'restart_background_monitor'):
                         controller = motion_controller.controller
                         
-                        # Run the restart in an async task
+                        # Use thread-safe approach for asyncio from Flask sync context
+                        import concurrent.futures
                         import asyncio
-                        loop = asyncio.get_event_loop()
                         
-                        async def restart_task():
-                            await controller.restart_background_monitor()
+                        def restart_in_background():
+                            """Run restart in a new thread with its own event loop"""
+                            try:
+                                # Create new event loop for this thread
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                
+                                # Run the restart operation
+                                result = loop.run_until_complete(controller.restart_background_monitor())
+                                loop.close()
+                                return result
+                            except Exception as e:
+                                self.logger.error(f"Background restart thread error: {e}")
+                                return False
                         
-                        # Create task to restart monitor
-                        task = loop.create_task(restart_task())
-                        
-                        return jsonify({
-                            'success': True,
-                            'message': 'Background monitor restart initiated',
-                            'timestamp': datetime.now().isoformat()
-                        })
+                        # Run restart in background thread
+                        with concurrent.futures.ThreadPoolExecutor() as executor:
+                            future = executor.submit(restart_in_background)
+                            try:
+                                success = future.result(timeout=10.0)  # 10 second timeout
+                                
+                                return jsonify({
+                                    'success': True,
+                                    'message': f'Background monitor restart {"successful" if success else "attempted"}',
+                                    'timestamp': datetime.now().isoformat()
+                                })
+                            except concurrent.futures.TimeoutError:
+                                return jsonify({
+                                    'success': False, 
+                                    'error': 'Restart operation timed out'
+                                }), 408
                     else:
                         return jsonify({'success': False, 'error': 'Controller does not support monitor restart'}), 400
                 else:
