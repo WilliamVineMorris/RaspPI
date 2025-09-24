@@ -29,6 +29,12 @@ try:
     TIMING_AVAILABLE = True
 except ImportError:
     TIMING_AVAILABLE = False
+    # Create dummy timing logger for compatibility
+    class DummyTimingLogger:
+        def log_fluidnc_send(self, *args, **kwargs): pass
+        def log_fluidnc_response(self, *args, **kwargs): pass
+        def log_error(self, *args, **kwargs): pass
+    timing_logger = DummyTimingLogger()
 
 logger = logging.getLogger(__name__)
 

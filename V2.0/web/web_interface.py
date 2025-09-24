@@ -41,12 +41,28 @@ try:
     from scanning.scan_patterns import GridScanPattern, CylindricalScanPattern
     from scanning.scan_state import ScanStatus, ScanPhase
     from scanning.scan_orchestrator import ScanOrchestrator
-    from timing_logger import timing_logger
     SCANNER_MODULES_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Could not import scanner modules: {e}")
     print("Running in development mode without full scanner integration")
     SCANNER_MODULES_AVAILABLE = False
+
+# Import timing logger (optional)
+try:
+    from timing_logger import timing_logger
+    TIMING_LOGGER_AVAILABLE = True
+    print("🔍 Timing logger enabled for command analysis")
+except ImportError as e:
+    TIMING_LOGGER_AVAILABLE = False
+    print(f"⚠️ Timing logger not available: {e}")
+    # Create dummy timing logger for compatibility
+    class DummyTimingLogger:
+        def log_backend_received(self, *args, **kwargs): return "dummy_id"
+        def log_backend_start(self, *args, **kwargs): pass
+        def log_motion_controller_start(self, *args, **kwargs): pass
+        def log_backend_complete(self, *args, **kwargs): pass
+        def log_error(self, *args, **kwargs): pass
+    timing_logger = DummyTimingLogger()
     
     # Create mock classes for development
     class ScannerSystemError(Exception):
@@ -570,14 +586,17 @@ class ScannerWebInterface:
         @self.app.route('/api/jog', methods=['POST'])
         def api_jog():
             """Handle jog movement commands"""
-            # Start timing logging
-            command_id = timing_logger.log_backend_received(
-                command_type="jog",
-                command_data=request.get_json() or {}
-            )
+            # Start timing logging (optional)
+            command_id = None
+            if TIMING_LOGGER_AVAILABLE:
+                command_id = timing_logger.log_backend_received(
+                    command_type="jog",
+                    command_data=request.get_json() or {}
+                )
             
             try:
-                timing_logger.log_backend_start(command_id, "api_jog")
+                if TIMING_LOGGER_AVAILABLE and command_id:
+                    timing_logger.log_backend_start(command_id, "api_jog")
                 
                 data = request.get_json() or {}
                 
@@ -589,11 +608,13 @@ class ScannerWebInterface:
                 speed = data.get('speed', 10.0)  # Fallback if config fails
                 
                 if axis not in ['x', 'y', 'z', 'c']:
-                    timing_logger.log_backend_complete(command_id, success=False, error="Invalid axis")
+                    if TIMING_LOGGER_AVAILABLE and command_id:
+                        timing_logger.log_backend_complete(command_id, success=False, error="Invalid axis")
                     return jsonify({"success": False, "error": "Invalid axis"}), 400
                 
                 if direction not in ['+', '-']:
-                    timing_logger.log_backend_complete(command_id, success=False, error="Invalid direction")
+                    if TIMING_LOGGER_AVAILABLE and command_id:
+                        timing_logger.log_backend_complete(command_id, success=False, error="Invalid direction")
                     return jsonify({"success": False, "error": "Invalid direction"}), 400
                 
                 # Use enhanced feedrates from configuration for manual control
@@ -661,7 +682,8 @@ class ScannerWebInterface:
                 # Execute the movement using Position4D format with enhanced feedrate
                 result = asyncio.run(self._execute_jog_command(delta_values, speed, command_id))
                 
-                timing_logger.log_backend_complete(command_id, success=True)
+                if TIMING_LOGGER_AVAILABLE and command_id:
+                    timing_logger.log_backend_complete(command_id, success=True)
                 
                 return jsonify({
                     'success': True,
@@ -670,7 +692,8 @@ class ScannerWebInterface:
                 })
                 
             except Exception as e:
-                timing_logger.log_backend_complete(command_id, success=False, error=str(e))
+                if TIMING_LOGGER_AVAILABLE and command_id:
+                    timing_logger.log_backend_complete(command_id, success=False, error=str(e))
                 self.logger.error(f"Jog command error: {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
@@ -1484,7 +1507,7 @@ class ScannerWebInterface:
     async def _execute_jog_command(self, delta_values: Dict[str, float], speed: float, command_id: Optional[str] = None) -> Dict[str, Any]:
         """Execute jog movement with Position4D format"""
         try:
-            if command_id:
+            if TIMING_LOGGER_AVAILABLE and command_id:
                 timing_logger.log_motion_controller_start(command_id, "_execute_jog_command")
             
             if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
@@ -1500,7 +1523,10 @@ class ScannerWebInterface:
                         'z': delta_values['z'], 'c': delta_values['c']}
             
             # Execute the jog movement (this now includes immediate position update)
-            result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=speed, command_id=command_id)
+            if TIMING_LOGGER_AVAILABLE and command_id:
+                result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=speed, command_id=command_id)
+            else:
+                result = await self.orchestrator.motion_controller.move_relative(delta, feedrate=speed)
             
             # Get the fresh position that was just updated by move_relative
             cached_position = self.orchestrator.motion_controller.current_position
