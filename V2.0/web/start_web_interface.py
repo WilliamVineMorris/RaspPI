@@ -202,6 +202,22 @@ def create_mock_orchestrator():
             print(f"Mock: Homing axes {axes}")
             return True
             
+        def refresh_connection_status(self):
+            """Mock connection status refresh"""
+            return True  # Always connected in mock mode
+            
+        def is_connected(self):
+            """Mock connection check"""
+            return True  # Always connected in mock mode
+            
+        @property 
+        def _connected(self):
+            """Mock connection property"""
+            return True  # Always connected in mock mode
+            )
+            print(f"Mock: Homing axes {axes}")
+            return True
+            
         def emergency_stop(self):
             print("Mock: EMERGENCY STOP!")
     
@@ -409,11 +425,15 @@ storage:
         
     except ImportError as e:
         print(f"❌ Could not import scanner modules: {e}")
-        print("💡 Falling back to mock mode")
+        print(f"� ImportError details: {type(e).__name__}: {e}")
+        print("�💡 Falling back to mock mode")
         return create_mock_orchestrator()
         
     except Exception as e:
         print(f"❌ Failed to initialize real orchestrator: {e}")
+        print(f"🔍 Exception details: {type(e).__name__}: {e}")
+        import traceback
+        print(f"🔍 Full traceback:\n{traceback.format_exc()}")
         print("💡 Falling back to mock mode")
         return create_mock_orchestrator()
 
