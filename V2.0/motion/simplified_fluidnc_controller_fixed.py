@@ -375,20 +375,26 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 homing_command = f"$H{axis_string}"
                 logger.info(f"🏠 Selective homing ({homing_command})")
             
-            # Send homing command - temporarily increase motion timeout for homing
+            # Send homing command using direct serial approach (proven working)
             logger.info(f"🏠 Sending: {homing_command}")
             
-            # Save original timeout and increase for homing
-            original_timeout = self.protocol.motion_timeout
-            self.protocol.motion_timeout = 60.0  # Increase to 60s for homing
-            
             try:
-                success, response = await asyncio.get_event_loop().run_in_executor(
-                    None, self.protocol.send_command, homing_command
-                )
-            finally:
-                # Always restore original timeout
-                self.protocol.motion_timeout = original_timeout
+                # Direct serial send to avoid motion wait conflicts during homing
+                with self.protocol.connection_lock:
+                    if self.protocol.serial_connection:
+                        command_bytes = f"{homing_command}\n".encode('utf-8')
+                        self.protocol.serial_connection.write(command_bytes)
+                        self.protocol.serial_connection.flush()
+                        logger.info("✅ Homing command sent directly via serial")
+                        success = True
+                        response = "Command sent via direct serial"
+                    else:
+                        success = False
+                        response = "No serial connection available"
+            except Exception as e:
+                success = False
+                response = f"Direct send error: {e}"
+                logger.error(f"❌ Direct serial send failed: {e}")
             
             if not success:
                 logger.error(f"❌ Homing command failed: {response}")
@@ -409,56 +415,65 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             while time.time() - start_time < homing_timeout:
                 elapsed = time.time() - start_time
                 
-                # Check recent protocol messages for debug completion signal
-                if hasattr(self.protocol, 'get_recent_raw_messages'):
-                    recent_messages = self.protocol.get_recent_raw_messages(30)
+                try:
+                    # Check recent protocol messages for debug completion signal
+                    if hasattr(self.protocol, 'get_recent_raw_messages'):
+                        recent_messages = self.protocol.get_recent_raw_messages(50)
+                        
+                        for message in recent_messages:
+                            # Primary completion detection - exactly like proven test
+                            if "[MSG:DBG: Homing done]" in message:
+                                logger.info(f"🎯 DETECTED: [MSG:DBG: Homing done] at {elapsed:.1f}s!")
+                                logger.info(f"   Message: {message}")
+                                homing_done_detected = True
+                                break
+                            
+                            # Individual axis completion tracking
+                            if "[MSG:Homed:" in message:
+                                try:
+                                    axis = message.split("[MSG:Homed:")[1].split("]")[0]
+                                    if axis not in axes_homed:
+                                        axes_homed.add(axis)
+                                        logger.info(f"✅ Axis homed: {axis}")
+                                except:
+                                    pass
+                            
+                            # Error detection in debug messages
+                            if any(error in message.lower() for error in ['alarm', 'error']):
+                                logger.error(f"❌ DETECTED: Homing error - {message}")
+                                return False
                     
-                    for message in recent_messages:
-                        # Primary completion detection - exactly like your logs
-                        if "[MSG:DBG: Homing done]" in message:
-                            logger.info("🎯 DETECTED: [MSG:DBG: Homing done] - Perfect completion signal!")
-                            homing_done_detected = True
-                            break
-                        
-                        # Individual axis completion 
-                        if "[MSG:Homed:" in message:
-                            try:
-                                axis = message.split("[MSG:Homed:")[1].split("]")[0]
-                                if axis not in axes_homed:
-                                    axes_homed.add(axis)
-                                    logger.info(f"✅ DETECTED: Axis {axis} homed")
-                            except:
-                                pass
-                        
-                        # Error detection
-                        if any(error in message.lower() for error in ['alarm', 'error']):
-                            logger.error(f"❌ DETECTED: Homing error - {message}")
-                            return False
-                
-                # Break if we found the completion signal
-                if homing_done_detected:
-                    logger.info(f"✅ Homing completed via debug message after {elapsed:.1f}s")
-                    break
-                
-                # Fallback: status monitoring every 2 seconds
-                if elapsed - last_status_check >= 2.0:
-                    status = self.protocol.get_current_status()
-                    last_status_check = elapsed
+                    # Break if we found the completion signal
+                    if homing_done_detected:
+                        logger.info(f"✅ Homing completed via debug message after {elapsed:.1f}s")
+                        break
                     
-                    if status and status.state:
-                        state_lower = status.state.lower()
-                        logger.debug(f"🏠 Status at {elapsed:.1f}s: {status.state}")
-                        
-                        # Enhanced fallback: Idle + time-based completion
-                        if state_lower in ['idle', 'run'] and elapsed > 20.0:
-                            logger.info(f"✅ Fallback detection: {status.state} after {elapsed:.1f}s (likely completed)")
-                            homing_done_detected = True
-                            break
-                        elif state_lower in ['alarm', 'error']:
-                            logger.error(f"❌ Status failure: {status.state}")
-                            return False
+                    # Periodic status monitoring (with error protection)
+                    if elapsed - last_status_check >= 5.0:  # Every 5 seconds like test
+                        try:
+                            status = self.protocol.get_current_status()
+                            last_status_check = elapsed
+                            
+                            if status and status.state:
+                                state_lower = status.state.lower()
+                                logger.info(f"🏠 Status at {elapsed:.0f}s: {status.state}")
+                                
+                                # Enhanced fallback detection
+                                if state_lower in ['idle'] and elapsed > 20.0:
+                                    logger.info(f"✅ Fallback detection: Idle after {elapsed:.1f}s")
+                                    homing_done_detected = True
+                                    break
+                                elif state_lower in ['alarm', 'error']:
+                                    logger.error(f"❌ Status failure: {status.state}")
+                                    return False
+                        except Exception as status_error:
+                            logger.debug(f"🔧 Status check error at {elapsed:.0f}s: {status_error}")
                 
-                await asyncio.sleep(0.2)  # Check every 200ms
+                except Exception as loop_error:
+                    logger.debug(f"🔧 Monitoring loop error at {elapsed:.1f}s: {loop_error}")
+                    # Continue monitoring despite errors
+                
+                await asyncio.sleep(0.5)  # Check every 500ms like test
             
             # Timeout check
             if not homing_done_detected:
@@ -528,79 +543,17 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                     logger.error(f"❌ DETECTED: Homing error - {content}")
                     homing_failed = True
             
-        # Enhanced monitoring will use direct protocol inspection
-        # (Protocol enhancement needed for full message callback support)            try:
-                # Send homing command
-                success, response = await self._send_command(homing_command)
+            # Enhanced monitoring for FluidNC debug messages (proven approach)
+            homing_timeout = 45.0  # Based on actual 22s timing
+            start_time = time.time()
+            
+            homing_done_detected = False
+            axes_homed = set()
+            last_status_check = 0
+            
+            logger.info("🏠 Monitoring for '[MSG:DBG: Homing done]' message...")
                 
-                if not success:
-                    logger.error(f"❌ Homing command failed: {response}")
-                    return False
-                
-                logger.info(f"🏠 Homing command sent, initial response: {response}")
-                
-                # Enhanced monitoring with both status and message detection
-                homing_timeout = 45.0  # Increased timeout based on your 22-second actual time
-                homing_start_time = time.time()
-                last_status_check = 0
-                
-                logger.info("🏠 Monitoring for homing completion signals...")
-                
-                while time.time() - homing_start_time < homing_timeout:
-                    elapsed = time.time() - homing_start_time
-                    
-                    # Check for completion via debug message (primary detection)
-                    if homing_complete:
-                        logger.info(f"✅ Homing completed via debug message detection after {elapsed:.1f}s")
-                        break
-                    
-                    # Check for failure
-                    if homing_failed:
-                        logger.error(f"❌ Homing failed via message detection after {elapsed:.1f}s")
-                        return False
-                    
-                    # Periodically check status as backup (every 2 seconds)
-                    if elapsed - last_status_check >= 2.0:
-                        status = self.protocol.get_current_status()
-                        last_status_check = elapsed
-                        
-                        if status and status.state:
-                            state_lower = status.state.lower()
-                            logger.debug(f"🏠 Status check at {elapsed:.1f}s: {status.state}")
-                            
-                            # Backup detection: if we see Idle and have homed axes, assume completion
-                            if state_lower in ['idle', 'run'] and axes_homed:
-                                logger.info(f"✅ Backup detection: State={status.state}, Axes homed: {axes_homed}")
-                                homing_complete = True
-                                break
-                            elif state_lower in ['alarm', 'error']:
-                                logger.error(f"❌ Status-based failure detection: {status.state}")
-                                return False
-                    
-                    # Brief pause
-                    await asyncio.sleep(0.1)
-                
-                if not homing_complete:
-                    if time.time() - homing_start_time >= homing_timeout:
-                        logger.warning(f"⚠️ Homing timeout after {homing_timeout}s")
-                        logger.info(f"📝 Debug messages captured: {len(homing_messages)}")
-                        for msg in homing_messages[-5:]:  # Show last 5 messages
-                            logger.info(f"   {msg}")
-                        return False
-                
-                # Final verification
-                await asyncio.sleep(1.0)  # Allow system to settle
-                final_status = self.protocol.get_current_status()
-                
-                if final_status and final_status.state.lower() in ['idle', 'run']:
-                    logger.info(f"✅ Final verification: FluidNC in {final_status.state} state")
-                else:
-                    logger.warning(f"⚠️ Final verification: Unexpected state: {final_status.state if final_status else 'None'}")
-                
-            finally:
-                # Restore original callback (if protocol supports it)
-                if hasattr(self.protocol, 'message_callback'):
-                    self.protocol.message_callback = old_callback
+            # Homing monitoring completed
                 
             # Update position after homing
             await self._update_current_position()
