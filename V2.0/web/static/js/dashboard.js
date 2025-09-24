@@ -526,7 +526,8 @@ const Dashboard = {
             let homingDetected = false;
             let homingStartTime = null;
             let initialHomedState = null;
-            const maxChecks = 180; // 3 minutes timeout (180 * 1000ms)
+            let consecutiveErrors = 0;
+            const maxConsecutiveErrors = 10; // Timeout only after 10 consecutive API failures
             
             progressInterval = setInterval(async () => {
                 checkCount++;
@@ -535,6 +536,9 @@ const Dashboard = {
                 try {
                     // Get current status
                     const status = await ScannerBase.apiRequest('/api/status');
+                    
+                    // Reset error counter on successful API call
+                    consecutiveErrors = 0;
                     
                     // Log current motion status for tracking phases
                     const motionState = status.motion?.status || 'unknown';
@@ -664,14 +668,15 @@ const Dashboard = {
                     }
                     
                 } catch (statusError) {
-                    ScannerBase.log(`Status check error during homing: ${statusError.message}`);
-                }
-                
-                // Timeout check
-                if (checkCount >= maxChecks) {
-                    clearInterval(progressInterval);
-                    progressInterval = null;
-                    throw new Error(`Homing timeout after ${elapsed} seconds`);
+                    consecutiveErrors++;
+                    ScannerBase.log(`Status check error during homing (${consecutiveErrors}/${maxConsecutiveErrors}): ${statusError.message}`);
+                    
+                    // Only timeout after consecutive API failures, not time elapsed
+                    if (consecutiveErrors >= maxConsecutiveErrors) {
+                        clearInterval(progressInterval);
+                        progressInterval = null;
+                        throw new Error(`API communication lost after ${consecutiveErrors} consecutive failures`);
+                    }
                 }
                 
             }, 1000); // Check every second
