@@ -396,6 +396,12 @@ const ManualControl = {
     updateMotionStatus(status) {
         if (!status.motion) return;
 
+        // Update alarm state display and control button states
+        this.updateAlarmStateDisplay(status.motion);
+        
+        // Enable/disable movement controls based on alarm state
+        this.updateMovementControlsState(status.motion);
+
         // Update position displays
         if (status.motion.position) {
             const axes = ['x', 'y', 'z', 'c'];
@@ -1362,6 +1368,133 @@ const ManualControl = {
             console.error('Failed to restart background monitor:', error);
             ScannerBase.showAlert(`Restart error: ${error.message}`, 'error');
             return null;
+        }
+    },
+
+    /**
+     * Update alarm state display
+     */
+    updateAlarmStateDisplay(motionStatus) {
+        // Find or create alarm status display
+        let alarmDisplay = document.getElementById('alarmStatusDisplay');
+        if (!alarmDisplay) {
+            const statusSection = document.querySelector('.motion-status, .system-status, .current-position');
+            if (statusSection) {
+                alarmDisplay = document.createElement('div');
+                alarmDisplay.id = 'alarmStatusDisplay';
+                alarmDisplay.style.cssText = 'margin: 10px 0; padding: 10px; border-radius: 5px; font-weight: bold;';
+                statusSection.appendChild(alarmDisplay);
+            }
+        }
+
+        if (alarmDisplay && motionStatus.alarm) {
+            const alarm = motionStatus.alarm;
+            
+            if (alarm.is_alarm) {
+                alarmDisplay.style.backgroundColor = '#ffebee';
+                alarmDisplay.style.color = '#c62828';
+                alarmDisplay.style.border = '2px solid #c62828';
+                let message = '🚨 ALARM STATE - Movement Blocked';
+                if (alarm.alarm_code) {
+                    message += ` (Code: ${alarm.alarm_code})`;
+                }
+                if (alarm.message) {
+                    message += `<br><small>${alarm.message}</small>`;
+                }
+                alarmDisplay.innerHTML = message;
+                alarmDisplay.style.display = 'block';
+            } else if (alarm.is_error) {
+                alarmDisplay.style.backgroundColor = '#fff3e0';
+                alarmDisplay.style.color = '#ef6c00';
+                alarmDisplay.style.border = '2px solid #ef6c00';
+                let message = '⚠️ ERROR STATE - Movement Blocked';
+                if (alarm.message) {
+                    message += `<br><small>${alarm.message}</small>`;
+                }
+                alarmDisplay.innerHTML = message;
+                alarmDisplay.style.display = 'block';
+            } else if (motionStatus.status === 'disconnected') {
+                alarmDisplay.style.backgroundColor = '#f3e5f5';
+                alarmDisplay.style.color = '#7b1fa2';
+                alarmDisplay.style.border = '2px solid #7b1fa2';
+                alarmDisplay.innerHTML = '🔌 DISCONNECTED - Check FluidNC Connection';
+                alarmDisplay.style.display = 'block';
+            } else {
+                // System is OK
+                if (motionStatus.homed) {
+                    alarmDisplay.style.backgroundColor = '#e8f5e8';
+                    alarmDisplay.style.color = '#2e7d32';
+                    alarmDisplay.style.border = '2px solid #4caf50';
+                    alarmDisplay.innerHTML = '✅ System Ready - Homed and Safe for Movement';
+                } else {
+                    alarmDisplay.style.backgroundColor = '#fff9c4';
+                    alarmDisplay.style.color = '#f57c00';
+                    alarmDisplay.style.border = '2px solid #ff9800';
+                    alarmDisplay.innerHTML = '⚠️ Not Homed - Consider homing for accurate positioning';
+                }
+                alarmDisplay.style.display = 'block';
+            }
+        } else if (alarmDisplay) {
+            alarmDisplay.style.display = 'none';
+        }
+    },
+
+    /**
+     * Enable/disable movement controls based on system state
+     */
+    updateMovementControlsState(motionStatus) {
+        const canMove = motionStatus.alarm ? motionStatus.alarm.can_move : true;
+        const isConnected = motionStatus.connected;
+        const allowMovement = canMove && isConnected;
+
+        // Find all jog buttons and movement controls
+        const movementControls = document.querySelectorAll(
+            '.jog-button, button[data-axis], button[onclick*="jog"], .movement-control button'
+        );
+
+        movementControls.forEach(control => {
+            if (allowMovement) {
+                control.disabled = false;
+                control.style.opacity = '1';
+                control.title = '';
+            } else {
+                control.disabled = true;
+                control.style.opacity = '0.5';
+                
+                if (!isConnected) {
+                    control.title = 'Movement disabled - FluidNC not connected';
+                } else if (motionStatus.alarm && motionStatus.alarm.is_alarm) {
+                    control.title = 'Movement disabled - FluidNC in ALARM state. Use homing or unlock first.';
+                } else if (motionStatus.alarm && motionStatus.alarm.is_error) {
+                    control.title = 'Movement disabled - FluidNC in ERROR state. Check system status.';
+                } else {
+                    control.title = 'Movement disabled - System not ready';
+                }
+            }
+        });
+
+        // Also update position movement controls if they exist
+        const positionInputs = document.querySelectorAll('input[data-axis], .position-input');
+        positionInputs.forEach(input => {
+            input.disabled = !allowMovement;
+            if (!allowMovement) {
+                input.style.opacity = '0.5';
+            } else {
+                input.style.opacity = '1';
+            }
+        });
+
+        // Log status change
+        if (!allowMovement) {
+            if (!isConnected) {
+                ScannerBase.log('Movement controls disabled - FluidNC not connected', 'warning');
+            } else if (motionStatus.alarm && motionStatus.alarm.is_alarm) {
+                ScannerBase.log('Movement controls disabled - ALARM state detected', 'error');
+            } else if (motionStatus.alarm && motionStatus.alarm.is_error) {
+                ScannerBase.log('Movement controls disabled - ERROR state detected', 'error');
+            }
+        } else {
+            ScannerBase.log('Movement controls enabled - System ready', 'info');
         }
     }
 };

@@ -550,9 +550,24 @@ class FluidNCController(MotionController):
     async def move_to_position(self, position: Position4D, feedrate: Optional[float] = None) -> bool:
         """Move to specified 4DOF position"""
         try:
+            # SAFETY CHECK: Prevent movement in alarm state
+            await self._update_status()  # Get current status
+            if self.status == MotionStatus.ALARM:
+                logger.error("🚨 MOVEMENT BLOCKED: FluidNC is in ALARM state")
+                logger.error("Please clear alarm with homing ($H) or unlock ($X) before movement")
+                raise MotionSafetyError("Cannot move while FluidNC is in alarm state. Use homing or unlock first.")
+            
+            if self.status == MotionStatus.ERROR:
+                logger.error("🚨 MOVEMENT BLOCKED: FluidNC is in ERROR state")
+                raise MotionSafetyError("Cannot move while FluidNC is in error state")
+            
             # Validate position
             if not self.validate_position(position):
                 raise MotionSafetyError(f"Position outside limits: {position}")
+            
+            # Check if homed (optional but recommended)
+            if not self.is_homed:
+                logger.warning("⚠️  Moving without homing - positions may be inaccurate")
             
             # Set status to moving
             self.status = MotionStatus.MOVING
@@ -1419,8 +1434,8 @@ class FluidNCController(MotionController):
             logger.warning("⚠️  Cannot restart monitor - not connected to FluidNC")
 
     async def _background_status_monitor(self):
-        """Background task to continuously process FluidNC auto-reports"""
-        logger.info("🚀 Background status monitor started")
+        """Background task to continuously process FluidNC auto-reports with enhanced position processing"""
+        logger.info("🚀 Background status monitor started - Enhanced position processing")
         
         try:
             message_count = 0
@@ -1428,101 +1443,113 @@ class FluidNCController(MotionController):
             max_consecutive_errors = 10
             position_updates = 0
             last_log_time = time.time()
+            last_status_log = ""
             
             while self.monitor_running and self.is_connected() and consecutive_errors < max_consecutive_errors:
                 try:
                     # Read any available messages from FluidNC (including auto-reports)
-                    # Use a shorter timeout to be more responsive
+                    # Use very short timeout for maximum responsiveness
                     try:
-                        messages = await asyncio.wait_for(self._read_all_messages(), timeout=0.5)
+                        messages = await asyncio.wait_for(self._read_all_messages(), timeout=0.2)
                         consecutive_errors = 0  # Reset error count on success
                     except asyncio.TimeoutError:
-                        # Timeout is normal - just continue monitoring
-                        await asyncio.sleep(0.05)  # Shorter sleep for more responsiveness
+                        # Timeout is normal - just continue monitoring with minimal delay
+                        await asyncio.sleep(0.01)  # 10ms sleep for maximum responsiveness
                         continue
                     except Exception as read_e:
                         consecutive_errors += 1
                         logger.warning(f"Background monitor read error ({consecutive_errors}/{max_consecutive_errors}): {read_e}")
-                        await asyncio.sleep(0.2)
+                        await asyncio.sleep(0.1)
                         continue
+                    
+                    current_time = time.time()
                     
                     if messages:
                         message_count += len(messages)
                         
-                        # Log activity less frequently but track position updates
-                        current_time = time.time()
-                        if current_time - last_log_time > 10.0:  # Log every 10 seconds
-                            logger.info(f"📊 Background monitor: {message_count} messages, {position_updates} position updates")
+                        # Process each message immediately for maximum responsiveness
+                        for message in messages:
+                            # ENHANCED: Process status reports with position information
+                            if '<' in message and '>' in message:
+                                # Extract and update status first for safety checks
+                                old_status = self.status
+                                
+                                # Parse status for safety-critical alarm detection
+                                if 'Alarm' in message:
+                                    self.status = MotionStatus.ALARM
+                                    if old_status != self.status:
+                                        logger.warning(f"🚨 ALARM STATE DETECTED: {message}")
+                                        # Extract alarm code if available
+                                        alarm_match = re.search(r'Alarm:(\d+)', message)
+                                        if alarm_match:
+                                            alarm_code = alarm_match.group(1)
+                                            logger.warning(f"� Alarm Code: {alarm_code}")
+                                elif 'Idle' in message:
+                                    self.status = MotionStatus.IDLE
+                                    if old_status != self.status and old_status == MotionStatus.HOMING:
+                                        logger.info("✅ Homing completed - now IDLE")
+                                elif 'Run' in message or 'Jog' in message:
+                                    self.status = MotionStatus.MOVING
+                                elif 'Home' in message:
+                                    self.status = MotionStatus.HOMING
+                                    if old_status != self.status:
+                                        logger.info("🏠 Homing in progress")
+                                elif 'Error' in message:
+                                    self.status = MotionStatus.ERROR
+                                    if old_status != self.status:
+                                        logger.error(f"❌ ERROR STATE: {message}")
+                                
+                                # CRITICAL: Always parse and update position for web UI responsiveness
+                                if 'MPos:' in message or 'WPos:' in message:
+                                    position = self._parse_position_from_status(message)
+                                    if position:
+                                        # Store old position for change detection
+                                        old_position = self.current_position
+                                        position_changed = (
+                                            abs(position.x - old_position.x) > 0.001 or
+                                            abs(position.y - old_position.y) > 0.001 or
+                                            abs(position.z - old_position.z) > 0.001 or
+                                            abs(position.c - old_position.c) > 0.001
+                                        )
+                                        
+                                        # ALWAYS update position and timestamp for web UI
+                                        self.current_position = position
+                                        self.last_position_update = current_time
+                                        position_updates += 1
+                                        
+                                        # Log position changes for movement tracking
+                                        if position_changed:
+                                            logger.info(f"🔄 Position #{position_updates}: {old_position} → {position}")
+                                        else:
+                                            logger.debug(f"📍 Position refresh #{position_updates}: {position}")
+                                    else:
+                                        logger.debug(f"❌ Could not parse position from: {message[:100]}...")
+                        
+                        # Periodic activity logging
+                        if current_time - last_log_time > 15.0:  # Log every 15 seconds
+                            logger.info(f"📊 Monitor active: {message_count} messages, {position_updates} position updates, Status: {self.status.name}")
                             last_log_time = current_time
                     
-                    current_time = time.time()
-                    
-                    for message in messages:
-                        # Process status reports that contain position information
-                        if '<' in message and '>' in message and ('MPos:' in message or 'WPos:' in message):
-                            
-                            position = self._parse_position_from_status(message)
-                            if position:
-                                # Always update position - this is critical for web UI responsiveness
-                                old_position = self.current_position
-                                position_changed = (
-                                    abs(position.x - old_position.x) > 0.001 or
-                                    abs(position.y - old_position.y) > 0.001 or
-                                    abs(position.z - old_position.z) > 0.001 or
-                                    abs(position.c - old_position.c) > 0.001
-                                )
-                                
-                                # CRITICAL FIX: Always update position and timestamp for web UI
-                                self.current_position = position
-                                self.last_position_update = current_time
-                                position_updates += 1
-                                
-                                if position_changed:
-                                    logger.info(f"🔄 Position update #{position_updates}: {old_position} → {position}")
-                                else:
-                                    logger.debug(f"📍 Position refresh #{position_updates}: {position}")
-                            else:
-                                logger.warning(f"❌ Failed to parse position from: {message}")
-                            
-                            # Update status from the same message - this is important for movement completion
-                            if 'Idle' in message:
-                                if self.status != MotionStatus.IDLE:
-                                    logger.debug("Status: IDLE")
-                                self.status = MotionStatus.IDLE
-                            elif 'Run' in message or 'Jog' in message:
-                                if self.status != MotionStatus.MOVING:
-                                    logger.debug("Status: MOVING")
-                                self.status = MotionStatus.MOVING
-                            elif 'Home' in message:
-                                if self.status != MotionStatus.HOMING:
-                                    logger.debug("Status: HOMING")
-                                self.status = MotionStatus.HOMING
-                            elif 'Alarm' in message:
-                                if self.status != MotionStatus.ALARM:
-                                    logger.warning("Status: ALARM")
-                                self.status = MotionStatus.ALARM
-                            elif 'Error' in message:
-                                if self.status != MotionStatus.ERROR:
-                                    logger.error("Status: ERROR")
-                                self.status = MotionStatus.ERROR
-                    
-                    # Adaptive sleep timing based on activity
+                    # Adaptive sleep for optimal responsiveness vs CPU usage
                     if messages:
-                        await asyncio.sleep(0.02)  # 20ms when active - very responsive
+                        await asyncio.sleep(0.01)  # 10ms when processing messages - maximum responsiveness
                     else:
-                        await asyncio.sleep(0.1)   # 100ms when idle - conserve CPU
+                        await asyncio.sleep(0.05)  # 50ms when idle - still very responsive
                     
                 except Exception as e:
-                    logger.debug(f"Background monitor processing error: {e}")
+                    consecutive_errors += 1
+                    logger.error(f"Background monitor processing error ({consecutive_errors}/{max_consecutive_errors}): {e}")
                     await asyncio.sleep(0.2)  # Back off on errors
                     
         except asyncio.CancelledError:
             logger.info("Background status monitor cancelled")
             raise
         except Exception as e:
-            logger.error(f"Background status monitor error: {e}")
+            logger.error(f"Background status monitor fatal error: {e}")
+            logger.exception("Monitor exception details:")
         finally:
-            logger.info("Background status monitor stopped")
+            logger.info("🛑 Background status monitor stopped")
+            self.monitor_running = False
     
     async def get_status(self) -> MotionStatus:
         """Get current motion controller status"""
@@ -1539,6 +1566,53 @@ class FluidNCController(MotionController):
             return None
         except Exception:
             return "Communication error"
+    
+    async def get_alarm_state(self) -> Dict[str, Any]:
+        """
+        Get detailed alarm state information from FluidNC
+        
+        Returns:
+            Dict containing alarm information:
+            - is_alarm: bool - whether system is in alarm state
+            - alarm_code: Optional[str] - alarm code if in alarm
+            - message: str - full status message
+            - can_move: bool - whether movement is allowed
+        """
+        try:
+            await self._update_status()  # Ensure current status
+            
+            # Get current status response
+            status_response = await self._get_status_response()
+            
+            alarm_info = {
+                'is_alarm': self.status == MotionStatus.ALARM,
+                'is_error': self.status == MotionStatus.ERROR,
+                'alarm_code': None,
+                'message': status_response or "",
+                'can_move': self.status not in [MotionStatus.ALARM, MotionStatus.ERROR],
+                'status': self.status.name,
+                'is_homed': self.is_homed
+            }
+            
+            # Extract alarm code if in alarm state
+            if status_response and 'Alarm' in status_response:
+                alarm_match = re.search(r'Alarm:(\d+)', status_response)
+                if alarm_match:
+                    alarm_info['alarm_code'] = alarm_match.group(1)
+            
+            return alarm_info
+            
+        except Exception as e:
+            logger.error(f"Failed to get alarm state: {e}")
+            return {
+                'is_alarm': True,  # Assume alarm on error for safety
+                'is_error': True,
+                'alarm_code': None,
+                'message': f"Communication error: {e}",
+                'can_move': False,
+                'status': 'ERROR',
+                'is_homed': False
+            }
 
     # Additional abstract methods implementation
     async def connect(self, auto_unlock: bool = False) -> bool:
@@ -1583,6 +1657,17 @@ class FluidNCController(MotionController):
     async def move_relative(self, delta: Position4D, feedrate: Optional[float] = None) -> bool:
         """Move relative to current position."""
         try:
+            # SAFETY CHECK: Prevent movement in alarm state
+            await self._update_status()  # Get current status
+            if self.status == MotionStatus.ALARM:
+                logger.error("🚨 RELATIVE MOVEMENT BLOCKED: FluidNC is in ALARM state")
+                logger.error("Please clear alarm with homing ($H) or unlock ($X) before movement")
+                raise MotionSafetyError("Cannot move while FluidNC is in alarm state. Use homing or unlock first.")
+            
+            if self.status == MotionStatus.ERROR:
+                logger.error("🚨 RELATIVE MOVEMENT BLOCKED: FluidNC is in ERROR state")
+                raise MotionSafetyError("Cannot move while FluidNC is in error state")
+            
             # Calculate target position
             target = Position4D(
                 x=self.current_position.x + delta.x,
@@ -1620,6 +1705,21 @@ class FluidNCController(MotionController):
     async def rapid_move(self, position: Position4D) -> bool:
         """Rapid (non-linear) movement to position."""
         try:
+            # SAFETY CHECK: Prevent movement in alarm state
+            await self._update_status()  # Get current status
+            if self.status == MotionStatus.ALARM:
+                logger.error("🚨 RAPID MOVEMENT BLOCKED: FluidNC is in ALARM state")
+                logger.error("Please clear alarm with homing ($H) or unlock ($X) before movement")
+                raise MotionSafetyError("Cannot move while FluidNC is in alarm state. Use homing or unlock first.")
+            
+            if self.status == MotionStatus.ERROR:
+                logger.error("🚨 RAPID MOVEMENT BLOCKED: FluidNC is in ERROR state")
+                raise MotionSafetyError("Cannot move while FluidNC is in error state")
+            
+            # Validate position
+            if not self._validate_position(position):
+                raise MotionSafetyError(f"Position outside limits: {position}")
+            
             # Use G0 for rapid movement
             gcode = f"G0 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} C{position.c:.3f}"
             return await self.execute_gcode(gcode)

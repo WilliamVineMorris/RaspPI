@@ -1003,6 +1003,47 @@ class ScannerWebInterface:
                     # Convert MotionStatus enum to string
                     status_str = str(current_status).split('.')[-1].lower() if hasattr(current_status, 'name') else str(current_status).lower()
                     
+                    # Get alarm state information
+                    alarm_info = {
+                        'is_alarm': status_str == 'alarm',
+                        'is_error': status_str == 'error',
+                        'can_move': status_str not in ['alarm', 'error'],
+                        'alarm_code': None,
+                        'message': ''
+                    }
+                    
+                    # Try to get detailed alarm information from the controller
+                    if hasattr(motion_controller, 'controller') and hasattr(motion_controller.controller, 'get_alarm_state'):
+                        try:
+                            # Get alarm details asynchronously but safely
+                            import concurrent.futures
+                            import asyncio
+                            
+                            def get_alarm_info():
+                                # Run in a separate thread to avoid blocking the main web thread
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                try:
+                                    return loop.run_until_complete(motion_controller.controller.get_alarm_state())
+                                except Exception as e:
+                                    self.logger.warning(f"Could not get alarm details: {e}")
+                                    return alarm_info
+                                finally:
+                                    loop.close()
+                            
+                            # Quick async call with timeout
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                future = executor.submit(get_alarm_info)
+                                try:
+                                    detailed_alarm_info = future.result(timeout=0.1)  # 100ms timeout
+                                    alarm_info.update(detailed_alarm_info)
+                                except concurrent.futures.TimeoutError:
+                                    self.logger.debug("Alarm info timeout - using basic status")
+                                except Exception as e:
+                                    self.logger.debug(f"Alarm info error: {e}")
+                        except Exception as e:
+                            self.logger.debug(f"Could not get detailed alarm info: {e}")
+                    
                     # Determine activity based on status
                     activity_map = {
                         'homing': 'homing',
@@ -1011,7 +1052,7 @@ class ScannerWebInterface:
                         'idle': 'idle',
                         'disconnected': 'disconnected',
                         'error': 'error',
-                        'alarm': 'error'
+                        'alarm': 'alarm'  # Keep alarm separate from error
                     }
                     activity = activity_map.get(status_str, 'unknown')
                     
@@ -1020,7 +1061,8 @@ class ScannerWebInterface:
                         'homed': homed,
                         'status': status_str,
                         'activity': activity,
-                        'position': position_dict
+                        'position': position_dict,
+                        'alarm': alarm_info  # Add alarm information
                     })
                     
                     self.logger.debug(f"Final motion status sent to UI: {status['motion']}")
@@ -1212,10 +1254,28 @@ class ScannerWebInterface:
             raise HardwareError(f"Failed to execute jog command: {e}")
 
     async def _execute_move_command(self, command: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute validated movement command"""
+        """Execute validated movement command with safety checks"""
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
                 raise HardwareError("Motion controller not available")
+            
+            # SAFETY CHECK: Get alarm state before allowing movement
+            motion_controller = self.orchestrator.motion_controller
+            if hasattr(motion_controller, 'controller') and hasattr(motion_controller.controller, 'get_alarm_state'):
+                try:
+                    alarm_info = await motion_controller.controller.get_alarm_state()
+                    if alarm_info.get('is_alarm', False):
+                        raise HardwareError(f"Movement blocked - FluidNC in ALARM state. {alarm_info.get('message', '')}")
+                    if alarm_info.get('is_error', False):
+                        raise HardwareError(f"Movement blocked - FluidNC in ERROR state. {alarm_info.get('message', '')}")
+                    if not alarm_info.get('can_move', True):
+                        raise HardwareError(f"Movement blocked - FluidNC not ready for movement. Status: {alarm_info.get('status', 'unknown')}")
+                except Exception as safety_e:
+                    # If we can't check safety, err on the side of caution
+                    self.logger.warning(f"Could not verify system safety before movement: {safety_e}")
+                    # But allow movement if it's just a communication issue
+                    if "alarm" in str(safety_e).lower():
+                        raise  # Re-raise alarm-related errors
             
             axis = command['axis']
             distance = command['distance']
@@ -1263,10 +1323,28 @@ class ScannerWebInterface:
             raise HardwareError(f"Failed to execute move command: {e}")
     
     async def _execute_position_command(self, position: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute validated position command"""
+        """Execute validated position command with safety checks"""
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
                 raise HardwareError("Motion controller not available")
+            
+            # SAFETY CHECK: Get alarm state before allowing movement
+            motion_controller = self.orchestrator.motion_controller
+            if hasattr(motion_controller, 'controller') and hasattr(motion_controller.controller, 'get_alarm_state'):
+                try:
+                    alarm_info = await motion_controller.controller.get_alarm_state()
+                    if alarm_info.get('is_alarm', False):
+                        raise HardwareError(f"Position movement blocked - FluidNC in ALARM state. {alarm_info.get('message', '')}")
+                    if alarm_info.get('is_error', False):
+                        raise HardwareError(f"Position movement blocked - FluidNC in ERROR state. {alarm_info.get('message', '')}")
+                    if not alarm_info.get('can_move', True):
+                        raise HardwareError(f"Position movement blocked - FluidNC not ready. Status: {alarm_info.get('status', 'unknown')}")
+                except Exception as safety_e:
+                    # If we can't check safety, err on the side of caution
+                    self.logger.warning(f"Could not verify system safety before position movement: {safety_e}")
+                    # But allow movement if it's just a communication issue
+                    if "alarm" in str(safety_e).lower():
+                        raise  # Re-raise alarm-related errors
             
             # Execute the position movement
             result = await self.orchestrator.motion_controller.move_to_position(position)
