@@ -766,6 +766,10 @@ const ManualControl = {
                 body: JSON.stringify(payload)
             });
 
+            // Track jog command for adaptive polling
+            ScannerBase.state.lastJogTime = Date.now();
+            ScannerBase.log('Jog command sent - enabling fast polling for responsive updates');
+
             // Immediately request updated position after jog command with multiple checks
             // to catch the movement completion reliably
             let checkCount = 0;

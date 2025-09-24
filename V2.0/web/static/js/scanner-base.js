@@ -9,10 +9,11 @@
 window.ScannerBase = {
     // Configuration
     config: {
-        updateInterval: 2000,           // Status update interval (ms) - reduced to prevent overwhelming server
+        updateInterval: 2000,           // Base status update interval (ms) - for idle periods
+        fastUpdateInterval: 500,        // Fast update interval (ms) - during movement
         requestTimeout: 5000,           // API request timeout (ms) - faster failure detection
-        showDebugLogs: false,           // Enable debug logging
-        debug: false                    // Master debug flag
+        showDebugLogs: true,            // Enable debug logging to troubleshoot position delays
+        debug: true                     // Master debug flag for position debugging
     },
 
     // State management
@@ -20,7 +21,9 @@ window.ScannerBase = {
         connected: false,
         systemStatus: null,
         lastUpdate: null,
-        pendingRequests: new Map()
+        pendingRequests: new Map(),
+        isMoving: false,                // Track if system is currently moving
+        fastPolling: false              // Track if we're in fast polling mode
     },
 
     // Polling interval reference
@@ -42,23 +45,75 @@ window.ScannerBase = {
      */
     setupHttpPolling() {
         try {
-            this.log('Setting up HTTP polling...');
+            this.log('Setting up smart HTTP polling...');
             this.state.connected = true;
             this.updateConnectionStatus(true);
             
             // Start polling immediately
             this.pollStatus();
             
-            // Set up regular polling
-            this.pollingInterval = setInterval(() => {
-                this.pollStatus();
-            }, this.config.updateInterval);
+            // Set up adaptive polling that adjusts based on system state
+            this.startAdaptivePolling();
             
-            this.log('HTTP polling established');
+            this.log('Smart HTTP polling established');
         } catch (error) {
             this.log('Error setting up HTTP polling:', error);
             this.showAlert('Failed to establish connection', 'error');
         }
+    },
+
+    /**
+     * Start adaptive polling that switches between fast and slow based on system state
+     */
+    startAdaptivePolling() {
+        const setupPolling = () => {
+            if (this.pollingInterval) {
+                clearInterval(this.pollingInterval);
+            }
+
+            const interval = this.state.fastPolling ? 
+                this.config.fastUpdateInterval : 
+                this.config.updateInterval;
+
+            this.pollingInterval = setInterval(() => {
+                this.pollStatus();
+            }, interval);
+
+            this.log(`Polling interval set to ${interval}ms (${this.state.fastPolling ? 'fast' : 'slow'} mode)`);
+        };
+
+        // Initial setup
+        setupPolling();
+
+        // Monitor for state changes that require polling speed adjustment
+        setInterval(() => {
+            const shouldUseFastPolling = this.shouldUseFastPolling();
+            if (shouldUseFastPolling !== this.state.fastPolling) {
+                this.state.fastPolling = shouldUseFastPolling;
+                setupPolling();
+            }
+        }, 1000); // Check every second for state changes
+    },
+
+    /**
+     * Determine if fast polling should be used based on system state
+     */
+    shouldUseFastPolling() {
+        // Use fast polling if:
+        // 1. System is moving
+        // 2. Recent jog command (within last 10 seconds)
+        // 3. Manual control page is active
+        
+        const recentJog = this.state.lastJogTime && 
+                         (Date.now() - this.state.lastJogTime) < 10000;
+        
+        const onManualPage = window.location.pathname === '/manual';
+        
+        const systemMoving = this.state.systemStatus && 
+                           this.state.systemStatus.motion && 
+                           this.state.systemStatus.motion.status === 'MOVING';
+
+        return systemMoving || recentJog || onManualPage;
     },
 
     /**
@@ -150,6 +205,11 @@ window.ScannerBase = {
     handleStatusUpdate(status) {
         this.state.systemStatus = status;
         this.state.lastUpdate = new Date();
+        
+        // Log position data age for debugging
+        if (status.motion && status.motion.position && status.motion.data_age !== undefined) {
+            this.log(`Position update: ${JSON.stringify(status.motion.position)}, data age: ${status.motion.data_age}s`);
+        }
         
         // Update UI elements
         this.updateSystemStatus(status);
