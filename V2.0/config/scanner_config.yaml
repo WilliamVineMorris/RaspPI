@@ -88,10 +88,10 @@ motion:
   feedrates:
     # MANUAL/JOG MODE - Fast and responsive for web interface jog commands
     manual_mode:
-      x_axis: 300.0              # mm/min - 30% of max (1000) - very responsive
-      y_axis: 300.0              # mm/min - 30% of max (1000) - very responsive  
-      z_axis: 200.0              # deg/min - 25% of max (800) - good rotation speed
-      c_axis: 1000.0             # deg/min - 20% of max (5000) - fast servo response
+      x_axis: 800.0              # mm/min - 80% of max (1000) - very fast and responsive
+      y_axis: 800.0              # mm/min - 80% of max (1000) - very fast and responsive  
+      z_axis: 600.0              # deg/min - 75% of max (800) - fast rotation speed
+      c_axis: 3000.0             # deg/min - 60% of max (5000) - very fast servo response
       description: "Fast feedrates for responsive web interface jog commands"
       
     # SCANNING MODE - Slower and precise for automated scanning operations  

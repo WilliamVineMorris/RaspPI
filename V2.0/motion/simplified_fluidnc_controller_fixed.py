@@ -353,15 +353,26 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         try:
             logger.info("🏠 Starting homing sequence")
             
-            if axes is None:
-                # Home all axes
-                success, response = await self._send_command("$H")
+            # Determine homing command
+            if axes is None or (isinstance(axes, list) and set([ax.upper() for ax in axes]) == {'X', 'Y', 'Z', 'C'}):
+                # Home all axes using standard $H command
+                homing_command = "$H"
+                logger.info("🏠 Executing full homing sequence with $H command")
             else:
                 # Home specific axes (FluidNC supports axis-specific homing)
                 axis_string = ''.join(axes).upper()
-                success, response = await self._send_command(f"$H{axis_string}")
+                homing_command = f"$H{axis_string}"
+                logger.info(f"🏠 Executing selective homing for axes: {axis_string}")
+            
+            logger.info(f"🏠 Sending homing command: {homing_command}")
+            success, response = await self._send_command(homing_command)
             
             if success:
+                logger.info(f"🏠 Homing command sent successfully, response: {response}")
+                
+                # Wait a moment for homing to complete
+                await asyncio.sleep(1.0)
+                
                 # Update position after homing
                 await self._update_current_position()
                 
@@ -370,10 +381,10 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                     "final_position": self.current_position.to_dict()
                 })
                 
-                logger.info(f"✅ Homing completed: {axes or 'all axes'}")
+                logger.info(f"✅ Homing completed: {axes or 'all axes'}, new position: {self.current_position}")
                 return True
             else:
-                logger.error(f"❌ Homing failed: {response}")
+                logger.error(f"❌ Homing command failed, response: {response}")
                 return False
                 
         except Exception as e:
