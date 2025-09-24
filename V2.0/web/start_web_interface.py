@@ -60,6 +60,15 @@ def create_mock_orchestrator():
             
         def resume_scan(self):
             print("Mock: Resuming scan")
+            
+        def get_camera_status(self):
+            """Mock camera status for development mode"""
+            return {
+                "camera_active": False,
+                "last_capture": None,
+                "preview_active": True,
+                "available_cameras": ["camera_1", "camera_2"]
+            }
     
     class MockCameraAdapter:
         """Mock camera adapter that matches the real adapter interface"""

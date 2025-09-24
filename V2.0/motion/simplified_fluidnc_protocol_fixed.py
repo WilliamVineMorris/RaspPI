@@ -74,9 +74,9 @@ class SimplifiedFluidNCProtocolFixed:
         self.manual_command_delay = 0.005  # Ultra-fast for manual operations - 5ms
         self.motion_timeout = 30.0  # Maximum time to wait for motion completion
         
-        # Command queue management
+        # Command queue management  
         self.pending_commands = 0
-        self.max_pending_commands = 2  # Limit queue buildup
+        self.max_pending_commands = 5  # Increased limit to prevent dropping important commands
         
         # Message capture for enhanced homing detection
         self.recent_raw_messages: list[str] = []
@@ -155,10 +155,30 @@ class SimplifiedFluidNCProtocolFixed:
                 return False
     
     def is_connected(self) -> bool:
-        """Check if connected"""
-        return (self.connected and 
-                self.serial_connection is not None and 
-                self.serial_connection.is_open)
+        """Check if connected with enhanced stability checking"""
+        try:
+            is_conn = (self.connected and 
+                      self.serial_connection is not None and 
+                      self.serial_connection.is_open)
+            
+            # If connection appears good, verify it's actually responsive
+            if is_conn and time.time() - self.last_command_time > 5.0:
+                # Haven't sent commands recently, connection might be stale
+                # Quick validation without blocking
+                try:
+                    if self.serial_connection and self.serial_connection.in_waiting is not None:
+                        return True
+                    else:
+                        logger.debug("Connection validation failed - serial not responsive")
+                        return False
+                except:
+                    logger.debug("Connection validation failed - exception during check")
+                    return False
+            
+            return is_conn
+        except Exception as e:
+            logger.debug(f"Connection check failed: {e}")
+            return False
     
     def send_command_with_motion_wait(self, command: str, priority: str = "normal") -> Tuple[bool, str]:
         """
@@ -174,10 +194,11 @@ class SimplifiedFluidNCProtocolFixed:
         start_time = time.time()
         logger.debug(f"🕐 [TIMING] Starting {priority} priority command: {command}")
         
-        # Check for command queue buildup (prevents system overload)
-        if priority == "high" and self.pending_commands > self.max_pending_commands:
-            logger.debug(f"⚠️ Dropping high-priority command due to queue buildup: {self.pending_commands}")
-            return False, "Command queue full"
+        # Check for command queue buildup (only for motion commands to prevent system overload)
+        is_motion_cmd = self._is_motion_command(command)
+        if priority == "high" and is_motion_cmd and self.pending_commands > self.max_pending_commands:
+            logger.debug(f"⚠️ Dropping high-priority motion command due to queue buildup: {self.pending_commands}")
+            return False, "Motion command queue full"
         
         with self.command_lock:
             if not self.is_connected():
