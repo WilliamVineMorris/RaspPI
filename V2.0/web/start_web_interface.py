@@ -15,6 +15,8 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
+from core.types import Position4D
+
 def setup_logging(level: str = "INFO") -> None:
     """Setup comprehensive logging"""
     logging.basicConfig(
@@ -146,6 +148,7 @@ def create_mock_orchestrator():
     class MockMotionController:
         def __init__(self):
             self._position = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
+            self.current_position = Position4D(x=0.0, y=0.0, z=0.0, c=0.0)  # Add this attribute
             
         def get_status(self):
             return {'status': 'ready', 'moving': False}
@@ -155,17 +158,38 @@ def create_mock_orchestrator():
             
         def move_relative(self, axis, distance):
             self._position[axis] += distance
+            # Update current_position to match
+            self.current_position = Position4D(
+                x=self._position['x'], 
+                y=self._position['y'], 
+                z=self._position['z'], 
+                c=self._position['c']
+            )
             print(f"Mock: Moving {axis} by {distance}mm to {self._position[axis]}")
             return True
             
         def move_to_position(self, position):
             self._position.update(position)
+            # Update current_position to match
+            self.current_position = Position4D(
+                x=self._position['x'], 
+                y=self._position['y'], 
+                z=self._position['z'], 
+                c=self._position['c']
+            )
             print(f"Mock: Moving to position {position}")
             return True
             
         def home_axes(self, axes):
             for axis in axes:
                 self._position[axis] = 0.0
+            # Update current_position to match
+            self.current_position = Position4D(
+                x=self._position['x'], 
+                y=self._position['y'], 
+                z=self._position['z'], 
+                c=self._position['c']
+            )
             print(f"Mock: Homing axes {axes}")
             return True
             

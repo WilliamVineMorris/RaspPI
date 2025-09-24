@@ -1808,16 +1808,18 @@ class FluidNCController(MotionController):
                                         if alarm_match:
                                             alarm_code = alarm_match.group(1)
                                             logger.warning(f"� Alarm Code: {alarm_code}")
-                                elif 'Idle' in message:
-                                    self.status = MotionStatus.IDLE
-                                    if old_status != self.status and old_status == MotionStatus.HOMING:
-                                        logger.info("✅ Homing completed - now IDLE")
-                                elif 'Run' in message or 'Jog' in message:
-                                    self.status = MotionStatus.MOVING
-                                elif 'Home' in message:
-                                    self.status = MotionStatus.HOMING
-                                    if old_status != self.status:
-                                        logger.info("🏠 Homing in progress")
+                            elif any(keyword in message_upper for keyword in ['IDLE', 'IDL']):
+                                self.status = MotionStatus.IDLE
+                                if old_status != self.status and old_status == MotionStatus.HOMING:
+                                    logger.info("✅ Homing completed - now IDLE")
+                                    
+                            elif any(keyword in message_upper for keyword in ['RUN', 'JOG', 'RUNNING']):
+                                self.status = MotionStatus.MOVING
+                                
+                            elif any(keyword in message_upper for keyword in ['HOME', 'HOMING']):
+                                self.status = MotionStatus.HOMING
+                                if old_status != self.status:
+                                    logger.info("🏠 Homing in progress")
                             elif any(keyword in message_upper for keyword in ['ERROR', 'ERR']):
                                 self.status = MotionStatus.ERROR
                                 if old_status != self.status:
