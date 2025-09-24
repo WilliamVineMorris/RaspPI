@@ -133,8 +133,9 @@ class PiTestRunner:
             self.logger.info("📋 Testing motion module imports...")
             try:
                 from motion.base import MotionController, Position4D, MotionLimits
-                from motion.fluidnc_controller import FluidNCController
-                self.logger.info("   ✅ Motion modules imported successfully")
+                # Use enhanced protocol bridge for improved performance
+                from motion.protocol_bridge import ProtocolBridgeController as FluidNCController
+                self.logger.info("   ✅ Motion modules imported successfully (enhanced protocol)")
             except Exception as e:
                 self.logger.error(f"   ❌ Motion module import failed: {e}")
                 success = False
