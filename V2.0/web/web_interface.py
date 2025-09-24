@@ -1979,31 +1979,34 @@ class ScannerWebInterface:
                 def load(self):
                     return self.application
             
+            # Pi-optimized Gunicorn configuration
             options = {
                 'bind': f'{host}:{port}',
-                'workers': 4,
+                'workers': 2,  # Reduced for Pi hardware
                 'worker_class': 'sync',
-                'worker_connections': 1000,
-                'max_requests': 1000,
-                'max_requests_jitter': 50,
-                'preload_app': True,
-                'timeout': 30,
-                'keepalive': 2,
+                'worker_connections': 100,  # Reduced for Pi
+                'max_requests': 500,  # Lower to prevent memory issues
+                'max_requests_jitter': 25,
+                'preload_app': False,  # Disable preload for Pi
+                'timeout': 60,  # Longer timeout for Pi
+                'keepalive': 5,
                 'access_logfile': '-',
                 'error_logfile': '-',
-                'capture_output': True,
-                'enable_stdio_inheritance': True
+                'log_level': 'info',
+                'capture_output': True
             }
             
-            self.logger.info("🚀 Starting Gunicorn WSGI server for production")
+            self.logger.info("🏭 Starting optimized Gunicorn WSGI server for Pi")
             StandaloneApplication(self.app, options).run()
             
         except ImportError:
             self.logger.warning("Gunicorn not available, falling back to Flask development server")
-            self.app.run(host=host, port=port, debug=False, use_reloader=False)
+            self.logger.info("🔧 Install gunicorn for production: pip3 install gunicorn")
+            self.app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
         except Exception as e:
-            self.logger.error(f"Failed to start Gunicorn server: {e}")
-            raise
+            self.logger.error(f"Gunicorn failed ({e}), falling back to Flask development server")
+            self.logger.info("🔧 Using Flask fallback for compatibility")
+            self.app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
     
     def stop_web_server(self):
         """Stop the web server"""
