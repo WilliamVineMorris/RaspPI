@@ -9,8 +9,8 @@
 window.ScannerBase = {
     // Configuration
     config: {
-        updateInterval: 2000,           // Status update interval (ms) - increased for HTTP polling
-        requestTimeout: 10000,          // API request timeout (ms)
+        updateInterval: 1000,           // Status update interval (ms) - optimized for responsiveness
+        requestTimeout: 5000,           // API request timeout (ms) - faster failure detection
         showDebugLogs: false,           // Enable debug logging
         debug: false                    // Master debug flag
     },

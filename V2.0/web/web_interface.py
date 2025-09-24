@@ -2009,10 +2009,10 @@ class ScannerWebInterface:
                     if self.orchestrator:
                         status = self._get_system_status()
                         self.logger.debug(f"System status: {status['system']['status']}")
-                    time.sleep(5.0)  # Update every 5 seconds
+                    time.sleep(2.0)  # Update every 2 seconds - optimized for responsiveness
                 except Exception as e:
                     self.logger.error(f"Status updater error: {e}")
-                    time.sleep(10.0)
+                    time.sleep(5.0)  # Faster recovery from errors
         
         update_thread = threading.Thread(target=status_updater, daemon=True)
         update_thread.start()

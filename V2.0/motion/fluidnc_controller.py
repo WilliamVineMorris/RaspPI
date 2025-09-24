@@ -815,9 +815,9 @@ class FluidNCController(MotionController):
                 logger.debug(f"Position changing: {last_position} → {current_pos}")
             
             # Movement complete when:
-            # 1. Movement was detected AND position stable for 3+ checks (300ms)
+            # 1. Movement was detected AND position stable for 2+ checks (100ms)
             # 2. OR timeout for movement detection (assume quick movement)
-            if movement_started and stable_count >= 3:
+            if movement_started and stable_count >= 2:
                 logger.info("✅ Movement completed - position stable")
                 return
             elif not movement_started and (time.time() - start_time) > 3.0:
@@ -825,7 +825,7 @@ class FluidNCController(MotionController):
                 return
                 
             last_position = current_pos
-            await asyncio.sleep(0.1)  # Check every 100ms - fast response while avoiding CPU waste
+            await asyncio.sleep(0.05)  # Check every 50ms - optimized for faster movement detection
         
         # Timeout reached - try one final recovery attempt
         elapsed = time.time() - start_time
@@ -1688,7 +1688,7 @@ class FluidNCController(MotionController):
                     if messages:
                         await asyncio.sleep(0.01)  # 10ms when processing messages - maximum responsiveness
                     else:
-                        await asyncio.sleep(0.05)  # 50ms when idle - still very responsive
+                        await asyncio.sleep(0.02)  # 20ms when idle - optimized for lower latency
                     
                 except Exception as e:
                     consecutive_errors += 1
