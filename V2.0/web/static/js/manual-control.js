@@ -48,23 +48,37 @@ const ManualControl = {
     },
 
     /**
-     * Start periodic position updates to keep UI synchronized
+     * Start periodic position updates - REMOVED redundant polling
+     * 
+     * Position updates are now handled exclusively by the main scanner-base polling
+     * to prevent multiple conflicting API requests. Updates come through the
+     * handleStatusUpdate() mechanism.
      */
     startPositionUpdateTimer() {
-        // Update position display every 250ms to be very responsive to FluidNC's 200ms auto-reports
-        setInterval(async () => {
-            if (!this.state.isJogging) {
-                try {
-                    const status = await ScannerBase.apiRequest('/api/status');
-                    if (status.motion && status.motion.position) {
-                        this.updatePositionDisplays(status.motion.position);
-                    }
-                } catch (error) {
-                    // Don't spam errors for periodic updates - just log quietly
-                    ScannerBase.log('Periodic position update failed: ' + error.message);
-                }
+        // Redundant polling removed - scanner-base handles all status updates
+        ScannerBase.log('Position update timer called - using central polling instead');
+        
+        // Set up listener for status updates from central polling
+        this.setupStatusUpdateListener();
+    },
+
+    /**
+     * Setup listener for status updates from central scanner-base polling
+     */
+    setupStatusUpdateListener() {
+        // Hook into the scanner-base status update mechanism
+        const originalHandleStatusUpdate = ScannerBase.handleStatusUpdate;
+        ScannerBase.handleStatusUpdate = (status) => {
+            // Call original handler first
+            originalHandleStatusUpdate.call(ScannerBase, status);
+            
+            // Update position displays if we have motion data
+            if (status.motion && status.motion.position && !this.state.isJogging) {
+                this.updatePositionDisplays(status.motion.position);
             }
-        }, 250); // Reduced from 500ms to 250ms for maximum responsiveness
+        };
+        
+        ScannerBase.log('Manual control connected to central status updates');
     },
 
     /**

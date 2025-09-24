@@ -9,7 +9,7 @@
 window.ScannerBase = {
     // Configuration
     config: {
-        updateInterval: 1000,           // Status update interval (ms) - optimized for responsiveness
+        updateInterval: 2000,           // Status update interval (ms) - reduced to prevent overwhelming server
         requestTimeout: 5000,           // API request timeout (ms) - faster failure detection
         showDebugLogs: false,           // Enable debug logging
         debug: false                    // Master debug flag
@@ -62,13 +62,22 @@ window.ScannerBase = {
     },
 
     /**
-     * Poll for status updates via HTTP
+     * Poll for status updates via HTTP with request queuing prevention
      */
     pollStatus() {
         if (document.hidden) {
             // Skip polling when page is not visible
             return;
         }
+        
+        // Prevent request queuing - skip if a status request is already pending
+        if (this.state.pendingRequests.has('status')) {
+            this.log('Skipping status poll - request already pending');
+            return;
+        }
+        
+        // Mark status request as pending
+        this.state.pendingRequests.set('status', true);
         
         this.apiRequest('/api/status')
             .then(response => {
@@ -86,6 +95,10 @@ window.ScannerBase = {
                     this.state.connected = false;
                     this.updateConnectionStatus(false);
                 }
+            })
+            .finally(() => {
+                // Always clear the pending request flag
+                this.state.pendingRequests.delete('status');
             });
     },
 
@@ -121,14 +134,14 @@ window.ScannerBase = {
     },
 
     /**
-     * Start periodic status updates
+     * Start periodic status updates - REMOVED obsolete WebSocket polling
+     * 
+     * This method is kept for compatibility but does nothing since we now use HTTP polling
+     * exclusively. All status updates are handled by setupHttpPolling().
      */
     startStatusUpdater() {
-        setInterval(() => {
-            if (this.state.connected && this.socket) {
-                this.socket.emit('request_status');
-            }
-        }, this.config.updateInterval);
+        // Obsolete WebSocket polling removed - HTTP polling handles all updates
+        this.log('Status updater called - using HTTP polling instead');
     },
 
     /**
