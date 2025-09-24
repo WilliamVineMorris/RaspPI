@@ -71,8 +71,12 @@ class SimplifiedFluidNCProtocolFixed:
         self.command_lock = threading.RLock()
         self.last_command_time = 0
         self.command_delay = 0.02  # Reduced from 0.1s to 20ms for responsiveness
-        self.manual_command_delay = 0.01  # Even faster for manual operations - 10ms
+        self.manual_command_delay = 0.005  # Ultra-fast for manual operations - 5ms
         self.motion_timeout = 30.0  # Maximum time to wait for motion completion
+        
+        # Command queue management
+        self.pending_commands = 0
+        self.max_pending_commands = 2  # Limit queue buildup
         
         # Message capture for enhanced homing detection
         self.recent_raw_messages: list[str] = []
@@ -170,26 +174,35 @@ class SimplifiedFluidNCProtocolFixed:
         start_time = time.time()
         logger.debug(f"🕐 [TIMING] Starting {priority} priority command: {command}")
         
+        # Check for command queue buildup (prevents system overload)
+        if priority == "high" and self.pending_commands > self.max_pending_commands:
+            logger.debug(f"⚠️ Dropping high-priority command due to queue buildup: {self.pending_commands}")
+            return False, "Command queue full"
+        
         with self.command_lock:
             if not self.is_connected():
                 return False, "Not connected"
             
-            # Enforce command delay (priority-aware)
-            current_time = time.time()
-            time_since_last = current_time - self.last_command_time
+            # Track pending commands
+            self.pending_commands += 1
             
-            # Use faster delay for high priority (manual) operations
-            if priority == "high":
-                active_delay = self.manual_command_delay
-                delay_type = "High-priority"
-            else:
-                active_delay = self.command_delay
-                delay_type = "Standard"
-            
-            if time_since_last < active_delay:
-                delay_needed = active_delay - time_since_last
-                logger.debug(f"⏳ [TIMING] {delay_type} command delay: {delay_needed*1000:.1f}ms")
-                time.sleep(delay_needed)
+            try:
+                # Enforce command delay (priority-aware)
+                current_time = time.time()
+                time_since_last = current_time - self.last_command_time
+                
+                # Use faster delay for high priority (manual) operations
+                if priority == "high":
+                    active_delay = self.manual_command_delay
+                    delay_type = "High-priority"
+                else:
+                    active_delay = self.command_delay
+                    delay_type = "Standard"
+                
+                if time_since_last < active_delay:
+                    delay_needed = active_delay - time_since_last
+                    logger.debug(f"⏳ [TIMING] {delay_type} command delay: {delay_needed*1000:.1f}ms")
+                    time.sleep(delay_needed)
             
             command_ready_time = time.time()
             logger.debug(f"🕐 [TIMING] Command ready after: {(command_ready_time-start_time)*1000:.1f}ms")
@@ -211,8 +224,9 @@ class SimplifiedFluidNCProtocolFixed:
                 command_sent_time = time.time()
                 logger.debug(f"📤 [TIMING] Command sent after: {(command_sent_time-start_time)*1000:.1f}ms")
                 
-                # Wait for immediate response (ok/error)
-                immediate_response = self._wait_for_immediate_response(self.command_timeout)
+                # Wait for immediate response (ok/error) - shorter timeout for manual commands
+                response_timeout = 2.0 if priority == "high" else self.command_timeout
+                immediate_response = self._wait_for_immediate_response(response_timeout)
                 response_received_time = time.time() 
                 logger.debug(f"📥 [TIMING] Response received after: {(response_received_time-start_time)*1000:.1f}ms")
                 
@@ -249,6 +263,9 @@ class SimplifiedFluidNCProtocolFixed:
             except Exception as e:
                 logger.error(f"❌ Command failed: {command} - {e}")
                 return False, f"Command error: {e}"
+            finally:
+                # Always decrement pending commands
+                self.pending_commands = max(0, self.pending_commands - 1)
     
     def send_command(self, command: str) -> Tuple[bool, str]:
         """Send command (legacy interface, uses motion wait)"""
@@ -274,23 +291,28 @@ class SimplifiedFluidNCProtocolFixed:
     def _wait_for_motion_completion(self) -> bool:
         """
         Wait for motion to complete by monitoring machine state
-        
-        Motion is complete when machine returns to "Idle" state
+        Optimized to reduce interference with command execution
         """
         start_time = time.time()
         motion_started = False
+        last_status_request = 0
+        status_request_interval = 0.2  # Reduced frequency: every 200ms
         
         while time.time() - start_time < self.motion_timeout:
-            # Request status update
-            if self.serial_connection:
-                try:
-                    self.serial_connection.write(b'?')
-                    self.serial_connection.flush()
-                except:
-                    break
+            current_time = time.time()
             
-            # Check for status in the incoming data
-            time.sleep(0.1)
+            # Send status requests less frequently and only when needed
+            if current_time - last_status_request > status_request_interval:
+                if self.serial_connection:
+                    try:
+                        self.serial_connection.write(b'?')
+                        self.serial_connection.flush()
+                        last_status_request = current_time
+                    except:
+                        break
+            
+            # Shorter sleep for more responsive checking
+            time.sleep(0.05)
             
             if self.current_status:
                 state = self.current_status.state.lower()
@@ -303,7 +325,7 @@ class SimplifiedFluidNCProtocolFixed:
                     return True
                 elif state == 'idle' and not motion_started:
                     # Machine was already idle, give it a moment to start motion
-                    if time.time() - start_time > 0.5:
+                    if time.time() - start_time > 0.3:  # Reduced from 0.5s
                         logger.debug("✅ Motion completed - machine remained idle")
                         return True
                 elif state in ['alarm', 'error']:
@@ -516,33 +538,53 @@ class SimplifiedFluidNCProtocolFixed:
             self.status_thread = None
     
     def _status_monitor_loop(self):
-        """Background status monitoring loop"""
+        """Background status monitoring loop with adaptive polling"""
         last_status_request = 0
-        status_interval = 0.5  # Request status every 500ms
+        base_status_interval = 0.5  # Request status every 500ms normally
         
         while self.status_monitor_running and self.is_connected():
             try:
                 current_time = time.time()
                 
-                # Request status periodically
-                if current_time - last_status_request > status_interval:
-                    if self.serial_connection:
-                        self.serial_connection.write(b'?')
-                        self.serial_connection.flush()
-                    last_status_request = current_time
+                # Adaptive status polling: reduce frequency during command execution
+                recent_command_activity = (current_time - self.last_command_time) < 2.0
+                status_interval = 1.0 if recent_command_activity else base_status_interval
                 
-                # Read any incoming data
-                if self.serial_connection and self.serial_connection.in_waiting > 0:
+                # Request status periodically (but less during active commands)
+                if current_time - last_status_request > status_interval:
+                    # Check if command lock is free before sending status request
+                    if self.command_lock.acquire(blocking=False):
+                        try:
+                            if self.serial_connection:
+                                self.serial_connection.write(b'?')
+                                self.serial_connection.flush()
+                            last_status_request = current_time
+                        finally:
+                            self.command_lock.release()
+                    else:
+                        # Command in progress, skip this status request
+                        last_status_request = current_time
+                
+                # Read any incoming data (process multiple lines to prevent buffer buildup)
+                lines_processed = 0
+                max_lines_per_cycle = 5  # Prevent overwhelming the parser
+                
+                while (self.serial_connection and 
+                       self.serial_connection.in_waiting > 0 and 
+                       lines_processed < max_lines_per_cycle):
+                    
                     line = self.serial_connection.readline().decode('utf-8', errors='ignore').strip()
                     
-                    # Capture all messages for homing detection
                     if line:
+                        # Capture all messages for homing detection
                         self._capture_raw_message(line)
+                        
+                        if line.startswith('<') and line.endswith('>'):
+                            self._parse_status_report(line)
                     
-                    if line.startswith('<') and line.endswith('>'):
-                        self._parse_status_report(line)
+                    lines_processed += 1
                 
-                time.sleep(0.05)  # Short sleep to prevent excessive CPU usage
+                time.sleep(0.05 if lines_processed == 0 else 0.02)  # Shorter sleep if processing data
                 
             except Exception as e:
                 logger.error(f"❌ Status monitor error: {e}")
