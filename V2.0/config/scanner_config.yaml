@@ -198,7 +198,7 @@ web_interface:
     
 # Data Storage Configuration  
 storage:
-  base_directory: "/home/user/scanner_data"
+  base_path: "/home/user/scanner_data"
   
   organization:
     use_date_folders: true
@@ -209,9 +209,7 @@ storage:
     metadata: "json"
     logs: "txt"
     
-  backup:
-    auto_backup: false
-    backup_location: "/home/user/scanner_backups"
+  backup_enabled: false
     
 # Communication Configuration
 communication:
