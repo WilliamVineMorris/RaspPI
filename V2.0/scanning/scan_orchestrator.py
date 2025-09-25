@@ -1389,33 +1389,71 @@ class ScanOrchestrator:
     
     async def initialize(self) -> bool:
         """
-        Initialize all scanner components
+        Initialize all scanner components with graceful error handling
         
         Returns:
-            True if initialization successful
+            True if initialization successful (allows partial initialization)
         """
         try:
             self.logger.info("Initializing scan orchestrator")
             
-            # Initialize motion controller
-            if not await self.motion_controller.initialize():
-                raise HardwareError("Failed to initialize motion controller")
+            # Initialize motion controller - allow continuation if in alarm state
+            motion_ok = False
+            try:
+                motion_ok = await self.motion_controller.initialize()
+                if motion_ok:
+                    # Check if motion controller is in alarm state
+                    status = await self.motion_controller.get_status()
+                    if status.name == "ALARM":
+                        self.logger.warning("⚠️ Motion controller connected but in ALARM state")
+                        self.logger.info("💡 Motion controller needs homing - use web interface 'Home' button")
+                        self.logger.info("✅ System will continue with camera functionality")
+                        motion_ok = True  # Consider alarm state as "connected"
+                    else:
+                        self.logger.info("✅ Motion controller initialized and ready")
+                else:
+                    self.logger.error("❌ Motion controller failed to initialize")
+            except Exception as e:
+                self.logger.error(f"❌ Motion controller initialization error: {e}")
+                motion_ok = False
             
-            # Initialize camera manager
-            if not await self.camera_manager.initialize():
-                raise HardwareError("Failed to initialize camera manager")
+            # Initialize camera manager - this is critical for system functionality  
+            camera_ok = False
+            try:
+                camera_ok = await self.camera_manager.initialize()
+                if camera_ok:
+                    self.logger.info("✅ Camera manager initialized successfully")
+                else:
+                    self.logger.error("❌ Camera manager failed to initialize")
+            except Exception as e:
+                self.logger.error(f"❌ Camera manager initialization error: {e}")
+                camera_ok = False
             
-            # Initialize lighting controller
-            if not await self.lighting_controller.initialize():
-                self.logger.warning("Failed to initialize lighting controller - continuing without lighting")
-                # Don't fail initialization if lighting fails - scans can work without lighting
+            # Initialize lighting controller - optional
+            lighting_ok = False
+            try:
+                lighting_ok = await self.lighting_controller.initialize()
+                if lighting_ok:
+                    self.logger.info("✅ Lighting controller initialized")
+                else:
+                    self.logger.warning("⚠️ Lighting controller failed - continuing without lighting")
+            except Exception as e:
+                self.logger.warning(f"⚠️ Lighting controller error (non-critical): {e}")
+                lighting_ok = False
             
-            # Perform system health check
-            if not await self._health_check():
-                raise ScannerSystemError("System health check failed")
-            
-            self.logger.info("Scan orchestrator initialized successfully")
-            return True
+            # Determine overall initialization success
+            # Require at least cameras to work - motion can be in alarm state
+            if camera_ok:
+                if motion_ok:
+                    self.logger.info("✅ Scan orchestrator fully initialized")
+                else:
+                    self.logger.warning("⚠️ Scan orchestrator initialized with motion controller issues")
+                    self.logger.info("💡 Camera functionality available - motion may need attention")
+                
+                return True
+            else:
+                self.logger.error("❌ Scan orchestrator initialization failed - cameras required")
+                return False
             
         except Exception as e:
             self.logger.error(f"Failed to initialize scan orchestrator: {e}")
