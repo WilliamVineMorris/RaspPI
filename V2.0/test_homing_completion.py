@@ -100,8 +100,8 @@ def test_homing_with_completion_detection():
                             homing_started = True
                             logger.info("🏠 Homing sequence started!")
                         
-                        # Check for homing completion
-                        if '[MSG:DBG: Homing' in line and 'Done' in line:
+                        # Check for homing completion (case insensitive)
+                        if '[MSG:DBG: Homing' in line and 'done' in line.lower():
                             homing_done = True
                             logger.info("✅ Homing Done message received!")
                             break
