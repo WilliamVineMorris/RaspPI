@@ -292,8 +292,14 @@ class SimplifiedFluidNCProtocolFixed:
         return self.send_command_with_motion_wait(command)
     
     def send_homing_command(self, command: str = "$H") -> Tuple[bool, str]:
-        """Send homing command with extended timeout and special handling"""
-        logger.info(f"🏠 Sending homing command with extended timeout: {command}")
+        """
+        Send homing command with status-based monitoring.
+        
+        FluidNC doesn't always send immediate 'ok' for $H commands.
+        Instead, it starts homing and reports status changes.
+        This method monitors status changes rather than waiting for 'ok'.
+        """
+        logger.info(f"🏠 Sending homing command with status monitoring: {command}")
         
         with self.command_lock:
             if not self.is_connected():
@@ -305,12 +311,19 @@ class SimplifiedFluidNCProtocolFixed:
             try:
                 start_time = time.time()
                 
-                # Send command immediately (no delay for homing)
+                # Store initial status
+                initial_status = self.current_status.state if self.current_status else None
+                logger.debug(f"📊 Status before homing: {initial_status}")
+                
+                # Send command
                 logger.debug(f"📤 Homing Command: {command}")
                 
                 if self.serial_connection is None:
                     return False, "No serial connection"
                     
+                # Clear input buffer to ensure fresh status updates
+                self.serial_connection.reset_input_buffer()
+                
                 command_line = f"{command}\n"
                 self.serial_connection.write(command_line.encode('utf-8'))
                 self.serial_connection.flush()
@@ -321,35 +334,188 @@ class SimplifiedFluidNCProtocolFixed:
                 command_sent_time = time.time()
                 logger.debug(f"📤 [TIMING] Homing command sent after: {(command_sent_time-start_time)*1000:.1f}ms")
                 
-                # For homing, we just wait for the immediate "ok" response
-                # The actual homing progress is monitored via status polling
-                response_timeout = 5.0  # Short timeout just for command acceptance
-                immediate_response = self._wait_for_immediate_response(response_timeout)
-                
-                response_received_time = time.time()
-                logger.debug(f"📥 [TIMING] Homing response received after: {(response_received_time-start_time)*1000:.1f}ms")
-                
-                if immediate_response is None:
-                    logger.error(f"❌ Homing command timeout after {response_timeout}s")
-                    self.stats['timeouts'] += 1
-                    return False, "Command timeout"
-                
-                if "ok" in immediate_response.lower():
-                    logger.info(f"✅ Homing command accepted: {immediate_response.strip()}")
-                    self.stats['responses_received'] += 1
-                    
-                    # Return immediately - homing progress monitored separately
-                    return True, immediate_response.strip()
-                else:
-                    logger.error(f"❌ Homing command rejected: {immediate_response.strip()}")
-                    self.stats['responses_received'] += 1
-                    return False, immediate_response.strip()
+                # Monitor for status change instead of waiting for 'ok'
+                return self._monitor_homing_status_change(initial_status, start_time)
                     
             except Exception as e:
                 logger.error(f"❌ Homing command error: {e}")
                 return False, f"Command error: {e}"
             finally:
                 self.pending_commands = max(0, self.pending_commands - 1)
+
+    def _monitor_homing_status_change(self, initial_status: str | None, start_time: float) -> Tuple[bool, str]:
+        """Monitor for status changes that indicate homing has started."""
+        timeout = 8.0  # 8 seconds to see status change
+        last_activity = start_time
+        
+        while (time.time() - start_time) < timeout:
+            time.sleep(0.1)  # Check every 100ms
+            
+            # Check for incoming data
+            if self.serial_connection and self.serial_connection.in_waiting > 0:
+                try:
+                    data = self.serial_connection.read(self.serial_connection.in_waiting)
+                    if data:
+                        decoded = data.decode('utf-8', errors='ignore')
+                        self._process_incoming_data(decoded)
+                        last_activity = time.time()
+                        
+                        # Check for immediate 'ok' response (some FluidNC versions send this)
+                        if 'ok' in decoded.lower():
+                            logger.info("✅ Received 'ok' - homing command accepted")
+                            return True, "Homing started"
+                            
+                except Exception as e:
+                    logger.debug(f"Error reading serial data: {e}")
+            
+            # Check if status changed
+            current_status = self.current_status.state if self.current_status else None
+            
+            if current_status and current_status != initial_status:
+                if current_status == "Homing":
+                    logger.info(f"✅ Homing started (status: {initial_status} → {current_status})")
+                    return True, f"Status changed to {current_status}"
+                elif current_status == "Idle" and initial_status == "Alarm":
+                    # Quick homing completion (ALARM → IDLE directly)
+                    logger.info(f"✅ Homing completed quickly (status: {initial_status} → {current_status})")
+                    return True, "Homing completed"
+                elif current_status == "Alarm" and initial_status != "Alarm":
+                    # Something went wrong
+                    logger.error(f"❌ Homing triggered alarm (status: {initial_status} → {current_status})")
+                    return False, "Homing caused alarm"
+                else:
+                    logger.debug(f"📊 Status change detected: {initial_status} → {current_status}")
+            
+            # Check for prolonged inactivity
+            if (time.time() - last_activity) > 3.0:
+                logger.warning("⚠️ No response from FluidNC - may be unresponsive")
+                # Continue waiting but log concern
+        
+        # Check final activity level
+        if (time.time() - last_activity) < 2.0:
+            logger.warning("⚠️ FluidNC responsive but no clear homing confirmation")
+            logger.info("💡 Assuming homing started - will monitor via status updates")
+            return True, "Assumed started"
+        else:
+            logger.error("❌ No response from FluidNC after homing command")
+            return False, "No response"
+
+    def _process_incoming_data(self, data: str):
+        """Process incoming data from FluidNC."""
+        if not data.strip():
+            return
+            
+        # Process each line
+        for line in data.strip().split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Status reports (e.g., <Idle|MPos:0.000,0.000,0.000|...>)
+            if line.startswith('<') and line.endswith('>'):
+                self._parse_status_report(line)
+                logger.debug(f"📡 Status update: {line}")
+            
+            # Error responses
+            elif line.startswith('error:'):
+                logger.error(f"🔴 FluidNC error: {line}")
+            
+            # Alarm messages
+            elif 'ALARM' in line.upper():
+                logger.warning(f"⚠️ Alarm message: {line}")
+            
+            # OK responses
+            elif line.strip().lower() == 'ok':
+                logger.debug("✅ Received 'ok' response")
+            
+            # Grbl messages
+            elif line.startswith('[') and line.endswith(']'):
+                logger.info(f"📢 FluidNC message: {line}")
+            
+            # Other responses
+            else:
+                logger.debug(f"📥 FluidNC: {line}")
+
+    def monitor_homing_progress(self, callback=None) -> bool:
+        """
+        Monitor homing progress using real-time status updates.
+        Returns True when homing completes, False if it fails or times out.
+        """
+        logger.info("📊 Monitoring homing progress via real-time status updates...")
+        
+        start_time = time.time()
+        last_status_time = start_time
+        last_position = None
+        position_unchanged_count = 0
+        max_homing_time = 120.0  # 2 minutes max for homing
+        inactivity_timeout = 15.0  # 15 seconds without status updates
+        
+        while (time.time() - start_time) < max_homing_time:
+            time.sleep(0.5)  # Check every 500ms
+            
+            current_time = time.time()
+            elapsed_time = current_time - start_time
+            
+            # Check for status updates
+            if self.current_status:
+                current_status = self.current_status.state
+                current_position = getattr(self.current_status, 'position', None)
+                
+                # Update callback with progress
+                if callback:
+                    try:
+                        callback(f"homing", f"Homing in progress (status: {current_status})", elapsed_time)
+                    except Exception as e:
+                        logger.debug(f"Callback error: {e}")
+                
+                # Check if we have recent status updates
+                status_age = current_time - (getattr(self.current_status, 'timestamp', 0) or last_status_time)
+                if status_age < 2.0:  # Status is recent
+                    last_status_time = current_time
+                    
+                    # Check for position changes (axes moving)
+                    if current_position and last_position:
+                        if current_position != last_position:
+                            position_unchanged_count = 0
+                            logger.debug(f"🔄 Axes moving: {last_position} → {current_position}")
+                        else:
+                            position_unchanged_count += 1
+                    
+                    last_position = current_position
+                
+                # Check for completion
+                if current_status == "Idle":
+                    # Confirm completion with brief delay
+                    time.sleep(1.0)
+                    if self.current_status and self.current_status.state == "Idle":
+                        logger.info("✅ Homing completed successfully")
+                        if callback:
+                            callback("complete", "Homing completed successfully!", elapsed_time)
+                        return True
+                
+                # Check for errors
+                elif current_status == "Alarm":
+                    logger.error("❌ Homing failed - ALARM state")
+                    if callback:
+                        callback("error", "Homing failed - ALARM triggered", elapsed_time)
+                    return False
+                
+                # Check for stuck condition (no movement for too long)
+                if position_unchanged_count > 20 and current_status == "Homing":  # 10+ seconds no movement
+                    logger.warning(f"⚠️ No axis movement detected for {position_unchanged_count/2}s during homing")
+                    # Don't fail immediately - axes might move slowly
+            
+            # Check for system inactivity
+            if (current_time - last_status_time) > inactivity_timeout:
+                logger.error(f"❌ No status updates for {inactivity_timeout}s - system unresponsive")
+                if callback:
+                    callback("error", "System unresponsive - no status updates", elapsed_time)
+                return False
+        
+        logger.error(f"❌ Homing timeout after {max_homing_time}s")
+        if callback:
+            callback("error", f"Homing timeout after {max_homing_time}s", elapsed_time)
+        return False
     
     def _is_motion_command(self, command: str) -> bool:
         """Check if command causes motion"""

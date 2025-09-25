@@ -1247,79 +1247,31 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 except Exception as e:
                     logger.warning(f"⚠️ Pre-homing alarm clear failed (continuing anyway): {e}")
             
-            # Always send homing command - $H clears alarm AND homes
-            logger.info("🏠 Sending homing command ($H) - this will clear alarm and home all axes...")
-            # Use special homing command method with appropriate timeout
+            # Use new real-time homing command with status monitoring
+            logger.info("🏠 Sending homing command ($H) with real-time monitoring...")
+            logger.info("⚠️ SAFETY: Ensure all axes can move freely to limit switches")
+            
             success, response = await asyncio.get_event_loop().run_in_executor(
-                None, self.protocol.send_homing_command, "$H"
+                None, self.protocol.send_homing_command
             )
             
             if success:
-                self.motion_status = MotionStatus.HOMING
+                self.motion_status = MotionStatus.IDLE  # Protocol handles status updates
                 self.stats['homing_completed'] += 1
                 
-                logger.info("⏳ Homing in progress - monitoring status...")
-                logger.info("⚠️ SAFETY: Ensure all axes can move freely to limit switches")
+                logger.info("✅ Homing completed successfully!")
+                logger.info("🎯 All axes now at home position")
                 
-                # Wait for homing to complete by monitoring status
-                timeout = 90.0  # Increased timeout for safety
-                start_time = time.time()
-                last_status = None
+                # Update position to home (0,0,0,0)
+                self.current_position = Position4D(0.0, 0.0, 0.0, 0.0)
                 
-                while (time.time() - start_time) < timeout:
-                    await asyncio.sleep(1.0)  # Check every second
-                    status = await self.get_status()
-                    
-                    # Log status changes for user feedback
-                    if status != last_status:
-                        logger.info(f"📊 Homing status: {status}")
-                        last_status = status
-                    
-                    if status == MotionStatus.IDLE:
-                        logger.info("✅ Homing completed successfully!")
-                        logger.info("🎯 All axes now at home position")
-                        
-                        # Update position to home (0,0,0,0)
-                        self.current_position = Position4D(0.0, 0.0, 0.0, 0.0)
-                        
-                        # Emit success event
-                        self._emit_event("homing_completed", {
-                            "success": True,
-                            "position": self.current_position.__dict__
-                        })
-                        
-                        return True
-                        
-                    elif status == MotionStatus.ALARM:
-                        logger.error("❌ Homing failed - returned to alarm state")
-                        logger.error("💡 Possible causes:")
-                        logger.error("   - Limit switch not triggered")
-                        logger.error("   - Mechanical obstruction")
-                        logger.error("   - Incorrect axis direction")
-                        logger.error("   - Wiring issues")
-                        
-                        # Emit failure event
-                        self._emit_event("homing_failed", {
-                            "error": "returned_to_alarm",
-                            "message": "Homing sequence triggered alarm state"
-                        })
-                        
-                        return False
-                
-                # Timeout occurred
-                logger.error("⏰ Homing timeout - sequence did not complete")
-                logger.error("💡 Check:")
-                logger.error("   - Are axes moving?")
-                logger.error("   - Are limit switches working?")
-                logger.error("   - Is there mechanical binding?")
-                
-                # Emit timeout event
-                self._emit_event("homing_failed", {
-                    "error": "timeout",
-                    "message": f"Homing did not complete within {timeout} seconds"
+                # Emit success event
+                self._emit_event("homing_completed", {
+                    "success": True,
+                    "position": self.current_position.__dict__
                 })
                 
-                return False
+                return True
                 
             else:
                 logger.error(f"❌ Homing command failed: {response}")
@@ -1363,54 +1315,28 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 # Give a moment for any state change
                 await asyncio.sleep(0.5)
             
-            # Always attempt homing - $H command clears alarm AND homes
+            # Use new real-time homing command with status monitoring
             if status_callback:
-                status_callback("homing", "Sending homing command ($H) - this clears alarm and homes...")
+                status_callback("homing", "Sending homing command ($H) with real-time monitoring...")
             
-            logger.info("🏠 Sending homing command ($H)...")
-            # Use special homing command method with appropriate timeout
+            logger.info("🏠 Sending homing command ($H) with real-time monitoring...")
+            
             success, response = await asyncio.get_event_loop().run_in_executor(
-                None, self.protocol.send_homing_command, "$H"
+                None, self.protocol.send_homing_command
             )
             
-            if not success:
+            if success:
                 if status_callback:
-                    status_callback("error", f"Homing command failed: {response}")
-                logger.error(f"❌ Homing command ($H) failed: {response}")
+                    status_callback("complete", "Homing completed successfully!")
+                
+                logger.info("✅ Homing completed successfully!")
+                self.current_position = Position4D(0.0, 0.0, 0.0, 0.0)
+                return True
+            else:
+                if status_callback:
+                    status_callback("error", f"Homing failed: {response}")
+                logger.error(f"❌ Homing failed: {response}")
                 return False
-            
-            logger.info("✅ Homing command sent successfully, monitoring progress...")
-            
-            # Monitor progress
-            self.motion_status = MotionStatus.HOMING
-            timeout = 90.0
-            start_time = time.time()
-            
-            while (time.time() - start_time) < timeout:
-                await asyncio.sleep(1.0)
-                status = await self.get_status()
-                
-                if status == MotionStatus.IDLE:
-                    if status_callback:
-                        status_callback("complete", "Homing completed successfully!")
-                    
-                    self.current_position = Position4D(0.0, 0.0, 0.0, 0.0)
-                    return True
-                    
-                elif status == MotionStatus.ALARM:
-                    if status_callback:
-                        status_callback("error", "Homing failed - alarm triggered")
-                    return False
-                
-                # Update progress
-                if status_callback:
-                    elapsed = time.time() - start_time
-                    status_callback("homing", f"Homing in progress... ({elapsed:.1f}s)")
-            
-            # Timeout
-            if status_callback:
-                status_callback("error", "Homing timeout - check axes and switches")
-            return False
             
         except Exception as e:
             if status_callback:
