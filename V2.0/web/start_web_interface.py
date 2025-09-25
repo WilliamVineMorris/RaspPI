@@ -305,7 +305,7 @@ def initialize_real_orchestrator():
         return create_mock_orchestrator()
     
     try:
-        from scanning.scan_orchestrator import ScanOrchestrator
+        from scanning.updated_scan_orchestrator import UpdatedScanOrchestrator
         from core.config_manager import ConfigManager
         import asyncio
         
@@ -402,7 +402,7 @@ storage:
         config_manager = ConfigManager(config_file)
         
         # Create orchestrator
-        orchestrator = ScanOrchestrator(config_manager)
+        orchestrator = UpdatedScanOrchestrator(config_manager)
         
         print("⚠️  Note: GPIO/LED lighting disabled for initial testing")
         

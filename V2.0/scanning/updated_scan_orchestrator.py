@@ -344,6 +344,22 @@ class UpdatedScanOrchestrator:
         
         self.is_initialized = False
         self.logger.info("✅ Scan orchestrator shutdown complete")
+    
+    # Web UI Compatibility Properties
+    @property
+    def camera_manager(self):
+        """Compatibility property for web UI."""
+        return self.camera_controller
+    
+    @property 
+    def lighting_manager(self):
+        """Compatibility property for web UI."""
+        return self.lighting_controller
+    
+    @property
+    def storage_controller(self):
+        """Compatibility property for web UI."""
+        return self.storage_manager
 
 
 # Mock classes for testing without full hardware

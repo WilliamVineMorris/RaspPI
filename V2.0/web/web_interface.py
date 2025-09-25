@@ -40,7 +40,7 @@ try:
     from core.types import Position4D
     from scanning.scan_patterns import GridScanPattern, CylindricalScanPattern
     from scanning.scan_state import ScanStatus, ScanPhase
-    from scanning.scan_orchestrator import ScanOrchestrator
+    from scanning.updated_scan_orchestrator import UpdatedScanOrchestrator
     SCANNER_MODULES_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Could not import scanner modules: {e}")
