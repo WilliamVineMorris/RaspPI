@@ -65,7 +65,7 @@ async def test_integration():
             response = input("Test homing? (y/N): ")
             
             if response.lower() == 'y':
-                success = await orchestrator.home_system()
+                success = orchestrator.home_system()
                 if success:
                     print("✅ Homing successful!")
                 else:

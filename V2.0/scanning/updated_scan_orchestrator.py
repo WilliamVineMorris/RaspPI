@@ -170,12 +170,12 @@ class UpdatedScanOrchestrator:
         
         return status
     
-    async def home_system(self) -> bool:
+    def home_system(self) -> bool:
         """Home the motion system - alias for home_all_axes for test compatibility."""
-        return await self.home_all_axes()
+        return self.home_all_axes()
     
-    async def home_all_axes(self) -> bool:
-        """Home all motion axes."""
+    def home_all_axes(self) -> bool:
+        """Home all motion axes using the proven working controller."""
         if not self.hardware_status['motion'] or not self.motion_controller:
             self.logger.error("Motion controller not available for homing")
             return False
@@ -183,6 +183,7 @@ class UpdatedScanOrchestrator:
         self.logger.info("🏠 Starting homing sequence...")
         
         try:
+            # Use the proven working home method directly
             result = self.motion_controller.home()
             if result:
                 self.logger.info("✅ Homing completed successfully")
@@ -191,6 +192,16 @@ class UpdatedScanOrchestrator:
                 self.logger.error("❌ Homing failed")
                 return False
                 
+        except KeyboardInterrupt:
+            self.logger.warning("🛑 Homing interrupted by user")
+            # Try to stop motion gracefully
+            try:
+                self.motion_controller.stop_motion()
+                self.logger.info("✅ Motion stopped")
+            except Exception as e:
+                self.logger.debug(f"Could not stop motion: {e}")
+            raise  # Re-raise the KeyboardInterrupt
+            
         except Exception as e:
             self.logger.error(f"❌ Homing error: {e}")
             return False
