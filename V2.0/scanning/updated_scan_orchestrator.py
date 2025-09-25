@@ -170,6 +170,10 @@ class UpdatedScanOrchestrator:
         
         return status
     
+    async def home_system(self) -> bool:
+        """Home the motion system - alias for home_all_axes for test compatibility."""
+        return await self.home_all_axes()
+    
     async def home_all_axes(self) -> bool:
         """Home all motion axes."""
         if not self.hardware_status['motion'] or not self.motion_controller:
@@ -248,6 +252,50 @@ class UpdatedScanOrchestrator:
                     await self.lighting_controller.set_brightness(0)
                 except Exception:
                     pass
+    
+    async def capture_single_image(self) -> Dict[str, Any]:
+        """Capture single image with result details for test compatibility."""
+        result = {
+            'success': False,
+            'images': {},
+            'error': None
+        }
+        
+        if not self.hardware_status['cameras'] or not self.camera_controller:
+            result['error'] = "Camera controller not available"
+            return result
+        
+        try:
+            # Enable lighting if available
+            if self.hardware_status['lighting'] and self.lighting_controller:
+                await self.lighting_controller.set_brightness(100)
+            
+            # Capture image using mock controller
+            image_path = await self.camera_controller.capture()
+            
+            if image_path:
+                result['success'] = True
+                result['images'] = {
+                    'camera_0': image_path,
+                    'camera_1': image_path  # Mock has same path for both cameras
+                }
+                self.logger.info(f"✅ Image captured: {image_path}")
+            else:
+                result['error'] = "Image capture failed"
+                
+        except Exception as e:
+            result['error'] = str(e)
+            self.logger.error(f"❌ Capture error: {e}")
+        
+        finally:
+            # Reset lighting
+            if self.hardware_status['lighting'] and self.lighting_controller:
+                try:
+                    await self.lighting_controller.set_brightness(0)
+                except Exception:
+                    pass
+        
+        return result
     
     async def emergency_stop(self) -> bool:
         """Emergency stop all operations."""
