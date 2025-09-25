@@ -1235,19 +1235,20 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         try:
             logger.info("🏠 Starting homing sequence...")
             
-            # First, check if we need to clear alarm state
+            # Check if we're in alarm state (but continue regardless)
             current_status = await self.get_status()
             if current_status == MotionStatus.ALARM:
-                logger.info("⚠️ Controller in alarm state - clearing first")
-                if not await self.clear_alarm():
-                    logger.error("❌ Could not clear alarm state before homing")
-                    return False
+                logger.info("⚠️ Controller in alarm state - $H command will clear alarm and home")
                 
-                # Wait for status to stabilize
-                await asyncio.sleep(1.0)
+                # Optionally try to clear alarm first, but don't fail if unsuccessful
+                try:
+                    await self.clear_alarm()
+                    await asyncio.sleep(0.5)
+                except Exception as e:
+                    logger.warning(f"⚠️ Pre-homing alarm clear failed (continuing anyway): {e}")
             
-            # Send homing command
-            logger.info("🏠 Sending homing command ($H)...")
+            # Always send homing command - $H clears alarm AND homes
+            logger.info("🏠 Sending homing command ($H) - this will clear alarm and home all axes...")
             success, response = await self._send_command("$H")
             
             if success:
@@ -1346,26 +1347,33 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             if status_callback:
                 status_callback("starting", "Starting homing sequence...")
             
-            # Check alarm state
+            # Check alarm state and attempt clearing (but continue even if it fails)
             current_status = await self.get_status()
             if current_status == MotionStatus.ALARM:
                 if status_callback:
-                    status_callback("clearing_alarm", "Clearing alarm state...")
+                    status_callback("clearing_alarm", "Attempting to clear alarm state...")
                 
-                if not await self.clear_alarm():
-                    if status_callback:
-                        status_callback("error", "Could not clear alarm state")
-                    return False
+                # Try to clear alarm but don't fail if unsuccessful
+                # The $H command should also clear alarm state
+                await self.clear_alarm()
+                
+                # Give a moment for any state change
+                await asyncio.sleep(0.5)
             
-            # Start homing
+            # Always attempt homing - $H command clears alarm AND homes
             if status_callback:
-                status_callback("homing", "Homing in progress - moving to limits...")
+                status_callback("homing", "Sending homing command ($H) - this clears alarm and homes...")
             
+            logger.info("🏠 Sending homing command ($H)...")
             success, response = await self._send_command("$H")
+            
             if not success:
                 if status_callback:
                     status_callback("error", f"Homing command failed: {response}")
+                logger.error(f"❌ Homing command ($H) failed: {response}")
                 return False
+            
+            logger.info("✅ Homing command sent successfully, monitoring progress...")
             
             # Monitor progress
             self.motion_status = MotionStatus.HOMING
