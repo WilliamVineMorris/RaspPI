@@ -1,271 +1,299 @@
 """
-Updated Scan Orchestrator
+Updated Scan Orchestrator - Simplified Version
 Uses the MotionControllerAdapter with SimpleWorkingFluidNCController.
-Handles initialization gracefully even if motion controller is in alarm state.
+Focuses on basic functionality for web UI integration testing.
 """
 
 import asyncio
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 from datetime import datetime
 from pathlib import Path
 
 from core.config_manager import ConfigManager
-from core.events import EventBus, Event, EventPriority
-from motion.motion_adapter import MotionControllerAdapter
-from camera.pi_camera_controller import PiCameraController
-from lighting.mock_led_controller import MockLEDController
-from storage.local_storage_manager import LocalStorageManager
+from core.events import EventBus, ScannerEvent, EventPriority
 from motion.base import Position4D
+from simple_working_fluidnc_controller import SimpleWorkingFluidNCController, Position4D as SimplePosition4D
 
 class UpdatedScanOrchestrator:
     """
-    Orchestrates scanning operations with graceful initialization.
-    Cameras work even if motion controller is in alarm state.
+    Simplified orchestrator for testing web UI integration.
+    Uses working motion controller via adapter pattern.
     """
     
     def __init__(self, config_manager: ConfigManager):
         """Initialize the scan orchestrator."""
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.config = config_manager
-        
-        # Create event bus
+        self.config_manager = config_manager
         self.event_bus = EventBus()
         
-        # Initialize components (will be created in initialize())
-        self.motion_controller = None
+        # Component instances (initially None)
+        self.motion_controller: Optional[SimpleWorkingFluidNCController] = None
         self.camera_controller = None
         self.lighting_controller = None
         self.storage_manager = None
         
-        # Status flags
-        self.motion_available = False
-        self.cameras_available = False
-        self.initialized = False
+        # System status
+        self.is_initialized = False
+        self.hardware_status = {
+            'motion': False,
+            'cameras': False,
+            'lighting': False,
+            'storage': False
+        }
         
-        self.logger.info("Scan orchestrator created")
+        self.logger.info("UpdatedScanOrchestrator initialized")
     
     async def initialize(self) -> bool:
         """
-        Initialize all components with graceful degradation.
-        Cameras initialize even if motion fails.
+        Initialize system components with graceful fallback.
+        Returns True if at least some components are available.
         """
-        self.logger.info("Initializing scan orchestrator...")
-        
+        self.logger.info("🔄 Starting system initialization...")
         success_count = 0
-        total_components = 4
         
-        # 1. Initialize Motion Controller (don't fail if in alarm)
+        # 1. Initialize Motion Controller
         try:
             self.logger.info("Initializing motion controller...")
-            self.motion_controller = MotionControllerAdapter(self.config)
+            self.motion_controller = SimpleWorkingFluidNCController()
             
-            if await self.motion_controller.initialize():
-                self.motion_available = True
+            # Test connection
+            if self.motion_controller.connect():
+                self.hardware_status['motion'] = True
                 success_count += 1
+                self.logger.info("✅ Motion controller connected")
                 
-                # Check if homing is needed
-                status = await self.motion_controller.get_status()
-                if str(status) == "MotionStatus.ALARM":
-                    self.logger.warning("⚠️ Motion controller in ALARM state")
-                    self.logger.info("💡 Homing required - use web interface Home button")
-                else:
-                    self.logger.info("✅ Motion controller ready")
+                # Get status
+                status = self.motion_controller.get_status()
+                self.logger.info(f"📊 Motion status: {status}")
             else:
-                self.logger.warning("⚠️ Motion controller not available")
-                self.logger.info("💡 System will operate with limited functionality")
+                self.logger.warning("⚠️ Motion controller connection failed")
                 
         except Exception as e:
             self.logger.error(f"Motion controller error: {e}")
-            self.logger.info("💡 Continuing without motion control")
         
-        # 2. Initialize Camera Controller (independent of motion)
+        # 2. Mock Camera Controller (for testing)
         try:
-            self.logger.info("Initializing camera controller...")
-            self.camera_controller = PiCameraController(self.config)
+            self.logger.info("Setting up camera controller (mock for testing)...")
+            self.camera_controller = MockCameraController()
+            self.hardware_status['cameras'] = True
+            success_count += 1
+            self.logger.info("✅ Camera controller ready (mock)")
             
-            if await self.camera_controller.initialize():
-                self.cameras_available = True
-                success_count += 1
-                self.logger.info("✅ Cameras initialized")
-            else:
-                self.logger.warning("⚠️ Cameras not available")
-                
         except Exception as e:
             self.logger.error(f"Camera controller error: {e}")
         
-        # 3. Initialize Lighting Controller
+        # 3. Mock Lighting Controller (for testing)
         try:
-            self.logger.info("Initializing lighting controller...")
+            self.logger.info("Setting up lighting controller (mock for testing)...")
+            self.lighting_controller = MockLightingController()
+            self.hardware_status['lighting'] = True
+            success_count += 1
+            self.logger.info("✅ Lighting controller ready (mock)")
             
-            # Check if in simulation mode
-            if self.config.get_system_config().get('simulation_mode', False):
-                self.lighting_controller = MockLEDController(self.config)
-            else:
-                # Try real GPIO controller
-                try:
-                    from lighting.gpio_led_controller import GPIOLEDController
-                    self.lighting_controller = GPIOLEDController(self.config)
-                except ImportError:
-                    self.logger.warning("GPIO not available, using mock controller")
-                    self.lighting_controller = MockLEDController(self.config)
-            
-            if await self.lighting_controller.initialize():
-                success_count += 1
-                self.logger.info("✅ Lighting controller initialized")
-            else:
-                self.logger.warning("⚠️ Lighting controller not available")
-                
         except Exception as e:
             self.logger.error(f"Lighting controller error: {e}")
         
-        # 4. Initialize Storage Manager
+        # 4. Mock Storage Manager (for testing)
         try:
-            self.logger.info("Initializing storage manager...")
-            self.storage_manager = LocalStorageManager(self.config)
+            self.logger.info("Setting up storage manager (mock for testing)...")
+            self.storage_manager = MockStorageManager()
+            self.hardware_status['storage'] = True
+            success_count += 1
+            self.logger.info("✅ Storage manager ready (mock)")
             
-            if await self.storage_manager.initialize():
-                success_count += 1
-                self.logger.info("✅ Storage manager initialized")
-            else:
-                self.logger.warning("⚠️ Storage manager not available")
-                
         except Exception as e:
             self.logger.error(f"Storage manager error: {e}")
         
         # Summary
-        self.initialized = success_count > 0
+        self.is_initialized = success_count > 0
         
-        if self.initialized:
-            self.logger.info(f"✅ Orchestrator initialized ({success_count}/{total_components} components)")
-            
-            if not self.motion_available:
-                self.logger.warning("⚠️ Motion control unavailable - limited functionality")
-            if not self.cameras_available:
-                self.logger.warning("⚠️ Cameras unavailable - no image capture")
+        self.logger.info(f"\n🔧 Initialization Summary:")
+        for component, status in self.hardware_status.items():
+            icon = "✅" if status else "❌"
+            self.logger.info(f"   {component.capitalize()}: {icon}")
+        
+        if self.is_initialized:
+            mode = "Full system" if success_count == 4 else f"Partial system ({success_count}/4 components)"
+            self.logger.info(f"🚀 {mode} ready for operation")
         else:
-            self.logger.error("❌ Orchestrator initialization failed")
+            self.logger.error("❌ System initialization failed - no components available")
         
-        return self.initialized
+        return self.is_initialized
     
-    async def shutdown(self) -> None:
-        """Shutdown all components gracefully."""
-        self.logger.info("Shutting down scan orchestrator...")
-        
-        # Shutdown in reverse order
-        if self.storage_manager:
-            await self.storage_manager.shutdown()
-            
-        if self.lighting_controller:
-            await self.lighting_controller.shutdown()
-            
-        if self.camera_controller:
-            await self.camera_controller.shutdown()
-            
-        if self.motion_controller:
-            await self.motion_controller.shutdown()
-        
-        self.initialized = False
-        self.logger.info("✅ Orchestrator shutdown complete")
-    
-    async def home_system(self) -> bool:
-        """Home the motion system."""
-        if not self.motion_available:
-            self.logger.error("Motion controller not available")
-            return False
-        
-        try:
-            self.logger.info("Starting homing sequence...")
-            success = await self.motion_controller.home()
-            
-            if success:
-                self.logger.info("✅ Homing completed successfully")
-            else:
-                self.logger.error("❌ Homing failed")
-                
-            return success
-            
-        except Exception as e:
-            self.logger.error(f"Homing error: {e}")
-            return False
-    
-    async def capture_single_image(self, position: Optional[Position4D] = None) -> Dict[str, Any]:
-        """Capture a single image at current or specified position."""
-        result = {
-            'success': False,
-            'position': None,
-            'images': None,
-            'error': None
-        }
-        
-        try:
-            # Move to position if specified
-            if position and self.motion_available:
-                self.logger.info(f"Moving to position {position}")
-                if not await self.motion_controller.move_to_position(position):
-                    result['error'] = "Failed to move to position"
-                    return result
-                    
-                # Wait for motion to complete
-                await self.motion_controller.wait_for_motion_complete()
-            
-            # Get current position
-            if self.motion_available:
-                result['position'] = self.motion_controller.get_position()
-            
-            # Capture images
-            if self.cameras_available:
-                self.logger.info("Capturing images...")
-                
-                # Turn on lights
-                if self.lighting_controller:
-                    await self.lighting_controller.set_brightness(0.5)  # 50% brightness
-                
-                # Capture
-                capture_result = await self.camera_controller.capture_single()
-                
-                # Turn off lights
-                if self.lighting_controller:
-                    await self.lighting_controller.set_brightness(0.0)
-                
-                if capture_result.success:
-                    result['success'] = True
-                    result['images'] = {
-                        'camera_0': capture_result.images.get('camera_0'),
-                        'camera_1': capture_result.images.get('camera_1')
-                    }
-                else:
-                    result['error'] = f"Capture failed: {capture_result.error}"
-            else:
-                result['error'] = "Cameras not available"
-                
-        except Exception as e:
-            self.logger.error(f"Capture error: {e}")
-            result['error'] = str(e)
-        
-        return result
-    
-    def get_status(self) -> Dict[str, Any]:
-        """Get current system status."""
+    async def get_system_status(self) -> Dict[str, Any]:
+        """Get comprehensive system status."""
         status = {
-            'initialized': self.initialized,
-            'motion_available': self.motion_available,
-            'cameras_available': self.cameras_available,
+            'initialized': self.is_initialized,
+            'hardware_status': self.hardware_status.copy(),
             'motion_status': None,
-            'motion_position': None,
-            'motion_homed': False
+            'timestamp': datetime.now().isoformat()
         }
         
-        if self.motion_available and self.motion_controller:
+        # Get motion status if available
+        if self.motion_controller and self.hardware_status['motion']:
             try:
-                # Get motion status synchronously
-                loop = asyncio.get_event_loop()
-                status['motion_status'] = loop.run_until_complete(
-                    self.motion_controller.get_status()
-                )
-                status['motion_position'] = self.motion_controller.get_position()
-                status['motion_homed'] = self.motion_controller.is_homed()
-            except:
-                pass
+                motion_status = self.motion_controller.get_status()
+                status['motion_status'] = {
+                    'connected': True,
+                    'status': motion_status,
+                    'can_home': True,
+                    'can_move': motion_status != 'Alarm',
+                    'is_homed': self.motion_controller.is_homed()
+                }
+            except Exception as e:
+                status['motion_status'] = {
+                    'connected': False,
+                    'error': str(e)
+                }
         
         return status
+    
+    async def home_all_axes(self) -> bool:
+        """Home all motion axes."""
+        if not self.hardware_status['motion'] or not self.motion_controller:
+            self.logger.error("Motion controller not available for homing")
+            return False
+        
+        self.logger.info("🏠 Starting homing sequence...")
+        
+        try:
+            result = self.motion_controller.home()
+            if result:
+                self.logger.info("✅ Homing completed successfully")
+                return True
+            else:
+                self.logger.error("❌ Homing failed")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ Homing error: {e}")
+            return False
+    
+    async def move_to_position(self, position: Position4D) -> bool:
+        """Move to specified position."""
+        if not self.hardware_status['motion'] or not self.motion_controller:
+            self.logger.error("Motion controller not available for movement")
+            return False
+        
+        self.logger.info(f"🎯 Moving to position: {position}")
+        
+        try:
+            # Convert Position4D to SimplePosition4D
+            simple_pos = SimplePosition4D(x=position.x, y=position.y, z=position.z, c=position.c)
+            result = self.motion_controller.move_to_position(simple_pos)
+            if result:
+                self.logger.info("✅ Move completed successfully")
+                return True
+            else:
+                self.logger.error("❌ Move failed")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ Move error: {e}")
+            return False
+    
+    async def capture_image(self) -> Optional[str]:
+        """Capture image with current system setup."""
+        if not self.hardware_status['cameras'] or not self.camera_controller:
+            self.logger.error("Camera controller not available")
+            return None
+        
+        self.logger.info("📸 Capturing image...")
+        
+        try:
+            # Enable lighting if available
+            if self.hardware_status['lighting'] and self.lighting_controller:
+                await self.lighting_controller.set_brightness(100)
+            
+            # Capture image
+            image_path = await self.camera_controller.capture()
+            
+            if image_path:
+                self.logger.info(f"✅ Image captured: {image_path}")
+                return image_path
+            else:
+                self.logger.error("❌ Image capture failed")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ Capture error: {e}")
+            return None
+        
+        finally:
+            # Reset lighting
+            if self.hardware_status['lighting'] and self.lighting_controller:
+                try:
+                    await self.lighting_controller.set_brightness(0)
+                except Exception:
+                    pass
+    
+    async def emergency_stop(self) -> bool:
+        """Emergency stop all operations."""
+        self.logger.warning("🚨 EMERGENCY STOP ACTIVATED")
+        
+        # Stop motion
+        if self.hardware_status['motion'] and self.motion_controller:
+            try:
+                self.motion_controller.stop_motion()
+                self.logger.info("✅ Motion emergency stop executed")
+            except Exception as e:
+                self.logger.error(f"Motion emergency stop failed: {e}")
+        
+        # Turn off lighting
+        if self.hardware_status['lighting'] and self.lighting_controller:
+            try:
+                await self.lighting_controller.set_brightness(0)
+                self.logger.info("✅ Lighting turned off")
+            except Exception as e:
+                self.logger.error(f"Lighting shutdown failed: {e}")
+        
+        return True
+    
+    async def shutdown(self) -> None:
+        """Graceful system shutdown."""
+        self.logger.info("🔄 Shutting down scan orchestrator...")
+        
+        # Disconnect motion controller
+        if self.motion_controller:
+            try:
+                self.motion_controller.disconnect()
+                self.logger.info("✅ Motion controller disconnected")
+            except Exception as e:
+                self.logger.debug(f"Motion disconnect error: {e}")
+        
+        self.is_initialized = False
+        self.logger.info("✅ Scan orchestrator shutdown complete")
+
+
+# Mock classes for testing without full hardware
+class MockCameraController:
+    """Mock camera controller for testing."""
+    
+    async def capture(self) -> str:
+        """Mock capture that returns a fake image path."""
+        await asyncio.sleep(0.1)  # Simulate capture time
+        return f"/tmp/mock_image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+
+
+class MockLightingController:
+    """Mock lighting controller for testing."""
+    
+    async def set_brightness(self, brightness: int) -> bool:
+        """Mock brightness setting."""
+        await asyncio.sleep(0.05)  # Simulate GPIO operations
+        return True
+
+
+class MockStorageManager:
+    """Mock storage manager for testing."""
+    
+    async def store_image(self, image_path: str) -> str:
+        """Mock image storage."""
+        return image_path
+
+
+# Factory function for web interface integration
+def create_scan_orchestrator(config_manager: ConfigManager) -> UpdatedScanOrchestrator:
+    """Factory function to create properly configured scan orchestrator."""
+    return UpdatedScanOrchestrator(config_manager)
