@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
-Enhanced Homing Status Handler
-Provides clear feedback on FluidNC alarm states and homing requirements
+Fixed Homing Status Manager
+
+Updated to work with the FixedFluidNCController which has proper homing completion detection.
+This manager now uses the working homing system from the successful tests.
+
+Author: Scanner System Development
+Created: September 26, 2025
 """
 
 import logging
@@ -34,8 +39,13 @@ class HomingState:
     progress_info: Dict[str, Any]
     recommendations: list[str]
 
-class HomingStatusManager:
-    """Manages homing status and provides user guidance"""
+class FixedHomingStatusManager:
+    """
+    Fixed Homing Status Manager with proper completion detection.
+    
+    This manager works with the FixedFluidNCController which properly waits for
+    the "MSG:DBG: Homing done" message and verifies final "Idle" status.
+    """
     
     def __init__(self, motion_controller):
         self.motion_controller = motion_controller
