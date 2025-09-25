@@ -149,6 +149,27 @@ class UpdatedScanOrchestrator:
         
         return status
     
+    def get_status(self) -> Dict[str, Any]:
+        """Get system status for compatibility with test suite."""
+        status = {
+            'initialized': self.is_initialized,
+            'motion_available': self.hardware_status['motion'],
+            'cameras_available': self.hardware_status['cameras'],
+            'motion_status': None,
+            'motion_homed': False
+        }
+        
+        # Get motion status if available
+        if self.motion_controller and self.hardware_status['motion']:
+            try:
+                motion_status = self.motion_controller.get_status()
+                status['motion_status'] = motion_status
+                status['motion_homed'] = self.motion_controller.is_homed()
+            except Exception as e:
+                self.logger.debug(f"Could not get motion status: {e}")
+        
+        return status
+    
     async def home_all_axes(self) -> bool:
         """Home all motion axes."""
         if not self.hardware_status['motion'] or not self.motion_controller:
