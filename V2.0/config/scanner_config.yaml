@@ -139,8 +139,8 @@ cameras:
     port: 0
     name: "Primary Camera"
     resolution:
-      capture: [3280, 2464]  # High-res for photos
-      preview: [1280, 720]   # Lower-res for streaming
+      capture: [4624, 3472]  # Arducam native high-res (10fps)
+      preview: [1280, 720]   # Arducam native preview (120fps)
     format: "jpeg"
     quality: 95
     
@@ -148,8 +148,8 @@ cameras:
     port: 1  
     name: "Secondary Camera"
     resolution:
-      capture: [3280, 2464]  # High-res for photos
-      preview: [1280, 720]   # Lower-res for streaming
+      capture: [4624, 3472]  # Arducam native high-res (10fps)  
+      preview: [1280, 720]   # Arducam native preview (120fps)
     format: "jpeg"
     quality: 95
     
