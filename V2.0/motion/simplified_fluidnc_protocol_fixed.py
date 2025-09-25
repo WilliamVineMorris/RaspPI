@@ -8,10 +8,8 @@ This version addresses the key issues found in testing:
 3. Handles motion state correctly
 
 Author: Scanner System Redesign  
-Created: September 24, 2025
-"""
-
-import logging
+Created: September 24, 20                # Monitor for homing completion
+                return self._monitor_homing_completion()port logging
 import threading
 import time
 import serial
@@ -342,6 +340,87 @@ class SimplifiedFluidNCProtocolFixed:
                 logger.error(f"❌ Homing command error: {e}")
                 return False, f"Command error: {e}"
 
+    def _monitor_homing_completion(self) -> Tuple[bool, str]:
+        """Monitor FluidNC messages for homing completion."""
+        start_time = time.time()
+        timeout = 120.0  # 2 minutes for homing
+        homing_started = False
+        homing_done = False
+        last_debug_message = ""
+        
+        logger.info("📊 Monitoring homing progress via debug messages...")
+        
+        while (time.time() - start_time) < timeout:
+            time.sleep(0.1)  # Check every 100ms
+            
+            # Check for incoming data
+            if self.serial_connection and self.serial_connection.in_waiting > 0:
+                try:
+                    data = self.serial_connection.read(self.serial_connection.in_waiting)
+                    if data:
+                        decoded = data.decode('utf-8', errors='ignore')
+                        
+                        # Process each line
+                        for line in decoded.strip().split('\n'):
+                            line = line.strip()
+                            if not line:
+                                continue
+                            
+                            # Process the line normally
+                            self._process_incoming_data(line + '\n')
+                            
+                            # Check for homing-specific messages
+                            if '[MSG:DBG: Homing' in line:
+                                homing_started = True
+                                if 'Done' in line:
+                                    logger.info(f"✅ Homing completion detected: {line}")
+                                    homing_done = True
+                                    break
+                                else:
+                                    # Log homing progress
+                                    if line != last_debug_message:
+                                        logger.info(f"📊 Homing progress: {line}")
+                                        last_debug_message = line
+                            
+                            # Check for error conditions
+                            elif 'ALARM' in line.upper():
+                                logger.error(f"❌ Homing failed with alarm: {line}")
+                                return False, f"Alarm during homing: {line}"
+                            
+                            elif line.startswith('error:'):
+                                logger.error(f"❌ Homing failed with error: {line}")
+                                return False, f"Error during homing: {line}"
+                        
+                        # If we detected "Homing Done", break the outer loop
+                        if homing_done:
+                            break
+                            
+                except Exception as e:
+                    logger.debug(f"Error reading serial data: {e}")
+            
+            # Check status for completion confirmation
+            if homing_started and self.current_status:
+                current_status = self.current_status.state
+                if current_status == "Idle":
+                    # Wait a moment to ensure we also got "Homing Done"
+                    if homing_done:
+                        logger.info("✅ Homing completed (confirmed by status and debug message)")
+                        return True, "Homing completed successfully"
+                    else:
+                        # Give it a bit more time to receive the "Homing Done" message
+                        time.sleep(0.5)
+                        continue
+                elif current_status == "Alarm":
+                    logger.error("❌ Homing failed - status shows Alarm")
+                    return False, "Status changed to Alarm"
+        
+        # Timeout occurred
+        if homing_started:
+            logger.error(f"⏰ Homing timeout after {timeout}s (homing started but didn't complete)")
+        else:
+            logger.error(f"⏰ Homing timeout after {timeout}s (homing never started)")
+        
+        return False, "Homing timeout"
 
 
     def _process_incoming_data(self, data: str):
