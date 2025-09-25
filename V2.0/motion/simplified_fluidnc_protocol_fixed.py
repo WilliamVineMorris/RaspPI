@@ -291,6 +291,66 @@ class SimplifiedFluidNCProtocolFixed:
         """Send command (legacy interface, uses motion wait)"""
         return self.send_command_with_motion_wait(command)
     
+    def send_homing_command(self, command: str = "$H") -> Tuple[bool, str]:
+        """Send homing command with extended timeout and special handling"""
+        logger.info(f"🏠 Sending homing command with extended timeout: {command}")
+        
+        with self.command_lock:
+            if not self.is_connected():
+                return False, "Not connected"
+            
+            # Track pending commands
+            self.pending_commands += 1
+            
+            try:
+                start_time = time.time()
+                
+                # Send command immediately (no delay for homing)
+                logger.debug(f"📤 Homing Command: {command}")
+                
+                if self.serial_connection is None:
+                    return False, "No serial connection"
+                    
+                command_line = f"{command}\n"
+                self.serial_connection.write(command_line.encode('utf-8'))
+                self.serial_connection.flush()
+                
+                self.stats['commands_sent'] += 1
+                self.last_command_time = time.time()
+                
+                command_sent_time = time.time()
+                logger.debug(f"📤 [TIMING] Homing command sent after: {(command_sent_time-start_time)*1000:.1f}ms")
+                
+                # For homing, we just wait for the immediate "ok" response
+                # The actual homing progress is monitored via status polling
+                response_timeout = 5.0  # Short timeout just for command acceptance
+                immediate_response = self._wait_for_immediate_response(response_timeout)
+                
+                response_received_time = time.time()
+                logger.debug(f"📥 [TIMING] Homing response received after: {(response_received_time-start_time)*1000:.1f}ms")
+                
+                if immediate_response is None:
+                    logger.error(f"❌ Homing command timeout after {response_timeout}s")
+                    self.stats['timeouts'] += 1
+                    return False, "Command timeout"
+                
+                if "ok" in immediate_response.lower():
+                    logger.info(f"✅ Homing command accepted: {immediate_response.strip()}")
+                    self.stats['responses_received'] += 1
+                    
+                    # Return immediately - homing progress monitored separately
+                    return True, immediate_response.strip()
+                else:
+                    logger.error(f"❌ Homing command rejected: {immediate_response.strip()}")
+                    self.stats['responses_received'] += 1
+                    return False, immediate_response.strip()
+                    
+            except Exception as e:
+                logger.error(f"❌ Homing command error: {e}")
+                return False, f"Command error: {e}"
+            finally:
+                self.pending_commands = max(0, self.pending_commands - 1)
+    
     def _is_motion_command(self, command: str) -> bool:
         """Check if command causes motion"""
         command_upper = command.upper().strip()

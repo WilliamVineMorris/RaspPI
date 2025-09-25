@@ -1249,7 +1249,10 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             
             # Always send homing command - $H clears alarm AND homes
             logger.info("🏠 Sending homing command ($H) - this will clear alarm and home all axes...")
-            success, response = await self._send_command("$H")
+            # Use special homing command method with appropriate timeout
+            success, response = await asyncio.get_event_loop().run_in_executor(
+                None, self.protocol.send_homing_command, "$H"
+            )
             
             if success:
                 self.motion_status = MotionStatus.HOMING
@@ -1365,7 +1368,10 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 status_callback("homing", "Sending homing command ($H) - this clears alarm and homes...")
             
             logger.info("🏠 Sending homing command ($H)...")
-            success, response = await self._send_command("$H")
+            # Use special homing command method with appropriate timeout
+            success, response = await asyncio.get_event_loop().run_in_executor(
+                None, self.protocol.send_homing_command, "$H"
+            )
             
             if not success:
                 if status_callback:
