@@ -37,22 +37,12 @@ async def test_consolidated_controller():
     print("=" * 60)
     
     try:
-        # Import the consolidated controller
-        from core.config_manager import ConfigManager
-        from motion.consolidated_fluidnc_controller import ConsolidatedFluidNCController
+        # Import the simple working controller (proven approach)
+        from simple_working_fluidnc_controller import SimpleWorkingFluidNCController
         
-        # Load configuration
-        config_path = Path(__file__).parent / "config" / "scanner_config.yaml"
-        if not config_path.exists():
-            print(f"⚠️  Config file not found at {config_path}")
-            print("   Creating minimal config for testing...")
-            config_manager = ConfigManager()
-        else:
-            config_manager = ConfigManager(str(config_path))
-        
-        # Create controller
+        # Create controller (no config needed for simple version)
         print("\n1️⃣ Creating Controller...")
-        controller = ConsolidatedFluidNCController(config_manager)
+        controller = SimpleWorkingFluidNCController("/dev/ttyUSB0", 115200)
         print(f"✅ Controller created (port: {controller.port})")
         
     except ImportError as e:

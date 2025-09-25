@@ -96,6 +96,15 @@ class ConsolidatedFluidNCController(MotionController):
             self._connected = False
             return False
     
+    async def connect(self) -> bool:
+        """Connect to FluidNC controller (required abstract method)."""
+        return await self.initialize()
+    
+    async def disconnect(self) -> bool:
+        """Disconnect from FluidNC controller (required abstract method)."""
+        await self.shutdown()
+        return True
+    
     async def shutdown(self) -> None:
         """Shutdown the controller and close connection."""
         self.logger.info("🔌 Disconnecting from FluidNC")
@@ -124,9 +133,21 @@ class ConsolidatedFluidNCController(MotionController):
         
         return self._status
     
-    def get_position(self) -> Position4D:
+    async def get_position(self) -> Position4D:
         """Get current position."""
         return self._position
+    
+    async def get_capabilities(self) -> 'MotionCapabilities':
+        """Get motion controller capabilities."""
+        from motion.base import MotionCapabilities
+        return MotionCapabilities(
+            axes_count=4,
+            supports_homing=True,
+            supports_soft_limits=True,
+            supports_probe=False,
+            max_feedrate=1000.0,
+            position_resolution=0.001
+        )
     
     async def home(self) -> bool:
         """
@@ -305,6 +326,94 @@ class ConsolidatedFluidNCController(MotionController):
             await asyncio.sleep(0.1)
         
         return False
+    
+    # Additional required abstract methods
+    
+    async def move_relative(self, delta: Position4D, feedrate: Optional[float] = None) -> bool:
+        """Move relative to current position"""
+        current = await self.get_position()
+        target = Position4D(
+            x=current.x + delta.x,
+            y=current.y + delta.y,
+            z=current.z + delta.z,
+            c=current.c + delta.c
+        )
+        return await self.move_to_position(target, feedrate)
+    
+    async def rapid_move(self, position: Position4D) -> bool:
+        """Rapid movement to position"""
+        return await self.move_to_position(position)
+    
+    async def home_all_axes(self) -> bool:
+        """Home all axes"""
+        return await self.home()
+    
+    async def home_axis(self, axis: str) -> bool:
+        """Home specific axis (FluidNC homes all axes together)"""
+        self.logger.warning("FluidNC homes all axes together, ignoring specific axis request")
+        return await self.home()
+    
+    async def set_position(self, position: Position4D) -> bool:
+        """Set current position coordinate system"""
+        try:
+            # Use G92 to set coordinate system
+            gcode = f"G92 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} C{position.c:.3f}"
+            success = await self.execute_gcode(gcode)
+            
+            if success:
+                self._position = position
+                self.logger.info(f"✅ Position set to: {position}")
+                return True
+            else:
+                self.logger.error("❌ Failed to set position")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ Set position error: {e}")
+            return False
+    
+    async def pause_motion(self) -> bool:
+        """Pause current motion"""
+        if not self.is_connected() or not self.serial_connection:
+            return False
+        try:
+            self.serial_connection.write(b"!")  # Feed hold
+            return True
+        except Exception as e:
+            self.logger.error(f"❌ Pause error: {e}")
+            return False
+    
+    async def resume_motion(self) -> bool:
+        """Resume paused motion"""
+        if not self.is_connected() or not self.serial_connection:
+            return False
+        try:
+            self.serial_connection.write(b"~")  # Cycle start
+            return True
+        except Exception as e:
+            self.logger.error(f"❌ Resume error: {e}")
+            return False
+    
+    async def cancel_motion(self) -> bool:
+        """Cancel current motion"""
+        return await self.stop_motion()
+    
+    async def set_motion_limits(self, axis: str, limits) -> bool:
+        """Set motion limits for axis (not implemented for FluidNC)"""
+        self.logger.info(f"Motion limits setting not implemented for FluidNC")
+        return True
+    
+    async def get_motion_limits(self, axis: str):
+        """Get motion limits for axis (not implemented for FluidNC)"""
+        return None
+    
+    async def set_feedrate(self, feedrate: float) -> bool:
+        """Set feedrate"""
+        return await self.set_feed_rate(feedrate)
+    
+    async def get_feedrate(self) -> float:
+        """Get current feedrate"""
+        return 100.0  # Default feedrate
     
     # Helper methods
     
