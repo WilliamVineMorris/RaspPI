@@ -89,12 +89,17 @@ def test_direct_camera_controller():
                     
                     # Test getting camera status
                     try:
-                        # This might not exist, but let's try
-                        if hasattr(controller, 'get_status'):
-                            status = controller.get_status()
+                        # Use the sync version to avoid async warnings
+                        if hasattr(controller, 'get_status_sync'):
+                            status = controller.get_status_sync()
                             print(f"   📊 Camera status: {status}")
-                    except:
-                        pass
+                        elif hasattr(controller, 'get_status'):
+                            # If sync version doesn't exist, note the async warning
+                            print("   ⚠️  get_status is async - using with warning")
+                            status = controller.get_status()  # This will create warning
+                            print(f"   📊 Camera status: {status}")
+                    except Exception as e:
+                        print(f"   ⚠️  Status check failed: {e}")
                     
                     return True
                 else:
