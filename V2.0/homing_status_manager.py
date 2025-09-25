@@ -216,6 +216,100 @@ class HomingStatusManager:
             self._notify_callbacks()
             return self.current_state
     
+    async def manual_unlock(self) -> bool:
+        """Manually unlock (clear alarm) without homing"""
+        try:
+            logger.info("🔓 Manual unlock requested...")
+            
+            # Update status
+            self.current_state = HomingState(
+                status=HomingStatus.IN_PROGRESS,
+                message="Clearing alarm state...",
+                can_home=False,
+                requires_user_action=False,
+                timestamp=datetime.now(),
+                progress_info={'phase': 'unlocking'},
+                recommendations=[
+                    "Clearing alarm - please wait"
+                ]
+            )
+            self._notify_callbacks()
+            
+            # Use the clear_alarm method
+            success = await self.motion_controller.clear_alarm()
+            
+            if success:
+                # Check final status
+                await asyncio.sleep(1.0)  # Wait for status to update
+                status = await self.motion_controller.get_status()
+                
+                if status.name == "IDLE":
+                    self.current_state = HomingState(
+                        status=HomingStatus.NOT_REQUIRED,
+                        message="Alarm cleared - system unlocked (position unknown)",
+                        can_home=True,
+                        requires_user_action=False,
+                        timestamp=datetime.now(),
+                        progress_info={'phase': 'unlocked', 'success': True, 'position_known': False},
+                        recommendations=[
+                            "Alarm cleared successfully!",
+                            "⚠️ Position is unknown - home when safe",
+                            "You can now move axes manually",
+                            "Consider homing for accurate positioning"
+                        ]
+                    )
+                else:
+                    self.current_state = HomingState(
+                        status=HomingStatus.FAILED,
+                        message="Unlock failed - still in alarm state",
+                        can_home=True,
+                        requires_user_action=True,
+                        timestamp=datetime.now(),
+                        progress_info={'phase': 'failed', 'success': False},
+                        recommendations=[
+                            "Manual unlock failed",
+                            "Check limit switches",
+                            "Manually move axes away from limits",
+                            "Try power cycling FluidNC"
+                        ]
+                    )
+            else:
+                self.current_state = HomingState(
+                    status=HomingStatus.FAILED,
+                    message="Unlock command failed",
+                    can_home=True,
+                    requires_user_action=True,
+                    timestamp=datetime.now(),
+                    progress_info={'phase': 'failed', 'success': False},
+                    recommendations=[
+                        "Unlock command failed",
+                        "Check FluidNC connection",
+                        "Try manual FluidNC commands",
+                        "Power cycle if necessary"
+                    ]
+                )
+            
+            self._notify_callbacks()
+            return success
+            
+        except Exception as e:
+            logger.error(f"Manual unlock failed: {e}")
+            self.current_state = HomingState(
+                status=HomingStatus.FAILED,
+                message=f"Unlock error: {e}",
+                can_home=True,
+                requires_user_action=True,
+                timestamp=datetime.now(),
+                progress_info={'error': str(e)},
+                recommendations=[
+                    "Check system connections",
+                    "Verify FluidNC status",
+                    "Try power cycling"
+                ]
+            )
+            self._notify_callbacks()
+            return False
+
     async def start_homing(self, progress_callback=None) -> bool:
         """Start homing sequence with progress tracking"""
         try:
@@ -251,10 +345,11 @@ class HomingStatusManager:
                     can_home=True,
                     requires_user_action=False,
                     timestamp=datetime.now(),
-                    progress_info={'phase': 'completed', 'success': True},
+                    progress_info={'phase': 'completed', 'success': True, 'position_known': True},
                     recommendations=[
                         "Homing successful!",
-                        "System ready for operation"
+                        "System ready for operation",
+                        "Position is now accurately known"
                     ]
                 )
             else:
@@ -269,7 +364,7 @@ class HomingStatusManager:
                         "Check limit switches",
                         "Ensure axes move freely",
                         "Check FluidNC configuration",
-                        "Try manual positioning"
+                        "Try manual unlock if homing impossible"
                     ]
                 )
             
@@ -288,7 +383,7 @@ class HomingStatusManager:
                 recommendations=[
                     "Check system connections",
                     "Verify FluidNC status",
-                    "Try clearing alarm first"
+                    "Try manual unlock if needed"
                 ]
             )
             self._notify_callbacks()
@@ -345,10 +440,12 @@ class HomingStatusManager:
             'homing_required': self.current_state.status == HomingStatus.REQUIRED,
             'homing_in_progress': self.current_state.status == HomingStatus.IN_PROGRESS,
             'can_home': self.current_state.can_home,
+            'can_manual_unlock': self.current_state.status == HomingStatus.REQUIRED or self.current_state.status == HomingStatus.FAILED,
             'status': self.current_state.status.value,
             'message': self.current_state.message,
             'requires_user_action': self.current_state.requires_user_action,
             'recommendations': self.current_state.recommendations,
             'progress_info': self.current_state.progress_info,
+            'position_known': self.current_state.progress_info.get('position_known', False),
             'timestamp': self.current_state.timestamp.isoformat()
         }

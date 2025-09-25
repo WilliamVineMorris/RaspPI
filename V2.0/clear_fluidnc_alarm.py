@@ -52,14 +52,25 @@ def clear_fluidnc_alarm(port="/dev/ttyUSB0", baudrate=115200):
             if "Idle" in response or "Jog" in response:
                 print("✅ Alarm unlocked - now ready for homing")
                 
-                # Prompt for homing
-                print("\n🏠 Step 2: Homing Required")
-                print("   FluidNC needs to be homed to know its position")
-                print("   This will move all axes to their home positions")
+                # Offer homing or manual unlock options
+                print("\n🏠 Step 2: Choose Recovery Method")
+                print("   Option 1: Full Homing (recommended)")
+                print("   • Moves all axes to home positions")
+                print("   • Accurately establishes position")
+                print("   • Requires limit switches to work")
+                print()
+                print("   Option 2: Manual Unlock Only")
+                print("   • Just clears alarm without moving")
+                print("   • Position will be unknown")
+                print("   • Use if homing is impossible")
+                print()
+                print("   h) Full homing sequence")
+                print("   u) Manual unlock only")
+                print("   n) No action")
                 
-                response = input("\n   Proceed with automatic homing? (y/N): ").strip().lower()
+                response = input("\n   Choose option (h/u/n): ").strip().lower()
                 
-                if response == 'y':
+                if response == 'h':
                     print("🏠 Starting homing sequence ($H)...")
                     ser.write(b"$H\n")
                     
@@ -92,9 +103,18 @@ def clear_fluidnc_alarm(port="/dev/ttyUSB0", baudrate=115200):
                     else:
                         print("⏰ Homing timeout - check manually")
                         
+                elif response == 'u':
+                    print("🔓 Manual unlock selected - position will be unknown")
+                    print("✅ Alarm cleared - you can now use the system")
+                    print("⚠️  WARNING: Position is unknown after unlock")
+                    print("💡 Consider homing later when safe to do so")
+                    
                 else:
-                    print("⚠️  Manual homing required")
-                    print("   Use the web interface or send $H command manually")
+                    print("⚠️  No action taken")
+                    print("   You can:")
+                    print("   • Use web interface Home/Unlock buttons")
+                    print("   • Send $H command manually for homing")
+                    print("   • Send $X command manually for unlock only")
                     
             else:
                 print("⚠️  Alarm persists after unlock")

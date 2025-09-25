@@ -32,7 +32,8 @@ async def test_alarm_state_handling():
     try:
         # Initialize configuration
         print("📋 Loading configuration...")
-        config_manager = ConfigManager()
+        config_file = Path(__file__).parent / "config" / "scanner_config.yaml"
+        config_manager = ConfigManager(config_file)
         
         # Create motion controller with enhanced alarm handling
         motion_config = config_manager.get('motion', {})
@@ -114,76 +115,107 @@ async def test_alarm_state_handling():
             for rec in homing_state.recommendations:
                 print(f"      • {rec}")
         
-        # Test 3: Offer to perform homing
+        # Test 3: Offer to perform homing or manual unlock
         if homing_state.can_home and homing_state.requires_user_action:
-            print("\n🏠 Test 3: Guided Homing Process")
-            print("-" * 35)
+            print("\n🏠 Test 3: Homing & Manual Unlock Options")
+            print("-" * 45)
             
-            print("   ⚠️  SAFETY WARNING:")
-            print("      • Ensure all axes can move freely")
-            print("      • Check that limit switches are connected")
-            print("      • Be ready to power off if something goes wrong")
-            
-            response = input("\n   🤔 Proceed with automatic homing? (y/N): ").strip().lower()
-            
-            if response == 'y':
-                print("\n   🏠 Starting homing sequence...")
+            if homing_state.status.value == "required":
+                print("   ⚠️  FluidNC is in ALARM state - two options available:")
+                print("   1. 🏠 Full Homing (recommended) - moves to home position")
+                print("   2. 🔓 Manual Unlock - clears alarm without moving")
+                print()
+                print("   ⚠️  SAFETY WARNING for Homing:")
+                print("      • Ensure all axes can move freely")
+                print("      • Check that limit switches are connected")
+                print("      • Be ready to power off if something goes wrong")
+                print()
+                print("   ⚠️  WARNING for Manual Unlock:")
+                print("      • Position will be unknown after unlock")
+                print("      • Only use if homing is impossible")
+                print("      • Manual positioning will be required")
                 
-                # Track homing progress
+                print("\n   Options:")
+                print("   h) Full homing sequence (recommended)")
+                print("   u) Manual unlock only (position unknown)")
+                print("   s) Skip testing")
+                
+                response = input("\n   🤔 Choose option (h/u/s): ").strip().lower()
+                
+                # Track progress
                 def status_callback(state):
                     print(f"   📊 {state.message}")
                 
                 homing_manager.add_status_callback(status_callback)
                 
-                success = await homing_manager.start_homing()
-                
-                if success:
-                    print("   ✅ Homing completed successfully!")
+                if response == 'h':
+                    print("\n   🏠 Starting full homing sequence...")
+                    success = await homing_manager.start_homing()
                     
-                    # Verify final status
-                    final_status = await motion_controller.get_status()
-                    print(f"   📊 Final status: {final_status}")
-                    
-                    if final_status.name == "IDLE":
-                        print("   🎯 System ready for operation!")
+                    if success:
+                        print("   ✅ Homing completed successfully!")
                         
-                        # Test a small move to verify functionality
-                        print("\n   🔧 Testing small movement...")
-                        try:
-                            from core.position import Position4D
-                            test_pos = Position4D(5.0, 5.0, 0.0, 0.0)
-                            move_success = await motion_controller.move_to_position(test_pos)
+                        # Verify final status
+                        final_status = await motion_controller.get_status()
+                        print(f"   📊 Final status: {final_status}")
+                        
+                        if final_status.name == "IDLE":
+                            print("   🎯 System ready for operation!")
+                            print("   💡 Position is now accurately known")
+                        
+                    else:
+                        print("   ❌ Homing failed!")
+                        
+                        # Get failure details
+                        final_state = await homing_manager.check_homing_status()
+                        print(f"   � Error details: {final_state.message}")
+                        
+                        # Offer manual unlock as fallback
+                        print("\n   🔓 Would you like to try manual unlock instead?")
+                        unlock_response = input("   🤔 Try manual unlock? (y/N): ").strip().lower()
+                        
+                        if unlock_response == 'y':
+                            print("   🔓 Attempting manual unlock...")
+                            unlock_success = await homing_manager.manual_unlock()
                             
-                            if move_success:
-                                print("   ✅ Test movement successful!")
-                                
-                                # Return to home
-                                print("   🏠 Returning to home position...")
-                                home_pos = Position4D(0.0, 0.0, 0.0, 0.0)
-                                await motion_controller.move_to_position(home_pos)
-                                print("   ✅ Returned to home position")
+                            if unlock_success:
+                                print("   ✅ Manual unlock successful!")
+                                print("   ⚠️  Position is unknown - be careful with movements")
                             else:
-                                print("   ⚠️  Test movement failed")
+                                print("   ❌ Manual unlock also failed")
                                 
-                        except Exception as e:
-                            print(f"   ⚠️  Movement test error: {e}")
+                elif response == 'u':
+                    print("\n   🔓 Starting manual unlock...")
+                    success = await homing_manager.manual_unlock()
                     
+                    if success:
+                        print("   ✅ Manual unlock successful!")
+                        print("   ⚠️  Position is unknown - home when safe")
+                        
+                        # Verify final status
+                        final_status = await motion_controller.get_status()
+                        print(f"   📊 Final status: {final_status}")
+                        
+                    else:
+                        print("   ❌ Manual unlock failed!")
+                        
+                        # Get failure details
+                        final_state = await homing_manager.check_homing_status()
+                        print(f"   💬 Error details: {final_state.message}")
+                        
+                        if final_state.recommendations:
+                            print("   💡 Try these solutions:")
+                            for rec in final_state.recommendations:
+                                print(f"      • {rec}")
+                                
                 else:
-                    print("   ❌ Homing failed!")
-                    
-                    # Get failure details
-                    final_state = await homing_manager.check_homing_status()
-                    print(f"   💬 Error details: {final_state.message}")
-                    
-                    if final_state.recommendations:
-                        print("   💡 Try these solutions:")
-                        for rec in final_state.recommendations:
-                            print(f"      • {rec}")
+                    print("   ⏭️  Skipping homing/unlock testing")
+                    print("   💡 You can test manually using:")
+                    print("      • Web interface 'Home' or 'Unlock' buttons")
+                    print("      • Manual FluidNC commands ($X then $H)")
             else:
-                print("   ⏭️  Skipping automatic homing")
-                print("   💡 You can home manually using:")
-                print("      • Web interface 'Home' button")
-                print("      • Manual FluidNC commands ($X then $H)")
+                print("   📊 System not in alarm state - homing not required")
+                print("   💡 But homing can still be performed for testing")
         
         # Test 4: Web interface integration readiness
         print("\n🌐 Test 4: Web Interface Integration")

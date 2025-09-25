@@ -1199,6 +1199,37 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             logger.error(f"❌ Clear alarm failed: {e}")
             return False
 
+    def clear_alarm_sync(self) -> bool:
+        """Synchronous version of clear_alarm for web interface"""
+        try:
+            logger.info("🔓 Clearing alarm state (sync)...")
+            
+            # Use the protocol directly for synchronous operation
+            success, response = self.protocol.send_command("$X")
+            
+            if success:
+                # Wait a moment for state to update
+                import time
+                time.sleep(0.5)
+                
+                # Check status synchronously
+                status = self.protocol.get_current_status()
+                
+                if status and status.state != "Alarm":
+                    logger.info("✅ Alarm cleared successfully (sync)")
+                    self.motion_status = MotionStatus.IDLE
+                    return True
+                else:
+                    logger.warning("⚠️ Alarm command sent but state unchanged (sync)")
+                    return False
+            else:
+                logger.error(f"❌ Clear alarm command failed (sync): {response}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Clear alarm failed (sync): {e}")
+            return False
+
     async def home(self) -> bool:
         """Home all axes with comprehensive error handling"""
         try:

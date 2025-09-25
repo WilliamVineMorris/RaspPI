@@ -472,6 +472,66 @@ class ScannerWebInterface:
                 self.logger.error(f"❌ Home API traceback: {traceback.format_exc()}")
                 return jsonify({'success': False, 'error': str(e)}), 500
 
+        @self.app.route('/api/unlock', methods=['POST'])
+        def api_manual_unlock():
+            """Manual unlock (clear alarm) without homing"""
+            try:
+                self.logger.info("🔓 MANUAL UNLOCK API called")
+                
+                # Check if orchestrator and motion controller are available
+                if not self.orchestrator:
+                    self.logger.error("❌ No orchestrator available")
+                    return jsonify({'success': False, 'error': 'Orchestrator not available'}), 500
+                    
+                if not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
+                    self.logger.error("❌ No motion controller available")
+                    return jsonify({'success': False, 'error': 'Motion controller not available'}), 500
+                
+                self.logger.info("🔓 Executing manual unlock command...")
+                
+                # Execute manual unlock in thread to avoid blocking
+                import threading
+                def unlock_task():
+                    try:
+                        self.logger.info("🔓 Starting unlock task in background thread")
+                        if self.orchestrator and self.orchestrator.motion_controller:
+                            # Call the clear_alarm method directly
+                            result = self.orchestrator.motion_controller.clear_alarm_sync()
+                            self.logger.info(f"🔓 Manual unlock completed, result: {result}")
+                            if not result:
+                                self.logger.error("❌ Manual unlock failed - clear_alarm_sync returned False")
+                        else:
+                            self.logger.error("❌ Motion controller became unavailable during unlock")
+                    except Exception as e:
+                        self.logger.error(f"❌ Manual unlock task exception: {e}")
+                        import traceback
+                        self.logger.error(f"❌ Unlock traceback: {traceback.format_exc()}")
+                
+                # Start unlock thread
+                unlock_thread = threading.Thread(target=unlock_task, name="UnlockThread")
+                unlock_thread.daemon = True
+                unlock_thread.start()
+                self.logger.info(f"🔓 Unlock thread started: {unlock_thread.name}")
+                
+                # Return immediate response
+                response = {
+                    'success': True,
+                    'data': {
+                        'message': 'Manual unlock started - clearing alarm state',
+                        'status': 'in_progress',
+                        'warning': 'Position will be unknown after unlock'
+                    },
+                    'timestamp': datetime.now().isoformat()
+                }
+                self.logger.info(f"🔓 Sending response: {response}")
+                return jsonify(response)
+                
+            except Exception as e:
+                self.logger.error(f"❌ Manual unlock API error: {e}")
+                import traceback
+                self.logger.error(f"❌ Unlock API traceback: {traceback.format_exc()}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
         @self.app.route('/api/debug/position')
         def api_debug_position():
             """Debug endpoint for position updates"""
