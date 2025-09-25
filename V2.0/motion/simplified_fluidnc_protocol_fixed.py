@@ -224,8 +224,8 @@ class SimplifiedFluidNCProtocolFixed:
                     delay_needed = active_delay - time_since_last
                     logger.debug(f"⏳ [TIMING] {delay_type} command delay: {delay_needed*1000:.1f}ms")
                     time.sleep(delay_needed)
-            
-            try:
+                
+                # Continue with command execution
                 command_ready_time = time.time()
                 logger.debug(f"🕐 [TIMING] Command ready after: {(command_ready_time-start_time)*1000:.1f}ms")
                 logger.debug(f"📤 Command: {command}")
