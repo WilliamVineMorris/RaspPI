@@ -11,6 +11,7 @@ import logging
 import sys
 from pathlib import Path
 from datetime import datetime
+from typing import List, Optional
 
 # Add the current directory to path for imports
 sys.path.append(str(Path(__file__).parent))
@@ -24,33 +25,63 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def create_cylindrical_scan_pattern(radius: float = 25.0, 
+                                   height_range: tuple = (40.0, 120.0),
+                                   height_step: float = 20.0,
+                                   rotation_step: float = 60.0,
+                                   camera_angles: Optional[List[float]] = None):
+    """
+    Create a cylindrical scan pattern with configurable radius
+    
+    Args:
+        radius: Fixed camera radius (X-axis distance from object center)
+        height_range: (start_height, end_height) for Y-axis scanning
+        height_step: Step size between height levels
+        rotation_step: Degrees between rotation positions
+        camera_angles: List of camera pivot angles (C-axis)
+    """
+    if camera_angles is None:
+        camera_angles = [-10.0, 0.0, 10.0]
+    
+    # Calculate rotation angles (convert to float)
+    z_rotations = [float(angle) for angle in range(0, 360, int(rotation_step))]
+    
+    return CylindricalPatternParameters(
+        # Fixed camera radius (X-axis)
+        x_start=radius,
+        x_end=radius,      # Same as start = fixed position
+        x_step=1.0,        # Not used when start=end
+        
+        # Multiple height passes (Y-axis)
+        y_start=height_range[0],
+        y_end=height_range[1],
+        y_step=height_step,
+        
+        # Object rotation (Z-axis turntable)
+        z_rotations=z_rotations,
+        
+        # Camera pivot angles (C-axis)
+        c_angles=camera_angles,
+        
+        # Pattern settings
+        overlap_percentage=30.0,
+        max_feedrate=600.0,
+        safety_margin=0.5
+    )
+
 def test_cylindrical_pattern_generation():
     """Test cylindrical pattern generation for multiple height passes"""
     logger.info("🎯 Testing Cylindrical Pattern Generation")
     
     # Create a typical cylindrical scan pattern
     # This simulates scanning a cylindrical object at multiple heights
-    parameters = CylindricalPatternParameters(
-        # Camera positions (X-axis - distance from object)
-        x_start=-10.0,  # Closer to object
-        x_end=10.0,     # Further from object  
-        x_step=10.0,    # 3 positions: -10, 0, 10
-        
-        # Multiple height passes (Y-axis)
-        y_start=40.0,   # Bottom height
-        y_end=120.0,    # Top height
-        y_step=20.0,    # Height increment -> 5 levels (40, 60, 80, 100, 120)
-        
-        # Object rotation (Z-axis turntable)
-        z_rotations=[0, 60, 120, 180, 240, 300],  # 6 angles (every 60°)
-        
-        # Camera pivot angles (C-axis)
-        c_angles=[-10, 0, 10],  # 3 camera angles
-        
-        # Pattern settings
-        overlap_percentage=30.0,
-        max_feedrate=600.0,
-        safety_margin=0.5
+    # X-axis represents FIXED RADIUS (distance from object center)
+    parameters = create_cylindrical_scan_pattern(
+        radius=25.0,              # Fixed radius: 25mm from object center
+        height_range=(40.0, 120.0),  # Scan from 40mm to 120mm height
+        height_step=20.0,         # 20mm between height levels
+        rotation_step=60.0,       # Every 60° rotation
+        camera_angles=[-10, 0, 10]  # 3 camera angles
     )
     
     # Create the pattern
@@ -78,25 +109,26 @@ def test_cylindrical_pattern_generation():
     c_positions = sorted(set(p.position.c for p in points))
     
     logger.info(f"📏 Scan Structure:")
-    logger.info(f"   • X positions ({len(x_positions)}): {[f'{x:.1f}' for x in x_positions]}")
-    logger.info(f"   • Y heights ({len(y_positions)}): {[f'{y:.1f}' for y in y_positions]}")
-    logger.info(f"   • Z rotations ({len(z_positions)}): {[f'{z:.0f}deg' for z in z_positions]}")
-    logger.info(f"   • C angles ({len(c_positions)}): {[f'{c:.0f}deg' for c in c_positions]}")
+    logger.info(f"   • X radius ({len(x_positions)}): {[f'{x:.1f}mm' for x in x_positions]} (fixed camera distance)")
+    logger.info(f"   • Y heights ({len(y_positions)}): {[f'{y:.1f}mm' for y in y_positions]} (multiple passes)")
+    logger.info(f"   • Z rotations ({len(z_positions)}): {[f'{z:.0f}deg' for z in z_positions]} (turntable angles)")
+    logger.info(f"   • C angles ({len(c_positions)}): {[f'{c:.0f}deg' for c in c_positions]} (camera pivot)")
     
     # Show expected total
     expected_total = len(x_positions) * len(y_positions) * len(z_positions) * len(c_positions)
-    logger.info(f"   • Expected total: {len(x_positions)} × {len(y_positions)} × {len(z_positions)} × {len(c_positions)} = {expected_total}")
+    logger.info(f"   • Expected total: {len(x_positions)} radius × {len(y_positions)} heights × {len(z_positions)} rotations × {len(c_positions)} angles = {expected_total}")
     
     if len(points) == expected_total:
         logger.info("✅ Point count matches expected total!")
     else:
         logger.warning(f"⚠️  Point count mismatch: got {len(points)}, expected {expected_total}")
     
-    # Show height pass analysis
-    logger.info(f"📈 Height Pass Analysis:")
+    # Show height pass analysis (key feature for cylindrical scanning)
+    logger.info(f"📈 Height Pass Analysis (Multiple Y-levels):")
     for y in y_positions:
         points_at_height = [p for p in points if p.position.y == y]
-        logger.info(f"   • Y={y:5.1f}mm: {len(points_at_height):3d} points")
+        points_per_rotation = len(points_at_height) // len(z_positions) if len(z_positions) > 0 else 0
+        logger.info(f"   • Y={y:5.1f}mm: {len(points_at_height):3d} points ({points_per_rotation} per rotation angle)")
     
     # Show first few scan points as examples
     logger.info(f"📍 First 10 Scan Points:")
@@ -113,31 +145,21 @@ def test_simple_circular_scan():
     """Test a simple circular scan at fixed height"""
     logger.info("🔄 Testing Simple Circular Scan (Fixed Height)")
     
-    # Create a simple circular scan pattern
-    parameters = CylindricalPatternParameters(
-        # Fixed camera position
-        x_start=0.0,
-        x_end=0.0,
-        x_step=1.0,
-        
-        # Single height
-        y_start=80.0,
-        y_end=80.0,  
-        y_step=1.0,
-        
-        # Full circle rotation
-        z_rotations=list(range(0, 360, 30)),  # Every 30° -> 12 positions
-        
-        # Single camera angle
-        c_angles=[0],
-        
-        safety_margin=0.5
+    # Create a simple circular scan pattern using helper function
+    # X-axis represents FIXED RADIUS
+    parameters = create_cylindrical_scan_pattern(
+        radius=30.0,              # Fixed radius: 30mm from object center
+        height_range=(80.0, 80.0),  # Single height at 80mm
+        height_step=1.0,          # Not used for single height
+        rotation_step=30.0,       # Every 30° -> 12 positions
+        camera_angles=[0.0]       # Single camera angle
     )
     
     pattern = CylindricalScanPattern("simple_circular", parameters)
     points = pattern.get_points()
     
-    logger.info(f"✅ Simple circular scan: {len(points)} points at Y=80mm")
+    radius_value = points[0].position.x if points else 0
+    logger.info(f"✅ Simple circular scan: {len(points)} points at Y=80mm, radius={radius_value:.1f}mm")
     rotation_angles = sorted(set(p.position.z for p in points))
     logger.info(f"🔄 Rotation angles: {[f'{angle:.0f}deg' for angle in rotation_angles]}")
     
@@ -166,12 +188,18 @@ def demonstrate_scanning_workflow():
         logger.info(f"   • Total scan strategies tested: 2")
         
         logger.info("\n🎯 Cylindrical Scanning Features Validated:")
-        logger.info("   ✅ Multiple height passes")
-        logger.info("   ✅ Object rotation (turntable)")
-        logger.info("   ✅ Camera positioning (X-axis)")
-        logger.info("   ✅ Camera angle adjustment (C-axis)")
+        logger.info("   ✅ Fixed camera radius (X-axis) - configurable distance from object")
+        logger.info("   ✅ Multiple height passes (Y-axis) - vertical scanning levels")
+        logger.info("   ✅ Object rotation (Z-axis) - turntable positioning")
+        logger.info("   ✅ Camera angle adjustment (C-axis) - viewing perspectives")
         logger.info("   ✅ Pattern parameter validation")
         logger.info("   ✅ Point generation and ordering")
+        
+        logger.info("\n📐 Scanning Strategy:")
+        logger.info("   • X-axis: Fixed radius (distance from object center)")
+        logger.info("   • Y-axis: Multiple height levels for complete coverage")
+        logger.info("   • Z-axis: Object rotation for 360° coverage")
+        logger.info("   • C-axis: Camera pivot for optimal viewing angles")
         
         logger.info("\n🚀 System ready for cylindrical scanning!")
         return True
