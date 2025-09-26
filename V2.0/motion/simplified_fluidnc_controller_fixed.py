@@ -841,6 +841,69 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             logger.error(f"❌ Sync clear alarm error: {e}")
             return False
     
+    def move_to_position_sync(self, position: Position4D, feedrate: Optional[float] = None) -> Dict[str, Any]:
+        """Synchronous version of move_to_position for web interface"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                success = loop.run_until_complete(self.move_to_position(position, feedrate))
+                # Get current position after move for coordinate capture
+                current_pos = loop.run_until_complete(self.get_current_position())
+                return {
+                    'success': success,
+                    'position': current_pos.to_dict() if current_pos else None,
+                    'coordinates': {
+                        'x': current_pos.x if current_pos else 0.0,
+                        'y': current_pos.y if current_pos else 0.0, 
+                        'z': current_pos.z if current_pos else 0.0,
+                        'c': current_pos.c if current_pos else 0.0
+                    } if current_pos else None
+                }
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.error(f"❌ Sync move to position error: {e}")
+            return {'success': False, 'error': str(e), 'position': None, 'coordinates': None}
+    
+    def relative_move_sync(self, delta: Position4D, feedrate: Optional[float] = None) -> Dict[str, Any]:
+        """Synchronous version of relative_move for web interface"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                success = loop.run_until_complete(self.move_relative(delta, feedrate))
+                # Get current position after move for coordinate capture
+                current_pos = loop.run_until_complete(self.get_current_position())
+                return {
+                    'success': success,
+                    'position': current_pos.to_dict() if current_pos else None,
+                    'coordinates': {
+                        'x': current_pos.x if current_pos else 0.0,
+                        'y': current_pos.y if current_pos else 0.0,
+                        'z': current_pos.z if current_pos else 0.0,
+                        'c': current_pos.c if current_pos else 0.0
+                    } if current_pos else None
+                }
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.error(f"❌ Sync relative move error: {e}")
+            return {'success': False, 'error': str(e), 'position': None, 'coordinates': None}
+    
+    def get_current_position_sync(self) -> Optional[Position4D]:
+        """Synchronous version of get_current_position for web interface"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self.get_current_position())
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.error(f"❌ Sync get position error: {e}")
+            return None
+    
     async def reset_controller(self) -> bool:
         """Reset FluidNC controller"""
         try:

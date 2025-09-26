@@ -814,8 +814,8 @@ class ScannerWebInterface:
                 delta_values = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
                 delta_values[axis] = move_distance
                 
-                # Execute the movement using Position4D format with enhanced feedrate
-                result = asyncio.run(self._execute_jog_command(delta_values, speed, command_id))
+                # Execute the movement using synchronous motion controller method (no event loop conflicts)
+                result = self._execute_jog_command_sync(delta_values, speed, command_id)
                 
                 if TIMING_LOGGER_AVAILABLE and command_id:
                     timing_logger.log_backend_complete(command_id, success=True)
@@ -1746,6 +1746,47 @@ class ScannerWebInterface:
         except Exception as e:
             self.logger.error(f"Jog command execution failed: {e}")
             raise HardwareError(f"Failed to execute jog command: {e}")
+
+    def _execute_jog_command_sync(self, delta_values: Dict[str, float], speed: float, command_id: Optional[str] = None) -> Dict[str, Any]:
+        """Synchronous execute jog movement using motion controller sync methods (no event loop conflicts)"""
+        try:
+            if TIMING_LOGGER_AVAILABLE and command_id:
+                timing_logger.log_motion_controller_start(command_id, "_execute_jog_command_sync")
+            
+            if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
+                raise HardwareError("Motion controller not available")
+            
+            # Create Position4D delta object
+            if SCANNER_MODULES_AVAILABLE:
+                delta = Position4D(x=delta_values['x'], y=delta_values['y'], 
+                                 z=delta_values['z'], c=delta_values['c'])
+            else:
+                # Mock for development
+                delta = {'x': delta_values['x'], 'y': delta_values['y'], 
+                        'z': delta_values['z'], 'c': delta_values['c']}
+            
+            # Execute using synchronous method from motion controller (includes coordinate capture)
+            move_result = self.orchestrator.motion_controller.relative_move_sync(delta, feedrate=speed)
+            
+            # Extract results from motion controller response
+            success = move_result.get('success', False)
+            coordinates = move_result.get('coordinates', {})
+            
+            self.logger.info(f"🎯 Fresh position after jog: Position(X:{coordinates.get('x', 0.0):.3f}, Y:{coordinates.get('y', 0.0):.3f}, Z:{coordinates.get('z', 0.0):.3f}, C:{coordinates.get('c', 0.0):.3f})")
+            
+            self.logger.info(f"Jog command executed: delta={delta} speed={speed}, new_position={coordinates}")
+            
+            return {
+                'delta': delta_values,
+                'speed': speed,
+                'new_position': coordinates,
+                'success': success,
+                'coordinates': coordinates  # Include coordinates for metadata capture
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Sync jog command execution failed: {e}")
+            raise HardwareError(f"Failed to execute sync jog command: {e}")
 
     async def _execute_move_command(self, command: Dict[str, Any]) -> Dict[str, Any]:
         """Execute validated movement command with safety checks"""
