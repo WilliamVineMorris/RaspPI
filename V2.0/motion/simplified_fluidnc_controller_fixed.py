@@ -269,6 +269,14 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 self.target_position = position.copy()
                 self.stats['movements_completed'] += 1
                 
+                # CRITICAL: Wait for motion to actually complete before continuing
+                logger.debug(f"⏳ Waiting for motion to complete to position: {position}")
+                motion_complete = await self.wait_for_motion_complete(timeout=30.0)
+                
+                if not motion_complete:
+                    logger.error(f"❌ Motion to {position} did not complete within timeout")
+                    return False
+                
                 # Update current position after move completes
                 await self._update_current_position()
                 
@@ -341,6 +349,14 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 self.target_position = target.copy()
                 self.stats['movements_completed'] += 1
                 
+                # CRITICAL: Wait for motion to actually complete before continuing
+                logger.debug(f"⏳ Waiting for relative motion to complete: {delta}")
+                motion_complete = await self.wait_for_motion_complete(timeout=30.0)
+                
+                if not motion_complete:
+                    logger.error(f"❌ Relative motion {delta} did not complete within timeout")
+                    return False
+                
                 # Update position after move completes
                 await self._update_current_position()
                 
@@ -379,6 +395,14 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             if success:
                 self.target_position = position.copy()
                 self.stats['movements_completed'] += 1
+                
+                # CRITICAL: Wait for rapid motion to actually complete before continuing
+                logger.debug(f"⏳ Waiting for rapid motion to complete to position: {position}")
+                motion_complete = await self.wait_for_motion_complete(timeout=30.0)
+                
+                if not motion_complete:
+                    logger.error(f"❌ Rapid motion to {position} did not complete within timeout")
+                    return False
                 
                 # Update position after rapid move
                 await self._update_current_position()
