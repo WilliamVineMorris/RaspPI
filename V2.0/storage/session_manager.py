@@ -424,6 +424,10 @@ class SessionManager(StorageManager):
                 'created_at': datetime.now().isoformat(),
                 'scan_point_id': metadata.scan_point_id,
                 'camera_id': metadata.camera_id,
+                'position_data': metadata.position_data,  # ADD MISSING POSITION DATA
+                'camera_settings': metadata.camera_settings,  # ADD MISSING CAMERA SETTINGS
+                'lighting_settings': metadata.lighting_settings,  # ADD MISSING LIGHTING SETTINGS
+                'tags': metadata.tags,  # ADD MISSING TAGS
                 'metadata': metadata.metadata
             }
             
