@@ -12,8 +12,10 @@ import asyncio
 import logging
 import time
 import serial
+import threading
 from typing import Optional, Dict, Any
 from pathlib import Path
+import re
 
 # Simple logging setup
 logging.basicConfig(level=logging.INFO)
@@ -46,6 +48,51 @@ class SimpleWorkingFluidNCController:
         self.homed = False
         self.position = Position4D(0, 0, 0, 0)
         self.logger = logger
+        
+        # Auto-reporting status from FluidNC messages
+        self._current_status = "Disconnected"
+        self._last_status_message = ""
+        self._message_reader_thread = None
+        self._stop_reading = False
+        
+        # Parse FluidNC status messages
+        self._status_pattern = re.compile(r'<([^|>]+)\|')  # Extract status from <Status|...> format
+    
+    def _background_message_reader(self):
+        """Background thread to continuously read FluidNC messages."""
+        while not self._stop_reading and self.connected:
+            try:
+                if self.serial_connection and self.serial_connection.in_waiting > 0:
+                    data = self.serial_connection.read(self.serial_connection.in_waiting)
+                    message = data.decode('utf-8', errors='ignore')
+                    
+                    for line in message.strip().split('\n'):
+                        if line.strip():
+                            self._process_fluidnc_message(line.strip())
+                
+                time.sleep(0.01)  # Small delay to prevent excessive CPU usage
+            except Exception as e:
+                self.logger.debug(f"Message reader error: {e}")
+                time.sleep(0.1)
+    
+    def _process_fluidnc_message(self, message: str):
+        """Process incoming FluidNC messages and update status."""
+        self._last_status_message = message
+        
+        # Extract status from FluidNC status reports like <Idle|MPos:...>
+        status_match = self._status_pattern.search(message)
+        if status_match:
+            raw_status = status_match.group(1)
+            self._current_status = raw_status.capitalize()  # Idle, Alarm, Run, Home, etc.
+            self.logger.debug(f"📊 FluidNC status updated: {self._current_status}")
+        
+        # Handle specific messages
+        if '[MSG:DBG: Homing done]' in message:
+            self.logger.info(f"✅ Homing completed: {message}")
+            self.homed = True
+            self.position = Position4D(0, 200, 0, 0)  # FluidNC home position
+        elif '[MSG:Homed:' in message:
+            self.logger.info(f"✅ Axis homed: {message}")
     
     def connect(self) -> bool:
         """Connect to FluidNC using the proven approach."""
@@ -72,11 +119,23 @@ class SimpleWorkingFluidNCController:
                 self.connected = True
                 self.logger.info("✅ Connected to FluidNC successfully")
                 
-                # Parse initial status
+                # Parse initial status and start background reader
                 if '<Alarm' in response:
                     self.logger.warning("⚠️ FluidNC in ALARM state - homing required")
+                    self._current_status = "Alarm"
                 elif '<Idle' in response:
                     self.logger.info("✅ FluidNC in IDLE state")
+                    self._current_status = "Idle"
+                
+                # Start background message reader
+                self._stop_reading = False
+                self._message_reader_thread = threading.Thread(
+                    target=self._background_message_reader,
+                    daemon=True,
+                    name="FluidNC-MessageReader"
+                )
+                self._message_reader_thread.start()
+                self.logger.info("🔄 Background message reader started")
                 
                 return True
             else:
@@ -90,10 +149,17 @@ class SimpleWorkingFluidNCController:
     
     def disconnect(self):
         """Disconnect from FluidNC."""
+        # Stop background message reader
+        self._stop_reading = True
+        if self._message_reader_thread and self._message_reader_thread.is_alive():
+            self._message_reader_thread.join(timeout=1.0)
+            self.logger.info("🔄 Background message reader stopped")
+        
         if self.serial_connection and self.serial_connection.is_open:
             try:
                 self.serial_connection.close()
                 self.connected = False
+                self._current_status = "Disconnected"
                 self.logger.info("✅ Disconnected from FluidNC")
             except Exception as e:
                 self.logger.error(f"❌ Disconnect error: {e}")
@@ -125,50 +191,29 @@ class SimpleWorkingFluidNCController:
             self.serial_connection.write(b"$H\n")
             self.serial_connection.flush()
             
-            # Monitor for completion (PROVEN approach)
-            self.logger.info("📊 Monitoring for homing completion...")
+            # Wait for completion using background message reader
+            self.logger.info("📊 Waiting for homing completion via auto-reporting...")
             start_time = time.time()
             timeout = 60.0  # 60 seconds
             
+            # Reset homed flag
+            self.homed = False
+            
             while (time.time() - start_time) < timeout:
-                if self.serial_connection.in_waiting > 0:
-                    data = self.serial_connection.read(self.serial_connection.in_waiting)
-                    response = data.decode('utf-8', errors='ignore')
-                    
-                    # Process each line
-                    for line in response.strip().split('\n'):
-                        if line.strip():
-                            elapsed = time.time() - start_time
-                            
-                            # CRITICAL: Check for completion (lowercase 'done')
-                            if '[MSG:DBG: Homing done]' in line:
-                                self.logger.info(f"✅ [{elapsed:.1f}s] {line}")
-                                
-                                # Wait and verify final status
-                                self.logger.info("⏳ Homing done detected, verifying final status...")
-                                time.sleep(1.5)
-                                
-                                status_response = self._send_command("?")
-                                if status_response:
-                                    self.logger.info(f"📊 Final status: {status_response}")
-                                    
-                                    if '<Idle' in status_response:
-                                        self.homed = True
-                                        self.position = Position4D(0, 200, 0, 0)  # FluidNC home position
-                                        self.logger.info("✅ Homing completed successfully - status is Idle!")
-                                        return True
-                                    else:
-                                        self.logger.error("❌ Final status is not Idle")
-                                        return False
-                                else:
-                                    self.logger.error("❌ Could not verify final status")
-                                    return False
-                            
-                            # Log important messages
-                            elif '[MSG:Homed:' in line:
-                                self.logger.info(f"✅ [{elapsed:.1f}s] {line}")
-                            elif '[MSG:DBG: Homing Cycle' in line:
-                                self.logger.info(f"📊 [{elapsed:.1f}s] {line}")
+                # Check if background reader detected homing completion
+                if self.homed:
+                    elapsed = time.time() - start_time
+                    self.logger.info(f"✅ Homing completed successfully in {elapsed:.1f}s!")
+                    return True
+                
+                # Check if status shows we're back to Idle (alternative completion detection)
+                if self._current_status == "Idle" and (time.time() - start_time) > 5.0:
+                    # Only consider Idle as completion if we've been homing for at least 5 seconds
+                    elapsed = time.time() - start_time
+                    self.logger.info(f"✅ Homing completed (detected via status) in {elapsed:.1f}s!")
+                    self.homed = True
+                    self.position = Position4D(0, 200, 0, 0)  # FluidNC home position
+                    return True
                 
                 time.sleep(0.1)  # Check every 100ms
             
@@ -252,24 +297,16 @@ class SimpleWorkingFluidNCController:
             return False
     
     def get_status(self) -> str:
-        """Get current status."""
+        """Get current status from FluidNC auto-reporting (no polling)."""
         if not self.is_connected():
             return "Disconnected"
         
-        response = self._send_command("?")
-        if response:
-            if '<Idle' in response:
-                return "Idle"
-            elif '<Alarm' in response:
-                return "Alarm"
-            elif '<Run' in response:
-                return "Running"
-            elif '<Home' in response:
-                return "Homing"
-            else:
-                return "Unknown"
-        
-        return "No Response"
+        # Return status from automatic FluidNC messages
+        return self._current_status
+    
+    def get_status_fresh(self) -> str:
+        """Get current status (same as get_status since we use auto-reporting)."""
+        return self.get_status()
     
     def is_homed(self) -> bool:
         """Check if system is homed."""
