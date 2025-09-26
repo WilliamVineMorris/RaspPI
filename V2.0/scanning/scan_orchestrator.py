@@ -325,6 +325,39 @@ class MotionControllerAdapter:
             self._homing_in_progress = False
             self.logger.error(f"Home axes failed: {e}")
             return False
+    
+    async def clear_alarm(self) -> bool:
+        """Clear alarm state using $X command"""
+        try:
+            self.logger.info("🔓 ScanOrchestrator: Clearing alarm state")
+            
+            # Check if motion controller has clear_alarm method
+            if hasattr(self.controller, 'clear_alarm'):
+                result = await self.controller.clear_alarm()
+                if result:
+                    self.logger.info("✅ ScanOrchestrator: Alarm cleared successfully")
+                else:
+                    self.logger.error("❌ ScanOrchestrator: Failed to clear alarm")
+                return result
+            else:
+                self.logger.error("❌ ScanOrchestrator: Motion controller does not support clear_alarm")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ ScanOrchestrator clear_alarm error: {e}")
+            return False
+    
+    def clear_alarm_sync(self) -> bool:
+        """Synchronous wrapper for clearing alarm state"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(self.clear_alarm())
+            loop.close()
+            return result
+        except Exception as e:
+            self.logger.error(f"❌ ScanOrchestrator sync clear_alarm error: {e}")
+            return False
         
     async def move_to(self, x: float, y: float) -> bool:
         from motion.base import Position4D

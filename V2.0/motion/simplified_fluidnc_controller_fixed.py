@@ -382,9 +382,13 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             return False
     
     async def home_axes(self, axes: Optional[list] = None) -> bool:
-        """Enhanced homing with FluidNC debug message detection"""
+        """Enhanced homing with FluidNC debug message detection and alarm clearing"""
         try:
             logger.info("🏠 Starting ENHANCED homing with debug message detection")
+            
+            # Clear alarm state before homing
+            logger.info("🔓 Clearing alarm state before homing")
+            await self.clear_alarm()
             
             # Reset homed status at start of homing
             self.is_homed = False
@@ -517,6 +521,10 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             # Update position after homing
             await self._update_current_position()
             
+            # Clear alarm state after homing completion
+            logger.info("🔓 Clearing alarm state after homing completion")
+            await self.clear_alarm()
+            
             # Emit enhanced completion event
             self._emit_event("homing_completed", {
                 "axes": axes or ['x', 'y', 'z', 'c'],
@@ -646,6 +654,51 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 
         except Exception as e:
             logger.error(f"❌ Emergency stop error: {e}")
+            return False
+    
+    async def clear_alarm(self) -> bool:
+        """Clear alarm state using $X command"""
+        try:
+            logger.info("🔓 Clearing alarm state with $X command")
+            
+            # Send alarm clear command
+            success, response = await asyncio.get_event_loop().run_in_executor(
+                None, self.protocol.send_command, '$X'
+            )
+            
+            if success:
+                # Update status after clearing alarm
+                await asyncio.sleep(0.5)  # Give FluidNC time to process
+                await self._update_current_position()
+                
+                # Check if we're no longer in alarm state
+                if self.motion_status != MotionStatus.ALARM:
+                    logger.info("✅ Alarm cleared successfully")
+                    self._emit_event("alarm_cleared", {
+                        "status": self.motion_status.value
+                    })
+                    return True
+                else:
+                    logger.warning("⚠️ $X command sent but still in alarm state")
+                    return False
+            else:
+                logger.error(f"❌ Failed to send $X command: {response}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Clear alarm error: {e}")
+            return False
+    
+    def clear_alarm_sync(self) -> bool:
+        """Synchronous version of clear_alarm for web interface"""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(self.clear_alarm())
+            loop.close()
+            return result
+        except Exception as e:
+            logger.error(f"❌ Sync clear alarm error: {e}")
             return False
     
     async def reset_controller(self) -> bool:

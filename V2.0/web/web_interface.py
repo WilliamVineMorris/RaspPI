@@ -472,6 +472,59 @@ class ScannerWebInterface:
                 self.logger.error(f"❌ Home API traceback: {traceback.format_exc()}")
                 return jsonify({'success': False, 'error': str(e)}), 500
 
+        @self.app.route('/api/clear_alarm', methods=['POST'])
+        def api_clear_alarm():
+            """Clear alarm state using $X command"""
+            try:
+                self.logger.info("🔓 CLEAR ALARM API called")
+                
+                # Check if orchestrator and motion controller are available
+                if not self.orchestrator:
+                    self.logger.error("❌ No orchestrator available")
+                    return jsonify({'success': False, 'error': 'Orchestrator not available'}), 500
+                    
+                if not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
+                    self.logger.error("❌ No motion controller available")
+                    return jsonify({'success': False, 'error': 'Motion controller not available'}), 500
+                
+                # Execute alarm clear command
+                self.logger.info("🔓 Executing clear alarm command...")
+                motion_controller = self.orchestrator.motion_controller
+                
+                # Use sync version for web interface
+                if hasattr(motion_controller, 'clear_alarm_sync'):
+                    result = motion_controller.clear_alarm_sync()
+                else:
+                    # Fallback for async version
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    result = loop.run_until_complete(motion_controller.clear_alarm())
+                    loop.close()
+                
+                if result:
+                    self.logger.info("✅ Alarm cleared successfully")
+                    response = {
+                        'success': True,
+                        'message': 'Alarm cleared successfully',
+                        'timestamp': datetime.now().isoformat()
+                    }
+                else:
+                    self.logger.error("❌ Failed to clear alarm")
+                    response = {
+                        'success': False,
+                        'error': 'Failed to clear alarm state',
+                        'timestamp': datetime.now().isoformat()
+                    }
+                
+                return jsonify(response)
+                
+            except Exception as e:
+                self.logger.error(f"❌ Clear alarm API error: {e}")
+                import traceback
+                self.logger.error(f"❌ Clear alarm API traceback: {traceback.format_exc()}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
         @self.app.route('/api/debug/position')
         def api_debug_position():
             """Debug endpoint for position updates"""
