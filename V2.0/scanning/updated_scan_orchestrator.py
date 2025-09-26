@@ -172,6 +172,26 @@ class UpdatedScanOrchestrator:
         
         return status
     
+    def clear_alarm(self) -> bool:
+        """Clear alarm state from motion controller."""
+        if not self.hardware_status['motion'] or not self.motion_controller:
+            self.logger.error("Motion controller not available for alarm clear")
+            return False
+        
+        self.logger.info("🔓 Clearing alarm state...")
+        
+        try:
+            result = self.motion_controller.clear_alarm()
+            if result:
+                self.logger.info("✅ Alarm cleared successfully")
+                return True
+            else:
+                self.logger.error("❌ Failed to clear alarm")
+                return False
+        except Exception as e:
+            self.logger.error(f"❌ Error clearing alarm: {e}")
+            return False
+    
     def home_system(self) -> bool:
         """Home the motion system - alias for home_all_axes for test compatibility."""
         return self.home_all_axes()

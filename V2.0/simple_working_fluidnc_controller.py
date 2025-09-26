@@ -55,6 +55,7 @@ class SimpleWorkingFluidNCController:
         self._last_message_time = time.time()  # For timeout detection
         self._message_reader_thread = None
         self._stop_reading = False
+        self._post_homing_unlock_needed = False  # Flag for post-homing unlock
         
         # Parse FluidNC status messages
         self._status_pattern = re.compile(r'<([^|>]+)\|')  # Extract status from <Status|...> format
@@ -95,6 +96,8 @@ class SimpleWorkingFluidNCController:
             self.logger.info(f"🏠 COMPLETE: Homing sequence finished: {message}")
             self.homed = True
             self.position = Position4D(0, 200, 0, 0)  # FluidNC home position
+            # Schedule post-homing unlock to clear any alarm state
+            self._post_homing_unlock_needed = True
         elif '[MSG:Homed:' in message:
             self.logger.info(f"🏠 AXIS: Individual axis homed: {message}")
         elif '[MSG:DBG:' in message and 'Homing' in message:
@@ -223,6 +226,29 @@ class SimpleWorkingFluidNCController:
                 if self.homed:
                     elapsed = time.time() - start_time
                     self.logger.info(f"✅ Homing completed successfully in {elapsed:.1f}s!")
+                    
+                    # Perform post-homing unlock if needed
+                    if self._post_homing_unlock_needed:
+                        self.logger.info("🔓 Performing post-homing unlock to clear alarm state...")
+                        self._post_homing_unlock_needed = False
+                        
+                        # Wait a bit for system to settle
+                        time.sleep(1.0)
+                        
+                        # Send unlock command
+                        for attempt in range(3):
+                            unlock_response = self._send_command("$X")
+                            if unlock_response:
+                                self.logger.info(f"🔓 Post-homing unlock attempt {attempt + 1}: {unlock_response}")
+                                if 'ok' in unlock_response.lower() or 'Idle' in unlock_response:
+                                    self.logger.info("✅ Post-homing unlock successful - system ready!")
+                                    break
+                            else:
+                                self.logger.warning(f"⚠️ Post-homing unlock attempt {attempt + 1} - no response")
+                            
+                            if attempt < 2:
+                                time.sleep(0.5)
+                    
                     return True
                 
                 # Update last message time if we received any FluidNC message recently
@@ -248,9 +274,44 @@ class SimpleWorkingFluidNCController:
             self.logger.error(f"❌ Homing error: {e}")
             return False
     
+    def clear_alarm(self) -> bool:
+        """Clear alarm state manually - useful for web interface."""
+        if not self.is_connected():
+            self.logger.error("❌ Not connected")
+            return False
+        
+        self.logger.info("🔓 Manual alarm clear requested")
+        
+        for attempt in range(3):
+            unlock_response = self._send_command("$X")
+            if unlock_response:
+                self.logger.info(f"🔓 Alarm clear attempt {attempt + 1}: {unlock_response}")
+                if 'ok' in unlock_response.lower() or 'Idle' in unlock_response:
+                    self.logger.info("✅ Alarm cleared successfully!")
+                    return True
+            else:
+                self.logger.warning(f"⚠️ Alarm clear attempt {attempt + 1} - no response")
+            
+            if attempt < 2:
+                time.sleep(0.5)
+        
+        self.logger.error("❌ Failed to clear alarm after 3 attempts")
+        return False
+    
     def home_axes_sync(self, axes: list = None) -> dict:
         """Web interface compatibility method for homing."""
         self.logger.info(f"🏠 Web interface homing request for axes: {axes}")
+        
+        # Check if system is in alarm state and try to clear it first
+        if self._current_status == "Alarm":
+            self.logger.info("⚠️ System in alarm state - attempting to clear before homing")
+            if not self.clear_alarm():
+                return {
+                    'success': False,
+                    'message': 'Failed to clear alarm state before homing',
+                    'status': 'error',
+                    'axes': axes or ['X', 'Y', 'Z', 'C']
+                }
         
         # Call the working home method
         success = self.home()
