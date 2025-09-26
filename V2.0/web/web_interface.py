@@ -2302,11 +2302,19 @@ class ScannerWebInterface:
             
             self.logger.info("📸 Starting simultaneous capture from both cameras using orchestrator method")
             
+            # Debug camera manager status
+            if not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
+                raise Exception("Camera manager not available")
+            
+            self.logger.info(f"📸 DEBUG: Camera manager type: {type(self.orchestrator.camera_manager)}")
+            self.logger.info(f"📸 DEBUG: Has capture method: {hasattr(self.orchestrator.camera_manager, 'capture_both_cameras_simultaneously')}")
+            
             # Use the proven simultaneous capture method from scan orchestrator
             import asyncio
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
+                self.logger.info("📸 DEBUG: About to call capture_both_cameras_simultaneously...")
                 # Use the camera manager's simultaneous capture method that we know works
                 camera_data_dict = loop.run_until_complete(
                     asyncio.wait_for(
@@ -2314,15 +2322,18 @@ class ScannerWebInterface:
                         timeout=30.0
                     )
                 )
+                self.logger.info(f"📸 DEBUG: Capture method returned: {type(camera_data_dict)}, keys: {list(camera_data_dict.keys()) if isinstance(camera_data_dict, dict) else 'not a dict'}")
                 
                 self.logger.info(f"📸 Simultaneous capture completed successfully: {list(camera_data_dict.keys())}")
                 
             except asyncio.TimeoutError:
                 self.logger.error("❌ Simultaneous capture timed out after 30 seconds")
-                camera_data_dict = {}
+                self.logger.info("🔄 Attempting fallback to individual camera captures...")
+                camera_data_dict = self._fallback_individual_captures()
             except Exception as capture_error:
                 self.logger.error(f"❌ Simultaneous capture failed: {capture_error}")
-                camera_data_dict = {}
+                self.logger.info("🔄 Attempting fallback to individual camera captures...")
+                camera_data_dict = self._fallback_individual_captures()
             finally:
                 loop.close()
             
@@ -3596,6 +3607,55 @@ class ScannerWebInterface:
                 'iso': 100,
                 'error': str(e)
             }
+    
+    def _fallback_individual_captures(self) -> Dict[str, Any]:
+        """Fallback to individual camera captures when simultaneous capture fails"""
+        self.logger.info("📸 FALLBACK: Attempting individual camera captures...")
+        
+        camera_data_dict = {}
+        
+        try:
+            # Try to capture from each camera individually
+            for camera_id in [0, 1]:
+                try:
+                    self.logger.info(f"📸 FALLBACK: Capturing from camera {camera_id}...")
+                    
+                    # Use simple camera access method
+                    if hasattr(self.orchestrator, 'camera_manager') and self.orchestrator.camera_manager:
+                        if hasattr(self.orchestrator.camera_manager, 'controller') and self.orchestrator.camera_manager.controller:
+                            controller = self.orchestrator.camera_manager.controller
+                            
+                            # Try to get individual camera
+                            if hasattr(controller, 'cameras') and camera_id in controller.cameras:
+                                camera = controller.cameras[camera_id]
+                                if camera:
+                                    # Capture single frame
+                                    import asyncio
+                                    loop = asyncio.new_event_loop()
+                                    asyncio.set_event_loop(loop)
+                                    try:
+                                        # Simple capture
+                                        image_array = loop.run_until_complete(
+                                            asyncio.wait_for(camera.capture_array(), timeout=10.0)
+                                        )
+                                        camera_data_dict[f'camera_{camera_id}'] = {
+                                            'image': image_array,
+                                            'metadata': camera.capture_metadata() if hasattr(camera, 'capture_metadata') else {}
+                                        }
+                                        self.logger.info(f"📸 FALLBACK: Camera {camera_id} captured successfully")
+                                    finally:
+                                        loop.close()
+                
+                except Exception as camera_error:
+                    self.logger.error(f"📸 FALLBACK: Camera {camera_id} failed: {camera_error}")
+                    continue
+            
+            self.logger.info(f"📸 FALLBACK: Completed with {len(camera_data_dict)} cameras")
+            return camera_data_dict
+            
+        except Exception as fallback_error:
+            self.logger.error(f"📸 FALLBACK: Complete failure: {fallback_error}")
+            return {}
     
     def _extract_exposure_time_from_metadata(self, capture_metadata):
         """Extract actual exposure time from Picamera2 metadata"""
