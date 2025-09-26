@@ -96,6 +96,17 @@ class MockMotionController:
         self._position['rotation'] = rotation
         return True
         
+    async def move_to_position(self, position, feedrate: Optional[float] = None) -> bool:
+        """Move to 4D position - optimized single command version"""
+        await asyncio.sleep(0.3)  # Simulate single coordinated movement
+        self._position.update({
+            'x': position.x, 
+            'y': position.y, 
+            'z': position.z, 
+            'rotation': position.c
+        })
+        return True
+        
     async def emergency_stop(self) -> bool:
         return True
         
@@ -1950,19 +1961,22 @@ class ScanOrchestrator:
         
         self.logger.info(f"📐 Moving to scan point: X={point.position.x:.1f}, Y={point.position.y:.1f}, Z={point.position.z:.1f}°, C={point.position.c:.1f}°")
         
-        # Move to XY position and wait for completion
-        if not await self.motion_controller.move_to(point.position.x, point.position.y):
-            raise HardwareError(f"Failed to move to position ({point.position.x}, {point.position.y})")
-        
-        # Set Z rotation angle if specified and wait for completion
-        if point.position.z is not None:
-            if not await self.motion_controller.move_z_to(point.position.z):
-                raise HardwareError(f"Failed to rotate Z-axis to {point.position.z} degrees")
-        
-        # Set rotation if specified and wait for completion
-        if point.position.c is not None:
-            if not await self.motion_controller.rotate_to(point.position.c):
-                raise HardwareError(f"Failed to rotate to {point.position.c} degrees")
+        # OPTIMIZED: Move to full 4D position in a single command instead of 3 separate commands
+        # This eliminates redundant motion commands and reduces scan time significantly
+        try:
+            # Convert core.types.Position4D to motion.base.Position4D if needed
+            from motion.base import Position4D as MotionPosition4D
+            motion_pos = MotionPosition4D(
+                x=point.position.x, 
+                y=point.position.y, 
+                z=point.position.z, 
+                c=point.position.c
+            )
+            if not await self.motion_controller.move_to_position(motion_pos):
+                raise HardwareError(f"Failed to move to scan position {point.position}")
+        except Exception as e:
+            logger.error(f"Motion error during scan: {e}")
+            raise HardwareError(f"Failed to move to scan position {point.position}: {e}")
         
         # Extended stabilization delay for scanning precision
         # This ensures all motion has completely stopped and any vibrations have settled
