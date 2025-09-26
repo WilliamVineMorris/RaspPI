@@ -1961,7 +1961,19 @@ class ScannerWebInterface:
             # Stop any active scan
             if self.orchestrator and hasattr(self.orchestrator, 'current_scan') and self.orchestrator.current_scan:
                 if self.orchestrator.current_scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED]:
-                    asyncio.create_task(self.orchestrator.stop_scan())
+                    # Emergency stop scan using background thread with separate event loop
+                    def emergency_stop_scan_background():
+                        try:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            loop.run_until_complete(self.orchestrator.stop_scan())
+                            loop.close()
+                        except Exception as e:
+                            self.logger.error(f"Background emergency scan stop failed: {e}")
+                    
+                    thread = threading.Thread(target=emergency_stop_scan_background)
+                    thread.daemon = True
+                    thread.start()
             
             # Emergency stop motion controller
             if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
@@ -2018,7 +2030,7 @@ class ScannerWebInterface:
                     y_range=pattern_data['y_range'],
                     y_step=pattern_data['y_step'],
                     z_rotations=pattern_data['z_rotations'],
-                    c_angles=pattern_data['c_angles']
+                    c_angles=pattern_data.get('c_angles', None)  # Optional parameter
                 )
             else:
                 raise ValueError(f"Unknown pattern type: {pattern_data['pattern_type']}")
@@ -2033,24 +2045,48 @@ class ScannerWebInterface:
             self.logger.info(f"   • Motion mode: scanning_mode (with feedrate control)")
             self.logger.info(f"   • Motion completion: enabled (waits for position)")
             
-            # Start the scan (this returns a coroutine, so we need to handle it properly)
-            # For now, we'll create the task and let it run
-            scan_task = asyncio.create_task(
-                self.orchestrator.start_scan(
-                    pattern=pattern,
-                    output_directory=output_dir,
-                    scan_id=scan_id
-                )
-            )
+            # Start the scan in a background thread with its own event loop
+            def run_scan_in_background():
+                """Run the async scan in a separate thread with its own event loop"""
+                try:
+                    # Create a new event loop for this thread
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    # Run the scan
+                    result = loop.run_until_complete(
+                        self.orchestrator.start_scan(
+                            pattern=pattern,
+                            output_directory=output_dir,
+                            scan_id=scan_id
+                        )
+                    )
+                    
+                    loop.close()
+                    self.logger.info(f"✅ Background scan completed: {scan_id}")
+                    return result
+                    
+                except Exception as e:
+                    self.logger.error(f"❌ Background scan failed: {e}")
+                    raise
             
-            self.logger.info(f"Scan started: {scan_id}")
+            # Start the scan in a background thread
+            scan_thread = threading.Thread(
+                target=run_scan_in_background,
+                name=f"ScanThread-{scan_id}",
+                daemon=True
+            )
+            scan_thread.start()
+            
+            self.logger.info(f"🚀 Scan started in background thread: {scan_id}")
             
             return {
                 'scan_id': scan_id,
                 'pattern_type': pattern_data['pattern_type'],
                 'output_directory': str(output_dir),
                 'estimated_points': len(pattern.generate_points()),
-                'success': True
+                'success': True,
+                'status': 'started'
             }
             
         except Exception as e:
@@ -2063,8 +2099,19 @@ class ScannerWebInterface:
             if not self.orchestrator or not hasattr(self.orchestrator, 'current_scan') or not self.orchestrator.current_scan:
                 raise ScannerSystemError("No active scan to stop")
             
-            # Stop the scan
-            asyncio.create_task(self.orchestrator.stop_scan())
+            # Stop the scan using background thread with separate event loop
+            def stop_scan_background():
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(self.orchestrator.stop_scan())
+                    loop.close()
+                except Exception as e:
+                    self.logger.error(f"Background scan stop failed: {e}")
+            
+            thread = threading.Thread(target=stop_scan_background)
+            thread.daemon = True
+            thread.start()
             
             self.logger.info("Scan stop command executed")
             
@@ -2087,10 +2134,34 @@ class ScannerWebInterface:
             current_status = self.orchestrator.current_scan.status
             
             if current_status == ScanStatus.RUNNING:
-                asyncio.create_task(self.orchestrator.pause_scan())
+                # Pause the scan using background thread with separate event loop
+                def pause_scan_background():
+                    try:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(self.orchestrator.pause_scan())
+                        loop.close()
+                    except Exception as e:
+                        self.logger.error(f"Background scan pause failed: {e}")
+                
+                thread = threading.Thread(target=pause_scan_background)
+                thread.daemon = True
+                thread.start()
                 action = 'paused'
             elif current_status == ScanStatus.PAUSED:
-                asyncio.create_task(self.orchestrator.resume_scan())
+                # Resume the scan using background thread with separate event loop
+                def resume_scan_background():
+                    try:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(self.orchestrator.resume_scan())
+                        loop.close()
+                    except Exception as e:
+                        self.logger.error(f"Background scan resume failed: {e}")
+                
+                thread = threading.Thread(target=resume_scan_background)
+                thread.daemon = True
+                thread.start()
                 action = 'resumed'
             else:
                 raise ScannerSystemError(f"Cannot pause/resume scan in status: {current_status}")
@@ -2210,21 +2281,13 @@ class ScannerWebInterface:
             # Manual coordination: Flash + Capture timing
             async def flash_capture_coordination():
                 # Trigger flash with timing coordination
-                flash_task = asyncio.create_task(
-                    self.orchestrator.lighting_controller.flash(['all'], flash_settings)
-                )
+                flash_result = await self.orchestrator.lighting_controller.flash(['all'], flash_settings)
                 
                 # Small delay to let flash reach peak intensity
                 await asyncio.sleep(0.02)  # 20ms delay
                 
                 # Capture during flash
-                capture_task = asyncio.create_task(
-                    self.orchestrator.camera_manager.capture_high_resolution(camera_id)
-                )
-                
-                # Wait for both operations
-                flash_result = await flash_task
-                image_data = await capture_task
+                image_data = await self.orchestrator.camera_manager.capture_high_resolution(camera_id)
                 
                 return flash_result, image_data
             
