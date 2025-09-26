@@ -245,15 +245,23 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 feedrate = self.get_optimal_feedrate(delta)
                 logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
             
-            # Set feedrate
-            await self._send_command(f"F{feedrate}")
-            
-            # Send absolute movement (G90 is default, but ensure it)
-            await self._send_command("G90")
-            
-            # Send move command
-            gcode = f"G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
-            success, response = await self._send_command(gcode)
+            # Optimize for manual operations: combine commands to reduce delays
+            if self.operating_mode == "manual_mode":
+                # For manual positioning, combine mode, move, and feedrate into single command
+                # FluidNC supports F parameter directly in move commands
+                gcode = f"G90 G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f} F{feedrate}"
+                success, response = await self._send_command(gcode, priority="high")
+            else:
+                # For scan operations, use separate commands for precision and reliability
+                # Set feedrate
+                await self._send_command(f"F{feedrate}")
+                
+                # Send absolute movement (G90 is default, but ensure it)
+                await self._send_command("G90")
+                
+                # Send move command
+                gcode = f"G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
+                success, response = await self._send_command(gcode)
             
             if success:
                 self.target_position = position.copy()
