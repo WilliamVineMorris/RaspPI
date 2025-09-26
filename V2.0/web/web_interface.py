@@ -2034,6 +2034,7 @@ class ScannerWebInterface:
     
     def _execute_camera_capture(self, camera_id: int) -> Dict[str, Any]:
         """Execute camera capture command using available camera manager methods"""
+        import asyncio
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
                 raise HardwareError("Camera manager not available")
@@ -2059,7 +2060,7 @@ class ScannerWebInterface:
                     current_position = None
                     if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
                         try:
-                            current_position = self.orchestrator.motion_controller.get_current_position()
+                            current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
                         except:
                             current_position = None
                     
@@ -2180,6 +2181,7 @@ class ScannerWebInterface:
     
     def _execute_synchronized_capture_with_flash(self, flash_intensity: int = 80) -> Dict[str, Any]:
         """Execute synchronized capture with flash using proper storage integration"""
+        import asyncio
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
                 raise HardwareError("Camera manager not available")
@@ -2190,7 +2192,7 @@ class ScannerWebInterface:
             current_position = None
             try:
                 if hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
-                    current_position = self.orchestrator.motion_controller.get_current_position()
+                    current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
             except Exception as pos_error:
                 self.logger.warning(f"Could not get current position: {pos_error}")
             
@@ -2436,7 +2438,8 @@ class ScannerWebInterface:
             current_position = None
             if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
                 try:
-                    current_position = self.orchestrator.motion_controller.get_current_position()
+                    import asyncio
+                    current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
                 except:
                     current_position = None
             
