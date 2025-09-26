@@ -140,12 +140,12 @@ class WebInterfaceError(Exception):
 class CommandValidator:
     """Validates web interface commands for safety and correctness"""
     
-    # Safety limits for manual control
+    # Safety limits for manual control - Updated to match scanner_config.yaml
     POSITION_LIMITS = {
-        'x': (-100.0, 100.0),  # mm
-        'y': (-100.0, 100.0),  # mm
-        'z': (0.0, 50.0),      # mm
-        'c': (-360.0, 360.0)   # degrees
+        'x': (0.0, 200.0),     # mm - Linear axis: 0 to max limit
+        'y': (0.0, 200.0),     # mm - Linear axis: 0 to max limit (homes to 200)
+        'z': (-180.0, 180.0),  # degrees - Rotational axis: continuous rotation
+        'c': (-90.0, 90.0)     # degrees - Servo axis: ±90 degrees
     }
     
     STEP_SIZES = [0.1, 0.5, 1.0, 5.0, 10.0, 25.0]  # mm
