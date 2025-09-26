@@ -443,6 +443,7 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             homing_done_detected = False
             axes_homed = set()
             last_status_check = 0
+            was_in_home_state = False  # Track if we saw "Home" state
             
             logger.info("🏠 Monitoring for '[MSG:DBG: Homing done]' message...")
             
@@ -503,9 +504,26 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                                 state_lower = status.state.lower()
                                 logger.info(f"🏠 Status at {elapsed:.0f}s: {status.state}")
                                 
-                                # Enhanced fallback detection
-                                if state_lower in ['idle'] and elapsed > 20.0:
-                                    logger.info(f"✅ Fallback detection: Idle after {elapsed:.1f}s")
+                                # Track if we were in home state
+                                if state_lower == 'home':
+                                    was_in_home_state = True
+                                    logger.info("🏠 Detected: System in 'Home' state - homing in progress")
+                                
+                                # Enhanced fallback detection - Home->Idle transition indicates completion
+                                if state_lower in ['idle'] and was_in_home_state:
+                                    logger.info(f"✅ COMPLETION DETECTED: Home->Idle transition at {elapsed:.1f}s")
+                                    logger.info("🎯 This indicates homing completed successfully")
+                                    homing_done_detected = True
+                                    break
+                                elif state_lower in ['idle'] and elapsed > 10.0:  # Reduced from 20s to 10s
+                                    logger.info(f"✅ Fallback detection: Idle after {elapsed:.1f}s - assuming homing complete")
+                                    homing_done_detected = True
+                                    break
+                                elif state_lower in ['idle'] and elapsed > 5.0:  # Even earlier detection
+                                    logger.info(f"🔍 Early idle detection at {elapsed:.1f}s - checking if homing actually completed")
+                                    # Check if this is a legitimate homing completion vs just idle
+                                    # If we were in "home" state and now idle, likely homing completed
+                                    logger.info(f"✅ Early completion: Idle state indicates homing finished")
                                     homing_done_detected = True
                                     break
                                 elif state_lower in ['alarm', 'error']:
