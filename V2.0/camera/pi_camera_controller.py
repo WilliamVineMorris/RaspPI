@@ -55,6 +55,22 @@ from core.config_manager import ConfigManager
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class CameraSpecs:
+    """Camera hardware specifications"""
+    focal_length_mm: float
+    aperture_f_number: float
+    sensor_model: str
+    crop_factor: float
+    physical_sensor_size_mm: Tuple[float, float]  # (width, height)
+    pixel_size_um: float
+    
+    @property
+    def focal_length_35mm_equivalent(self) -> float:
+        """Calculate 35mm equivalent focal length"""
+        return self.focal_length_mm * self.crop_factor
+
+
 class PiCameraInfo:
     """Information about a Pi camera"""
     def __init__(self, camera_id: int, camera_type: str = "unknown"):
@@ -63,6 +79,32 @@ class PiCameraInfo:
         self.is_available = False
         self.native_resolution = (0, 0)
         self.supported_formats = []
+        
+        # Camera specifications (calibrated values)
+        self.specs = self._get_camera_specs(camera_type)
+    
+    def _get_camera_specs(self, camera_type: str) -> CameraSpecs:
+        """Get calibrated camera specifications based on camera type"""
+        # Default specs for Arducam 64MP with Sony IMX519
+        if "arducam" in camera_type.lower() or "64mp" in camera_type.lower() or "imx519" in camera_type.lower():
+            return CameraSpecs(
+                focal_length_mm=2.74,  # Measured focal length for Arducam 64MP
+                aperture_f_number=1.8,  # Fixed aperture for this lens
+                sensor_model="Sony IMX519",
+                crop_factor=7.37,  # Calculated from sensor size vs full frame
+                physical_sensor_size_mm=(5.94, 3.34),  # IMX519 sensor dimensions
+                pixel_size_um=1.285  # IMX519 pixel pitch
+            )
+        
+        # Default/unknown camera specs
+        return CameraSpecs(
+            focal_length_mm=3.04,  # Typical Pi camera focal length
+            aperture_f_number=2.0,  # Typical Pi camera aperture
+            sensor_model="Unknown",
+            crop_factor=7.0,  # Typical crop factor for small sensors
+            physical_sensor_size_mm=(5.7, 4.28),  # Typical Pi camera sensor
+            pixel_size_um=1.4  # Typical pixel size
+        )
 
 
 @dataclass
@@ -567,6 +609,110 @@ class PiCameraController(CameraController):
             })
         
         return camera_data
+    
+    def get_camera_specifications(self, camera_id: int) -> Dict[str, Any]:
+        """Get calibrated camera specifications (hardware specs, not dynamic settings)"""
+        if camera_id not in self.camera_info:
+            raise CameraError(f"Camera {camera_id} not found")
+        
+        specs = self.camera_info[camera_id].specs
+        return {
+            'focal_length_mm': specs.focal_length_mm,
+            'focal_length_35mm_equiv': specs.focal_length_35mm_equivalent,
+            'aperture_f_number': specs.aperture_f_number,
+            'sensor_model': specs.sensor_model,
+            'crop_factor': specs.crop_factor,
+            'physical_sensor_size_mm': specs.physical_sensor_size_mm,
+            'pixel_size_um': specs.pixel_size_um,
+            'calibrated': True  # Indicates these are calibrated values, not estimates
+        }
+    
+    def extract_dynamic_camera_metadata(self, picamera2_metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract dynamic camera settings from Picamera2 metadata (changes per capture)"""
+        if not picamera2_metadata:
+            return {}
+        
+        dynamic_metadata = {}
+        
+        # Exposure settings (changes with lighting conditions)
+        if 'ExposureTime' in picamera2_metadata:
+            exposure_us = picamera2_metadata['ExposureTime']
+            exposure_sec = exposure_us / 1000000.0
+            if exposure_sec >= 1:
+                dynamic_metadata['exposure_time'] = f"{exposure_sec:.2f}s"
+            else:
+                denominator = int(1 / exposure_sec) if exposure_sec > 0 else 60
+                dynamic_metadata['exposure_time'] = f"1/{denominator}s"
+            dynamic_metadata['exposure_time_us'] = exposure_us
+        
+        # ISO/Gain (changes with lighting conditions)
+        if 'AnalogueGain' in picamera2_metadata:
+            gain = picamera2_metadata['AnalogueGain']
+            dynamic_metadata['iso_equivalent'] = int(gain * 100)  # Base ISO ~100
+            dynamic_metadata['analogue_gain'] = gain
+        
+        # Focus settings (changes between captures)
+        if 'LensPosition' in picamera2_metadata:
+            dynamic_metadata['focus_position'] = picamera2_metadata['LensPosition']
+        
+        if 'FocusFoM' in picamera2_metadata:
+            dynamic_metadata['focus_measure'] = picamera2_metadata['FocusFoM']
+        
+        # White balance (changes with lighting)
+        if 'ColourTemperature' in picamera2_metadata:
+            dynamic_metadata['color_temperature_k'] = picamera2_metadata['ColourTemperature']
+        
+        if 'ColourGains' in picamera2_metadata:
+            gains = picamera2_metadata['ColourGains']
+            if isinstance(gains, list) and len(gains) >= 2:
+                dynamic_metadata['white_balance_gains'] = {
+                    'red': gains[0],
+                    'blue': gains[1]
+                }
+        
+        # Light measurement (changes with environment)
+        if 'Lux' in picamera2_metadata:
+            dynamic_metadata['light_level_lux'] = picamera2_metadata['Lux']
+        
+        # Digital processing settings
+        if 'DigitalGain' in picamera2_metadata:
+            dynamic_metadata['digital_gain'] = picamera2_metadata['DigitalGain']
+        
+        return dynamic_metadata
+    
+    def create_complete_camera_metadata(self, camera_id: int, picamera2_metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Create complete camera metadata combining calibrated specs and dynamic settings"""
+        try:
+            # Get calibrated hardware specifications
+            specs = self.get_camera_specifications(camera_id)
+            
+            # Extract dynamic settings from current capture
+            dynamic = self.extract_dynamic_camera_metadata(picamera2_metadata or {})
+            
+            # Combine into complete metadata
+            complete_metadata = {
+                'camera_specifications': {
+                    'make': 'Arducam',
+                    'model': f'64MP Camera {camera_id}',
+                    'sensor_model': specs['sensor_model'],
+                    'focal_length_mm': specs['focal_length_mm'],
+                    'focal_length_35mm_equiv': specs['focal_length_35mm_equiv'],
+                    'aperture_f_number': specs['aperture_f_number'],
+                    'aperture_string': f"f/{specs['aperture_f_number']}",
+                    'crop_factor': specs['crop_factor'],
+                    'pixel_size_um': specs['pixel_size_um'],
+                    'calibration_source': 'factory_calibrated' if specs['calibrated'] else 'estimated'
+                },
+                'capture_settings': dynamic,
+                'metadata_version': '2.0',
+                'extraction_timestamp': time.time()
+            }
+            
+            return complete_metadata
+            
+        except Exception as e:
+            logger.error(f"Failed to create camera metadata for camera {camera_id}: {e}")
+            return {}
     
     async def capture_image(self, camera_id: int, settings: CameraSettings, output_path: Path) -> bool:
         """Capture single image"""

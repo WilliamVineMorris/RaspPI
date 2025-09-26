@@ -2518,21 +2518,7 @@ class ScannerWebInterface:
                     'actual_resolution': '4608x2592',  # Based on your logs
                     'sensor_type': 'Arducam 64MP',
                     'capture_timestamp': time.time(),
-                    'embedded_exif': {
-                        'make': 'Arducam',
-                        'model': f'64MP Camera {camera_id}',
-                        'sensor_model': 'Sony IMX519',  # Actual sensor in Arducam 64MP
-                        'focal_length': self._extract_focal_length_from_metadata(capture_metadata),
-                        'aperture': self._extract_aperture_from_metadata(capture_metadata),
-                        'exposure_time': self._extract_exposure_time_from_metadata(capture_metadata),
-                        'iso': self._extract_iso_from_metadata(capture_metadata),
-                        'metering_mode': 'pattern',
-                        'flash_fired': flash_intensity > 0,
-                        'lens_position': capture_metadata.get('LensPosition', 'auto') if capture_metadata else 'auto',
-                        'focus_fom': capture_metadata.get('FocusFoM', 0) if capture_metadata else 0,
-                        'color_temperature': f"{capture_metadata.get('ColourTemperature', 'auto')}K" if capture_metadata else 'auto',
-                        'lux_level': capture_metadata.get('Lux', 0) if capture_metadata else 0
-                    }
+                    'embedded_exif': self._get_camera_metadata_for_storage(camera_id, capture_metadata or {}, flash_intensity)
                 },
                 lighting_settings={
                     'flash_used': True,
@@ -2688,14 +2674,14 @@ class ScannerWebInterface:
                         exif_dict["Exif"][piexif.ExifIFD.ISOSpeedRatings] = iso_equivalent
                     
                     if 'FocusFoM' in actual_metadata:
-                        # Try to extract real focal length from metadata
-                        focal_length_str = self._extract_focal_length_from_metadata(actual_metadata)
-                        # Extract numeric value for EXIF (assuming format like "3.2mm")
+                        # Use camera controller for focal length specs
                         try:
-                            focal_mm = float(focal_length_str.split('mm')[0])
-                            exif_dict["Exif"][piexif.ExifIFD.FocalLength] = (int(focal_mm * 10), 10)  # Store as fraction
+                            camera_metadata = self._get_camera_metadata_for_storage(camera_id, actual_metadata or {}, flash_intensity)
+                            focal_str = camera_metadata.get('focal_length', '2.74mm')
+                            focal_mm = float(focal_str.replace('mm', '').split('(')[0].strip())
+                            exif_dict["Exif"][piexif.ExifIFD.FocalLength] = (int(focal_mm * 10), 10)
                         except:
-                            exif_dict["Exif"][piexif.ExifIFD.FocalLength] = (28, 10)  # Fallback to 2.8mm
+                            exif_dict["Exif"][piexif.ExifIFD.FocalLength] = (27, 10)  # 2.74mm fallback
                     
                     if 'Lux' in actual_metadata:
                         # Light level can inform metering mode
@@ -2726,20 +2712,21 @@ class ScannerWebInterface:
                 if piexif.ExifIFD.ISOSpeedRatings not in exif_dict["Exif"]:
                     exif_dict["Exif"][piexif.ExifIFD.ISOSpeedRatings] = 100
                 if piexif.ExifIFD.FocalLength not in exif_dict["Exif"]:
-                    # Try to extract real focal length if not already set
-                    focal_length_str = self._extract_focal_length_from_metadata(actual_metadata)
+                    # Use camera controller for focal length specs
                     try:
-                        focal_mm = float(focal_length_str.split('mm')[0])
+                        camera_metadata = self._get_camera_metadata_for_storage(camera_id, actual_metadata, flash_intensity)
+                        focal_str = camera_metadata.get('focal_length', '2.74mm')
+                        focal_mm = float(focal_str.replace('mm', '').split('(')[0].strip())
                         exif_dict["Exif"][piexif.ExifIFD.FocalLength] = (int(focal_mm * 10), 10)
                     except:
-                        exif_dict["Exif"][piexif.ExifIFD.FocalLength] = (28, 10)  # Fallback
+                        exif_dict["Exif"][piexif.ExifIFD.FocalLength] = (27, 10)  # Fallback
                 
-                # Aperture - try to extract real aperture from metadata
-                aperture_str = self._extract_aperture_from_metadata(actual_metadata)
+                # Aperture - use camera controller for aperture specs
                 try:
-                    # Extract f-number (e.g., "f/1.8" -> 1.8)
+                    camera_metadata = self._get_camera_metadata_for_storage(camera_id, actual_metadata or {}, flash_intensity)
+                    aperture_str = camera_metadata.get('aperture', 'f/1.8')
                     f_number = float(aperture_str.replace('f/', '').split(' ')[0])
-                    exif_dict["Exif"][piexif.ExifIFD.FNumber] = (int(f_number * 10), 10)  # Store as fraction
+                    exif_dict["Exif"][piexif.ExifIFD.FNumber] = (int(f_number * 10), 10)
                     # Calculate APEX aperture value: APEX = 2 * log2(f_number)
                     import math
                     apex_value = 2 * math.log2(f_number)
@@ -3543,81 +3530,72 @@ class ScannerWebInterface:
             self.logger.error(f"Failed to store manual captures: {e}")
             raise HardwareError(f"Manual capture storage failed: {e}")
 
-    def _extract_focal_length_from_metadata(self, capture_metadata):
-        """Extract actual focal length from camera metadata - should be provided by Picamera2"""
-        # TODO: Look for actual focal length in Picamera2 metadata
-        # Many camera systems provide this in metadata fields like:
-        # - 'FocalLength' (direct)
-        # - 'LensInfo' (array with focal length data)
-        # - Camera intrinsics data
-        
-        # Debug: Log available metadata fields to help identify focal length data
-        if capture_metadata:
-            self.logger.info(f"📷 DEBUG: Available metadata fields for focal length extraction: {list(capture_metadata.keys())}")
-        
-        if capture_metadata:
-            # Check for direct focal length metadata
-            if 'FocalLength' in capture_metadata:
-                focal_mm = capture_metadata['FocalLength']
-                return f"{focal_mm}mm"
-            
-            # Check for lens information array
-            if 'LensInfo' in capture_metadata:
-                lens_info = capture_metadata['LensInfo']
-                if isinstance(lens_info, (list, tuple)) and len(lens_info) > 0:
-                    focal_mm = lens_info[0]  # First element usually focal length
-                    return f"{focal_mm}mm"
-            
-            # If we have focus data but no focal length, camera is active but focal length unknown
-            if 'FocusFoM' in capture_metadata or 'LensPosition' in capture_metadata:
-                self.logger.warning("📷 Camera has focus data but no focal length metadata available")
-                return "unknown (check camera calibration)"
-        
-        # Fallback - log that we're using default
-        self.logger.warning("📷 No focal length metadata found, using sensor default")
-        return "2.8mm (estimated)"  # Conservative fallback
+
     
-    def _extract_aperture_from_metadata(self, capture_metadata):
-        """Extract actual aperture from camera metadata - should be provided by Picamera2"""
-        # TODO: Look for actual aperture in Picamera2 metadata
-        # Common metadata fields:
-        # - 'ApertureValue' (APEX units)
-        # - 'FNumber' (direct f-stop)
-        # - 'LensAperture' (direct aperture)
-        
-        # Debug: Log available metadata fields to help identify aperture data
-        if capture_metadata:
-            self.logger.info(f"📷 DEBUG: Available metadata fields for aperture extraction: {list(capture_metadata.keys())}")
-        
-        if capture_metadata:
-            # Check for direct aperture value
-            if 'FNumber' in capture_metadata:
-                f_number = capture_metadata['FNumber']
-                return f"f/{f_number}"
+    def _get_camera_metadata_for_storage(self, camera_id: int, capture_metadata: Dict[str, Any], flash_intensity: int) -> Dict[str, Any]:
+        """Get camera metadata using camera controller (proper architecture)"""
+        try:
+            # Use camera controller to get complete metadata
+            if hasattr(self.orchestrator, 'camera_manager') and self.orchestrator.camera_manager:
+                if hasattr(self.orchestrator.camera_manager, 'controller') and self.orchestrator.camera_manager.controller:
+                    controller = self.orchestrator.camera_manager.controller
+                    
+                    # Get complete metadata from camera controller
+                    if hasattr(controller, 'create_complete_camera_metadata'):
+                        complete_metadata = controller.create_complete_camera_metadata(camera_id, capture_metadata)
+                        
+                        # Extract for storage format
+                        specs = complete_metadata.get('camera_specifications', {})
+                        dynamic = complete_metadata.get('capture_settings', {})
+                        
+                        return {
+                            'make': specs.get('make', 'Arducam'),
+                            'model': specs.get('model', f'64MP Camera {camera_id}'),
+                            'sensor_model': specs.get('sensor_model', 'Sony IMX519'),
+                            'focal_length': f"{specs.get('focal_length_mm', 2.74)}mm",
+                            'focal_length_35mm_equiv': f"{specs.get('focal_length_35mm_equiv', 20.2):.1f}mm",
+                            'aperture': specs.get('aperture_string', 'f/1.8'),
+                            'exposure_time': dynamic.get('exposure_time', '1/60s'),
+                            'iso': dynamic.get('iso_equivalent', 100),
+                            'metering_mode': 'pattern',
+                            'flash_fired': flash_intensity > 0,
+                            'lens_position': dynamic.get('focus_position', 'auto'),
+                            'focus_fom': dynamic.get('focus_measure', 0),
+                            'color_temperature': f"{dynamic.get('color_temperature_k', 'auto')}K",
+                            'lux_level': dynamic.get('light_level_lux', 0),
+                            'calibration_source': specs.get('calibration_source', 'estimated')
+                        }
             
-            if 'LensAperture' in capture_metadata:
-                aperture = capture_metadata['LensAperture'] 
-                return f"f/{aperture}"
-                
-            # Check for APEX aperture value (needs conversion)
-            if 'ApertureValue' in capture_metadata:
-                apex_value = capture_metadata['ApertureValue']
-                # Convert APEX to f-stop: f = 2^(APEX/2)
-                f_stop = 2 ** (apex_value / 2)
-                return f"f/{f_stop:.1f}"
+            # Fallback if camera controller not available
+            self.logger.warning("📷 Camera controller not available, using fallback metadata")
+            return {
+                'make': 'Arducam',
+                'model': f'64MP Camera {camera_id}',
+                'sensor_model': 'Sony IMX519',
+                'focal_length': '2.74mm (estimated)',
+                'aperture': 'f/1.8 (estimated)',
+                'exposure_time': self._extract_exposure_time_from_metadata(capture_metadata),
+                'iso': self._extract_iso_from_metadata(capture_metadata),
+                'metering_mode': 'pattern',
+                'flash_fired': flash_intensity > 0,
+                'lens_position': capture_metadata.get('LensPosition', 'auto') if capture_metadata else 'auto',
+                'focus_fom': capture_metadata.get('FocusFoM', 0) if capture_metadata else 0,
+                'color_temperature': f"{capture_metadata.get('ColourTemperature', 'auto')}K" if capture_metadata else 'auto',
+                'lux_level': capture_metadata.get('Lux', 0) if capture_metadata else 0,
+                'calibration_source': 'fallback'
+            }
             
-            # Some cameras provide lens info array
-            if 'LensInfo' in capture_metadata:
-                lens_info = capture_metadata['LensInfo']
-                if isinstance(lens_info, (list, tuple)) and len(lens_info) > 2:
-                    # Usually [focal_min, focal_max, aperture_min, aperture_max]
-                    aperture_min = lens_info[2] if len(lens_info) > 2 else None
-                    if aperture_min:
-                        return f"f/{aperture_min}"
-        
-        # Fallback - log that we're using default  
-        self.logger.warning("📷 No aperture metadata found, using sensor default")
-        return "f/1.8 (estimated)"  # Conservative fallback
+        except Exception as e:
+            self.logger.error(f"Failed to get camera metadata: {e}")
+            return {
+                'make': 'Arducam',
+                'model': f'64MP Camera {camera_id}',
+                'focal_length': 'unknown',
+                'aperture': 'unknown',
+                'exposure_time': 'unknown',
+                'iso': 100,
+                'error': str(e)
+            }
     
     def _extract_exposure_time_from_metadata(self, capture_metadata):
         """Extract actual exposure time from Picamera2 metadata"""
