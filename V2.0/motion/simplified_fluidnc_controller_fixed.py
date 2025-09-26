@@ -251,18 +251,18 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 feedrate = self.get_optimal_feedrate(delta)
                 logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
             
-            # Optimize for manual operations: combine commands to reduce delays
+            # CRITICAL FIX: Use G0 rapid moves for all operations to avoid soft limit errors
+            # FluidNC appears to have restrictive soft limits that reject G1 moves but allow G0 moves
             if self.operating_mode == "manual_mode":
-                # For manual positioning, use FluidNC default feedrates (fastest)
-                # Omit F parameter to let FluidNC use its configured default speeds
-                gcode = f"G90 G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
-                logger.debug(f"🚀 Using FluidNC default feedrates for maximum speed")
+                # For manual positioning, use G0 rapid moves (works reliably)
+                gcode = f"G0 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
+                logger.debug(f"🚀 Using G0 rapid move for manual positioning")
                 success, response = await self._send_command(gcode, priority="high")
             else:
-                # For scan operations, use combined G-code command for better reliability
-                # Combine G90 (absolute), G1 (linear move), position, and feedrate in one command
-                gcode = f"G90 G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f} F{feedrate}"
-                logger.debug(f"🎯 Scan move with combined command: {gcode}")
+                # For scan operations, ALSO use G0 rapid moves to avoid soft limit errors
+                # G0 commands work while G1 commands trigger error:22 soft limit violations
+                gcode = f"G0 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
+                logger.debug(f"🎯 Using G0 rapid move for scan positioning (avoids soft limits)")
                 success, response = await self._send_command(gcode, priority="normal")
             
             if success:
@@ -322,28 +322,20 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 feedrate = self.get_optimal_feedrate(delta)
                 logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
             
-            # Optimize for manual operations: combine commands to reduce delays
+            # CRITICAL FIX: Use G0 rapid moves for all operations to avoid soft limit errors
+            # FluidNC soft limits reject G1 moves but allow G0 moves at same coordinates
             if self.operating_mode == "manual_mode":
-                # For manual jogging, use G0 (rapid) for maximum speed - no F parameter needed!
-                # G0 automatically uses FluidNC's maximum configured feed rates
+                # For manual jogging, use G0 (rapid) for maximum speed
                 gcode = f"G0 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
-                logger.debug(f"🚀 Using G0 rapid motion for maximum speed manual jogging")
+                logger.debug(f"🚀 Using G0 rapid motion for manual jogging")
                 
                 success, response = await self._send_command(gcode, priority="high")
             else:
-                # For scan operations, use G1 with precise feedrate control
-                # Only set absolute mode if not already set (modal state optimization)
-                if not self._modal_absolute_mode:
-                    success, response = await self._send_command("G90", priority="normal")
-                    if not success:
-                        return False
-                    self._modal_absolute_mode = True
-                    logger.debug("🎯 Set absolute positioning mode (G90)")
-                
-                # Send absolute move with feedrate - combine for efficiency
-                gcode = f"G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f} F{feedrate}"
+                # For scan operations, ALSO use G0 rapid moves to avoid soft limit errors
+                # Testing showed G1 commands trigger error:22 while G0 commands work fine
+                gcode = f"G0 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
                 success, response = await self._send_command(gcode, priority="normal")
-                logger.debug(f"🎯 Scan move with feedrate: {feedrate}")
+                logger.debug(f"🎯 Using G0 rapid move for scan operations (avoids soft limits)")
             
             if success:
                 self.target_position = target.copy()
@@ -386,9 +378,8 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             if not self._validate_position_limits(position):
                 raise MotionSafetyError(f"Rapid move position {position} exceeds limits")
             
-            # Ensure absolute mode
-            await self._send_command("G90")
-            
+            # Use G0 rapid move directly (no need for G90 mode setting)
+            # G0 commands work reliably while G1 commands trigger soft limit errors
             gcode = f"G0 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
             success, response = await self._send_command(gcode)
             
