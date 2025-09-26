@@ -3059,6 +3059,8 @@ if __name__ == "__main__":
     Run the web interface without orchestrator for testing
     """
     import logging
+    import asyncio
+    from pathlib import Path
     
     # Setup logging
     logging.basicConfig(
@@ -3066,15 +3068,61 @@ if __name__ == "__main__":
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # Create web interface without orchestrator (development mode)
-    web_interface = ScannerWebInterface(orchestrator=None)
-    
-    print("Starting Scanner Web Interface in development mode...")
-    print("Open http://localhost:5000 in your browser")
-    print("Press Ctrl+C to stop")
+    print("🚀 Starting Scanner Web Interface with FULL storage integration...")
     
     try:
+        # Import required modules
+        from core.config_manager import ConfigManager
+        from scanning.scan_orchestrator import ScanOrchestrator as RealScanOrchestrator
+        
+        # Load configuration
+        config_file = Path(__file__).parent.parent / 'config' / 'scanner_config.yaml'
+        config_manager = ConfigManager(config_file)
+        
+        # Create real orchestrator with storage system
+        print("📦 Initializing orchestrator with SessionManager storage...")
+        orchestrator = RealScanOrchestrator(config_manager)
+        
+        # Initialize orchestrator
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(orchestrator.initialize())
+            print("✅ Orchestrator initialized with full storage system!")
+        finally:
+            loop.close()
+        
+        # Create web interface WITH orchestrator (full integration mode)
+        web_interface = ScannerWebInterface(orchestrator=orchestrator)
+        
+        print("🌐 Starting web server with full storage integration...")
+        print("📁 Images will be saved with complete metadata!")
+        print("💾 Storage location:", config_manager.get('storage.base_path', '/home/pi/scanner_data'))
+        print("🔗 Open http://localhost:5000 in your browser")
+        print("Press Ctrl+C to stop")
+        
         web_interface.start_web_server(host='0.0.0.0', port=5000, debug=True)
+        
+    except ImportError as e:
+        print(f"❌ Could not import orchestrator modules: {e}")
+        print("💡 Falling back to development mode without storage")
+        
+        # Fallback to no orchestrator
+        web_interface = ScannerWebInterface(orchestrator=None)
+        print("⚠️  Development mode: Files will use fallback storage in ~/manual_captures/")
+        print("🔗 Open http://localhost:5000 in your browser")
+        web_interface.start_web_server(host='0.0.0.0', port=5000, debug=True)
+        
     except KeyboardInterrupt:
         print("\nShutting down...")
-        web_interface.stop_web_server()
+        if 'web_interface' in locals():
+            web_interface.stop_web_server()
+    except Exception as e:
+        print(f"❌ Failed to start with storage integration: {e}")
+        print("💡 Falling back to development mode without storage")
+        
+        # Fallback to no orchestrator
+        web_interface = ScannerWebInterface(orchestrator=None) 
+        print("⚠️  Development mode: Files will use fallback storage in ~/manual_captures/")
+        print("🔗 Open http://localhost:5000 in your browser")
+        web_interface.start_web_server(host='0.0.0.0', port=5000, debug=True)
