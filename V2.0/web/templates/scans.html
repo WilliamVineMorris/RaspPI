@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}Scan Management{%    /* Step-by-step layout */
+{% block title %}Scan Management{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Step-by-step layout */
     .scan-step {
         margin-bottom: 2rem;
         border: 1px solid var(--border-color);
@@ -47,10 +51,8 @@
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         gap: 1rem;
         padding: 1.5rem;
-    }ock %}
+    }
 
-{% block extra_css %}
-<style>
     .scan-grid {
         display: grid;
         grid-template-columns: 2fr 1fr;
@@ -1025,95 +1027,71 @@ if (surfaceCard) surfaceCard.classList.add('selected');
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/scans.js') }}"></script>
 <script>
-console.log('=== SCAN TYPE SCRIPT STARTING ===');
 
-// Try multiple approaches to ensure script runs
-function initScanTypeSwitching() {
-    console.log('=== Initializing scan type switching ===');
-    
-    const scanTypeCards = document.querySelectorAll('.scan-type-card');
+// Clean scan type switching functionality - no debug logs
+function switchScanType(scanType) {
     const cylindricalParams = document.getElementById('cylindrical-parameters');
     const gridBoundaries = document.getElementById('grid-boundaries');
+    const configTitle = document.getElementById('config-title');
+    const configDescription = document.getElementById('config-description');
     
-    console.log('Found scan type cards:', scanTypeCards.length);
-    console.log('Cylindrical params element:', cylindricalParams);
-    console.log('Grid boundaries element:', gridBoundaries);
-    
-    if (scanTypeCards.length === 0) {
-        console.error('ERROR: No scan type cards found!');
-        return;
-    }
-    
-    if (!cylindricalParams) {
-        console.error('ERROR: Cylindrical parameters element not found!');
-        return;
-    }
-    
-    if (!gridBoundaries) {
-        console.error('ERROR: Grid boundaries element not found!');
-        return;
-    }
-    
-    function updateParameterPanels(scanType) {
-        console.log('=== UPDATING PANELS FOR:', scanType, '===');
-        
-        if (scanType === 'cylindrical') {
-            console.log('>>> SHOWING CYLINDRICAL PARAMETERS <<<');
-            cylindricalParams.style.display = 'block';
-            gridBoundaries.style.display = 'none';
-        } else {
-            console.log('>>> SHOWING GRID BOUNDARIES <<<');
-            cylindricalParams.style.display = 'none';
-            gridBoundaries.style.display = 'block';
+    // Configuration content based on scan type
+    const configs = {
+        surface: {
+            title: 'Configure Scan Area',
+            description: 'Define the rectangular scanning boundaries for surface capture'
+        },
+        volume: {
+            title: 'Configure Scan Volume',
+            description: 'Set up the 3D space for complete volumetric capture'
+        },
+        cylindrical: {
+            title: 'Configure Cylindrical Scan',
+            description: 'Set rotation and height parameters for cylindrical objects'
+        },
+        detail: {
+            title: 'Configure Detail Scan',
+            description: 'Define the focused area for high-resolution detail capture'
         }
-        
-        console.log('Cylindrical display:', cylindricalParams.style.display);
-        console.log('Grid display:', gridBoundaries.style.display);
+    };
+    
+    // Update configuration section title and description
+    if (configTitle && configDescription && configs[scanType]) {
+        configTitle.textContent = configs[scanType].title;
+        configDescription.textContent = configs[scanType].description;
     }
     
-    // Add click handlers to scan type cards
-    scanTypeCards.forEach((card, index) => {
-        console.log(`Setting up click handler for card ${index}:`, card.dataset.type);
-        
-        card.addEventListener('click', function() {
-            const scanType = card.dataset.type;
-            console.log('=== SCAN TYPE CARD CLICKED:', scanType, '===');
-            
-            // Update selection visual
-            scanTypeCards.forEach(c => c.classList.remove('selected'));
-            card.classList.add('selected');
-            
-            // Update parameter panels
-            updateParameterPanels(scanType);
-        });
-    });
-    
-    // Set initial state - surface scan selected
-    console.log('Setting initial state...');
-    const defaultCard = document.querySelector('[data-type="surface"]');
-    if (defaultCard) {
-        defaultCard.classList.add('selected');
-        updateParameterPanels('surface');
-        console.log('Initial state set to surface scan');
+    // Show/hide appropriate parameter panels
+    if (scanType === 'cylindrical') {
+        if (cylindricalParams) cylindricalParams.style.display = 'block';
+        if (gridBoundaries) gridBoundaries.style.display = 'none';
     } else {
-        console.error('ERROR: Default surface card not found!');
+        if (cylindricalParams) cylindricalParams.style.display = 'none';
+        if (gridBoundaries) gridBoundaries.style.display = 'block';
     }
-    
-    console.log('=== SCAN TYPE SWITCHING INITIALIZED ===');
 }
 
-// Try multiple initialization approaches
-document.addEventListener('DOMContentLoaded', initScanTypeSwitching);
+// Make function globally available
+window.switchScanType = switchScanType;
 
-// Also try after a short delay in case DOM isn't fully ready
-setTimeout(initScanTypeSwitching, 100);
+// Set up click handlers for scan type cards
+const cards = document.querySelectorAll('.scan-type-card');
+cards.forEach(card => {
+    card.addEventListener('click', function() {
+        const scanType = card.dataset.type;
+        
+        // Update visual selection
+        cards.forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        
+        // Switch parameter panels
+        switchScanType(scanType);
+    });
+});
 
-// And also try immediately if DOM is already loaded
-if (document.readyState === 'loading') {
-    console.log('DOM is still loading, waiting...');
-} else {
-    console.log('DOM already loaded, initializing immediately...');
-    initScanTypeSwitching();
-}
+// Set initial state - default to surface scan
+switchScanType('surface');
+const surfaceCard = document.querySelector('[data-type="surface"]');
+if (surfaceCard) surfaceCard.classList.add('selected');
 </script>
 {% endblock %}
