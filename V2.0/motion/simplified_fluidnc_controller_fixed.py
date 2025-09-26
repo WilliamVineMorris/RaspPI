@@ -842,138 +842,148 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             return False
     
     def move_to_position_sync(self, position: Position4D, feedrate: Optional[float] = None) -> Dict[str, Any]:
-        """Synchronous version of move_to_position for web interface"""
+        """Synchronous version of move_to_position with better event loop handling"""
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            import concurrent.futures
+            
+            # Check if we're already in an async context
             try:
-                success = loop.run_until_complete(self.move_to_position(position, feedrate))
-                # Get current position after move for coordinate capture
-                current_pos = loop.run_until_complete(self.get_current_position())
-                return {
-                    'success': success,
-                    'position': current_pos.to_dict() if current_pos else None,
-                    'coordinates': {
-                        'x': current_pos.x if current_pos else 0.0,
-                        'y': current_pos.y if current_pos else 0.0, 
-                        'z': current_pos.z if current_pos else 0.0,
-                        'c': current_pos.c if current_pos else 0.0
-                    } if current_pos else None
-                }
-            finally:
-                loop.close()
+                current_loop = asyncio.get_running_loop()
+                logger.debug("🔄 Detected running event loop, using thread executor")
+                
+                # Use thread executor to avoid blocking current loop
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    def run_move():
+                        # Create new loop in thread
+                        new_loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(new_loop)
+                        try:
+                            success = new_loop.run_until_complete(self.move_to_position(position, feedrate))
+                            current_pos = new_loop.run_until_complete(self.get_current_position())
+                            return success, current_pos
+                        finally:
+                            new_loop.close()
+                    
+                    success, current_pos = executor.submit(run_move).result(timeout=10.0)
+                    
+            except RuntimeError:
+                # No event loop running, safe to create one
+                logger.debug("🔄 No running event loop, creating new one")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    success = loop.run_until_complete(self.move_to_position(position, feedrate))
+                    current_pos = loop.run_until_complete(self.get_current_position())
+                finally:
+                    loop.close()
+            
+            return {
+                'success': success,
+                'position': current_pos.to_dict() if current_pos else None,
+                'coordinates': {
+                    'x': current_pos.x if current_pos else 0.0,
+                    'y': current_pos.y if current_pos else 0.0,
+                    'z': current_pos.z if current_pos else 0.0,
+                    'c': current_pos.c if current_pos else 0.0
+                } if current_pos else None
+            }
+            
         except Exception as e:
             logger.error(f"❌ Sync move to position error: {e}")
             return {'success': False, 'error': str(e), 'position': None, 'coordinates': None}
     
     def relative_move_sync(self, delta: Position4D, feedrate: Optional[float] = None) -> Dict[str, Any]:
-        """Synchronous version of relative_move for web interface"""
+        """Synchronous version of relative_move with better event loop handling"""
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            import concurrent.futures
+            import threading
+            
+            # Check if we're already in an async context
             try:
-                success = loop.run_until_complete(self.move_relative(delta, feedrate))
-                # Get current position after move for coordinate capture
-                current_pos = loop.run_until_complete(self.get_current_position())
-                return {
-                    'success': success,
-                    'position': current_pos.to_dict() if current_pos else None,
-                    'coordinates': {
-                        'x': current_pos.x if current_pos else 0.0,
-                        'y': current_pos.y if current_pos else 0.0,
-                        'z': current_pos.z if current_pos else 0.0,
-                        'c': current_pos.c if current_pos else 0.0
-                    } if current_pos else None
-                }
-            finally:
-                loop.close()
+                current_loop = asyncio.get_running_loop()
+                logger.debug("🔄 Detected running event loop, using thread executor")
+                
+                # Use thread executor to avoid blocking current loop
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    def run_move():
+                        # Create new loop in thread
+                        new_loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(new_loop)
+                        try:
+                            success = new_loop.run_until_complete(self.move_relative(delta, feedrate))
+                            current_pos = new_loop.run_until_complete(self.get_current_position())
+                            return success, current_pos
+                        finally:
+                            new_loop.close()
+                    
+                    success, current_pos = executor.submit(run_move).result(timeout=10.0)
+                    
+            except RuntimeError:
+                # No event loop running, safe to create one
+                logger.debug("🔄 No running event loop, creating new one")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    success = loop.run_until_complete(self.move_relative(delta, feedrate))
+                    current_pos = loop.run_until_complete(self.get_current_position())
+                finally:
+                    loop.close()
+            
+            return {
+                'success': success,
+                'position': current_pos.to_dict() if current_pos else None,
+                'coordinates': {
+                    'x': current_pos.x if current_pos else 0.0,
+                    'y': current_pos.y if current_pos else 0.0,
+                    'z': current_pos.z if current_pos else 0.0,
+                    'c': current_pos.c if current_pos else 0.0
+                } if current_pos else None
+            }
+            
         except Exception as e:
             logger.error(f"❌ Sync relative move error: {e}")
+            import traceback
+            logger.error(f"❌ Traceback: {traceback.format_exc()}")
             return {'success': False, 'error': str(e), 'position': None, 'coordinates': None}
     
     def get_current_position_sync(self) -> Optional[Position4D]:
-        """Synchronous version of get_current_position for web interface"""
+        """Synchronous version of get_current_position with better event loop handling"""
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            import concurrent.futures
+            
+            # Check if we're already in an async context
             try:
-                return loop.run_until_complete(self.get_current_position())
-            finally:
-                loop.close()
+                current_loop = asyncio.get_running_loop()
+                logger.debug("🔄 Detected running event loop, using thread executor")
+                
+                # Use thread executor to avoid blocking current loop
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    def get_position():
+                        # Create new loop in thread
+                        new_loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(new_loop)
+                        try:
+                            return new_loop.run_until_complete(self.get_current_position())
+                        finally:
+                            new_loop.close()
+                    
+                    return executor.submit(get_position).result(timeout=5.0)
+                    
+            except RuntimeError:
+                # No event loop running, safe to create one
+                logger.debug("🔄 No running event loop, creating new one")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    return loop.run_until_complete(self.get_current_position())
+                finally:
+                    loop.close()
+                    
         except Exception as e:
             logger.error(f"❌ Sync get position error: {e}")
             return None
     
-    def test_direct_move_sync(self, delta: Position4D) -> Dict[str, Any]:
-        """Test method: Send movement command directly via serial (like homing does)"""
-        try:
-            logger.info(f"🧪 TEST: Direct serial move - {delta}")
-            
-            # Get current position first
-            current = self.current_position or Position4D(0, 0, 0, 0)
-            
-            # Calculate target position
-            target = Position4D(
-                current.x + delta.x,
-                current.y + delta.y,
-                current.z + delta.z,
-                current.c + delta.c
-            )
-            
-            # Create G-code command (same as regular move_relative method)
-            gcode = f"G90 G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
-            logger.info(f"🧪 TEST: Sending direct serial command: {gcode}")
-            
-            # Send command directly via serial (same method as homing)
-            try:
-                success = False
-                with self.protocol.connection_lock:
-                    if self.protocol.serial_connection:
-                        command_bytes = f"{gcode}\n".encode('utf-8')
-                        self.protocol.serial_connection.write(command_bytes)
-                        self.protocol.serial_connection.flush()
-                        logger.info("🧪 ✅ TEST: Movement command sent directly via serial")
-                        success = True
-                        response = "Command sent via direct serial"
-                    else:
-                        success = False
-                        response = "No serial connection available"
-            except Exception as e:
-                success = False
-                response = f"Direct send error: {e}"
-                logger.error(f"❌ TEST: Direct serial send failed: {e}")
-            
-            # Update position manually (since we bypassed the normal update mechanism)
-            if success:
-                import time
-                time.sleep(0.5)  # Give movement time to start
-                # Get fresh position
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    updated_pos = loop.run_until_complete(self.get_current_position())
-                finally:
-                    loop.close()
-            else:
-                updated_pos = current
-            
-            return {
-                'success': success,
-                'method': 'direct_serial',
-                'command_sent': gcode,
-                'response': response,
-                'position': updated_pos.to_dict() if updated_pos else None,
-                'coordinates': {
-                    'x': updated_pos.x if updated_pos else 0.0,
-                    'y': updated_pos.y if updated_pos else 0.0,
-                    'z': updated_pos.z if updated_pos else 0.0,
-                    'c': updated_pos.c if updated_pos else 0.0
-                } if updated_pos else None
-            }
-            
-        except Exception as e:
-            logger.error(f"❌ TEST: Direct move error: {e}")
-            return {'success': False, 'error': str(e), 'method': 'direct_serial', 'position': None, 'coordinates': None}
+
     
     async def reset_controller(self) -> bool:
         """Reset FluidNC controller"""
