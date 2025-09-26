@@ -2188,42 +2188,8 @@ class ScannerWebInterface:
             
             self.logger.info(f"🔥 Starting synchronized flash capture with storage integration - intensity: {flash_intensity}%")
             
-            # Get current position for metadata
+            # Get current position for metadata (minimal to avoid event loop interference)
             current_position = None
-            try:
-                self.logger.info("📍 Attempting to capture scanner coordinates...")
-                if hasattr(self.orchestrator, 'motion_controller'):
-                    self.logger.info(f"📍 Motion controller exists: {self.orchestrator.motion_controller is not None}")
-                    if self.orchestrator.motion_controller:
-                        self.logger.info("📍 Calling get_current_position()...")
-                        try:
-                            # Try to use existing event loop first
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                # Event loop is running, create a task instead
-                                import concurrent.futures
-                                with concurrent.futures.ThreadPoolExecutor() as executor:
-                                    future = executor.submit(asyncio.run, self.orchestrator.motion_controller.get_current_position())
-                                    current_position = future.result()
-                            else:
-                                current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
-                        except:
-                            # Fallback to simple asyncio.run
-                            current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
-                        self.logger.info(f"📍 Motion controller returned: {current_position}")
-                        if current_position:
-                            self.logger.info(f"📍 Captured scanner coordinates for camera pair: X={current_position.x:.3f}, Y={current_position.y:.3f}, Z={current_position.z:.1f}°, C={current_position.c:.1f}°")
-                        else:
-                            self.logger.warning("📍 Motion controller returned None position")
-                    else:
-                        self.logger.warning("📍 Motion controller is None")
-                else:
-                    self.logger.warning("📍 Motion controller attribute not found on orchestrator")
-            except Exception as pos_error:
-                self.logger.error(f"📍 Could not get current position: {pos_error}")
-                import traceback
-                self.logger.error(f"📍 Position error traceback: {traceback.format_exc()}")
-                current_position = None
             
             # Create and start session for this capture
             session_id = f"manual_capture_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
