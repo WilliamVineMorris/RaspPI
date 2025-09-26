@@ -2509,14 +2509,26 @@ class ScannerWebInterface:
                                     
                                     # Get the actual camera metadata from last capture
                                     if hasattr(camera, 'capture_metadata'):
-                                        actual_metadata = camera.capture_metadata
+                                        meta_attr = camera.capture_metadata
+                                        if callable(meta_attr):
+                                            actual_metadata = meta_attr()
+                                        elif isinstance(meta_attr, dict):
+                                            actual_metadata = meta_attr.copy()
                                         self.logger.info(f"📷 Found actual camera metadata for camera {camera_id}")
                                     
                                     # Get current camera controls/settings
                                     if hasattr(camera, 'camera_controls'):
-                                        camera_controls = camera.camera_controls
+                                        controls_attr = camera.camera_controls
+                                        if callable(controls_attr):
+                                            camera_controls = controls_attr()
+                                        else:
+                                            camera_controls = controls_attr
                                     elif hasattr(camera, 'controls'):
-                                        camera_controls = camera.controls
+                                        controls_attr = camera.controls
+                                        if callable(controls_attr):
+                                            camera_controls = controls_attr()
+                                        else:
+                                            camera_controls = controls_attr
                                         
                 except Exception as meta_error:
                     self.logger.warning(f"Could not extract camera metadata: {meta_error}")
@@ -2556,7 +2568,7 @@ class ScannerWebInterface:
                 exif_dict["Exif"][piexif.ExifIFD.DateTimeDigitized] = timestamp
                 
                 # Use actual camera metadata if available
-                if actual_metadata:
+                if actual_metadata and isinstance(actual_metadata, dict):
                     self.logger.info(f"📷 Using actual Picamera2 metadata: {list(actual_metadata.keys())}")
                     
                     # Extract real values from Picamera2 metadata
@@ -2587,24 +2599,23 @@ class ScannerWebInterface:
                         exif_dict["Exif"][piexif.ExifIFD.MeteringMode] = 5  # Pattern
                 
                 # Use camera controls if available
-                if camera_controls:
-                    self.logger.info(f"📷 Using camera controls: {list(camera_controls.keys()) if hasattr(camera_controls, 'keys') else 'Available'}")
+                if camera_controls and isinstance(camera_controls, dict):
+                    self.logger.info(f"📷 Using camera controls: {list(camera_controls.keys())}")
                     
-                    # If we have direct access to camera settings
-                    if hasattr(camera_controls, 'get'):
-                        if camera_controls.get('ExposureTime'):
-                            exposure_us = camera_controls.get('ExposureTime')
-                            exposure_sec = exposure_us / 1000000.0
-                            if exposure_sec >= 1:
-                                exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = (int(exposure_sec), 1)
-                            else:
-                                denominator = int(1 / exposure_sec)
-                                exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = (1, denominator)
-                        
-                        if camera_controls.get('AnalogueGain'):
-                            gain = camera_controls.get('AnalogueGain')
-                            iso_equivalent = int(gain * 100)
-                            exif_dict["Exif"][piexif.ExifIFD.ISOSpeedRatings] = iso_equivalent
+                    # Extract values from camera controls dictionary
+                    if 'ExposureTime' in camera_controls:
+                        exposure_us = camera_controls['ExposureTime']
+                        exposure_sec = exposure_us / 1000000.0
+                        if exposure_sec >= 1:
+                            exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = (int(exposure_sec), 1)
+                        else:
+                            denominator = int(1 / exposure_sec)
+                            exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = (1, denominator)
+                    
+                    if 'AnalogueGain' in camera_controls:
+                        gain = camera_controls['AnalogueGain']
+                        iso_equivalent = int(gain * 100)
+                        exif_dict["Exif"][piexif.ExifIFD.ISOSpeedRatings] = iso_equivalent
                 
                 # Fallback to reasonable defaults if no metadata available
                 if piexif.ExifIFD.ExposureTime not in exif_dict["Exif"]:

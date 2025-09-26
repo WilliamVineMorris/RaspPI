@@ -1119,36 +1119,57 @@ class CameraManagerAdapter:
                             # Start capture immediately without waiting for other camera
                             self.logger.info(f"CAMERA: Starting simultaneous capture for camera {mapped_id} ({camera_id})")
                             
-                            # Use asyncio to run the blocking capture_array in thread pool for true concurrency
+                            # Use asyncio to run the blocking capture with metadata collection
                             import asyncio
                             import concurrent.futures
                             
+                            def capture_with_metadata(camera_obj):
+                                """Capture image and return both image and metadata"""
+                                try:
+                                    # In Picamera2, metadata is often available during/after capture
+                                    # First capture the image
+                                    image_array = camera_obj.capture_array("main")
+                                    
+                                    # Then try to get metadata immediately after capture
+                                    metadata = {}
+                                    
+                                    # Try different ways to get metadata from Picamera2
+                                    if hasattr(camera_obj, 'capture_metadata'):
+                                        try:
+                                            if callable(camera_obj.capture_metadata):
+                                                metadata.update(camera_obj.capture_metadata())
+                                            else:
+                                                metadata.update(camera_obj.capture_metadata)
+                                        except:
+                                            pass
+                                    
+                                    # Try to get current controls as metadata
+                                    if hasattr(camera_obj, 'controls') and hasattr(camera_obj.controls, 'keys'):
+                                        try:
+                                            metadata.update({'controls': dict(camera_obj.controls)})
+                                        except:
+                                            pass
+                                    
+                                    return image_array, metadata
+                                    
+                                except Exception as e:
+                                    self.logger.error(f"Capture with metadata failed: {e}")
+                                    return None, {}
+                            
                             loop = asyncio.get_event_loop()
                             with concurrent.futures.ThreadPoolExecutor() as executor:
-                                # Run capture_array in thread pool to prevent blocking other camera
-                                image_array = await loop.run_in_executor(executor, camera.capture_array, "main")
+                                # Run capture with metadata collection in thread pool
+                                image_array, capture_metadata = await loop.run_in_executor(executor, capture_with_metadata, camera)
                             
                             if image_array is not None and image_array.size > 0:
                                 image_bgr = image_array.copy()
                                 
-                                # Capture metadata immediately after successful capture
-                                capture_metadata = {}
-                                try:
-                                    if hasattr(camera, 'capture_metadata'):
-                                        capture_metadata = camera.capture_metadata.copy()
-                                    elif hasattr(camera, 'camera_metadata'):
-                                        capture_metadata = camera.camera_metadata.copy()
-                                    
-                                    # Also get current controls
-                                    if hasattr(camera, 'camera_controls'):
-                                        controls = camera.camera_controls
-                                        if controls:
-                                            capture_metadata.update({'controls': controls})
-                                    
+                                # Log captured metadata
+                                if capture_metadata and isinstance(capture_metadata, dict):
                                     self.logger.info(f"CAMERA: Captured metadata for {camera_id}: {list(capture_metadata.keys())}")
-                                    
-                                except Exception as meta_error:
-                                    self.logger.warning(f"CAMERA: Could not capture metadata for {camera_id}: {meta_error}")
+                                else:
+                                    self.logger.info(f"CAMERA: No metadata captured for {camera_id}")
+                                    capture_metadata = {}
                                 
                                 self.logger.info(f"CAMERA: Simultaneous capture successful for {camera_id}: {image_bgr.shape}")
                                 return {'image': image_bgr, 'metadata': capture_metadata}
