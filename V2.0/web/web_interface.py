@@ -1991,11 +1991,19 @@ class ScannerWebInterface:
             raise HardwareError(f"Failed to execute emergency stop: {e}")
     
     def _execute_scan_start(self, pattern_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute scan start command"""
+        """Execute scan start command with proper motion control setup"""
         try:
             # Create scan pattern using orchestrator's methods
             if not self.orchestrator:
                 raise ScannerSystemError("Scanner system not initialized")
+                
+            # Ensure motion controller is in scanning mode for proper feedrate control
+            if hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+                try:
+                    self.orchestrator.motion_controller.set_operating_mode("scanning_mode")
+                    self.logger.info("🔧 Motion controller set to scanning mode for precise motion control")
+                except Exception as e:
+                    self.logger.warning(f"Could not set scanning mode: {e}")
                 
             if pattern_data['pattern_type'] == 'grid':
                 pattern = self.orchestrator.create_grid_pattern(
@@ -2018,6 +2026,12 @@ class ScannerWebInterface:
             # Generate scan output directory (use relative path to avoid permission issues)
             scan_id = f"web_scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             output_dir = Path.cwd() / "scans" / scan_id
+            
+            self.logger.info(f"🎯 Starting scan with motion completion timing:")
+            self.logger.info(f"   • Pattern: {pattern_data['pattern_type']}")
+            self.logger.info(f"   • Points: {len(pattern.generate_points())}")
+            self.logger.info(f"   • Motion mode: scanning_mode (with feedrate control)")
+            self.logger.info(f"   • Motion completion: enabled (waits for position)")
             
             # Start the scan (this returns a coroutine, so we need to handle it properly)
             # For now, we'll create the task and let it run

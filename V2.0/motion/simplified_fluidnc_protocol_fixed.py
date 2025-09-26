@@ -373,43 +373,55 @@ class SimplifiedFluidNCProtocolFixed:
         return False
     
     def _wait_for_immediate_response(self, timeout: float) -> Optional[str]:
-        """Wait for immediate command response (ok/error)"""
+        """Wait for immediate command response (ok/error) with improved buffering"""
         try:
             start_time = time.time()
+            buffer = ""
             
             while time.time() - start_time < timeout:
                 if self.serial_connection and self.serial_connection.in_waiting > 0:
-                    line = self.serial_connection.readline().decode('utf-8', errors='ignore').strip()
+                    # Read all available data at once to reduce serial overhead
+                    new_data = self.serial_connection.read(self.serial_connection.in_waiting).decode('utf-8', errors='ignore')
+                    buffer += new_data
                     
-                    if not line:
-                        continue
-                    
-                    # Capture all raw messages for homing detection
-                    self._capture_raw_message(line)
-                    
-                    # Handle status reports (update current status) - with error protection
-                    if line.startswith('<') and line.endswith('>'):
-                        try:
-                            self._parse_status_report(line)
-                        except Exception as parse_error:
-                            logger.warning(f"🔧 Status parsing recovered from error: {parse_error}")
-                            # Continue processing other messages even if this one fails
-                        continue
-                    
-                    # Handle debug/info messages (but we already captured them)
-                    if line.startswith('[') and line.endswith(']'):
-                        # Track debug messages for statistics
-                        if "[MSG:DBG:" in line or "[MSG:Homed:" in line:
-                            self.stats['debug_messages_captured'] += 1
-                        continue
-                    
-                    # Command response
-                    if line.lower() in ['ok', 'error'] or line.startswith('error:'):
-                        self.stats['responses_received'] += 1
-                        return line
+                    # Process complete lines
+                    while '\n' in buffer:
+                        line, buffer = buffer.split('\n', 1)
+                        line = line.strip()
+                        
+                        if not line:
+                            continue
+                        
+                        # Capture all raw messages for homing detection
+                        self._capture_raw_message(line)
+                        
+                        # Handle status reports (update current status) - with error protection
+                        if line.startswith('<') and line.endswith('>'):
+                            try:
+                                self._parse_status_report(line)
+                            except Exception as parse_error:
+                                logger.debug(f"Status parsing error (recovered): {parse_error}")
+                            continue
+                        
+                        # Handle debug/info messages
+                        if line.startswith('[') and line.endswith(']'):
+                            if "[MSG:DBG:" in line or "[MSG:Homed:" in line:
+                                self.stats['debug_messages_captured'] += 1
+                            continue
+                        
+                        # Command response - check for various FluidNC response formats
+                        line_lower = line.lower()
+                        if (line_lower == 'ok' or 
+                            line_lower == 'error' or 
+                            line_lower.startswith('error:') or
+                            line_lower.startswith('alarm:')):
+                            self.stats['responses_received'] += 1
+                            logger.debug(f"📥 Received response: '{line}'")
+                            return line
                 
-                time.sleep(0.01)
+                time.sleep(0.005)  # Reduced sleep for faster response processing
             
+            logger.debug(f"⏰ Response timeout after {timeout}s")
             return None
             
         except Exception as e:
