@@ -814,8 +814,24 @@ class ScannerWebInterface:
                 delta_values = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
                 delta_values[axis] = move_distance
                 
-                # Execute the movement using synchronous motion controller method (no event loop conflicts)
-                result = self._execute_jog_command_sync(delta_values, speed, command_id)
+                # TEMPORARY TEST: Try direct serial method like homing uses
+                if hasattr(self.orchestrator.motion_controller, 'test_direct_move_sync'):
+                    delta_obj = Position4D(x=delta_values['x'], y=delta_values['y'], 
+                                         z=delta_values['z'], c=delta_values['c'])
+                    self.logger.info(f"🧪 TESTING: Using direct serial method for movement")
+                    direct_result = self.orchestrator.motion_controller.test_direct_move_sync(delta_obj)
+                    self.logger.info(f"🧪 DIRECT SERIAL RESULT: {direct_result}")
+                    
+                    # Also try the regular method for comparison
+                    self.logger.info(f"🧪 TESTING: Also trying regular sync method for comparison")
+                    regular_result = self._execute_jog_command_sync(delta_values, speed, command_id)
+                    self.logger.info(f"🧪 REGULAR SYNC RESULT: {regular_result}")
+                    
+                    # Use direct result if it worked, otherwise fall back to regular
+                    result = direct_result if direct_result.get('success') else regular_result
+                else:
+                    # Execute the movement using synchronous motion controller method (no event loop conflicts)
+                    result = self._execute_jog_command_sync(delta_values, speed, command_id)
                 
                 if TIMING_LOGGER_AVAILABLE and command_id:
                     timing_logger.log_backend_complete(command_id, success=True)
