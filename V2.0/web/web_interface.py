@@ -244,29 +244,48 @@ class CommandValidator:
     
     @classmethod
     def _validate_cylindrical_pattern(cls, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate cylindrical pattern parameters"""
-        x_range = (float(data.get('x_min', -50)), float(data.get('x_max', 50)))
-        y_range = (float(data.get('y_min', -50)), float(data.get('y_max', 50)))
-        z_rotations = [float(r) for r in data.get('z_rotations', [0, 90, 180, 270])]
-        c_angles = [float(a) for a in data.get('c_angles', [0])]
+        """Validate cylindrical pattern parameters for fixed radius scanning"""
+        # Fixed camera radius (X-axis) - single value, not range
+        radius = float(data.get('radius', 25.0))
         
-        # Validate ranges
-        if x_range[0] >= x_range[1] or y_range[0] >= y_range[1]:
-            raise ValueError("Invalid coordinate ranges")
+        # Height range (Y-axis) for multiple passes
+        y_range = (float(data.get('y_min', 40.0)), float(data.get('y_max', 120.0)))
+        y_step = float(data.get('y_step', 20.0))
+        
+        # Rotation parameters (Z-axis)
+        if 'z_rotations' in data:
+            z_rotations = [float(r) for r in data['z_rotations']]
+        else:
+            rotation_step = float(data.get('rotation_step', 60.0))
+            z_rotations = [float(i) for i in range(0, 360, int(rotation_step))]
+        
+        # Camera angles (C-axis)
+        c_angles = [float(a) for a in data.get('c_angles', [-10, 0, 10])]
+        
+        # Validate parameters
+        if not (5.0 <= radius <= 100.0):
+            raise ValueError(f"Camera radius {radius}mm outside valid range [5, 100]")
+        
+        if y_range[0] >= y_range[1]:
+            raise ValueError("Invalid Y height range: min must be less than max")
+            
+        if not (1.0 <= y_step <= 50.0):
+            raise ValueError(f"Y step {y_step}mm outside valid range [1, 50]")
         
         # Validate rotations
         for rotation in z_rotations:
-            if not (-360.0 <= rotation <= 360.0):
-                raise ValueError(f"Z rotation {rotation}° outside valid range")
+            if not (0.0 <= rotation < 360.0):
+                raise ValueError(f"Z rotation {rotation}° outside valid range [0, 360)")
         
         for angle in c_angles:
-            if not (-360.0 <= angle <= 360.0):
-                raise ValueError(f"C angle {angle}° outside valid range")
+            if not (-90.0 <= angle <= 90.0):
+                raise ValueError(f"C angle {angle}° outside valid range [-90, 90]")
         
         return {
             'pattern_type': 'cylindrical',
-            'x_range': x_range,
+            'radius': radius,
             'y_range': y_range,
+            'y_step': y_step,
             'z_rotations': z_rotations,
             'c_angles': c_angles,
             'validated': True
@@ -1987,8 +2006,9 @@ class ScannerWebInterface:
                 )
             elif pattern_data['pattern_type'] == 'cylindrical':
                 pattern = self.orchestrator.create_cylindrical_pattern(
-                    x_range=pattern_data['x_range'],
+                    radius=pattern_data['radius'],
                     y_range=pattern_data['y_range'],
+                    y_step=pattern_data['y_step'],
                     z_rotations=pattern_data['z_rotations'],
                     c_angles=pattern_data['c_angles']
                 )

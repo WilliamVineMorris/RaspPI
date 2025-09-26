@@ -2286,36 +2286,34 @@ class ScanOrchestrator:
         return GridScanPattern(pattern_id=pattern_id, parameters=parameters)
     
     def create_cylindrical_pattern(self,
-                                 x_range: tuple[float, float],
-                                 y_range: tuple[float, float], 
-                                 x_step: float = 10.0,
-                                 y_step: float = 15.0,
+                                 radius: float,
+                                 y_range: tuple[float, float],
+                                 y_step: float = 20.0,
                                  z_rotations: Optional[List[float]] = None,
                                  c_angles: Optional[List[float]] = None):
         """
-        Create a cylindrical scan pattern for turntable scanner
+        Create a cylindrical scan pattern for turntable scanner with fixed radius
         
         Args:
-            x_range: Horizontal camera movement range (start, end) in mm
+            radius: Fixed camera radius (distance from object center) in mm
             y_range: Vertical camera movement range (start, end) in mm  
-            x_step: Horizontal step size in mm
             y_step: Vertical step size in mm
             z_rotations: Turntable rotation angles in degrees (None for default)
             c_angles: Camera pivot angles in degrees (None for default)
         """
         from .scan_patterns import CylindricalPatternParameters, CylindricalScanPattern
         
-        # Create pattern parameters
+        # Create pattern parameters with fixed radius (x_start = x_end)
         parameters = CylindricalPatternParameters(
-            x_start=x_range[0],
-            x_end=x_range[1],
+            x_start=radius,      # Fixed camera radius
+            x_end=radius,        # Same as start for fixed position
             y_start=y_range[0],
             y_end=y_range[1],
-            x_step=x_step,
+            x_step=1.0,          # Not used when x_start = x_end
             y_step=y_step,
             z_rotations=z_rotations,
             c_angles=c_angles,
-            safety_margin=0.5  # Use smaller safety margin
+            safety_margin=0.5
         )
         
         # Generate pattern ID
