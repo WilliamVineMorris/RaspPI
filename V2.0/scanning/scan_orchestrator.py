@@ -845,17 +845,19 @@ class CameraManagerAdapter:
                 self.logger.info(f"CAMERA: Native preview frame requested for {camera_id}")
                 self._last_debug_log = current_time
             
-            # Only Camera 0 supported in current implementation
-            if camera_id not in [0, '0', 'camera_1']:
+            # Support both Camera 0 and Camera 1 for dual camera system
+            if camera_id not in [0, 1, '0', '1', 'camera_1', 'camera_2']:
                 return None
             
             # Map camera ID
-            mapped_camera_id = 0
+            mapped_camera_id = 0  # Default to camera 0
             if isinstance(camera_id, str) and camera_id.startswith('camera_'):
                 try:
-                    mapped_camera_id = int(camera_id.split('_')[1]) - 1
+                    mapped_camera_id = int(camera_id.split('_')[1]) - 1  # camera_1 -> 0, camera_2 -> 1
                 except (ValueError, IndexError):
                     return None
+            elif isinstance(camera_id, (int, str)):
+                mapped_camera_id = int(camera_id)
             
             # Access Camera 0 directly
             if hasattr(self.controller, 'cameras') and mapped_camera_id in self.controller.cameras:
@@ -936,13 +938,20 @@ class CameraManagerAdapter:
                 # Switch to capture mode for maximum quality
                 await self._switch_camera_mode("capture")
                 
-                # Only Camera 0 supported
-                mapped_camera_id = 0
+                # Support both Camera 0 and Camera 1
+                mapped_camera_id = 0  # Default to camera 0
                 if isinstance(camera_id, str) and camera_id.startswith('camera_'):
                     try:
-                        mapped_camera_id = int(camera_id.split('_')[1]) - 1
+                        mapped_camera_id = int(camera_id.split('_')[1]) - 1  # camera_1 -> 0, camera_2 -> 1
                     except (ValueError, IndexError):
                         return None
+                elif isinstance(camera_id, (int, str)):
+                    mapped_camera_id = int(camera_id)
+                
+                # Validate camera ID is within valid range (0 or 1)
+                if mapped_camera_id not in [0, 1]:
+                    self.logger.warning(f"CAMERA: Invalid camera ID {mapped_camera_id} (from {camera_id})")
+                    return None
                 
                 if hasattr(self.controller, 'cameras') and mapped_camera_id in self.controller.cameras:
                     camera = self.controller.cameras[mapped_camera_id]

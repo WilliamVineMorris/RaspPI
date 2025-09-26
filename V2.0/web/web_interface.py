@@ -3142,8 +3142,24 @@ if __name__ == "__main__":
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(orchestrator.initialize())
-            print("✅ Orchestrator initialized with full storage system!")
+            print("⚙️  Initializing orchestrator components...")
+            success = loop.run_until_complete(orchestrator.initialize())
+            if success:
+                print("✅ Orchestrator initialized with full storage system!")
+                
+                # Test camera system
+                if hasattr(orchestrator, 'camera_manager') and orchestrator.camera_manager:
+                    print("📷 Camera system available")
+                    try:
+                        camera_status = orchestrator.get_camera_status()
+                        print(f"📊 Camera Status: {camera_status}")
+                    except Exception as cam_error:
+                        print(f"⚠️  Camera status check failed: {cam_error}")
+                else:
+                    print("⚠️  No camera manager available")
+            else:
+                print("❌ Orchestrator initialization failed")
+                raise Exception("Orchestrator initialization returned False")
         finally:
             loop.close()
         
