@@ -1131,6 +1131,9 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         try:
             self.stats['commands_sent'] += 1
             
+            # Enhanced debug logging for movement troubleshooting
+            logger.info(f"🔧 DEBUG: Sending G-code command: '{command}' (priority: {priority})")
+            
             # Log FluidNC command send
             if TIMING_AVAILABLE and command_id:
                 timing_logger.log_fluidnc_send(command_id, command)
@@ -1139,6 +1142,9 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             success, response = await asyncio.get_event_loop().run_in_executor(
                 None, self.protocol.send_command_with_motion_wait, command, priority
             )
+            
+            # Enhanced debug logging for response
+            logger.info(f"🔧 DEBUG: FluidNC response - Success: {success}, Response: '{response}'")
             
             # Log FluidNC response
             if TIMING_AVAILABLE and command_id:

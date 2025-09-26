@@ -228,15 +228,18 @@ class SimplifiedFluidNCProtocolFixed:
                 # Continue with command execution
                 command_ready_time = time.time()
                 logger.debug(f"🕐 [TIMING] Command ready after: {(command_ready_time-start_time)*1000:.1f}ms")
-                logger.debug(f"📤 Command: {command}")
+                logger.info(f"📤 PROTOCOL DEBUG: Sending command: '{command}'")
                 
                 # Send command
                 if self.serial_connection is None:
+                    logger.error("❌ PROTOCOL DEBUG: No serial connection available")
                     return False, "No serial connection"
                     
                 command_line = f"{command}\n"
+                logger.info(f"📤 PROTOCOL DEBUG: Writing to serial: '{command_line.strip()}'")
                 self.serial_connection.write(command_line.encode('utf-8'))
                 self.serial_connection.flush()
+                logger.info("📤 PROTOCOL DEBUG: Command written and flushed to serial")
                 
                 self.stats['commands_sent'] += 1
                 self.last_command_time = time.time()
@@ -246,12 +249,15 @@ class SimplifiedFluidNCProtocolFixed:
                 
                 # Wait for immediate response (ok/error) - shorter timeout for manual commands
                 response_timeout = 2.0 if priority == "high" else self.command_timeout
+                logger.info(f"📥 PROTOCOL DEBUG: Waiting for response (timeout: {response_timeout}s)...")
                 immediate_response = self._wait_for_immediate_response(response_timeout)
                 response_received_time = time.time() 
                 logger.debug(f"📥 [TIMING] Response received after: {(response_received_time-start_time)*1000:.1f}ms")
+                logger.info(f"📥 PROTOCOL DEBUG: FluidNC immediate response: '{immediate_response}'")
                 
                 if not immediate_response:
                     self.stats['timeouts'] += 1
+                    logger.error("❌ PROTOCOL DEBUG: Command timeout - no response from FluidNC")
                     return False, "Command timeout"
                 
                 # Check if this is a motion command
