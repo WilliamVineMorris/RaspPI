@@ -2057,26 +2057,42 @@ class ScanOrchestrator:
                 # Convert result to expected format
                 capture_results = []
                 if camera_data_dict and isinstance(camera_data_dict, dict):
-                    # Expected format from camera manager: {'camera_0': image_data, 'camera_1': image_data}
+                    # Camera manager returns: {'camera_0': {'image': array, 'metadata': {}}, 'camera_1': {...}}
                     for camera_id in ['camera_0', 'camera_1']:
-                        if camera_id in camera_data_dict and camera_data_dict[camera_id] is not None:
+                        camera_result = camera_data_dict.get(camera_id)
+                        
+                        if camera_result and isinstance(camera_result, dict) and 'image' in camera_result:
+                            # Extract image data and metadata from nested structure
+                            image_data = camera_result['image']
+                            camera_metadata = camera_result.get('metadata', {})
+                            
                             capture_results.append({
                                 'camera_id': camera_id,
                                 'success': True,
-                                'image_data': camera_data_dict[camera_id],
-                                'metadata': {'scan_point': point_index, 'timestamp': timestamp},
+                                'image_data': image_data,
+                                'metadata': {
+                                    'scan_point': point_index, 
+                                    'timestamp': timestamp,
+                                    **camera_metadata  # Include camera capture metadata
+                                },
                                 'error': None
                             })
-                            self.logger.info(f"✅ Successfully captured from {camera_id}: shape {camera_data_dict[camera_id].shape}")
+                            
+                            # Log successful capture with shape
+                            if hasattr(image_data, 'shape'):
+                                self.logger.info(f"✅ Successfully captured from {camera_id}: shape {image_data.shape}")
+                            else:
+                                self.logger.info(f"✅ Successfully captured from {camera_id}: {type(image_data)}")
+                                
                         else:
                             capture_results.append({
                                 'camera_id': camera_id,
                                 'success': False,
                                 'image_data': None,
                                 'metadata': {},
-                                'error': 'No image data received'
+                                'error': 'No image data in camera result'
                             })
-                            self.logger.warning(f"❌ Failed to capture from {camera_id}")
+                            self.logger.warning(f"❌ Failed to capture from {camera_id}: invalid result structure")
                     
                     # Log capture summary
                     successful_captures = len([r for r in capture_results if r['success']])
