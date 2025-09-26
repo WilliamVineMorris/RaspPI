@@ -2092,6 +2092,26 @@ class ScanOrchestrator:
             if lighting_applied:
                 await asyncio.sleep(0.02)  # 20ms stabilization delay
             
+            # ⚡ FLASH coordination (same as web interface)
+            flash_result = None
+            try:
+                if hasattr(self, 'lighting_controller') and self.lighting_controller:
+                    flash_settings = {
+                        'brightness': 0.8,  # 80% intensity for scanning
+                        'duration': 100,
+                        'pulse_count': 1
+                    }
+                    
+                    flash_result = await self.lighting_controller.flash(['all'], flash_settings)
+                    self.logger.info("⚡ Flash triggered for scan capture")
+                    
+                    # Small delay for flash synchronization
+                    await asyncio.sleep(0.02)
+                else:
+                    self.logger.info("💡 No lighting controller available - capturing without flash")
+            except Exception as flash_error:
+                self.logger.warning(f"⚠️ Flash failed: {flash_error}, continuing with capture")
+            
             # Capture from both cameras using the proven camera manager method
             try:
                 # Use the camera manager's capture method that works in manual mode
@@ -2197,78 +2217,169 @@ class ScanOrchestrator:
             raise HardwareError(f"Failed to capture images at point {point_index}: {e}")
     
     async def _save_captured_images(self, capture_results: List[Dict], point: ScanPoint, point_index: int):
-        """Save captured images to storage manager with proper metadata"""
-        import cv2
-        import numpy as np
+        """Save captured images using SAME METHOD as working web interface"""
+        import uuid
         import hashlib
         from storage.base import StorageMetadata, DataType
+        from PIL import Image
+        import io
         
         for result in capture_results:
             if result['success'] and result.get('image_data') is not None:
                 try:
-                    # Extract image data
+                    # Extract image data and metadata (same as web interface)
                     image_data = result['image_data']
-                    camera_id = result['camera_id']
+                    camera_id_str = result['camera_id']  # e.g., "camera_0"
+                    camera_id = int(camera_id_str.split('_')[1]) if '_' in camera_id_str else 0  # Extract numeric ID
                     camera_metadata = result.get('metadata', {})
                     
-                    # Encode image as JPEG
-                    success, encoded_image = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    # 🎯 Use SAME image processing method as web interface
+                    img_bytes = self._embed_scan_metadata_in_jpeg(
+                        image_data, camera_id, point, point_index, camera_metadata
+                    )
                     
-                    if success:
-                        # Convert to bytes for storage
-                        image_bytes = encoded_image.tobytes()
-                        
-                        # Calculate checksum
-                        checksum = hashlib.md5(image_bytes).hexdigest()
-                        
-                        # Create filename
-                        timestamp = int(time.time())
-                        filename = f"{camera_id}_point_{point_index:03d}_{timestamp}.jpg"
-                        
-                        # Create proper StorageMetadata object
-                        storage_metadata = StorageMetadata(
-                            file_id=f"{camera_id}_p{point_index}_{timestamp}",  # Will be updated by storage manager
-                            original_filename=filename,
-                            data_type=DataType.SCAN_IMAGE,
-                            file_size_bytes=len(image_bytes),
-                            checksum=checksum,
-                            creation_time=time.time(),
-                            scan_session_id=None,  # Will be filled by storage manager
-                            sequence_number=point_index,
-                            position_data={
-                                'x': point.position.x,
-                                'y': point.position.y,
-                                'z': point.position.z,
-                                'c': point.position.c
-                            },
-                            camera_settings=camera_metadata,
-                            lighting_settings=None,
-                            tags=[camera_id, f"point_{point_index}"],
-                            file_extension=".jpg",
-                            filename=filename,
-                            scan_point_id=f"point_{point_index}",
-                            camera_id=camera_id,
-                            metadata={
-                                'image_shape': image_data.shape if hasattr(image_data, 'shape') else None,
-                                'encoding': 'JPEG',
-                                'quality': 95,
-                                'camera_metadata': camera_metadata
-                            }
-                        )
-                        
-                        # Store file in storage manager
-                        file_id = await self.storage_manager.store_file(
-                            image_bytes,
-                            storage_metadata
-                        )
-                        
-                        self.logger.info(f"💾 Saved image from {camera_id} at point {point_index}: {file_id}")
-                        
-                    else:
-                        self.logger.error(f"❌ Failed to encode image from {camera_id} at point {point_index}")
-                        
+                    # Create position data (same as web interface)
+                    position_dict = {
+                        'x': point.position.x,
+                        'y': point.position.y,
+                        'z': point.position.z,
+                        'c': point.position.c
+                    }
+                    
+                    # Create comprehensive metadata (same structure as web interface)
+                    storage_metadata = StorageMetadata(
+                        file_id=str(uuid.uuid4()),
+                        original_filename=f"scan_point_{point_index:03d}_camera_{camera_id}.jpg",
+                        data_type=DataType.SCAN_IMAGE,
+                        file_size_bytes=len(img_bytes),
+                        checksum=hashlib.sha256(img_bytes).hexdigest(),
+                        creation_time=time.time(),
+                        scan_session_id=None,  # Will be filled by storage manager
+                        sequence_number=point_index,
+                        position_data=position_dict,
+                        camera_settings={
+                            'camera_id': camera_id,
+                            'physical_camera': camera_id_str,
+                            'resolution': 'high',
+                            'capture_mode': 'scan_sequence', 
+                            'image_format': 'JPEG',
+                            'quality': 95,
+                            'actual_resolution': '4608x2592',
+                            'sensor_type': 'Arducam 64MP',
+                            'capture_timestamp': time.time(),
+                            'embedded_exif': camera_metadata
+                        },
+                        lighting_settings={
+                            'flash_used': hasattr(self, 'lighting_controller') and self.lighting_controller is not None,
+                            'scan_lighting': 'auto'
+                        },
+                        tags=['scan_capture', f'point_{point_index}', camera_id_str, 'automated_scan'],
+                        file_extension='.jpg',
+                        filename=f"scan_point_{point_index:03d}_camera_{camera_id}",
+                        scan_point_id=f"point_{point_index:03d}",
+                        camera_id=str(camera_id),
+                        metadata={
+                            'capture_type': 'automated_scan',
+                            'scan_point_index': point_index,
+                            'synchronized': True,
+                            'camera_metadata': camera_metadata,
+                            'scan_position': position_dict,
+                            'point_coordinates': f"X:{point.position.x:.3f}, Y:{point.position.y:.3f}, Z:{point.position.z:.1f}°, C:{point.position.c:.1f}°"
+                        }
+                    )
+                    
+                    # Store file in storage manager
+                    file_id = await self.storage_manager.store_file(
+                        img_bytes,
+                        storage_metadata
+                    )
+                    
+                    self.logger.info(f"💾 Saved scan image from {camera_id_str} at point {point_index}: {file_id}")
+                    
                 except Exception as e:
                     self.logger.error(f"❌ Error saving image from {result.get('camera_id', 'unknown')}: {e}")
+    
+    def _embed_scan_metadata_in_jpeg(self, image_data, camera_id: int, point: ScanPoint, 
+                                   point_index: int, capture_metadata=None) -> bytes:
+        """Embed scan metadata into JPEG using same method as web interface"""
+        try:
+            from PIL import Image
+            import io
+            
+            # Create PIL Image from numpy array with proper color handling
+            if len(image_data.shape) == 3:
+                # RGB image - convert properly to avoid color inversion
+                img_pil = Image.fromarray(image_data, 'RGB')
+            else:
+                # Grayscale image
+                img_pil = Image.fromarray(image_data, 'L')
+            
+            # Try to use piexif for proper EXIF handling (same as web interface)
+            try:
+                import piexif
+                
+                # Create EXIF dictionary structure
+                exif_dict = {
+                    "0th": {},  # Main image IFD
+                    "Exif": {},  # EXIF SubIFD
+                    "GPS": {},  # GPS IFD
+                    "1st": {},  # Thumbnail IFD
+                    "thumbnail": None
+                }
+                
+                # Basic camera identification (same as web interface)
+                exif_dict["0th"][piexif.ImageIFD.Make] = "Arducam"
+                exif_dict["0th"][piexif.ImageIFD.Model] = f"64MP IMX519 Camera {camera_id}"
+                exif_dict["0th"][piexif.ImageIFD.Software] = "4DOF Scanner V2.0"
+                exif_dict["Exif"][piexif.ExifIFD.LensModel] = "Fixed 2.8mm f/1.8"
+                
+                # Add scan-specific metadata
+                exif_dict["0th"][piexif.ImageIFD.ImageDescription] = f"Scan Point {point_index:03d}"
+                exif_dict["0th"][piexif.ImageIFD.Artist] = "Automated 4DOF Scanner"
+                
+                # Position data in GPS fields (creative use)
+                exif_dict["GPS"][piexif.GPSIFD.GPSLatitude] = self._float_to_rational(point.position.x)
+                exif_dict["GPS"][piexif.GPSIFD.GPSLongitude] = self._float_to_rational(point.position.y)
+                exif_dict["GPS"][piexif.GPSIFD.GPSAltitude] = self._float_to_rational(point.position.z)
+                
+                # Convert EXIF dict to bytes
+                exif_bytes = piexif.dump(exif_dict)
+                
+                # Save to bytes with EXIF
+                output = io.BytesIO()
+                img_pil.save(output, format='JPEG', quality=95, exif=exif_bytes)
+                return output.getvalue()
+                
+            except ImportError:
+                self.logger.warning("piexif not available, saving without EXIF metadata")
+                # Fallback without EXIF
+                output = io.BytesIO()
+                img_pil.save(output, format='JPEG', quality=95)
+                return output.getvalue()
+                
+        except Exception as e:
+            self.logger.error(f"Failed to embed metadata in JPEG: {e}")
+            # Ultra-fallback: simple cv2 encoding
+            import cv2
+            success, encoded_image = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            if success:
+                return encoded_image.tobytes()
+            else:
+                raise Exception(f"Failed to encode image: {e}")
+    
+    def _float_to_rational(self, value: float) -> tuple:
+        """Convert float to rational number for EXIF (same as web interface)"""
+        # Simple rational approximation
+        if value == 0:
+            return ((0, 1), (0, 1), (0, 1))
+        
+        # Convert to degrees, minutes, seconds format for position
+        degrees = int(abs(value))
+        minutes_float = (abs(value) - degrees) * 60
+        minutes = int(minutes_float)
+        seconds = int((minutes_float - minutes) * 60 * 1000)  # milliseconds precision
+        
+        return ((degrees, 1), (minutes, 1), (seconds, 1000))
     
     async def _handle_pause(self):
         """Handle pause requests"""
