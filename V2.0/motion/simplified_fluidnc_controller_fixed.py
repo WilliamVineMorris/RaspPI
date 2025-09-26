@@ -382,9 +382,19 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             return False
     
     async def home_axes(self, axes: Optional[list] = None) -> bool:
-        """Enhanced homing with FluidNC debug message detection"""
+        """Enhanced homing with FluidNC debug message detection and proper alarm clearing"""
         try:
             logger.info("🏠 Starting ENHANCED homing with debug message detection")
+            
+            # STEP 1: Clear alarm state BEFORE homing
+            logger.info("🔓 Step 1: Clearing alarm state before homing")
+            alarm_clear_success = await self.clear_alarm()
+            if not alarm_clear_success:
+                logger.warning("⚠️ Pre-homing alarm clear failed, but continuing...")
+            
+            # Wait for system to settle after alarm clear
+            await asyncio.sleep(1.0)
+            logger.info("⏳ Waited 1 second after alarm clear")
             
             # Reset homed status at start of homing
             self.is_homed = False
@@ -548,6 +558,14 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             # Update position after homing
             await self._update_current_position()
             
+            # STEP 2: Clear alarm state AFTER homing (final ensure)
+            logger.info("🔓 Step 2: Final alarm clear after homing completion")
+            final_alarm_clear = await self.clear_alarm()
+            if final_alarm_clear:
+                logger.info("✅ Post-homing alarm clear successful")
+            else:
+                logger.warning("⚠️ Post-homing alarm clear failed, but homing completed")
+            
             # Emit enhanced completion event
             self._emit_event("homing_completed", {
                 "axes": axes or ['x', 'y', 'z', 'c'],
@@ -632,6 +650,16 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         except Exception as e:
             logger.error(f"❌ Enhanced homing failed: {e}")
             self.stats['errors_encountered'] += 1
+            
+            # Clear alarms even on error to ensure clean state
+            try:
+                logger.info("🔓 Error recovery: Clearing alarms after homing failure")
+                error_alarm_clear = await self.clear_alarm()
+                if error_alarm_clear:
+                    logger.info("✅ Error recovery alarm clear successful")
+            except Exception as clear_error:
+                logger.error(f"❌ Error recovery alarm clear failed: {clear_error}")
+            
             return False
     
     def home_axes_sync(self, axes: Optional[list] = None) -> bool:
@@ -680,33 +708,60 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             return False
     
     async def clear_alarm(self) -> bool:
-        """Clear alarm state using $X command"""
+        """Clear alarm state using $X command with direct serial communication"""
         try:
             logger.info("🔓 Clearing alarm state with $X command")
             
-            # Send alarm clear command
-            success, response = await asyncio.get_event_loop().run_in_executor(
-                None, self.protocol.send_command, '$X'
-            )
+            # Send $X command directly via serial (like homing)
+            try:
+                with self.protocol.connection_lock:
+                    if self.protocol.serial_connection:
+                        command_bytes = "$X\n".encode('utf-8')
+                        self.protocol.serial_connection.write(command_bytes)
+                        self.protocol.serial_connection.flush()
+                        logger.info("✅ $X command sent directly via serial")
+                        success = True
+                    else:
+                        logger.error("❌ No serial connection available for $X")
+                        return False
+            except Exception as e:
+                logger.error(f"❌ Direct serial send of $X failed: {e}")
+                return False
             
             if success:
-                # Update status after clearing alarm
-                await asyncio.sleep(0.5)  # Give FluidNC time to process
+                # Give FluidNC adequate time to process the $X command
+                await asyncio.sleep(1.0)  # Increased from 0.5s to 1.0s
+                logger.info("⏳ Waited 1 second for $X command processing")
+                
+                # Update position and status
                 await self._update_current_position()
                 
                 # Check if we're no longer in alarm state
                 current_status = self.protocol.get_current_status()
-                if current_status and current_status.state.lower() != 'alarm':
-                    logger.info("✅ Alarm cleared successfully")
-                    self._emit_event("alarm_cleared", {
-                        "status": current_status.state if current_status else "unknown"
-                    })
-                    return True
+                if current_status:
+                    logger.info(f"📊 Status after $X command: {current_status.state}")
+                    if current_status.state.lower() != 'alarm':
+                        logger.info("✅ Alarm cleared successfully")
+                        self._emit_event("alarm_cleared", {
+                            "status": current_status.state
+                        })
+                        return True
+                    else:
+                        logger.warning("⚠️ $X command sent but still in alarm state")
+                        # Try one more time with longer wait
+                        await asyncio.sleep(1.0)
+                        current_status = self.protocol.get_current_status()
+                        if current_status and current_status.state.lower() != 'alarm':
+                            logger.info("✅ Alarm cleared after additional wait")
+                            return True
+                        else:
+                            logger.error("❌ Still in alarm state after retry")
+                            return False
                 else:
-                    logger.warning("⚠️ $X command sent but still in alarm state")
+                    logger.warning("⚠️ Could not get status after $X command")
                     return False
             else:
-                logger.error(f"❌ Failed to send $X command: {response}")
+                logger.error("❌ Failed to send $X command")
                 return False
                 
         except Exception as e:
