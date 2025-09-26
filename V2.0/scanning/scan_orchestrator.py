@@ -2200,6 +2200,8 @@ class ScanOrchestrator:
         """Save captured images to storage manager with proper metadata"""
         import cv2
         import numpy as np
+        import hashlib
+        from storage.base import StorageMetadata, DataType
         
         for result in capture_results:
             if result['success'] and result.get('image_data') is not None:
@@ -2207,33 +2209,57 @@ class ScanOrchestrator:
                     # Extract image data
                     image_data = result['image_data']
                     camera_id = result['camera_id']
-                    metadata = result.get('metadata', {})
+                    camera_metadata = result.get('metadata', {})
                     
                     # Encode image as JPEG
                     success, encoded_image = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
                     
                     if success:
-                        # Create comprehensive metadata
-                        file_metadata = {
-                            'camera_id': camera_id,
-                            'point_index': point_index,
-                            'position': {
+                        # Convert to bytes for storage
+                        image_bytes = encoded_image.tobytes()
+                        
+                        # Calculate checksum
+                        checksum = hashlib.md5(image_bytes).hexdigest()
+                        
+                        # Create filename
+                        timestamp = int(time.time())
+                        filename = f"{camera_id}_point_{point_index:03d}_{timestamp}.jpg"
+                        
+                        # Create proper StorageMetadata object
+                        storage_metadata = StorageMetadata(
+                            file_id=f"{camera_id}_p{point_index}_{timestamp}",  # Will be updated by storage manager
+                            original_filename=filename,
+                            data_type=DataType.SCAN_IMAGE,
+                            file_size_bytes=len(image_bytes),
+                            checksum=checksum,
+                            creation_time=time.time(),
+                            scan_session_id=None,  # Will be filled by storage manager
+                            sequence_number=point_index,
+                            position_data={
                                 'x': point.position.x,
-                                'y': point.position.y, 
+                                'y': point.position.y,
                                 'z': point.position.z,
                                 'c': point.position.c
                             },
-                            'timestamp': time.time(),
-                            'image_shape': image_data.shape if hasattr(image_data, 'shape') else None,
-                            'encoding': 'JPEG',
-                            'quality': 95,
-                            'camera_metadata': metadata
-                        }
+                            camera_settings=camera_metadata,
+                            lighting_settings=None,
+                            tags=[camera_id, f"point_{point_index}"],
+                            file_extension=".jpg",
+                            filename=filename,
+                            scan_point_id=f"point_{point_index}",
+                            camera_id=camera_id,
+                            metadata={
+                                'image_shape': image_data.shape if hasattr(image_data, 'shape') else None,
+                                'encoding': 'JPEG',
+                                'quality': 95,
+                                'camera_metadata': camera_metadata
+                            }
+                        )
                         
                         # Store file in storage manager
                         file_id = await self.storage_manager.store_file(
-                            encoded_image.tobytes(),
-                            file_metadata
+                            image_bytes,
+                            storage_metadata
                         )
                         
                         self.logger.info(f"💾 Saved image from {camera_id} at point {point_index}: {file_id}")
