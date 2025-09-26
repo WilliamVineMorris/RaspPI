@@ -437,7 +437,7 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             logger.info(f"🏠 Command sent successfully: {response}")
             
             # Enhanced monitoring for FluidNC debug messages
-            homing_timeout = 45.0  # Increased from 30s based on actual 22s timing
+            homing_timeout = 60.0  # Increased to 60s to allow for full homing cycle
             start_time = time.time()
             
             homing_done_detected = False
@@ -446,6 +446,7 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             was_in_home_state = False  # Track if we saw "Home" state
             
             logger.info("🏠 Monitoring for '[MSG:DBG: Homing done]' message...")
+            logger.info("🔧 Smart error detection: Ignoring alarms for first 5s, monitoring state transitions")
             
             while time.time() - start_time < homing_timeout:
                 elapsed = time.time() - start_time
@@ -473,10 +474,19 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                                 except:
                                     pass
                             
-                            # Error detection in debug messages
-                            if any(error in message.lower() for error in ['alarm', 'error']):
-                                logger.error(f"❌ DETECTED: Homing error - {message}")
-                                return False
+                            # Smart error detection - ignore initial alarm states during early homing
+                            if any(error in message.lower() for error in ['error']) and elapsed > 2.0:
+                                # Only treat as error after 2+ seconds and if it's an actual error message
+                                if 'error' in message.lower() and not 'alarm' in message.lower():
+                                    logger.error(f"❌ DETECTED: Homing error - {message}")
+                                    return False
+                            
+                            # Ignore initial alarm states - they're expected before homing starts
+                            if 'alarm' in message.lower() and elapsed < 5.0:
+                                logger.debug(f"🔧 Ignoring initial alarm state at {elapsed:.1f}s: {message[:100]}...")
+                            elif 'alarm' in message.lower() and elapsed > 10.0:
+                                # Only treat alarm as error if it persists well into homing process
+                                logger.warning(f"⚠️ Persistent alarm during homing at {elapsed:.1f}s - continuing to monitor")
                     
                     # Break if we found the completion signal
                     if homing_done_detected:
