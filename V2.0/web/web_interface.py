@@ -2443,10 +2443,10 @@ class ScannerWebInterface:
             # Create session for synchronized captures
             session_id = f"Manual_Captures_{timestamp}"
             
-            # Capture from both cameras
-            for camera_id in [0, 1]:
+            # Capture from both cameras using string IDs
+            for camera_index, camera_id in enumerate(['camera_1', 'camera_2']):
                 try:
-                    self.logger.info(f"📸 Capturing camera {camera_id + 1}")
+                    self.logger.info(f"📸 Capturing {camera_id}")
                     
                     import asyncio
                     loop = asyncio.new_event_loop()
@@ -2463,47 +2463,47 @@ class ScannerWebInterface:
                         try:
                             saved_path = self._store_image_with_metadata_sync(
                                 image_data=image_data,
-                                camera_id=camera_id,
+                                camera_id=camera_index,  # Use numeric index for storage compatibility
                                 session_id=session_id,
                                 current_position=current_position,
                                 flash_intensity=0,  # No flash for sync capture
                                 flash_result={'flash_used': False}
                             )
                             results.append({
-                                'camera_id': camera_id, 
+                                'camera_id': camera_index, 
                                 'filename': saved_path,
                                 'success': True
                             })
-                            self.logger.info(f"✅ Saved camera {camera_id + 1} with metadata: {saved_path}")
+                            self.logger.info(f"✅ Saved {camera_id} with metadata: {saved_path}")
                         except Exception as storage_error:
                             # Fallback to basic file saving
-                            self.logger.warning(f"Storage failed for camera {camera_id + 1}: {storage_error}, using fallback")
+                            self.logger.warning(f"Storage failed for {camera_id}: {storage_error}, using fallback")
                             from pathlib import Path
                             import cv2
                             
                             output_dir = Path.home() / "manual_captures" / datetime.now().strftime('%Y-%m-%d')
                             output_dir.mkdir(parents=True, exist_ok=True)
-                            filename = output_dir / f"sync_{timestamp}_camera_{camera_id + 1}.jpg"
+                            filename = output_dir / f"sync_{timestamp}_{camera_id}.jpg"
                             cv2.imwrite(str(filename), image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
                             
                             results.append({
-                                'camera_id': camera_id, 
+                                'camera_id': camera_index, 
                                 'filename': str(filename),
                                 'success': True
                             })
-                            self.logger.info(f"✅ Saved camera {camera_id + 1} to fallback: {filename}")
+                            self.logger.info(f"✅ Saved {camera_id} to fallback: {filename}")
                     else:
-                        self.logger.error(f"❌ Camera {camera_id + 1} returned no data")
+                        self.logger.error(f"❌ {camera_id} returned no data")
                         results.append({
-                            'camera_id': camera_id,
+                            'camera_id': camera_index,
                             'success': False,
                             'error': 'No image data'
                         })
                         
                 except Exception as cam_error:
-                    self.logger.error(f"❌ Failed to capture camera {camera_id + 1}: {cam_error}")
+                    self.logger.error(f"❌ Failed to capture {camera_id}: {cam_error}")
                     results.append({
-                        'camera_id': camera_id,
+                        'camera_id': camera_index,
                         'success': False,
                         'error': str(cam_error)
                     })
