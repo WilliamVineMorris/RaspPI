@@ -360,6 +360,18 @@ class UpdatedScanOrchestrator:
     def storage_controller(self):
         """Compatibility property for web UI."""
         return self.storage_manager
+    
+    # Web UI Compatibility Methods
+    def get_camera_status(self) -> Dict[str, Any]:
+        """Get camera status for web UI compatibility."""
+        if self.hardware_status['cameras'] and self.camera_controller:
+            return {
+                'available': True,
+                'camera_0': {'connected': True, 'resolution': '1920x1080'},
+                'camera_1': {'connected': True, 'resolution': '1920x1080'}
+            }
+        else:
+            return {'available': False}
 
 
 # Mock classes for testing without full hardware
@@ -370,6 +382,11 @@ class MockCameraController:
         """Mock capture that returns a fake image path."""
         await asyncio.sleep(0.1)  # Simulate capture time
         return f"/tmp/mock_image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+    
+    def get_preview_frame(self, camera_key: str = 'primary') -> bytes:
+        """Get preview frame for web streaming - returns mock data."""
+        # Return a minimal valid JPEG header for web compatibility
+        return b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb'
 
 
 class MockLightingController:

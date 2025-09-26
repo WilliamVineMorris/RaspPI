@@ -257,6 +257,11 @@ class SimpleWorkingFluidNCController:
         """Get current position."""
         return self.position
     
+    @property
+    def current_position(self) -> Position4D:
+        """Current position property for web UI compatibility."""
+        return self.position
+    
     def execute_gcode(self, gcode: str) -> bool:
         """Execute G-code command."""
         if not self.is_connected():
