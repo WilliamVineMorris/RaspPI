@@ -903,24 +903,24 @@ class CameraManagerAdapter:
         try:
             current_time = time.time()
             
+            # Support both Camera 0 and Camera 1 using physical IDs
+            if camera_id not in [0, 1, '0', '1', 'camera_0', 'camera_1']:
+                return None
+            
+            # Map camera ID to physical camera index
+            mapped_camera_id = 0  # Default to camera 0
+            if isinstance(camera_id, str) and camera_id.startswith('camera_'):
+                try:
+                    mapped_camera_id = int(camera_id.split('_')[1])  # camera_0 -> 0, camera_1 -> 1
+                except (ValueError, IndexError):
+                    return None
+            elif isinstance(camera_id, (int, str)):
+                mapped_camera_id = int(camera_id)
+            
             # Rate-limited debug logging
             if not hasattr(self, '_last_debug_log') or (current_time - self._last_debug_log) > 20.0:
-                self.logger.info(f"CAMERA: Native preview frame requested for {camera_id}")
+                self.logger.info(f"CAMERA: Native preview frame requested for {camera_id} -> camera {mapped_camera_id}")
                 self._last_debug_log = current_time
-            
-                # Support both Camera 0 and Camera 1 using physical IDs
-                if camera_id not in [0, 1, '0', '1', 'camera_0', 'camera_1']:
-                    return None
-                
-                # Map camera ID to physical camera index
-                mapped_camera_id = 0  # Default to camera 0
-                if isinstance(camera_id, str) and camera_id.startswith('camera_'):
-                    try:
-                        mapped_camera_id = int(camera_id.split('_')[1])  # camera_0 -> 0, camera_1 -> 1
-                    except (ValueError, IndexError):
-                        return None
-                elif isinstance(camera_id, (int, str)):
-                    mapped_camera_id = int(camera_id)            # Access Camera 0 directly
             if hasattr(self.controller, 'cameras') and mapped_camera_id in self.controller.cameras:
                 camera = self.controller.cameras[mapped_camera_id]
                 
