@@ -2055,35 +2055,43 @@ class ScannerWebInterface:
             raise ScannerSystemError(f"Failed to pause/resume scan: {e}")
     
     def _execute_camera_capture(self, camera_id: int) -> Dict[str, Any]:
-        """Execute camera capture command"""
+        """Execute camera capture command using available camera manager methods"""
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
                 raise HardwareError("Camera manager not available")
             
-            # Capture image
+            # Capture high-resolution image using the available method
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"manual_capture_{camera_id}_{timestamp}.jpg"
             
-            # This would be implemented based on your camera manager API
-            result = asyncio.create_task(
-                self.orchestrator.camera_manager.capture_image(camera_id, filename)
-            )
+            # Use the high-resolution capture method that exists in CameraManagerAdapter
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                image_data = loop.run_until_complete(
+                    self.orchestrator.camera_manager.capture_high_resolution(camera_id)
+                )
+            finally:
+                loop.close()
             
-            self.logger.info(f"Camera capture executed: Camera {camera_id}")
-            
-            return {
-                'camera_id': camera_id,
-                'filename': filename,
-                'timestamp': timestamp,
-                'success': True
-            }
+            if image_data is not None:
+                self.logger.info(f"Camera capture executed: Camera {camera_id}")
+                
+                return {
+                    'camera_id': camera_id,
+                    'timestamp': timestamp,
+                    'success': True,
+                    'image_captured': True
+                }
+            else:
+                raise HardwareError("Camera capture returned no data")
             
         except Exception as e:
             self.logger.error(f"Camera capture execution failed: {e}")
             raise HardwareError(f"Failed to capture image: {e}")
     
     def _execute_camera_capture_with_flash(self, camera_id: int, flash_intensity: int = 80) -> Dict[str, Any]:
-        """Execute camera capture with LED flash synchronization"""
+        """Execute camera capture with LED flash synchronization using manual coordination"""
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
                 raise HardwareError("Camera manager not available")
@@ -2093,48 +2101,69 @@ class ScannerWebInterface:
             
             # Prepare capture parameters
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"flash_capture_{camera_id}_{timestamp}.jpg"
             
-            # Execute synchronized capture with flash
+            # Manual flash coordination since direct flash sync method isn't available
+            self.logger.info(f"Executing manual flash coordination for camera {camera_id}")
+            
             import asyncio
-            if asyncio.iscoroutinefunction(self.orchestrator.camera_manager.capture_with_flash_sync):
-                # Async camera manager
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    result = loop.run_until_complete(
-                        self.orchestrator.camera_manager.capture_with_flash_sync(
-                            flash_controller=self.orchestrator.lighting_controller,
-                            settings=None  # Use default camera settings
-                        )
-                    )
-                finally:
-                    loop.close()
-            else:
-                # Sync camera manager (fallback)
-                result = self.orchestrator.camera_manager.capture_with_flash_sync(
-                    flash_controller=self.orchestrator.lighting_controller,
-                    settings=None
-                )
+            import time
             
-            self.logger.info(f"Flash capture executed: Camera {camera_id}, Flash intensity: {flash_intensity}%")
-            
-            return {
-                'camera_id': camera_id,
-                'filename': filename,
-                'timestamp': timestamp,
-                'flash_used': True,
-                'flash_intensity': flash_intensity,
-                'success': True,
-                'capture_result': result.__dict__ if hasattr(result, '__dict__') else str(result)
+            # Flash settings (convert percentage to flash settings)
+            flash_settings = {
+                'brightness': flash_intensity / 100.0,  # Convert percentage to 0-1 range
+                'duration': 100,  # 100ms flash duration
+                'pulse_count': 1
             }
+            
+            # Manual coordination: Flash + Capture timing
+            async def flash_capture_coordination():
+                # Trigger flash with timing coordination
+                flash_task = asyncio.create_task(
+                    self.orchestrator.lighting_controller.flash(['all'], flash_settings)
+                )
+                
+                # Small delay to let flash reach peak intensity
+                await asyncio.sleep(0.02)  # 20ms delay
+                
+                # Capture during flash
+                capture_task = asyncio.create_task(
+                    self.orchestrator.camera_manager.capture_high_resolution(camera_id)
+                )
+                
+                # Wait for both operations
+                flash_result = await flash_task
+                image_data = await capture_task
+                
+                return flash_result, image_data
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                flash_result, image_data = loop.run_until_complete(flash_capture_coordination())
+            finally:
+                loop.close()
+            
+            if image_data is not None:
+                self.logger.info(f"Flash capture executed: Camera {camera_id}, Flash intensity: {flash_intensity}%")
+                
+                return {
+                    'camera_id': camera_id,
+                    'timestamp': timestamp,
+                    'flash_used': True,
+                    'flash_intensity': flash_intensity,
+                    'success': True,
+                    'image_captured': True,
+                    'flash_result': flash_result if 'flash_result' in locals() else 'completed'
+                }
+            else:
+                raise HardwareError("Camera capture returned no data during flash")
             
         except Exception as e:
             self.logger.error(f"Flash capture execution failed: {e}")
             raise HardwareError(f"Failed to capture image with flash: {e}")
     
     def _execute_synchronized_capture_with_flash(self, flash_intensity: int = 80) -> Dict[str, Any]:
-        """Execute synchronized capture from both cameras with flash"""
+        """Execute synchronized capture from both cameras with flash using capture_all method"""
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
                 raise HardwareError("Camera manager not available")
@@ -2145,46 +2174,75 @@ class ScannerWebInterface:
             # Prepare capture parameters
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             
-            # Execute synchronized capture with flash from both cameras
-            import asyncio
-            if asyncio.iscoroutinefunction(self.orchestrator.camera_manager.capture_with_flash_sync):
-                # Async camera manager
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    result = loop.run_until_complete(
-                        self.orchestrator.camera_manager.capture_with_flash_sync(
-                            flash_controller=self.orchestrator.lighting_controller,
-                            settings=None  # Use default camera settings for both cameras
-                        )
-                    )
-                finally:
-                    loop.close()
-            else:
-                # Sync camera manager (fallback)
-                result = self.orchestrator.camera_manager.capture_with_flash_sync(
-                    flash_controller=self.orchestrator.lighting_controller,
-                    settings=None
-                )
-            
-            self.logger.info(f"Synchronized flash capture executed: Both cameras, Flash intensity: {flash_intensity}%")
-            
-            return {
-                'cameras': 'both',
-                'timestamp': timestamp,
-                'flash_used': True,
-                'flash_intensity': flash_intensity,
-                'success': True,
-                'synchronized': True,
-                'capture_result': result.__dict__ if hasattr(result, '__dict__') else str(result)
+            # Flash settings
+            flash_settings = {
+                'brightness': flash_intensity / 100.0,
+                'duration': 100,
+                'pulse_count': 1
             }
+            
+            # Manual coordination for synchronized flash capture
+            async def synchronized_flash_capture():
+                # Create temporary output directory for manual captures
+                from pathlib import Path
+                import tempfile
+                
+                output_dir = Path(tempfile.mkdtemp(prefix="manual_capture_"))
+                filename_base = f"flash_sync_{timestamp}"
+                
+                # Trigger flash
+                flash_task = asyncio.create_task(
+                    self.orchestrator.lighting_controller.flash(['all'], flash_settings)
+                )
+                
+                # Small delay for flash coordination
+                await asyncio.sleep(0.02)
+                
+                # Capture from all cameras using the available method
+                capture_task = asyncio.create_task(
+                    self.orchestrator.camera_manager.capture_all(
+                        output_dir=output_dir,
+                        filename_base=filename_base,
+                        metadata={'flash_intensity': flash_intensity, 'manual_capture': True}
+                    )
+                )
+                
+                # Wait for both operations
+                flash_result = await flash_task
+                capture_results = await capture_task
+                
+                return flash_result, capture_results, output_dir
+            
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                flash_result, capture_results, output_dir = loop.run_until_complete(synchronized_flash_capture())
+            finally:
+                loop.close()
+            
+            if capture_results:
+                self.logger.info(f"Synchronized flash capture executed: Both cameras, Flash intensity: {flash_intensity}%")
+                
+                return {
+                    'cameras': 'both',
+                    'timestamp': timestamp,
+                    'flash_used': True,
+                    'flash_intensity': flash_intensity,
+                    'success': True,
+                    'synchronized': True,
+                    'capture_results': capture_results,
+                    'output_directory': str(output_dir)
+                }
+            else:
+                raise HardwareError("Synchronized capture returned no results")
             
         except Exception as e:
             self.logger.error(f"Synchronized flash capture execution failed: {e}")
             raise HardwareError(f"Failed to capture synchronized images with flash: {e}")
     
     def _execute_synchronized_capture(self) -> Dict[str, Any]:
-        """Execute synchronized capture from both cameras without flash"""
+        """Execute synchronized capture from both cameras without flash using capture_all method"""
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
                 raise HardwareError("Camera manager not available")
@@ -2192,32 +2250,46 @@ class ScannerWebInterface:
             # Prepare capture parameters
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             
-            # Execute synchronized capture without flash
+            # Execute synchronized capture without flash using capture_all
             import asyncio
-            if asyncio.iscoroutinefunction(self.orchestrator.camera_manager.capture_synchronized):
-                # Async camera manager
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    result = loop.run_until_complete(
-                        self.orchestrator.camera_manager.capture_synchronized(settings=None)
-                    )
-                finally:
-                    loop.close()
+            from pathlib import Path
+            import tempfile
+            
+            async def synchronized_capture():
+                # Create temp directory for manual captures
+                output_dir = Path(tempfile.mkdtemp(prefix="manual_capture_"))
+                filename_base = f"sync_{timestamp}"
+                
+                # Capture from all cameras
+                capture_results = await self.orchestrator.camera_manager.capture_all(
+                    output_dir=output_dir,
+                    filename_base=filename_base,
+                    metadata={'flash_used': False, 'manual_capture': True}
+                )
+                
+                return capture_results, output_dir
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                capture_results, output_dir = loop.run_until_complete(synchronized_capture())
+            finally:
+                loop.close()
+            
+            if capture_results:
+                self.logger.info(f"Synchronized capture executed: Both cameras, No flash")
+                
+                return {
+                    'cameras': 'both',
+                    'timestamp': timestamp,
+                    'flash_used': False,
+                    'success': True,
+                    'synchronized': True,
+                    'capture_results': capture_results,
+                    'output_directory': str(output_dir)
+                }
             else:
-                # Sync camera manager (fallback)
-                result = self.orchestrator.camera_manager.capture_synchronized(settings=None)
-            
-            self.logger.info(f"Synchronized capture executed: Both cameras, No flash")
-            
-            return {
-                'cameras': 'both',
-                'timestamp': timestamp,
-                'flash_used': False,
-                'success': True,
-                'synchronized': True,
-                'capture_result': result.__dict__ if hasattr(result, '__dict__') else str(result)
-            }
+                raise HardwareError("Synchronized capture returned no results")
             
         except Exception as e:
             self.logger.error(f"Synchronized capture execution failed: {e}")
