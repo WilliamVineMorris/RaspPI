@@ -2443,10 +2443,16 @@ class ScannerWebInterface:
             # Create session for synchronized captures
             session_id = f"Manual_Captures_{timestamp}"
             
-            # Capture from both cameras using string IDs
+            # Capture from both cameras using string IDs with sequential timing
             for camera_index, camera_id in enumerate(['camera_1', 'camera_2']):
                 try:
                     self.logger.info(f"📸 Capturing {camera_id}")
+                    
+                    # Add delay between camera captures to prevent resource conflicts
+                    if camera_index > 0:
+                        import time
+                        time.sleep(0.5)  # 500ms delay between cameras
+                        self.logger.info(f"⏳ Camera resource settling delay completed")
                     
                     import asyncio
                     loop = asyncio.new_event_loop()
@@ -2457,6 +2463,11 @@ class ScannerWebInterface:
                         )
                     finally:
                         loop.close()
+                        
+                    # Additional cleanup delay
+                    if camera_index == 0:
+                        import time
+                        time.sleep(0.2)  # Brief cleanup delay after first camera
                     
                     if image_data is not None:
                         # Save using proper storage system

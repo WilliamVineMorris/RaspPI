@@ -972,20 +972,34 @@ class CameraManagerAdapter:
                         # Capture full resolution image using main stream
                         self.logger.info("CAMERA: Capturing high-resolution image (4K+)")
                         
-                        # Use still capture for maximum quality
-                        image_array = camera.capture_array("main")
-                        
-                        if image_array is not None and image_array.size > 0:
-                            # OPTIMAL: Use camera RGB888 output directly for high-res captures
-                            image_bgr = image_array.copy()  # Direct use - optimal performance
+                        # Use still capture for maximum quality with timeout
+                        try:
+                            self.logger.info(f"CAMERA: Starting capture for camera {mapped_camera_id} ({camera_id})")
+                            image_array = camera.capture_array("main")
                             
-                            # No conversions needed - camera provides perfect format
-                            self.logger.info(f"CAMERA: High-res capture using optimal native RGB888 format: {image_bgr.shape}, dtype: {image_bgr.dtype}")
-                            return image_bgr
-                        else:
-                            self.logger.error("CAMERA: High-res capture returned empty array")
+                            if image_array is not None and image_array.size > 0:
+                                # OPTIMAL: Use camera RGB888 output directly for high-res captures
+                                image_bgr = image_array.copy()  # Direct use - optimal performance
+                                
+                                # No conversions needed - camera provides perfect format
+                                self.logger.info(f"CAMERA: High-res capture successful for {camera_id}: {image_bgr.shape}, dtype: {image_bgr.dtype}")
+                                
+                                # Ensure mode switch back to streaming after successful capture
+                                await self._switch_camera_mode("streaming")
+                                return image_bgr
+                            else:
+                                self.logger.error(f"CAMERA: High-res capture returned empty array for {camera_id}")
+                                
+                        except Exception as capture_error:
+                            self.logger.error(f"CAMERA: Capture array failed for {camera_id}: {capture_error}")
+                            raise  # Re-raise to trigger outer exception handling
                             
-                # Switch back to streaming mode
+                    else:
+                        self.logger.error(f"CAMERA: Camera {mapped_camera_id} not available or missing capture method")
+                else:
+                    self.logger.error(f"CAMERA: Camera system not properly initialized for {camera_id}")
+                    
+                # Always try to switch back to streaming mode
                 await self._switch_camera_mode("streaming")
                 
         except Exception as e:
