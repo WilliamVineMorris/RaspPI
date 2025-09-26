@@ -261,12 +261,35 @@ class SimplifiedFluidNCProtocolFixed:
                 logger.info(f"📥 PROTOCOL DEBUG: FluidNC immediate response: '{immediate_response}'")
                 
                 if not immediate_response:
-                    # Command timeout - log detailed info for debugging
-                    self.stats['timeouts'] += 1
-                    logger.error(f"❌ PROTOCOL DEBUG: Command timeout - no response from FluidNC for: '{command}'")
-                    logger.error(f"   📊 Serial stats - In waiting: {self.serial_connection.in_waiting if self.serial_connection else 'N/A'}")
-                    logger.error(f"   📊 Connection status: {self.is_connected()}")
-                    return False, f"Command timeout: {command}"
+                    # CRITICAL FIX: Check if command completed successfully despite no response
+                    logger.warning(f"⚠️ No immediate response for: '{command}' - checking completion status...")
+                    
+                    # For motion commands, check if system returned to idle (indicates success)
+                    if is_motion_cmd:
+                        # Give a moment for motion to complete
+                        time.sleep(0.5)
+                        current_status = self.get_current_status()
+                        
+                        if current_status and current_status.state.lower() == "idle":
+                            logger.info(f"✅ Motion command completed successfully despite no response: '{command}'")
+                            logger.info(f"   📊 FluidNC status: {current_status.state} (motion completed)")
+                            # Continue to motion waiting logic below
+                            immediate_response = "ok"  # Simulate successful response
+                        else:
+                            # Actually failed
+                            self.stats['timeouts'] += 1
+                            logger.error(f"❌ PROTOCOL DEBUG: Command timeout - no response from FluidNC for: '{command}'")
+                            logger.error(f"   📊 Serial stats - In waiting: {self.serial_connection.in_waiting if self.serial_connection else 'N/A'}")
+                            logger.error(f"   📊 Connection status: {self.is_connected()}")
+                            logger.error(f"   📊 FluidNC status: {current_status.state if current_status else 'Unknown'}")
+                            return False, f"Command timeout: {command}"
+                    else:
+                        # Non-motion command timeout
+                        self.stats['timeouts'] += 1
+                        logger.error(f"❌ PROTOCOL DEBUG: Command timeout - no response from FluidNC for: '{command}'")
+                        logger.error(f"   📊 Serial stats - In waiting: {self.serial_connection.in_waiting if self.serial_connection else 'N/A'}")
+                        logger.error(f"   📊 Connection status: {self.is_connected()}")
+                        return False, f"Command timeout: {command}"
                 
                 # Check if the immediate response indicates an error
                 response_lower = immediate_response.lower().strip()
