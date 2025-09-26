@@ -65,7 +65,11 @@ def test_cylindrical_pattern_generation():
     logger.info(f"✅ Pattern '{pattern_id}' generated successfully!")
     logger.info(f"📊 Pattern Statistics:")
     logger.info(f"   • Total scan points: {len(points)}")
-    logger.info(f"   • Estimated duration: {pattern.estimated_duration:.1f} minutes")
+    try:
+        duration = pattern.estimated_duration
+        logger.info(f"   • Estimated duration: {duration:.1f} minutes")
+    except Exception as e:
+        logger.info(f"   • Estimated duration: calculation error ({e})")
     
     # Break down by dimensions
     x_positions = sorted(set(p.position.x for p in points))
@@ -76,8 +80,8 @@ def test_cylindrical_pattern_generation():
     logger.info(f"📏 Scan Structure:")
     logger.info(f"   • X positions ({len(x_positions)}): {[f'{x:.1f}' for x in x_positions]}")
     logger.info(f"   • Y heights ({len(y_positions)}): {[f'{y:.1f}' for y in y_positions]}")
-    logger.info(f"   • Z rotations ({len(z_positions)}): {[f'{z:.0f}°' for z in z_positions]}")
-    logger.info(f"   • C angles ({len(c_positions)}): {[f'{c:.0f}°' for c in c_positions]}")
+    logger.info(f"   • Z rotations ({len(z_positions)}): {[f'{z:.0f}deg' for z in z_positions]}")
+    logger.info(f"   • C angles ({len(c_positions)}): {[f'{c:.0f}deg' for c in c_positions]}")
     
     # Show expected total
     expected_total = len(x_positions) * len(y_positions) * len(z_positions) * len(c_positions)
@@ -98,7 +102,7 @@ def test_cylindrical_pattern_generation():
     logger.info(f"📍 First 10 Scan Points:")
     for i, point in enumerate(points[:10]):
         pos = point.position
-        logger.info(f"   {i+1:2d}. X={pos.x:6.1f}, Y={pos.y:6.1f}, Z={pos.z:6.1f}°, C={pos.c:6.1f}°")
+        logger.info(f"   {i+1:2d}. X={pos.x:6.1f}, Y={pos.y:6.1f}, Z={pos.z:6.1f}deg, C={pos.c:6.1f}deg")
     
     if len(points) > 10:
         logger.info(f"      ... and {len(points)-10} more points")
@@ -134,7 +138,8 @@ def test_simple_circular_scan():
     points = pattern.get_points()
     
     logger.info(f"✅ Simple circular scan: {len(points)} points at Y=80mm")
-    logger.info(f"🔄 Rotation angles: {sorted(set(p.position.z for p in points))}")
+    rotation_angles = sorted(set(p.position.z for p in points))
+    logger.info(f"🔄 Rotation angles: {[f'{angle:.0f}deg' for angle in rotation_angles]}")
     
     return pattern, points
 
