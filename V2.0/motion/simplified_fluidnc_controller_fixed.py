@@ -245,24 +245,35 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 feedrate = self.get_optimal_feedrate(delta)
                 logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
             
-            # Optimize for manual operations: combine commands to reduce delays
+            # Use direct serial communication for all position moves (protocol wrapper doesn't work)
             if self.operating_mode == "manual_mode":
                 # For manual positioning, use FluidNC default feedrates (fastest)
-                # Omit F parameter to let FluidNC use its configured default speeds
                 gcode = f"G90 G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
                 logger.debug(f"🚀 Using FluidNC default feedrates for maximum speed")
-                success, response = await self._send_command(gcode, priority="high")
             else:
-                # For scan operations, use separate commands for precision and reliability
-                # Set feedrate
-                await self._send_command(f"F{feedrate}")
+                # For scan operations, include feedrate
+                gcode = f"G90 G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f} F{feedrate}"
+                logger.debug(f"🎯 Using specified feedrate: {feedrate}")
                 
-                # Send absolute movement (G90 is default, but ensure it)
-                await self._send_command("G90")
-                
-                # Send move command
-                gcode = f"G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
-                success, response = await self._send_command(gcode)
+            # Send command via direct serial (same method as homing - this actually works!)
+            logger.info(f"📍 DIRECT SERIAL: Sending position command: {gcode}")
+            success = False
+            response = "Direct serial send failed"
+            try:
+                with self.protocol.connection_lock:
+                    if self.protocol.serial_connection:
+                        command_bytes = f"{gcode}\n".encode('utf-8')
+                        self.protocol.serial_connection.write(command_bytes)
+                        self.protocol.serial_connection.flush()
+                        logger.info("📍 ✅ DIRECT SERIAL: Position command sent successfully")
+                        success = True
+                        response = "Command sent via direct serial"
+                    else:
+                        logger.error("❌ DIRECT SERIAL: No serial connection available")
+                        response = "No serial connection available"
+            except Exception as e:
+                logger.error(f"❌ DIRECT SERIAL: Send failed: {e}")
+                response = f"Direct send error: {e}"
             
             if success:
                 self.target_position = position.copy()
@@ -319,20 +330,48 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 # Omit F parameter to let FluidNC use its configured default speeds
                 gcode = f"G90 G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
                 logger.debug(f"🚀 Using FluidNC default feedrates for maximum speed")
-                success, response = await self._send_command(gcode, priority="high")
+                
+                # Use direct serial communication like homing does (this actually works!)
+                logger.info(f"🚀 DIRECT SERIAL: Sending movement command: {gcode}")
+                success = False
+                response = "Direct serial send failed"
+                try:
+                    with self.protocol.connection_lock:
+                        if self.protocol.serial_connection:
+                            command_bytes = f"{gcode}\n".encode('utf-8')
+                            self.protocol.serial_connection.write(command_bytes)
+                            self.protocol.serial_connection.flush()
+                            logger.info("🚀 ✅ DIRECT SERIAL: Movement command sent successfully")
+                            success = True
+                            response = "Command sent via direct serial"
+                        else:
+                            logger.error("❌ DIRECT SERIAL: No serial connection available")
+                            response = "No serial connection available"
+                except Exception as e:
+                    logger.error(f"❌ DIRECT SERIAL: Send failed: {e}")
+                    response = f"Direct send error: {e}"
             else:
-                # For scan operations, use separate commands for precision and reliability
-                # Set feedrate
-                await self._send_command(f"F{feedrate}", priority="normal")
+                # For scan operations, use direct serial (same as manual mode - protocol wrapper doesn't work)
+                gcode = f"G90 G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f} F{feedrate}"
+                logger.info(f"🎯 DIRECT SERIAL: Sending scan movement command: {gcode}")
                 
-                # Use absolute positioning to avoid coordinate drift
-                success, response = await self._send_command("G90", priority="normal")
-                if not success:
-                    return False
-                
-                # Send absolute move to calculated target
-                gcode = f"G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
-                success, response = await self._send_command(gcode, priority="normal")
+                success = False
+                response = "Direct serial send failed"
+                try:
+                    with self.protocol.connection_lock:
+                        if self.protocol.serial_connection:
+                            command_bytes = f"{gcode}\n".encode('utf-8')
+                            self.protocol.serial_connection.write(command_bytes)
+                            self.protocol.serial_connection.flush()
+                            logger.info("🎯 ✅ DIRECT SERIAL: Scan movement command sent successfully")
+                            success = True
+                            response = "Command sent via direct serial"
+                        else:
+                            logger.error("❌ DIRECT SERIAL: No serial connection available")
+                            response = "No serial connection available"
+                except Exception as e:
+                    logger.error(f"❌ DIRECT SERIAL: Send failed: {e}")
+                    response = f"Direct send error: {e}"
             
             if success:
                 self.target_position = target.copy()
