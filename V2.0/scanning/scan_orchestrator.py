@@ -119,6 +119,16 @@ class MockCameraManager:
         self._initialized = True
         return True
         
+    async def capture_high_resolution(self, camera_id, settings=None):
+        """Mock high resolution capture"""
+        import numpy as np
+        await asyncio.sleep(0.5)  # Simulate capture time
+        
+        # Return mock image data (simulated 4K image)
+        mock_image = np.zeros((2592, 4608, 3), dtype=np.uint8)
+        mock_image.fill(128)  # Gray image
+        return mock_image
+        
     async def capture_all(self, output_dir: Path, filename_base: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
         await asyncio.sleep(0.3)  # Slightly increase to allow pause testing
         
