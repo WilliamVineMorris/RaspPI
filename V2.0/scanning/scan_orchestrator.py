@@ -865,7 +865,15 @@ class CameraManagerAdapter:
                     try:
                         # Ensure we're in streaming mode for live preview
                         if self._current_mode != "streaming":
-                            asyncio.create_task(self._switch_camera_mode("streaming"))
+                            # Run the async mode switch in a new event loop for sync method
+                            try:
+                                import asyncio
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                loop.run_until_complete(self._switch_camera_mode("streaming"))
+                                loop.close()
+                            except Exception as mode_switch_error:
+                                self.logger.warning(f"CAMERA: Mode switch failed: {mode_switch_error}")
                             time.sleep(0.1)  # Brief wait for mode switch
                         
                         # Use Picamera2's native capture with streaming-optimized config
