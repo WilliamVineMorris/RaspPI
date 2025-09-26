@@ -87,6 +87,8 @@ const ScanManager = {
         const scanTypeCards = document.querySelectorAll('.scan-type-card');
         scanTypeCards.forEach(card => {
             card.addEventListener('click', () => {
+                console.log(`Scan type clicked: ${card.dataset.type}`);
+                
                 // Update selection
                 scanTypeCards.forEach(c => c.classList.remove('selected'));
                 card.classList.add('selected');
@@ -94,13 +96,8 @@ const ScanManager = {
                 // Update state
                 this.state.selectedScanType = card.dataset.type;
                 
-                // Show/hide cylindrical parameters
-                const cylindricalParams = document.getElementById('cylindrical-parameters');
-                if (this.state.selectedScanType === 'cylindrical') {
-                    cylindricalParams.style.display = 'block';
-                } else {
-                    cylindricalParams.style.display = 'none';
-                }
+                // Show/hide scan type specific parameters
+                this.updateParameterPanels();
                 
                 // Update preview
                 this.updateScanPreview();
@@ -109,8 +106,29 @@ const ScanManager = {
             });
         });
 
-        // Select default type
+        // Select default type and update parameters
         document.querySelector('[data-type="surface"]')?.classList.add('selected');
+        this.updateParameterPanels();
+    },
+
+    /**
+     * Update parameter panels based on selected scan type
+     */
+    updateParameterPanels() {
+        const cylindricalParams = document.getElementById('cylindrical-parameters');
+        const gridBoundaries = document.getElementById('grid-boundaries');
+        
+        console.log(`Updating parameter panels for: ${this.state.selectedScanType}`);
+        
+        if (this.state.selectedScanType === 'cylindrical') {
+            console.log('Showing cylindrical parameters');
+            cylindricalParams.style.display = 'block';
+            gridBoundaries.style.display = 'none';
+        } else {
+            console.log('Showing grid boundaries');
+            cylindricalParams.style.display = 'none';
+            gridBoundaries.style.display = 'block';
+        }
     },
 
     /**
