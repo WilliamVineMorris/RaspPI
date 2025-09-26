@@ -2392,9 +2392,10 @@ class ScannerWebInterface:
             import cv2
             import time
             
-            # Convert numpy array to JPEG bytes for storage
-            _, img_encoded = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
-            img_bytes = img_encoded.tobytes()
+            # Embed camera metadata directly into JPEG EXIF data
+            img_bytes = self._embed_camera_metadata_in_jpeg(
+                image_data, camera_id, current_position, flash_intensity, session_id
+            )
             
             # Create comprehensive metadata
             metadata = StorageMetadata(
@@ -2457,21 +2458,116 @@ class ScannerWebInterface:
             self.logger.error(f"Failed to store image with metadata: {e}")
             raise
     
+    def _embed_camera_metadata_in_jpeg(self, image_data, camera_id: int, current_position, 
+                                     flash_intensity: int, session_id: str) -> bytes:
+        """Embed camera-specific metadata directly into JPEG EXIF data"""
+        try:
+            import cv2
+            import time
+            from PIL import Image
+            from PIL.ExifTags import TAGS
+            import io
+            
+            # Convert numpy array to JPEG with OpenCV first
+            _, img_encoded = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            
+            # Load with PIL for EXIF manipulation
+            img_pil = Image.open(io.BytesIO(img_encoded.tobytes()))
+            
+            # Create EXIF dictionary with camera metadata
+            exif_dict = {}
+            
+            # Standard EXIF tags for camera info
+            exif_dict['DateTime'] = time.strftime('%Y:%m:%d %H:%M:%S')
+            exif_dict['Software'] = f'Scanner V2.0 - Camera {camera_id}'
+            exif_dict['ImageDescription'] = f'Scanner capture from camera_{camera_id} - Session: {session_id[:8]}'
+            
+            # Custom tags in UserComment for scanner-specific data
+            scanner_data = {
+                'camera_id': camera_id,
+                'capture_timestamp': time.time(),
+                'scanner_position': {
+                    'x': current_position.x if current_position else 0.0,
+                    'y': current_position.y if current_position else 0.0,
+                    'z': current_position.z if current_position else 0.0,
+                    'c': current_position.c if current_position else 0.0
+                } if current_position else None,
+                'flash_intensity': flash_intensity,
+                'session_id': session_id,
+                'capture_mode': 'synchronized_flash'
+            }
+            
+            # Store scanner data as JSON string in UserComment
+            import json
+            exif_dict['UserComment'] = json.dumps(scanner_data)
+            
+            # Try to embed EXIF data (fallback gracefully if not supported)
+            try:
+                # Save with EXIF data
+                output_buffer = io.BytesIO()
+                
+                # Convert exif_dict to proper EXIF format
+                from PIL import ExifTags
+                exif_ifd = {}
+                
+                # Map known tags
+                if 'DateTime' in exif_dict:
+                    exif_ifd[ExifTags.Base.DateTime.value] = exif_dict['DateTime']
+                if 'Software' in exif_dict:
+                    exif_ifd[ExifTags.Base.Software.value] = exif_dict['Software']
+                if 'ImageDescription' in exif_dict:
+                    exif_ifd[ExifTags.Base.ImageDescription.value] = exif_dict['ImageDescription']
+                if 'UserComment' in exif_dict:
+                    exif_ifd[ExifTags.Base.UserComment.value] = exif_dict['UserComment'].encode('utf-8')
+                
+                # Save with EXIF
+                img_pil.save(output_buffer, format='JPEG', quality=95, exif=img_pil.getexif())
+                
+                self.logger.info(f"📷 Embedded camera metadata in JPEG for camera_{camera_id}")
+                return output_buffer.getvalue()
+                
+            except Exception as exif_error:
+                self.logger.warning(f"Could not embed EXIF data: {exif_error}, using standard JPEG")
+                # Fallback to standard JPEG without EXIF
+                return img_encoded.tobytes()
+                
+        except Exception as e:
+            self.logger.error(f"EXIF embedding failed: {e}, using standard encoding")
+            # Final fallback - standard OpenCV encoding
+            import cv2
+            _, img_encoded = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            return img_encoded.tobytes()
+    
     def _fallback_save_image_sync(self, image_data, camera_id: int, timestamp: str) -> Path:
-        """Fallback image saving to filesystem (synchronous)"""
+        """Fallback image saving to filesystem (synchronous) with EXIF metadata"""
         try:
             from pathlib import Path
-            import cv2
             
             # Create output directory
             output_dir = Path.home() / "manual_captures" / datetime.now().strftime('%Y-%m-%d')
             output_dir.mkdir(parents=True, exist_ok=True)
             
-            # Save image
-            filename = output_dir / f"flash_sync_{timestamp}_camera_{camera_id}.jpg"
-            cv2.imwrite(str(filename), image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            # Get current position for metadata (if available)
+            current_position = None
+            try:
+                if hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+                    import asyncio
+                    current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
+            except:
+                current_position = None
             
-            self.logger.info(f"💾 Fallback saved: {filename}")
+            # Create JPEG with embedded metadata
+            session_id = f"fallback_{timestamp}"
+            img_bytes = self._embed_camera_metadata_in_jpeg(
+                image_data, camera_id, current_position, 0, session_id  # 0 flash intensity for fallback
+            )
+            
+            # Save image with metadata
+            filename = output_dir / f"flash_sync_{timestamp}_camera_{camera_id}.jpg"
+            with open(filename, 'wb') as f:
+                f.write(img_bytes)
+            
+            self.logger.info(f"💾 Fallback saved with metadata: {filename}")
             return filename
             
         except Exception as e:
