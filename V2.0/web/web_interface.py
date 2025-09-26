@@ -2231,6 +2231,23 @@ class ScannerWebInterface:
             
             # Get current position for metadata (minimal to avoid event loop interference)
             current_position = None
+            try:
+                if hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+                    self.logger.info("📍 Motion controller available, attempting to get position...")
+                    # Get current position synchronously to avoid async issues
+                    current_position = self.orchestrator.motion_controller.get_current_position_sync()
+                    if current_position:
+                        self.logger.info(f"📍 ✅ Captured current position for metadata: X:{current_position.x:.3f}, Y:{current_position.y:.3f}, Z:{current_position.z:.3f}, C:{current_position.c:.3f}")
+                        # Double-check position is valid (not all zeros)
+                        if current_position.x == 0.0 and current_position.y == 0.0 and current_position.z == 0.0 and current_position.c == 0.0:
+                            self.logger.warning("📍 ⚠️ Position is all zeros - might be homing position or position tracking issue")
+                    else:
+                        self.logger.warning("📍 ❌ get_current_position_sync() returned None")
+                else:
+                    self.logger.warning("📍 ❌ Motion controller not available for position capture")
+            except Exception as pos_error:
+                self.logger.error(f"📍 ❌ Position capture failed: {pos_error}")
+                current_position = None
             
             # Create and start session for this capture
             session_id = f"manual_capture_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
