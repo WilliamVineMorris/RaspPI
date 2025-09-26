@@ -1659,7 +1659,8 @@ function capturePhoto() {
     .then(data => {
         if (data.success) {
             console.log('Synchronized photo captured with flash');
-            showMessage('✅ Photos captured successfully from both cameras!', 'success');
+            const storageInfo = data.data && data.data.storage_info ? `\n${data.data.storage_info}` : '';
+            showMessage(`✅ Photos captured successfully from both cameras!${storageInfo}`, 'success');
         } else {
             console.error(`Capture failed: ${data.error}`);
             showMessage(`❌ Capture failed: ${data.error}`, 'error');
@@ -1671,30 +1672,27 @@ function capturePhoto() {
     });
 }
 
-function captureFromCamera(cameraId) {
-    console.log(`Capturing from camera ${cameraId + 1} with flash`);
+function captureBothNormal() {
+    console.log('Capturing photo from both cameras without flash');
     
     // Show loading indicator
-    showMessage(`📸 Capturing photo from Camera ${cameraId + 1} with flash...`, 'info');
+    showMessage('📸 Capturing synchronized photos (no flash)...', 'info');
     
-    // Use the new individual camera endpoints
-    const endpoint = cameraId === 0 ? '/api/camera/capture/camera1' : '/api/camera/capture/camera2';
-    
-    fetch(endpoint, {
+    fetch('/api/camera/capture/both', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-            flash: true,
-            flash_intensity: 80
+            flash: false
         })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            console.log(`Photo captured from camera ${cameraId + 1} with flash`);
-            showMessage(`✅ Photo captured successfully from Camera ${cameraId + 1}!`, 'success');
+            console.log('Synchronized photo captured without flash');
+            const storageInfo = data.data && data.data.storage_info ? `\n${data.data.storage_info}` : '';
+            showMessage(`✅ Photos captured successfully from both cameras!${storageInfo}`, 'success');
         } else {
             console.error(`Capture failed: ${data.error}`);
             showMessage(`❌ Capture failed: ${data.error}`, 'error');

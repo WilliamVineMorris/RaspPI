@@ -1191,51 +1191,21 @@ class ScannerWebInterface:
         
         @self.app.route('/api/camera/capture/camera1', methods=['POST'])
         def api_camera1_capture():
-            """Capture photo from Camera 1 with flash"""
-            try:
-                data = request.get_json() or {}
-                use_flash = data.get('flash', True)  # Default to flash enabled for individual buttons
-                flash_intensity = data.get('flash_intensity', 80)
-                
-                if use_flash:
-                    result = self._execute_camera_capture_with_flash(0, flash_intensity)  # Camera 1 = ID 0
-                else:
-                    result = self._execute_camera_capture(0)
-                
-                return jsonify({
-                    'success': True,
-                    'data': result,
-                    'camera': 'Camera 1',
-                    'timestamp': datetime.now().isoformat()
-                })
-                
-            except Exception as e:
-                self.logger.error(f"Camera 1 capture API error: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
+            """Individual camera capture disabled - use synchronized capture instead"""
+            return jsonify({
+                'success': False, 
+                'error': 'Individual camera capture disabled. Use synchronized capture (/api/camera/capture/both) which saves photos to disk.',
+                'recommendation': 'Use the "📸⚡ Capture Both Cameras (Flash)" button instead'
+            }), 400
 
         @self.app.route('/api/camera/capture/camera2', methods=['POST'])
         def api_camera2_capture():
-            """Capture photo from Camera 2 with flash"""
-            try:
-                data = request.get_json() or {}
-                use_flash = data.get('flash', True)  # Default to flash enabled for individual buttons
-                flash_intensity = data.get('flash_intensity', 80)
-                
-                if use_flash:
-                    result = self._execute_camera_capture_with_flash(1, flash_intensity)  # Camera 2 = ID 1
-                else:
-                    result = self._execute_camera_capture(1)
-                
-                return jsonify({
-                    'success': True,
-                    'data': result,
-                    'camera': 'Camera 2',
-                    'timestamp': datetime.now().isoformat()
-                })
-                
-            except Exception as e:
-                self.logger.error(f"Camera 2 capture API error: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
+            """Individual camera capture disabled - use synchronized capture instead"""
+            return jsonify({
+                'success': False, 
+                'error': 'Individual camera capture disabled. Use synchronized capture (/api/camera/capture/both) which saves photos to disk.',
+                'recommendation': 'Use the "📸⚡ Capture Both Cameras (Flash)" button instead'
+            }), 400
 
         @self.app.route('/api/camera/capture/both', methods=['POST'])
         def api_both_cameras_capture():
@@ -2183,11 +2153,18 @@ class ScannerWebInterface:
             
             # Manual coordination for synchronized flash capture
             async def synchronized_flash_capture():
-                # Create temporary output directory for manual captures
+                # Create persistent output directory for manual captures
                 from pathlib import Path
-                import tempfile
+                import os
                 
-                output_dir = Path(tempfile.mkdtemp(prefix="manual_capture_"))
+                # Create manual capture directory in user's home directory
+                manual_capture_base = Path.home() / "manual_captures"
+                date_folder = manual_capture_base / datetime.now().strftime('%Y-%m-%d')
+                output_dir = date_folder
+                
+                # Ensure directory exists
+                output_dir.mkdir(parents=True, exist_ok=True)
+                
                 filename_base = f"flash_sync_{timestamp}"
                 
                 # Trigger flash
@@ -2223,6 +2200,7 @@ class ScannerWebInterface:
             
             if capture_results:
                 self.logger.info(f"Synchronized flash capture executed: Both cameras, Flash intensity: {flash_intensity}%")
+                self.logger.info(f"Photos saved to: {output_dir}")
                 
                 return {
                     'cameras': 'both',
@@ -2232,7 +2210,8 @@ class ScannerWebInterface:
                     'success': True,
                     'synchronized': True,
                     'capture_results': capture_results,
-                    'output_directory': str(output_dir)
+                    'output_directory': str(output_dir),
+                    'storage_info': f'Photos saved to: {output_dir}'
                 }
             else:
                 raise HardwareError("Synchronized capture returned no results")
@@ -2253,11 +2232,16 @@ class ScannerWebInterface:
             # Execute synchronized capture without flash using capture_all
             import asyncio
             from pathlib import Path
-            import tempfile
             
             async def synchronized_capture():
-                # Create temp directory for manual captures
-                output_dir = Path(tempfile.mkdtemp(prefix="manual_capture_"))
+                # Create persistent output directory for manual captures
+                manual_capture_base = Path.home() / "manual_captures"
+                date_folder = manual_capture_base / datetime.now().strftime('%Y-%m-%d')
+                output_dir = date_folder
+                
+                # Ensure directory exists
+                output_dir.mkdir(parents=True, exist_ok=True)
+                
                 filename_base = f"sync_{timestamp}"
                 
                 # Capture from all cameras
@@ -2278,6 +2262,7 @@ class ScannerWebInterface:
             
             if capture_results:
                 self.logger.info(f"Synchronized capture executed: Both cameras, No flash")
+                self.logger.info(f"Photos saved to: {output_dir}")
                 
                 return {
                     'cameras': 'both',
@@ -2286,7 +2271,8 @@ class ScannerWebInterface:
                     'success': True,
                     'synchronized': True,
                     'capture_results': capture_results,
-                    'output_directory': str(output_dir)
+                    'output_directory': str(output_dir),
+                    'storage_info': f'Photos saved to: {output_dir}'
                 }
             else:
                 raise HardwareError("Synchronized capture returned no results")
