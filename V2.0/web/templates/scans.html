@@ -101,6 +101,102 @@
         line-height: 1.3;
     }
 
+    .parameter-section-header {
+        margin-bottom: 1.5rem;
+        padding: 1rem;
+        background: linear-gradient(135deg, rgba(74, 144, 226, 0.05) 0%, rgba(74, 144, 226, 0.02) 100%);
+        border-left: 4px solid var(--accent-color);
+        border-radius: 0 8px 8px 0;
+    }
+
+    .parameter-section-header h4 {
+        margin: 0 0 0.5rem 0;
+        color: var(--accent-color);
+        font-size: 1.1rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .parameter-section-header .icon {
+        font-size: 1.2rem;
+    }
+
+    .section-description {
+        margin: 0;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        line-height: 1.4;
+    }
+
+    #cylindrical-parameters {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background: var(--bg-primary);
+        margin: 1rem 0;
+    }
+
+    #cylindrical-parameters .parameter-group {
+        margin-bottom: 1rem;
+    }
+
+    #cylindrical-parameters .parameter-group:last-child {
+        margin-bottom: 0;
+    }
+
+    .input-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-top: 0.5rem;
+    }
+
+    .input-group {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .input-separator {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        font-weight: 500;
+        margin: 0 0.5rem;
+    }
+
+    .parameter-help {
+        display: block;
+        margin-top: 0.25rem;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        line-height: 1.3;
+    }
+
+    .parameter-group label {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+
+    .parameter-input {
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 0.5rem;
+        font-size: 0.9rem;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        transition: border-color 0.2s ease;
+    }
+
+    .parameter-input:focus {
+        outline: none;
+        border-color: var(--accent-color);
+        box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.1);
+    }
+
     .scan-preview {
         border: 1px solid var(--border-color);
         border-radius: 8px;
@@ -320,7 +416,7 @@
                 <h4>Volume Scan</h4>
                 <p>Complete 360° volumetric capture</p>
             </div>
-            <div class="scan-type-card" data-type="cylindrical" onclick="console.log('Cylindrical clicked!'); window.switchScanType('cylindrical');">
+            <div class="scan-type-card" data-type="cylindrical">
                 <h4>Cylindrical Scan</h4>
                 <p>Continuous rotation scan with height steps</p>
             </div>
@@ -377,32 +473,47 @@
         </div>
 
         <!-- Cylindrical Scan Parameters (hidden by default) -->
-        <div id="cylindrical-parameters" class="scan-parameters" style="display: none; background-color: #e8f4f8; border: 2px solid #4a90e2; padding: 1rem; margin: 1rem 0;">
-            <h4 style="color: #4a90e2;">🔄 Cylindrical Scan Settings</h4>
+        <div id="cylindrical-parameters" class="scan-parameters" style="display: none;">
+            <div class="parameter-section-header">
+                <h4><span class="icon">🔄</span> Cylindrical Scan Settings</h4>
+                <p class="section-description">Configure rotation and height parameters for cylindrical object scanning</p>
+            </div>
             <div class="parameter-group">
-                <label for="cylindricalRadius">Camera Radius (mm)</label>
+                <label for="cylindricalRadius">📐 Camera Distance</label>
                 <input type="number" id="cylindricalRadius" class="parameter-input" min="10" max="100" value="30" step="5">
+                <small class="parameter-help">Fixed radius from object center (10-100mm)</small>
             </div>
+            
             <div class="parameter-group">
-                <label for="cylindricalYMin">Start Height (mm)</label>
-                <input type="number" id="cylindricalYMin" class="parameter-input" min="10" max="200" value="40" step="5">
+                <label for="cylindricalYMin">📏 Scan Height Range</label>
+                <div class="input-row">
+                    <div class="input-group">
+                        <input type="number" id="cylindricalYMin" class="parameter-input" min="10" max="200" value="40" step="5" placeholder="Start">
+                        <small>Start (mm)</small>
+                    </div>
+                    <div class="input-separator">to</div>
+                    <div class="input-group">
+                        <input type="number" id="cylindricalYMax" class="parameter-input" min="10" max="200" value="120" step="5" placeholder="End">
+                        <small>End (mm)</small>
+                    </div>
+                </div>
             </div>
+            
             <div class="parameter-group">
-                <label for="cylindricalYMax">End Height (mm)</label>
-                <input type="number" id="cylindricalYMax" class="parameter-input" min="10" max="200" value="120" step="5">
-            </div>
-            <div class="parameter-group">
-                <label for="cylindricalYStep">Height Step (mm)</label>
+                <label for="cylindricalYStep">📐 Height Increment</label>
                 <input type="number" id="cylindricalYStep" class="parameter-input" min="5" max="50" value="20" step="5">
+                <small class="parameter-help">Vertical step between scan levels (5-50mm)</small>
             </div>
+            
             <div class="parameter-group">
-                <label for="cylindricalRotationStep">Rotation Step (degrees)</label>
+                <label for="cylindricalRotationStep">🔄 Rotation Density</label>
                 <select id="cylindricalRotationStep" class="parameter-input">
-                    <option value="30">30° (12 positions)</option>
-                    <option value="45">45° (8 positions)</option>
-                    <option value="60" selected>60° (6 positions)</option>
-                    <option value="90">90° (4 positions)</option>
+                    <option value="30">High Detail (30° - 12 positions)</option>
+                    <option value="45">Standard (45° - 8 positions)</option>
+                    <option value="60" selected>Fast (60° - 6 positions)</option>
+                    <option value="90">Quick (90° - 4 positions)</option>
                 </select>
+                <small class="parameter-help">More positions = higher detail but longer scan time</small>
             </div>
         </div>
 
@@ -520,58 +631,42 @@
 </div>
 
 <script>
-console.log('=== DIRECT SCAN TYPE SCRIPT STARTING ===');
-
-// Direct approach - no waiting for DOM
+// Scan type switching functionality
 function switchScanType(scanType) {
-    console.log('=== SWITCHING TO SCAN TYPE:', scanType, '===');
-    
     const cylindricalParams = document.getElementById('cylindrical-parameters');
     const gridBoundaries = document.getElementById('grid-boundaries');
     
-    console.log('Cylindrical element:', cylindricalParams);
-    console.log('Grid element:', gridBoundaries);
-    
     if (scanType === 'cylindrical') {
-        console.log('>>> SHOWING CYLINDRICAL <<<');
         if (cylindricalParams) cylindricalParams.style.display = 'block';
         if (gridBoundaries) gridBoundaries.style.display = 'none';
     } else {
-        console.log('>>> SHOWING GRID <<<');
         if (cylindricalParams) cylindricalParams.style.display = 'none';
         if (gridBoundaries) gridBoundaries.style.display = 'block';
     }
 }
 
-// Make it globally available
+// Make function globally available
 window.switchScanType = switchScanType;
 
-// Try to set up click handlers immediately
+// Set up click handlers for scan type cards
 const cards = document.querySelectorAll('.scan-type-card');
-console.log('Found cards:', cards.length);
-
 cards.forEach(card => {
     card.addEventListener('click', function() {
         const scanType = card.dataset.type;
-        console.log('=== CARD CLICKED:', scanType, '===');
         
-        // Remove selected from all cards
+        // Update visual selection
         cards.forEach(c => c.classList.remove('selected'));
-        // Add selected to clicked card
         card.classList.add('selected');
         
-        // Switch parameters
+        // Switch parameter panels
         switchScanType(scanType);
     });
 });
 
-// Set initial state
-console.log('Setting initial state...');
+// Set initial state - default to surface scan
 switchScanType('surface');
 const surfaceCard = document.querySelector('[data-type="surface"]');
 if (surfaceCard) surfaceCard.classList.add('selected');
-
-console.log('=== DIRECT SCRIPT COMPLETE ===');
 </script>
 
 {% endblock %}
