@@ -826,7 +826,13 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 self.motion_status = MotionStatus.IDLE
                 await self._update_current_position()
                 
-                self._emit_event("controller_reset", {})
+                # CRITICAL: Reset homed status when controller is reset
+                self.is_homed = False
+                logger.info("🔄 Reset is_homed flag to False after controller reset")
+                
+                self._emit_event("controller_reset", {
+                    "homed_status_reset": True
+                })
                 
                 logger.info("✅ Controller reset completed")
                 return True

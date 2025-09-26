@@ -525,6 +525,58 @@ class ScannerWebInterface:
                 self.logger.error(f"❌ Clear alarm API traceback: {traceback.format_exc()}")
                 return jsonify({'success': False, 'error': str(e)}), 500
 
+        @self.app.route('/api/reset', methods=['POST'])
+        def api_reset():
+            """Reset FluidNC controller and clear homed status"""
+            try:
+                self.logger.info("🔄 RESET API called")
+                
+                # Check if orchestrator and motion controller are available
+                if not self.orchestrator:
+                    self.logger.error("❌ No orchestrator available")
+                    return jsonify({'success': False, 'error': 'Orchestrator not available'}), 500
+                    
+                if not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
+                    self.logger.error("❌ No motion controller available")
+                    return jsonify({'success': False, 'error': 'Motion controller not available'}), 500
+                
+                # Execute reset command
+                self.logger.info("🔄 Executing controller reset...")
+                motion_controller = self.orchestrator.motion_controller
+                
+                # Use async version with proper event loop handling
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(motion_controller.reset_controller())
+                finally:
+                    loop.close()
+                
+                if result:
+                    self.logger.info("✅ Controller reset successful")
+                    response = {
+                        'success': True,
+                        'message': 'Controller reset successfully',
+                        'homed_status_reset': True,
+                        'timestamp': datetime.now().isoformat()
+                    }
+                else:
+                    self.logger.error("❌ Failed to reset controller")
+                    response = {
+                        'success': False,
+                        'error': 'Failed to reset controller',
+                        'timestamp': datetime.now().isoformat()
+                    }
+                
+                return jsonify(response)
+                
+            except Exception as e:
+                self.logger.error(f"❌ Reset API error: {e}")
+                import traceback
+                self.logger.error(f"❌ Reset API traceback: {traceback.format_exc()}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
         @self.app.route('/api/debug/position')
         def api_debug_position():
             """Debug endpoint for position updates"""
@@ -1790,12 +1842,13 @@ class ScannerWebInterface:
             home_thread.start()
             self.logger.info(f"🏠 Homing thread started: {home_thread.name}")
             
-            # Return immediate response
+            # Return immediate response indicating homing started (not completed)
             return {
                 'message': f'Homing sequence started for axes: {", ".join(axes)}',
                 'status': 'in_progress',
                 'axes': axes,
-                'success': True
+                'started': True,  # Changed from 'success' to 'started'
+                'note': 'Monitor system status for completion'
             }
             
         except Exception as e:
