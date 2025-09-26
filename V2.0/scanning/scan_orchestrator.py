@@ -1162,7 +1162,14 @@ class CameraManagerAdapter:
                                 image_array, capture_metadata = await loop.run_in_executor(executor, capture_with_metadata, camera)
                             
                             if image_array is not None and image_array.size > 0:
-                                image_bgr = image_array.copy()
+                                # Convert RGB to BGR format (Picamera2 returns RGB, system expects BGR)
+                                import cv2
+                                if len(image_array.shape) == 3 and image_array.shape[2] == 3:
+                                    # Convert RGB to BGR for consistency with OpenCV
+                                    image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                                    self.logger.info(f"CAMERA: Converted RGB to BGR for {camera_id}")
+                                else:
+                                    image_bgr = image_array.copy()
                                 
                                 # Log captured metadata
                                 if capture_metadata and isinstance(capture_metadata, dict):
