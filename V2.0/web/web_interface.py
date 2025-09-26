@@ -2461,7 +2461,10 @@ class ScannerWebInterface:
                 metadata={
                     'capture_type': 'manual_flash',
                     'web_interface_version': '2.0',
-                    'synchronized': True
+                    'synchronized': True,
+                    'camera_metadata': capture_metadata if capture_metadata and isinstance(capture_metadata, dict) else {},
+                    'camera_metadata_available': bool(capture_metadata and isinstance(capture_metadata, dict)),
+                    'camera_metadata_fields': list(capture_metadata.keys()) if capture_metadata and isinstance(capture_metadata, dict) else []
                 }
             )
             
@@ -2691,7 +2694,38 @@ class ScannerWebInterface:
             with open(filename, 'wb') as f:
                 f.write(img_bytes)
             
+            # Create and save JSON metadata file alongside the image
+            json_filename = output_dir / f"flash_sync_{timestamp}_camera_{camera_id}_metadata.json"
+            metadata_dict = {
+                'capture_info': {
+                    'timestamp': timestamp,
+                    'camera_id': camera_id,
+                    'capture_type': 'fallback_manual',
+                    'image_filename': filename.name,
+                    'file_size_bytes': len(img_bytes)
+                },
+                'position_data': {
+                    'x': current_position.x if current_position else 0.0,
+                    'y': current_position.y if current_position else 0.0,
+                    'z': current_position.z if current_position else 0.0,
+                    'c': current_position.c if current_position else 0.0
+                } if current_position else None,
+                'camera_metadata': capture_metadata if capture_metadata and isinstance(capture_metadata, dict) else {},
+                'camera_metadata_available': bool(capture_metadata and isinstance(capture_metadata, dict)),
+                'camera_metadata_fields': list(capture_metadata.keys()) if capture_metadata and isinstance(capture_metadata, dict) else [],
+                'system_info': {
+                    'web_interface_version': '2.0',
+                    'embedded_exif': True,
+                    'color_format': 'BGR'
+                }
+            }
+            
+            import json
+            with open(json_filename, 'w') as f:
+                json.dump(metadata_dict, f, indent=2, default=str)
+            
             self.logger.info(f"💾 Fallback saved with metadata: {filename}")
+            self.logger.info(f"📄 Saved JSON metadata: {json_filename}")
             return filename
             
         except Exception as e:
