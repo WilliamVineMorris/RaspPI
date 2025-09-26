@@ -385,10 +385,20 @@ class MockCameraController:
         await asyncio.sleep(0.1)  # Simulate capture time
         return f"/tmp/mock_image_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
     
-    def get_preview_frame(self, camera_key: str = 'primary') -> bytes:
-        """Get preview frame for web streaming - returns mock data."""
-        # Return a minimal valid JPEG header for web compatibility
-        return b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00\xff\xdb'
+    def get_preview_frame(self, camera_key: str = 'primary'):
+        """Get preview frame for web streaming - returns mock numpy array."""
+        import numpy as np
+        # Return a mock 640x480x3 RGB image (black with "MOCK CAMERA" text area)
+        height, width = 480, 640
+        frame = np.zeros((height, width, 3), dtype=np.uint8)
+        # Add some pattern so it's not completely black
+        frame[100:200, 200:400] = [64, 64, 64]  # Gray rectangle in center
+        return frame
+    
+    async def trigger_autofocus(self, camera_key: str = 'primary') -> bool:
+        """Mock autofocus trigger."""
+        await asyncio.sleep(0.1)  # Simulate autofocus time
+        return True
 
 
 class MockLightingController:

@@ -1311,10 +1311,20 @@ class ScannerWebInterface:
                     # Get status information from controller properties (use cached status to avoid async calls)
                     # Force refresh connection status to avoid stale cached values
                     try:
-                        connected = motion_controller.protocol.is_connected() if hasattr(motion_controller, 'protocol') else False
-                        self.logger.debug(f"Direct protocol connection check: {connected}")
+                        # Check for different controller types
+                        if hasattr(motion_controller, 'protocol'):
+                            # Original controller with protocol
+                            connected = motion_controller.protocol.is_connected()
+                            self.logger.debug(f"Direct protocol connection check: {connected}")
+                        elif hasattr(motion_controller, 'is_connected'):
+                            # SimpleWorkingFluidNCController with direct is_connected method
+                            connected = motion_controller.is_connected()
+                            self.logger.debug(f"Direct controller connection check: {connected}")
+                        else:
+                            connected = False
+                            self.logger.debug(f"No connection check method found")
                     except Exception as e:
-                        self.logger.warning(f"Protocol connection check failed: {e}")
+                        self.logger.warning(f"Connection check failed: {e}")
                         connected = getattr(motion_controller, '_connected', False) if hasattr(motion_controller, '_connected') else False
                         self.logger.debug(f"Fallback connection check: {connected}")
                     
@@ -1338,10 +1348,16 @@ class ScannerWebInterface:
                         self.logger.warning("🔧 Connection shows false but trying to force refresh...")
                         # One more attempt with multiple methods
                         try:
-                            protocol_connected = motion_controller.protocol.is_connected() if hasattr(motion_controller, 'protocol') else False
+                            if hasattr(motion_controller, 'protocol'):
+                                protocol_connected = motion_controller.protocol.is_connected()
+                            elif hasattr(motion_controller, 'is_connected'):
+                                protocol_connected = motion_controller.is_connected()
+                            else:
+                                protocol_connected = False
+                                
                             if protocol_connected:
                                 connected = True
-                                self.logger.info("🔧 Successfully forced connection to true based on protocol status")
+                                self.logger.info("🔧 Successfully forced connection to true based on connection status")
                         except:
                             pass
                     
@@ -1351,11 +1367,11 @@ class ScannerWebInterface:
                             protocol_status = motion_controller.protocol.get_current_status()
                             current_status = protocol_status.state if protocol_status else 'unknown'
                             # Get homed status from protocol - check if position indicates homing complete
-                            homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
+                            homed = motion_controller.is_homed() if hasattr(motion_controller, 'is_homed') else False
                             self.logger.info(f"🔍 Direct protocol status: {current_status}, homed: {homed}")
                         else:
                             current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
-                            homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
+                            homed = motion_controller.is_homed() if hasattr(motion_controller, 'is_homed') else False
                             self.logger.info(f"🔍 Controller cached status: {current_status}, homed: {homed}")
                     except Exception as status_err:
                         self.logger.warning(f"Status retrieval error: {status_err}")
