@@ -382,13 +382,9 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             return False
     
     async def home_axes(self, axes: Optional[list] = None) -> bool:
-        """Enhanced homing with FluidNC debug message detection and alarm clearing"""
+        """Enhanced homing with FluidNC debug message detection"""
         try:
             logger.info("🏠 Starting ENHANCED homing with debug message detection")
-            
-            # Clear alarm state before homing
-            logger.info("🔓 Clearing alarm state before homing")
-            await self.clear_alarm()
             
             # Reset homed status at start of homing
             self.is_homed = False
@@ -473,8 +469,19 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                     
                     # Break if we found the completion signal
                     if homing_done_detected:
-                        logger.info(f"✅ Homing completed via debug message after {elapsed:.1f}s")
-                        break
+                        # Immediately check if system is actually ready or still in alarm
+                        immediate_status = self.protocol.get_current_status()
+                        if immediate_status and immediate_status.state.lower() == 'alarm':
+                            logger.warning(f"⚠️ Homing message detected but system still in ALARM state!")
+                            logger.info("🔓 Clearing alarm and continuing to monitor...")
+                            # Clear alarm but don't break - continue monitoring for actual completion
+                            await self.clear_alarm()
+                            homing_done_detected = False  # Reset and continue monitoring
+                            continue
+                        else:
+                            logger.info(f"✅ Homing completed via debug message after {elapsed:.1f}s")
+                            logger.info(f"📊 System state: {immediate_status.state if immediate_status else 'Unknown'}")
+                            break
                     
                     # Periodic status monitoring (with error protection)
                     if elapsed - last_status_check >= 5.0:  # Every 5 seconds like test
@@ -513,17 +520,33 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             await asyncio.sleep(1.0)  # Let system settle
             final_status = self.protocol.get_current_status()
             
-            if final_status and final_status.state.lower() in ['idle', 'run']:
+            # Check if system is still in alarm state after "homing completion"
+            if final_status and final_status.state.lower() == 'alarm':
+                logger.warning(f"⚠️ System still in ALARM state after homing detection!")
+                logger.info("🔓 Attempting to clear alarm state - homing may not have actually occurred")
+                
+                # Clear alarm state since homing didn't actually complete properly
+                clear_success = await self.clear_alarm()
+                if clear_success:
+                    logger.info("✅ Alarm cleared after homing detection")
+                    # Re-check status after clearing
+                    await asyncio.sleep(0.5)
+                    final_status = self.protocol.get_current_status()
+                    if final_status and final_status.state.lower() in ['idle', 'run']:
+                        logger.info(f"✅ Final verification after alarm clear: {final_status.state}")
+                    else:
+                        logger.error(f"❌ Still not in ready state after alarm clear: {final_status.state if final_status else 'None'}")
+                        return False
+                else:
+                    logger.error("❌ Failed to clear alarm state after homing")
+                    return False
+            elif final_status and final_status.state.lower() in ['idle', 'run']:
                 logger.info(f"✅ Final verification: {final_status.state}")
             else:
                 logger.warning(f"⚠️ Final state unexpected: {final_status.state if final_status else 'None'}")
             
             # Update position after homing
             await self._update_current_position()
-            
-            # Clear alarm state after homing completion
-            logger.info("🔓 Clearing alarm state after homing completion")
-            await self.clear_alarm()
             
             # Emit enhanced completion event
             self._emit_event("homing_completed", {
@@ -672,10 +695,11 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 await self._update_current_position()
                 
                 # Check if we're no longer in alarm state
-                if self.motion_status != MotionStatus.ALARM:
+                current_status = self.protocol.get_current_status()
+                if current_status and current_status.state.lower() != 'alarm':
                     logger.info("✅ Alarm cleared successfully")
                     self._emit_event("alarm_cleared", {
-                        "status": self.motion_status.value
+                        "status": current_status.state if current_status else "unknown"
                     })
                     return True
                 else:
