@@ -28,16 +28,16 @@ class HardwareMotionTracker:
         
         # Get the protocol to track actual G-code commands
         self.protocol = controller.protocol
-        self.original_send_command = self.protocol._send_command
+        self.original_send_command = self.protocol.send_command
         
         # Replace with tracking version
-        self.protocol._send_command = self.track_command
+        self.protocol.send_command = self.track_command
         
-    async def track_command(self, command, timeout=None):
+    def track_command(self, command):
         """Track G-code commands sent to FluidNC"""
         self.commands_sent.append(command)
         print(f"📡 HARDWARE COMMAND: {command}")
-        return await self.original_send_command(command, timeout)
+        return self.original_send_command(command)
 
 async def test_real_hardware_motion():
     """Test actual hardware motion with optimization"""
