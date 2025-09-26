@@ -1640,48 +1640,69 @@ function gotoPosition() {
 }
 
 function capturePhoto() {
-    console.log('Capturing photo');
+    console.log('Capturing photo from both cameras with flash');
     
-    fetch('/api/camera/capture', {
+    // Show loading indicator
+    showMessage('📸 Capturing synchronized photos with flash...', 'info');
+    
+    fetch('/api/camera/capture/both', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({camera_id: 'camera_1'})
+        body: JSON.stringify({
+            flash: true,
+            flash_intensity: 80
+        })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            console.log('Photo captured');
+            console.log('Synchronized photo captured with flash');
+            showMessage('✅ Photos captured successfully from both cameras!', 'success');
         } else {
             console.error(`Capture failed: ${data.error}`);
+            showMessage(`❌ Capture failed: ${data.error}`, 'error');
         }
     })
     .catch(error => {
         console.error('Capture error:', error);
+        showMessage(`❌ Capture error: ${error.message}`, 'error');
     });
 }
 
 function captureFromCamera(cameraId) {
-    console.log(`Capturing from camera ${cameraId}`);
+    console.log(`Capturing from camera ${cameraId + 1} with flash`);
     
-    fetch('/api/camera/capture', {
+    // Show loading indicator
+    showMessage(`📸 Capturing photo from Camera ${cameraId + 1} with flash...`, 'info');
+    
+    // Use the new individual camera endpoints
+    const endpoint = cameraId === 0 ? '/api/camera/capture/camera1' : '/api/camera/capture/camera2';
+    
+    fetch(endpoint, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({camera_id: `camera_${cameraId + 1}`})
+        body: JSON.stringify({
+            flash: true,
+            flash_intensity: 80
+        })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            console.log(`Photo captured from camera ${cameraId}`);
+            console.log(`Photo captured from camera ${cameraId + 1} with flash`);
+            showMessage(`✅ Photo captured successfully from Camera ${cameraId + 1}!`, 'success');
         } else {
             console.error(`Capture failed: ${data.error}`);
+            showMessage(`❌ Capture failed: ${data.error}`, 'error');
         }
     })
     .catch(error => {
         console.error('Capture error:', error);
+        showMessage(`❌ Capture error: ${error.message}`, 'error');
     });
 }
 

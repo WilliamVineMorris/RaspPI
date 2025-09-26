@@ -1035,12 +1035,17 @@ class ScannerWebInterface:
         
         @self.app.route('/api/camera/capture', methods=['POST'])
         def api_camera_capture():
-            """Capture image from camera"""
+            """Capture image from camera with optional flash"""
             try:
                 data = request.get_json() or {}
                 camera_id = data.get('camera_id', 0)
+                use_flash = data.get('flash', False)  # Enable flash functionality
+                flash_intensity = data.get('flash_intensity', 80)  # Default flash intensity
                 
-                result = self._execute_camera_capture(camera_id)
+                if use_flash:
+                    result = self._execute_camera_capture_with_flash(camera_id, flash_intensity)
+                else:
+                    result = self._execute_camera_capture(camera_id)
                 
                 return jsonify({
                     'success': True,
@@ -1182,6 +1187,79 @@ class ScannerWebInterface:
                 
             except Exception as e:
                 self.logger.error(f"Camera detailed status API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/camera/capture/camera1', methods=['POST'])
+        def api_camera1_capture():
+            """Capture photo from Camera 1 with flash"""
+            try:
+                data = request.get_json() or {}
+                use_flash = data.get('flash', True)  # Default to flash enabled for individual buttons
+                flash_intensity = data.get('flash_intensity', 80)
+                
+                if use_flash:
+                    result = self._execute_camera_capture_with_flash(0, flash_intensity)  # Camera 1 = ID 0
+                else:
+                    result = self._execute_camera_capture(0)
+                
+                return jsonify({
+                    'success': True,
+                    'data': result,
+                    'camera': 'Camera 1',
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Camera 1 capture API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
+        @self.app.route('/api/camera/capture/camera2', methods=['POST'])
+        def api_camera2_capture():
+            """Capture photo from Camera 2 with flash"""
+            try:
+                data = request.get_json() or {}
+                use_flash = data.get('flash', True)  # Default to flash enabled for individual buttons
+                flash_intensity = data.get('flash_intensity', 80)
+                
+                if use_flash:
+                    result = self._execute_camera_capture_with_flash(1, flash_intensity)  # Camera 2 = ID 1
+                else:
+                    result = self._execute_camera_capture(1)
+                
+                return jsonify({
+                    'success': True,
+                    'data': result,
+                    'camera': 'Camera 2',
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Camera 2 capture API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+
+        @self.app.route('/api/camera/capture/both', methods=['POST'])
+        def api_both_cameras_capture():
+            """Capture synchronized photos from both cameras with flash"""
+            try:
+                data = request.get_json() or {}
+                use_flash = data.get('flash', True)  # Default to flash enabled
+                flash_intensity = data.get('flash_intensity', 80)
+                
+                # For synchronized capture, always use the flash sync method
+                if use_flash:
+                    result = self._execute_synchronized_capture_with_flash(flash_intensity)
+                else:
+                    result = self._execute_synchronized_capture()
+                
+                return jsonify({
+                    'success': True,
+                    'data': result,
+                    'camera': 'Both Cameras',
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Both cameras capture API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
         @self.app.route('/api/lighting/flash', methods=['POST'])
@@ -2003,6 +2081,147 @@ class ScannerWebInterface:
         except Exception as e:
             self.logger.error(f"Camera capture execution failed: {e}")
             raise HardwareError(f"Failed to capture image: {e}")
+    
+    def _execute_camera_capture_with_flash(self, camera_id: int, flash_intensity: int = 80) -> Dict[str, Any]:
+        """Execute camera capture with LED flash synchronization"""
+        try:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
+                raise HardwareError("Camera manager not available")
+                
+            if not hasattr(self.orchestrator, 'lighting_controller') or not self.orchestrator.lighting_controller:
+                raise HardwareError("Lighting controller not available for flash")
+            
+            # Prepare capture parameters
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"flash_capture_{camera_id}_{timestamp}.jpg"
+            
+            # Execute synchronized capture with flash
+            import asyncio
+            if asyncio.iscoroutinefunction(self.orchestrator.camera_manager.capture_with_flash_sync):
+                # Async camera manager
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(
+                        self.orchestrator.camera_manager.capture_with_flash_sync(
+                            flash_controller=self.orchestrator.lighting_controller,
+                            settings=None  # Use default camera settings
+                        )
+                    )
+                finally:
+                    loop.close()
+            else:
+                # Sync camera manager (fallback)
+                result = self.orchestrator.camera_manager.capture_with_flash_sync(
+                    flash_controller=self.orchestrator.lighting_controller,
+                    settings=None
+                )
+            
+            self.logger.info(f"Flash capture executed: Camera {camera_id}, Flash intensity: {flash_intensity}%")
+            
+            return {
+                'camera_id': camera_id,
+                'filename': filename,
+                'timestamp': timestamp,
+                'flash_used': True,
+                'flash_intensity': flash_intensity,
+                'success': True,
+                'capture_result': result.__dict__ if hasattr(result, '__dict__') else str(result)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Flash capture execution failed: {e}")
+            raise HardwareError(f"Failed to capture image with flash: {e}")
+    
+    def _execute_synchronized_capture_with_flash(self, flash_intensity: int = 80) -> Dict[str, Any]:
+        """Execute synchronized capture from both cameras with flash"""
+        try:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
+                raise HardwareError("Camera manager not available")
+                
+            if not hasattr(self.orchestrator, 'lighting_controller') or not self.orchestrator.lighting_controller:
+                raise HardwareError("Lighting controller not available for flash")
+            
+            # Prepare capture parameters
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            
+            # Execute synchronized capture with flash from both cameras
+            import asyncio
+            if asyncio.iscoroutinefunction(self.orchestrator.camera_manager.capture_with_flash_sync):
+                # Async camera manager
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(
+                        self.orchestrator.camera_manager.capture_with_flash_sync(
+                            flash_controller=self.orchestrator.lighting_controller,
+                            settings=None  # Use default camera settings for both cameras
+                        )
+                    )
+                finally:
+                    loop.close()
+            else:
+                # Sync camera manager (fallback)
+                result = self.orchestrator.camera_manager.capture_with_flash_sync(
+                    flash_controller=self.orchestrator.lighting_controller,
+                    settings=None
+                )
+            
+            self.logger.info(f"Synchronized flash capture executed: Both cameras, Flash intensity: {flash_intensity}%")
+            
+            return {
+                'cameras': 'both',
+                'timestamp': timestamp,
+                'flash_used': True,
+                'flash_intensity': flash_intensity,
+                'success': True,
+                'synchronized': True,
+                'capture_result': result.__dict__ if hasattr(result, '__dict__') else str(result)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Synchronized flash capture execution failed: {e}")
+            raise HardwareError(f"Failed to capture synchronized images with flash: {e}")
+    
+    def _execute_synchronized_capture(self) -> Dict[str, Any]:
+        """Execute synchronized capture from both cameras without flash"""
+        try:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
+                raise HardwareError("Camera manager not available")
+            
+            # Prepare capture parameters
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            
+            # Execute synchronized capture without flash
+            import asyncio
+            if asyncio.iscoroutinefunction(self.orchestrator.camera_manager.capture_synchronized):
+                # Async camera manager
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(
+                        self.orchestrator.camera_manager.capture_synchronized(settings=None)
+                    )
+                finally:
+                    loop.close()
+            else:
+                # Sync camera manager (fallback)
+                result = self.orchestrator.camera_manager.capture_synchronized(settings=None)
+            
+            self.logger.info(f"Synchronized capture executed: Both cameras, No flash")
+            
+            return {
+                'cameras': 'both',
+                'timestamp': timestamp,
+                'flash_used': False,
+                'success': True,
+                'synchronized': True,
+                'capture_result': result.__dict__ if hasattr(result, '__dict__') else str(result)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Synchronized capture execution failed: {e}")
+            raise HardwareError(f"Failed to capture synchronized images: {e}")
     
     def _execute_camera_controls(self, camera_id: str, controls: Dict[str, Any]) -> Dict[str, Any]:
         """Execute camera control settings"""
