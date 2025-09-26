@@ -2196,8 +2196,22 @@ class ScannerWebInterface:
             except Exception as pos_error:
                 self.logger.warning(f"Could not get current position: {pos_error}")
             
-            # Create session for this capture
+            # Create and start session for this capture
             session_id = f"manual_capture_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            session_created = False
+            if hasattr(self.orchestrator, 'storage_manager') and self.orchestrator.storage_manager:
+                try:
+                    session = asyncio.run(self.orchestrator.storage_manager.start_session(
+                        scan_name=f"Manual Flash Capture {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                        description="Synchronized flash capture from web interface",
+                        operator="Web Interface User"
+                    ))
+                    session_id = session.session_id
+                    session_created = True
+                    self.logger.info(f"📦 Created storage session: {session_id}")
+                except Exception as session_error:
+                    self.logger.warning(f"Could not create storage session: {session_error}")
+            
             results = []
             
             # Flash coordination (if lighting controller available)
@@ -2263,9 +2277,9 @@ class ScannerWebInterface:
                                     'storage_method': 'session_manager',
                                     'session_id': session_id
                                 })
-                                self.logger.info(f"✅ Stored camera {camera_id + 1} with file_id: {file_id}")
+                                self.logger.info(f"✅ Stored camera_{camera_id} with file_id: {file_id}")
                             except Exception as storage_error:
-                                self.logger.error(f"Storage failed for camera {camera_id + 1}: {storage_error}")
+                                self.logger.error(f"Storage failed for camera_{camera_id}: {storage_error}")
                                 # Fallback to direct file saving
                                 filename = self._fallback_save_image_sync(image_data, camera_id, timestamp)
                                 results.append({
@@ -2285,7 +2299,7 @@ class ScannerWebInterface:
                                 'storage_method': 'fallback_file'
                             })
                     else:
-                        self.logger.error(f"❌ Camera {camera_id + 1} returned no data")
+                        self.logger.error(f"❌ Camera_{camera_id} returned no data")
                         results.append({
                             'camera_id': camera_id,
                             'success': False,
@@ -2293,7 +2307,7 @@ class ScannerWebInterface:
                         })
                         
                 except Exception as cam_error:
-                    self.logger.error(f"❌ Failed to capture camera {camera_id + 1}: {cam_error}")
+                    self.logger.error(f"❌ Failed to capture camera_{camera_id}: {cam_error}")
                     results.append({
                         'camera_id': camera_id,
                         'success': False,
@@ -2303,6 +2317,14 @@ class ScannerWebInterface:
             
             # Count successful captures
             successful_captures = sum(1 for r in results if r.get('success', False))
+            
+            # End the session if we created one
+            if session_created and hasattr(self.orchestrator, 'storage_manager') and self.orchestrator.storage_manager:
+                try:
+                    asyncio.run(self.orchestrator.storage_manager.end_session(session_id))
+                    self.logger.info(f"📦 Ended storage session: {session_id}")
+                except Exception as session_error:
+                    self.logger.warning(f"Could not end storage session: {session_error}")
             
             if successful_captures > 0:
                 self.logger.info(f"✅ Synchronized flash capture completed: {successful_captures}/{len(results)} images")
@@ -2350,7 +2372,7 @@ class ScannerWebInterface:
             # Create comprehensive metadata
             metadata = StorageMetadata(
                 file_id=str(uuid.uuid4()),
-                original_filename=f"manual_capture_camera_{camera_id + 1}.jpg",
+                original_filename=f"manual_capture_camera_{camera_id}.jpg",
                 data_type=DataType.RAW_IMAGE,  # Use RAW_IMAGE for manual captures
                 file_size_bytes=len(img_bytes),
                 checksum=hashlib.sha256(img_bytes).hexdigest(),
@@ -2376,7 +2398,7 @@ class ScannerWebInterface:
                     'flash_duration': 100,
                     'flash_result': str(flash_result) if flash_result else 'success'
                 },
-                tags=['manual_capture', 'flash_sync', f'camera_{camera_id + 1}', 'web_interface']
+                tags=['manual_capture', 'flash_sync', f'camera_{camera_id}', 'web_interface']
             )
             
             # Store using async wrapper with error handling
@@ -2410,7 +2432,7 @@ class ScannerWebInterface:
             output_dir.mkdir(parents=True, exist_ok=True)
             
             # Save image
-            filename = output_dir / f"flash_sync_{timestamp}_camera_{camera_id + 1}.jpg"
+            filename = output_dir / f"flash_sync_{timestamp}_camera_{camera_id}.jpg"
             cv2.imwrite(str(filename), image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
             
             self.logger.info(f"💾 Fallback saved: {filename}")
