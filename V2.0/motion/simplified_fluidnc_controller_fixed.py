@@ -315,10 +315,12 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             
             # Optimize for manual operations: combine commands to reduce delays
             if self.operating_mode == "manual_mode":
-                # For manual jogging, use FluidNC default feedrates (fastest)
-                # Omit F parameter to let FluidNC use its configured default speeds
-                gcode = f"G90 G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
-                logger.debug(f"🚀 Using FluidNC default feedrates for maximum speed")
+                # For manual jogging, MUST include feedrate to avoid error:22
+                # Use provided feedrate or default to reasonable speed
+                if feedrate is None:
+                    feedrate = 1000.0  # Default feedrate for manual moves
+                gcode = f"G90 G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f} F{feedrate}"
+                logger.debug(f"🚀 Using feedrate: {feedrate} for manual jogging")
                 
                 success, response = await self._send_command(gcode, priority="high")
             else:
