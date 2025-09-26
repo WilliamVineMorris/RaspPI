@@ -56,21 +56,23 @@ class UpdatedScanOrchestrator:
         try:
             self.logger.info("Initializing motion controller...")
             self.motion_controller = SimpleWorkingFluidNCController()
+            success_count += 1  # Controller created successfully
             
             # Test connection
             if self.motion_controller.connect():
                 self.hardware_status['motion'] = True
-                success_count += 1
                 self.logger.info("✅ Motion controller connected")
                 
                 # Get status
                 status = self.motion_controller.get_status()
                 self.logger.info(f"📊 Motion status: {status}")
             else:
-                self.logger.warning("⚠️ Motion controller connection failed")
+                self.logger.warning("⚠️ Motion controller connection failed (hardware not available)")
+                self.logger.info("🔧 Motion controller instance created but not connected")
                 
         except Exception as e:
             self.logger.error(f"Motion controller error: {e}")
+            # Keep motion_controller as None if creation fails
         
         # 2. Mock Camera Controller (for testing)
         try:
