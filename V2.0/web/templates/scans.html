@@ -320,7 +320,7 @@
                 <h4>Volume Scan</h4>
                 <p>Complete 360° volumetric capture</p>
             </div>
-            <div class="scan-type-card" data-type="cylindrical">
+            <div class="scan-type-card" data-type="cylindrical" onclick="console.log('Cylindrical clicked!'); alert('Cylindrical clicked!');">
                 <h4>Cylindrical Scan</h4>
                 <p>Continuous rotation scan with height steps</p>
             </div>
@@ -377,7 +377,7 @@
         </div>
 
         <!-- Cylindrical Scan Parameters (hidden by default) -->
-        <div id="cylindrical-parameters" class="scan-parameters" style="display: block; background-color: #e8f4f8; border: 2px solid #4a90e2; padding: 1rem; margin: 1rem 0;">
+        <div id="cylindrical-parameters" class="scan-parameters" style="display: none; background-color: #e8f4f8; border: 2px solid #4a90e2; padding: 1rem; margin: 1rem 0;">
             <h4 style="color: #4a90e2;">🔄 Cylindrical Scan Settings</h4>
             <div class="parameter-group">
                 <label for="cylindricalRadius">Camera Radius (mm)</label>
@@ -522,4 +522,54 @@
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/scans.js') }}"></script>
+<script>
+// Simple scan type switching - direct approach
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Scan type switching script loaded');
+    
+    const scanTypeCards = document.querySelectorAll('.scan-type-card');
+    const cylindricalParams = document.getElementById('cylindrical-parameters');
+    const gridBoundaries = document.getElementById('grid-boundaries');
+    
+    console.log('Found scan type cards:', scanTypeCards.length);
+    console.log('Cylindrical params element:', cylindricalParams);
+    console.log('Grid boundaries element:', gridBoundaries);
+    
+    function updateParameterPanels(scanType) {
+        console.log('Updating panels for scan type:', scanType);
+        
+        if (scanType === 'cylindrical') {
+            console.log('Showing cylindrical parameters');
+            if (cylindricalParams) cylindricalParams.style.display = 'block';
+            if (gridBoundaries) gridBoundaries.style.display = 'none';
+        } else {
+            console.log('Showing grid boundaries');
+            if (cylindricalParams) cylindricalParams.style.display = 'none';
+            if (gridBoundaries) gridBoundaries.style.display = 'block';
+        }
+    }
+    
+    // Add click handlers to scan type cards
+    scanTypeCards.forEach(card => {
+        card.addEventListener('click', function() {
+            const scanType = card.dataset.type;
+            console.log('Scan type card clicked:', scanType);
+            
+            // Update selection visual
+            scanTypeCards.forEach(c => c.classList.remove('selected'));
+            card.classList.add('selected');
+            
+            // Update parameter panels
+            updateParameterPanels(scanType);
+        });
+    });
+    
+    // Set initial state - surface scan selected
+    const defaultCard = document.querySelector('[data-type="surface"]');
+    if (defaultCard) {
+        defaultCard.classList.add('selected');
+        updateParameterPanels('surface');
+    }
+});
+</script>
 {% endblock %}
