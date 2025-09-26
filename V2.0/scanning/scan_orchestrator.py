@@ -1922,30 +1922,41 @@ class ScanOrchestrator:
         self.logger.info(f"Scan execution completed")
     
     async def _move_to_point(self, point: ScanPoint):
-        """Move to a scan point"""
+        """Move to a scan point with proper motion completion waiting"""
         move_start = time.time()
         
         if self.current_scan:
             self.current_scan.set_phase(ScanPhase.POSITIONING)
         
-        # Move to XY position
+        self.logger.info(f"📐 Moving to scan point: X={point.position.x:.1f}, Y={point.position.y:.1f}, Z={point.position.z:.1f}°, C={point.position.c:.1f}°")
+        
+        # Move to XY position and wait for completion
         if not await self.motion_controller.move_to(point.position.x, point.position.y):
             raise HardwareError(f"Failed to move to position ({point.position.x}, {point.position.y})")
         
-        # Set Z rotation angle if specified
+        # Set Z rotation angle if specified and wait for completion
         if point.position.z is not None:
             if not await self.motion_controller.move_z_to(point.position.z):
                 raise HardwareError(f"Failed to rotate Z-axis to {point.position.z} degrees")
         
-        # Set rotation if specified
+        # Set rotation if specified and wait for completion
         if point.position.c is not None:
             if not await self.motion_controller.rotate_to(point.position.c):
                 raise HardwareError(f"Failed to rotate to {point.position.c} degrees")
         
-        # Wait for stabilization
-        stabilization_delay = self.config.get('motion', {}).get('stabilization_delay', 0.5)
-        await asyncio.sleep(stabilization_delay)
+        # Extended stabilization delay for scanning precision
+        # This ensures all motion has completely stopped and any vibrations have settled
+        scan_stabilization_delay = self.config.get('scanning', {}).get('scan_stabilization_delay', 2.0)
+        general_delay = self.config.get('scanning', {}).get('default_stabilization_delay', 1.0)
         
+        if scan_stabilization_delay > general_delay:
+            self.logger.debug(f"⏱️ Using extended scan stabilization delay: {scan_stabilization_delay}s (vs {general_delay}s general)")
+        else:
+            self.logger.debug(f"⏱️ Waiting {scan_stabilization_delay}s for motion stabilization...")
+        
+        await asyncio.sleep(scan_stabilization_delay)
+        
+        self.logger.info(f"✅ Movement to scan point completed and stabilized")
         self._timing_stats['movement_time'] += time.time() - move_start
     
     async def _capture_at_point(self, point: ScanPoint, point_index: int) -> int:

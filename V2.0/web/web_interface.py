@@ -2015,9 +2015,9 @@ class ScannerWebInterface:
             else:
                 raise ValueError(f"Unknown pattern type: {pattern_data['pattern_type']}")
             
-            # Generate scan output directory
+            # Generate scan output directory (use relative path to avoid permission issues)
             scan_id = f"web_scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            output_dir = Path(f"/scans/{scan_id}")
+            output_dir = Path.cwd() / "scans" / scan_id
             
             # Start the scan (this returns a coroutine, so we need to handle it properly)
             # For now, we'll create the task and let it run

@@ -245,7 +245,8 @@ communication:
     
 # Scan Configuration Defaults
 scanning:
-  default_stabilization_delay: 1.0  # Seconds to wait after movement
+  default_stabilization_delay: 1.0  # Seconds to wait after movement (general)
+  scan_stabilization_delay: 2.0     # Extended delay for scanning precision
   default_capture_delay: 0.5        # Additional delay before capture
   
   path_planning:
