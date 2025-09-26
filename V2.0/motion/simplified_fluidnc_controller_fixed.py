@@ -255,13 +255,13 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             # FluidNC appears to have restrictive soft limits that reject G1 moves but allow G0 moves
             if self.operating_mode == "manual_mode":
                 # For manual positioning, use G0 rapid moves (works reliably)
-                gcode = f"G0 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
+                gcode = f"G0 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} C{position.c:.3f}"
                 logger.debug(f"🚀 Using G0 rapid move for manual positioning")
                 success, response = await self._send_command(gcode, priority="high")
             else:
                 # For scan operations, ALSO use G0 rapid moves to avoid soft limit errors
                 # G0 commands work while G1 commands trigger error:22 soft limit violations
-                gcode = f"G0 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
+                gcode = f"G0 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} C{position.c:.3f}"
                 logger.debug(f"🎯 Using G0 rapid move for scan positioning (avoids soft limits)")
                 success, response = await self._send_command(gcode, priority="normal")
             
@@ -326,14 +326,14 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             # FluidNC soft limits reject G1 moves but allow G0 moves at same coordinates
             if self.operating_mode == "manual_mode":
                 # For manual jogging, use G0 (rapid) for maximum speed
-                gcode = f"G0 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
+                gcode = f"G0 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} C{target.c:.3f}"
                 logger.debug(f"🚀 Using G0 rapid motion for manual jogging")
                 
                 success, response = await self._send_command(gcode, priority="high")
             else:
                 # For scan operations, ALSO use G0 rapid moves to avoid soft limit errors
                 # Testing showed G1 commands trigger error:22 while G0 commands work fine
-                gcode = f"G0 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
+                gcode = f"G0 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} C{target.c:.3f}"
                 success, response = await self._send_command(gcode, priority="normal")
                 logger.debug(f"🎯 Using G0 rapid move for scan operations (avoids soft limits)")
             
@@ -380,7 +380,7 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             
             # Use G0 rapid move directly (no need for G90 mode setting)
             # G0 commands work reliably while G1 commands trigger soft limit errors
-            gcode = f"G0 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
+            gcode = f"G0 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} C{position.c:.3f}"
             success, response = await self._send_command(gcode)
             
             if success:
