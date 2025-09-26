@@ -814,8 +814,8 @@ class ScannerWebInterface:
                 delta_values = {'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0}
                 delta_values[axis] = move_distance
                 
-                # Execute the movement using the original async method
-                result = asyncio.run(self._execute_jog_command(delta_values, speed, command_id))
+                # Execute the movement using original working method (no async complications)
+                result = self._execute_jog_command_sync(delta_values, speed, command_id)
                 
                 if TIMING_LOGGER_AVAILABLE and command_id:
                     timing_logger.log_backend_complete(command_id, success=True)

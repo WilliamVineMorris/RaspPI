@@ -245,35 +245,24 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 feedrate = self.get_optimal_feedrate(delta)
                 logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
             
-            # Use direct serial communication for all position moves (protocol wrapper doesn't work)
+            # Optimize for manual operations: combine commands to reduce delays
             if self.operating_mode == "manual_mode":
                 # For manual positioning, use FluidNC default feedrates (fastest)
+                # Omit F parameter to let FluidNC use its configured default speeds
                 gcode = f"G90 G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
                 logger.debug(f"🚀 Using FluidNC default feedrates for maximum speed")
+                success, response = await self._send_command(gcode, priority="high")
             else:
-                # For scan operations, include feedrate
-                gcode = f"G90 G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f} F{feedrate}"
-                logger.debug(f"🎯 Using specified feedrate: {feedrate}")
+                # For scan operations, use separate commands for precision and reliability
+                # Set feedrate
+                await self._send_command(f"F{feedrate}")
                 
-            # Send command via direct serial (same method as homing - this actually works!)
-            logger.info(f"📍 DIRECT SERIAL: Sending position command: {gcode}")
-            success = False
-            response = "Direct serial send failed"
-            try:
-                with self.protocol.connection_lock:
-                    if self.protocol.serial_connection:
-                        command_bytes = f"{gcode}\n".encode('utf-8')
-                        self.protocol.serial_connection.write(command_bytes)
-                        self.protocol.serial_connection.flush()
-                        logger.info("📍 ✅ DIRECT SERIAL: Position command sent successfully")
-                        success = True
-                        response = "Command sent via direct serial"
-                    else:
-                        logger.error("❌ DIRECT SERIAL: No serial connection available")
-                        response = "No serial connection available"
-            except Exception as e:
-                logger.error(f"❌ DIRECT SERIAL: Send failed: {e}")
-                response = f"Direct send error: {e}"
+                # Send absolute movement (G90 is default, but ensure it)
+                await self._send_command("G90")
+                
+                # Send move command
+                gcode = f"G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
+                success, response = await self._send_command(gcode)
             
             if success:
                 self.target_position = position.copy()
@@ -331,91 +320,20 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 gcode = f"G90 G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
                 logger.debug(f"🚀 Using FluidNC default feedrates for maximum speed")
                 
-                # Use direct serial communication like homing does (this actually works!)
-                logger.info(f"🚀 DIRECT SERIAL: Sending movement command: {gcode}")
-                success = False
-                response = "Direct serial send failed"
-                try:
-                    with self.protocol.connection_lock:
-                        if self.protocol.serial_connection:
-                            command_bytes = f"{gcode}\n".encode('utf-8')
-                            self.protocol.serial_connection.write(command_bytes)
-                            self.protocol.serial_connection.flush()
-                            logger.info("🚀 ✅ DIRECT SERIAL: Movement command sent successfully")
-                            
-                            # Immediately check for any error response
-                            import time
-                            time.sleep(0.1)  # Brief wait for response
-                            if self.protocol.serial_connection.in_waiting > 0:
-                                immediate_response = self.protocol.serial_connection.readline().decode('utf-8', errors='ignore').strip()
-                                logger.info(f"📥 DIRECT SERIAL: Immediate response: '{immediate_response}'")
-                                if 'error' in immediate_response.lower():
-                                    logger.error(f"❌ DIRECT SERIAL: FluidNC reported error: {immediate_response}")
-                                elif 'ok' in immediate_response.lower():
-                                    logger.info("✅ DIRECT SERIAL: FluidNC acknowledged command")
-                            else:
-                                logger.info("📥 DIRECT SERIAL: No immediate response from FluidNC")
-                            success = True
-                            response = "Command sent via direct serial"
-                            
-                            # Wait for motion to complete (like the protocol wrapper does)
-                            logger.info("⏳ DIRECT SERIAL: Waiting for motion completion...")
-                            import time
-                            time.sleep(0.1)  # Small delay to let motion start
-                            
-                            # Wait for idle status (motion complete)
-                            timeout = 10.0  # 10 second timeout
-                            start_time = time.time()
-                            while time.time() - start_time < timeout:
-                                try:
-                                    # Send status query
-                                    self.protocol.serial_connection.write(b"?\n")
-                                    self.protocol.serial_connection.flush()
-                                    time.sleep(0.05)  # Brief delay for response
-                                    
-                                    # Read response
-                                    if self.protocol.serial_connection.in_waiting > 0:
-                                        response_line = self.protocol.serial_connection.readline().decode('utf-8', errors='ignore').strip()
-                                        if 'Idle' in response_line:
-                                            logger.info("✅ DIRECT SERIAL: Motion completed (Idle status detected)")
-                                            break
-                                        elif 'Run' in response_line:
-                                            logger.debug("🏃 DIRECT SERIAL: Motion in progress...")
-                                            time.sleep(0.1)
-                                            continue
-                                except Exception as status_e:
-                                    logger.debug(f"Status check error: {status_e}")
-                                    time.sleep(0.1)
-                            else:
-                                logger.warning("⚠️ DIRECT SERIAL: Motion completion timeout")
-                        else:
-                            logger.error("❌ DIRECT SERIAL: No serial connection available")
-                            response = "No serial connection available"
-                except Exception as e:
-                    logger.error(f"❌ DIRECT SERIAL: Send failed: {e}")
-                    response = f"Direct send error: {e}"
+                success, response = await self._send_command(gcode, priority="high")
             else:
-                # For scan operations, use direct serial (same as manual mode - protocol wrapper doesn't work)
-                gcode = f"G90 G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f} F{feedrate}"
-                logger.info(f"🎯 DIRECT SERIAL: Sending scan movement command: {gcode}")
+                # For scan operations, use separate commands for precision and reliability
+                # Set feedrate
+                await self._send_command(f"F{feedrate}", priority="normal")
                 
-                success = False
-                response = "Direct serial send failed"
-                try:
-                    with self.protocol.connection_lock:
-                        if self.protocol.serial_connection:
-                            command_bytes = f"{gcode}\n".encode('utf-8')
-                            self.protocol.serial_connection.write(command_bytes)
-                            self.protocol.serial_connection.flush()
-                            logger.info("🎯 ✅ DIRECT SERIAL: Scan movement command sent successfully")
-                            success = True
-                            response = "Command sent via direct serial"
-                        else:
-                            logger.error("❌ DIRECT SERIAL: No serial connection available")
-                            response = "No serial connection available"
-                except Exception as e:
-                    logger.error(f"❌ DIRECT SERIAL: Send failed: {e}")
-                    response = f"Direct send error: {e}"
+                # Use absolute positioning to avoid coordinate drift
+                success, response = await self._send_command("G90", priority="normal")
+                if not success:
+                    return False
+                
+                # Send absolute move to calculated target
+                gcode = f"G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
+                success, response = await self._send_command(gcode, priority="normal")
             
             if success:
                 self.target_position = target.copy()
@@ -976,57 +894,28 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             return {'success': False, 'error': str(e), 'position': None, 'coordinates': None}
     
     def relative_move_sync(self, delta: Position4D, feedrate: Optional[float] = None) -> Dict[str, Any]:
-        """Synchronous version of relative_move with better event loop handling"""
+        """Synchronous version of relative_move for web interface"""
         try:
-            import concurrent.futures
-            import threading
-            
-            # Check if we're already in an async context
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                current_loop = asyncio.get_running_loop()
-                logger.debug("🔄 Detected running event loop, using thread executor")
-                
-                # Use thread executor to avoid blocking current loop
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    def run_move():
-                        # Create new loop in thread
-                        new_loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(new_loop)
-                        try:
-                            success = new_loop.run_until_complete(self.move_relative(delta, feedrate))
-                            current_pos = new_loop.run_until_complete(self.get_current_position())
-                            return success, current_pos
-                        finally:
-                            new_loop.close()
-                    
-                    success, current_pos = executor.submit(run_move).result(timeout=10.0)
-                    
-            except RuntimeError:
-                # No event loop running, safe to create one
-                logger.debug("🔄 No running event loop, creating new one")
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    success = loop.run_until_complete(self.move_relative(delta, feedrate))
-                    current_pos = loop.run_until_complete(self.get_current_position())
-                finally:
-                    loop.close()
-            
-            return {
-                'success': success,
-                'position': current_pos.to_dict() if current_pos else None,
-                'coordinates': {
-                    'x': current_pos.x if current_pos else 0.0,
-                    'y': current_pos.y if current_pos else 0.0,
-                    'z': current_pos.z if current_pos else 0.0,
-                    'c': current_pos.c if current_pos else 0.0
-                } if current_pos else None
-            }
-            
+                success = loop.run_until_complete(self.move_relative(delta, feedrate))
+                # Get current position after move for coordinate capture
+                current_pos = loop.run_until_complete(self.get_current_position())
+                return {
+                    'success': success,
+                    'position': current_pos.to_dict() if current_pos else None,
+                    'coordinates': {
+                        'x': current_pos.x if current_pos else 0.0,
+                        'y': current_pos.y if current_pos else 0.0,
+                        'z': current_pos.z if current_pos else 0.0,
+                        'c': current_pos.c if current_pos else 0.0
+                    } if current_pos else None
+                }
+            finally:
+                loop.close()
         except Exception as e:
             logger.error(f"❌ Sync relative move error: {e}")
-            import traceback
-            logger.error(f"❌ Traceback: {traceback.format_exc()}")
             return {'success': False, 'error': str(e), 'position': None, 'coordinates': None}
     
     def get_current_position_sync(self) -> Optional[Position4D]:
