@@ -2193,8 +2193,15 @@ class ScannerWebInterface:
             try:
                 if hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
                     current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
+                    if current_position:
+                        self.logger.info(f"📍 Captured scanner coordinates for camera pair: X={current_position.x:.3f}, Y={current_position.y:.3f}, Z={current_position.z:.1f}°, C={current_position.c:.1f}°")
+                    else:
+                        self.logger.warning("📍 Motion controller returned None position")
+                else:
+                    self.logger.warning("📍 Motion controller not available for position capture")
             except Exception as pos_error:
-                self.logger.warning(f"Could not get current position: {pos_error}")
+                self.logger.warning(f"📍 Could not get current position: {pos_error}")
+                current_position = None
             
             # Create and start session for this capture
             session_id = f"manual_capture_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -2298,36 +2305,59 @@ class ScannerWebInterface:
                                     camera_data, camera_id, session_id, current_position, 
                                     flash_intensity, flash_result, capture_metadata
                                 )
+                                
+                                # Log coordinate storage
+                                if current_position:
+                                    coord_str = f"X={current_position.x:.3f}, Y={current_position.y:.3f}, Z={current_position.z:.1f}°, C={current_position.c:.1f}°"
+                                    self.logger.info(f"📍 Saved coordinates for camera_{camera_id}: {coord_str}")
+                                else:
+                                    self.logger.warning(f"📍 No coordinates available for camera_{camera_id}")
+                                
                                 results.append({
                                     'camera_id': camera_id,
                                     'file_id': file_id,
                                     'success': True,
                                     'storage_method': 'session_manager',
                                     'session_id': session_id,
-                                    'has_metadata': bool(capture_metadata)
+                                    'has_metadata': bool(capture_metadata),
+                                    'coordinates_saved': bool(current_position)
                                 })
-                                self.logger.info(f"✅ Stored camera_{camera_id} with file_id: {file_id} (metadata: {bool(capture_metadata)})")
+                                self.logger.info(f"✅ Stored camera_{camera_id} with file_id: {file_id} (metadata: {bool(capture_metadata)}, coords: {bool(current_position)})")
                             except Exception as storage_error:
                                 self.logger.error(f"Storage failed for camera_{camera_id}: {storage_error}")
                                 # Fallback to direct file saving
-                                filename = self._fallback_save_image_sync(camera_data, camera_id, timestamp, capture_metadata)
+                                filename = self._fallback_save_image_sync(camera_data, camera_id, timestamp, capture_metadata, current_position)
+                                
+                                # Log coordinate storage in fallback
+                                if current_position:
+                                    coord_str = f"X={current_position.x:.3f}, Y={current_position.y:.3f}, Z={current_position.z:.1f}°, C={current_position.c:.1f}°"
+                                    self.logger.info(f"📍 Fallback saved coordinates for camera_{camera_id}: {coord_str}")
+                                
                                 results.append({
                                     'camera_id': camera_id,
                                     'filename': str(filename),
                                     'success': True,
                                     'storage_method': 'fallback_file',
-                                    'has_metadata': bool(capture_metadata)
+                                    'has_metadata': bool(capture_metadata),
+                                    'coordinates_saved': bool(current_position)
                                 })
                         else:
                             # No storage manager - use fallback
                             self.logger.warning("No storage manager available, using fallback file saving")
-                            filename = self._fallback_save_image_sync(camera_data, camera_id, timestamp, capture_metadata)
+                            filename = self._fallback_save_image_sync(camera_data, camera_id, timestamp, capture_metadata, current_position)
+                            
+                            # Log coordinate storage in fallback
+                            if current_position:
+                                coord_str = f"X={current_position.x:.3f}, Y={current_position.y:.3f}, Z={current_position.z:.1f}°, C={current_position.c:.1f}°"
+                                self.logger.info(f"📍 Fallback saved coordinates for camera_{camera_id}: {coord_str}")
+                            
                             results.append({
                                 'camera_id': camera_id,
                                 'filename': str(filename),
                                 'success': True,
                                 'storage_method': 'fallback_file',
-                                'has_metadata': bool(capture_metadata)
+                                'has_metadata': bool(capture_metadata),
+                                'coordinates_saved': bool(current_position)
                             })
                     else:
                         self.logger.error(f"❌ Camera_{camera_id} returned no data")
@@ -2665,7 +2695,7 @@ class ScannerWebInterface:
             _, img_encoded = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
             return img_encoded.tobytes()
     
-    def _fallback_save_image_sync(self, image_data, camera_id: int, timestamp: str, capture_metadata=None) -> Path:
+    def _fallback_save_image_sync(self, image_data, camera_id: int, timestamp: str, capture_metadata=None, current_position=None) -> Path:
         """Fallback image saving to filesystem (synchronous) with EXIF metadata"""
         try:
             from pathlib import Path
@@ -2674,14 +2704,7 @@ class ScannerWebInterface:
             output_dir = Path.home() / "manual_captures" / datetime.now().strftime('%Y-%m-%d')
             output_dir.mkdir(parents=True, exist_ok=True)
             
-            # Get current position for metadata (if available)
-            current_position = None
-            try:
-                if hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
-                    import asyncio
-                    current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
-            except:
-                current_position = None
+            # Use the current_position passed as parameter (captured at sync time)
             
             # Create JPEG with embedded metadata
             session_id = f"fallback_{timestamp}"
