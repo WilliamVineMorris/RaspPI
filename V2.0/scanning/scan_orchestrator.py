@@ -778,21 +778,30 @@ class CameraManagerAdapter:
                         if hasattr(self.controller, 'cameras') and camera_id in self.controller.cameras:
                             camera = self.controller.cameras[camera_id]
                             if camera:
-                                # Only stop if running
-                                if camera_id == 0:  # Camera 0 is usually running in stream mode
+                                try:
+                                    # Always stop camera before reconfiguring (fix for "Camera must be stopped" error)
                                     camera.stop()
-                                
-                                # Configure for capture
-                                if hasattr(self, '_capture_configs') and camera_id in self._capture_configs:
-                                    camera.configure(self._capture_configs[camera_id])
-                                else:
-                                    # Fallback configuration
-                                    config = camera.create_still_configuration(
-                                        main={"size": (4608, 2592), "format": "RGB888"}
-                                    )
-                                    camera.configure(config)
-                                camera.start()
-                                self.logger.info(f"CAMERA: Camera {camera_id} switched to capture mode")
+                                    self.logger.debug(f"CAMERA: Stopped camera {camera_id} before reconfiguration")
+                                    
+                                    # Small delay to ensure camera is fully stopped
+                                    await asyncio.sleep(0.1)
+                                    
+                                    # Configure for capture
+                                    if hasattr(self, '_capture_configs') and camera_id in self._capture_configs:
+                                        camera.configure(self._capture_configs[camera_id])
+                                    else:
+                                        # Fallback configuration
+                                        config = camera.create_still_configuration(
+                                            main={"size": (4608, 2592), "format": "RGB888"}
+                                        )
+                                        camera.configure(config)
+                                    
+                                    camera.start()
+                                    self.logger.info(f"CAMERA: Camera {camera_id} switched to capture mode")
+                                    
+                                except Exception as camera_error:
+                                    self.logger.error(f"CAMERA: Failed to switch camera {camera_id} to capture mode: {camera_error}")
+                                    raise
                     
                     self.logger.info("CAMERA: Switched to capture mode")
                 
