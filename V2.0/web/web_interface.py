@@ -1370,7 +1370,15 @@ class ScannerWebInterface:
                             homed = motion_controller.is_homed() if hasattr(motion_controller, 'is_homed') else False
                             self.logger.info(f"🔍 Direct protocol status: {current_status}, homed: {homed}")
                         else:
-                            current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
+                            # Check for different status methods
+                            if hasattr(motion_controller, 'get_status'):
+                                # SimpleWorkingFluidNCController uses get_status() method
+                                current_status = motion_controller.get_status()
+                            elif hasattr(motion_controller, 'status'):
+                                # Other controllers might use status attribute
+                                current_status = motion_controller.status
+                            else:
+                                current_status = 'unknown'
                             homed = motion_controller.is_homed() if hasattr(motion_controller, 'is_homed') else False
                             self.logger.info(f"🔍 Controller cached status: {current_status}, homed: {homed}")
                     except Exception as status_err:
