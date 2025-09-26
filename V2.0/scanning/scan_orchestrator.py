@@ -2041,24 +2041,33 @@ class ScanOrchestrator:
             if lighting_applied:
                 await asyncio.sleep(0.02)  # 20ms stabilization delay
             
-            # Capture from both cameras using the working dual capture method
+            # Capture from both cameras using the proven camera manager method
             try:
-                # Use the existing dual camera capture method that works
-                dual_capture_result = await self.capture_both_cameras_simultaneously()
+                # Use the camera manager's capture method that works in manual mode
+                self.logger.info("📸 Starting dual camera capture using camera manager...")
                 
-                # Convert to expected format
+                if not hasattr(self, 'camera_manager') or not self.camera_manager:
+                    raise Exception("Camera manager not available")
+                
+                # Call the camera manager method that works (not on the orchestrator)
+                camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
+                
+                self.logger.info(f"📸 Camera manager capture result type: {type(camera_data_dict)}")
+                
+                # Convert result to expected format
                 capture_results = []
-                if dual_capture_result and 'images' in dual_capture_result:
-                    for camera_id, image_data in dual_capture_result['images'].items():
-                        if image_data is not None:
+                if camera_data_dict and isinstance(camera_data_dict, dict):
+                    # Expected format from camera manager: {'camera_0': image_data, 'camera_1': image_data}
+                    for camera_id in ['camera_0', 'camera_1']:
+                        if camera_id in camera_data_dict and camera_data_dict[camera_id] is not None:
                             capture_results.append({
                                 'camera_id': camera_id,
                                 'success': True,
-                                'image_data': image_data,
-                                'metadata': dual_capture_result.get('metadata', {}),
+                                'image_data': camera_data_dict[camera_id],
+                                'metadata': {'scan_point': point_index, 'timestamp': timestamp},
                                 'error': None
                             })
-                            self.logger.info(f"✅ Successfully captured from {camera_id}")
+                            self.logger.info(f"✅ Successfully captured from {camera_id}: shape {camera_data_dict[camera_id].shape}")
                         else:
                             capture_results.append({
                                 'camera_id': camera_id,
@@ -2068,20 +2077,20 @@ class ScanOrchestrator:
                                 'error': 'No image data received'
                             })
                             self.logger.warning(f"❌ Failed to capture from {camera_id}")
-                            
+                    
                     # Log capture summary
                     successful_captures = len([r for r in capture_results if r['success']])
                     self.logger.info(f"📸 Captured from {successful_captures}/{len(capture_results)} cameras at scan point {point_index}")
                     
                 else:
-                    self.logger.error("Dual camera capture returned invalid result format")
+                    self.logger.error("Camera manager returned invalid result format")
                     capture_results = [
-                        {'camera_id': 'camera_0', 'success': False, 'error': 'Invalid capture result'},
-                        {'camera_id': 'camera_1', 'success': False, 'error': 'Invalid capture result'}
+                        {'camera_id': 'camera_0', 'success': False, 'error': 'Invalid capture result format'},
+                        {'camera_id': 'camera_1', 'success': False, 'error': 'Invalid capture result format'}
                     ]
                     
             except Exception as capture_error:
-                self.logger.error(f"Dual camera capture failed: {capture_error}")
+                self.logger.error(f"Camera manager capture failed: {capture_error}")
                 capture_results = [
                     {'camera_id': 'camera_0', 'success': False, 'error': str(capture_error)},
                     {'camera_id': 'camera_1', 'success': False, 'error': str(capture_error)}
