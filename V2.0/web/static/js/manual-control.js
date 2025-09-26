@@ -1640,6 +1640,8 @@ function gotoPosition() {
 }
 
 function capturePhoto() {
+    console.log('🎯 DEBUG: capturePhoto() function called');
+    alert('DEBUG: capturePhoto button clicked!'); // Temporary debug
     console.log('Capturing photo from both cameras with flash');
     
     // Show loading indicator
@@ -1674,6 +1676,8 @@ function capturePhoto() {
 }
 
 function captureBothNormal() {
+    console.log('🎯 DEBUG: captureBothNormal() function called');
+    alert('DEBUG: captureBothNormal button clicked!'); // Temporary debug
     console.log('Capturing photo from both cameras without flash');
     
     // Show loading indicator
