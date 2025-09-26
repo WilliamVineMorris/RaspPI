@@ -72,16 +72,20 @@ async def test_real_fluidnc_commands():
         
         logger.info("✅ Basic communication working!")
         
+        # Set to scanning mode for proper feedrate control
+        logger.info("🔧 Setting motion controller to scanning mode for feedrate control...")
+        motion_controller.set_operating_mode("scanning_mode")
+        
         # Test actual motion commands with timing
         logger.info("\n" + "="*60)
-        logger.info("🎯 TESTING REAL MOTION COMMANDS")
+        logger.info("🎯 TESTING REAL MOTION COMMANDS (SCANNING MODE)")
         logger.info("="*60)
         
-        # Small, safe test movements
+        # Small, safe test movements with controlled speeds
         test_moves = [
-            {"name": "Small X move", "x": 10.0, "y": None},
-            {"name": "Small Y move", "x": None, "y": 10.0},
-            {"name": "Return to origin", "x": 0.0, "y": 0.0}
+            {"name": "Slow X move", "x": 10.0, "y": None, "expected_time": 200},
+            {"name": "Slow Y move", "x": None, "y": 10.0, "expected_time": 200},
+            {"name": "Return to origin", "x": 0.0, "y": 0.0, "expected_time": 400}
         ]
         
         for i, move in enumerate(test_moves, 1):
@@ -116,15 +120,18 @@ async def test_real_fluidnc_commands():
                     final_position = await motion_controller.get_position()
                     logger.info(f"   📍 Final position: {final_position}")
                     
-                    # This timing includes:
-                    # 1. G-code command sent to FluidNC
-                    # 2. Wait for "ok" response  
-                    # 3. Wait for motion completion (Idle state)
-                    # 4. Return from async function
+                    # Analyze if timing looks realistic for mechanical motion
+                    expected_min_time = move.get("expected_time", 100)  # Minimum expected time in ms
+                    
+                    if move_duration * 1000 < expected_min_time:
+                        logger.warning(f"   ⚠️ Motion completed faster than expected ({move_duration*1000:.0f}ms < {expected_min_time}ms)")
+                        logger.warning(f"      This suggests motion completion may not be waiting properly")
+                    else:
+                        logger.info(f"   ✅ Motion timing looks realistic for mechanical movement")
                     
                     logger.info(f"   ⏱️ REAL HARDWARE TIMING:")
                     logger.info(f"      • Command + Motion + Completion: {move_duration*1000:.0f}ms")
-                    logger.info(f"      • This proves the system waits for real motion completion!")
+                    logger.info(f"      • Expected minimum: {expected_min_time}ms")
                     
                 else:
                     logger.error(f"   ❌ Move failed")

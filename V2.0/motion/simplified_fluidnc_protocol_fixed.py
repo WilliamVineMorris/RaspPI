@@ -317,17 +317,20 @@ class SimplifiedFluidNCProtocolFixed:
     def _wait_for_motion_completion(self) -> bool:
         """
         Wait for motion to complete by monitoring machine state
-        Optimized to reduce interference with command execution
+        Enhanced to properly wait for actual motion completion
         """
         start_time = time.time()
         motion_started = False
+        motion_detection_timeout = 1.0  # Give motion 1 second to start
         last_status_request = 0
-        status_request_interval = 0.2  # Reduced frequency: every 200ms
+        status_request_interval = 0.1  # Check status every 100ms for better responsiveness
+        
+        logger.debug("🔍 Starting motion completion monitoring...")
         
         while time.time() - start_time < self.motion_timeout:
             current_time = time.time()
             
-            # Send status requests less frequently and only when needed
+            # Send status requests to monitor machine state
             if current_time - last_status_request > status_request_interval:
                 if self.serial_connection:
                     try:
@@ -335,30 +338,38 @@ class SimplifiedFluidNCProtocolFixed:
                         self.serial_connection.flush()
                         last_status_request = current_time
                     except:
+                        logger.warning("Failed to send status request")
                         break
             
-            # Shorter sleep for more responsive checking
-            time.sleep(0.05)
+            # Check for incoming status updates
+            time.sleep(0.05)  # Small sleep for CPU efficiency
             
             if self.current_status:
                 state = self.current_status.state.lower()
+                elapsed = current_time - start_time
                 
                 if state in ['run', 'jog']:
+                    if not motion_started:
+                        logger.debug(f"🏃 Motion started after {elapsed*1000:.0f}ms: {state}")
                     motion_started = True
-                    logger.debug(f"🔄 Motion in progress: {state}")
-                elif state == 'idle' and motion_started:
-                    logger.debug("✅ Motion completed - machine idle")
-                    return True
-                elif state == 'idle' and not motion_started:
-                    # Machine was already idle, give it a moment to start motion
-                    if time.time() - start_time > 0.3:  # Reduced from 0.5s
-                        logger.debug("✅ Motion completed - machine remained idle")
+                elif state == 'idle':
+                    if motion_started:
+                        logger.debug(f"✅ Motion completed after {elapsed*1000:.0f}ms - machine returned to idle")
+                        return True
+                    elif elapsed > motion_detection_timeout:
+                        # No motion detected within timeout - assume it was a very fast move or already complete
+                        logger.debug(f"⚡ No motion detected within {motion_detection_timeout}s - assuming fast completion")
                         return True
                 elif state in ['alarm', 'error']:
-                    logger.warning(f"⚠️ Motion stopped due to: {state}")
+                    logger.warning(f"⚠️ Motion stopped due to {state} after {elapsed*1000:.0f}ms")
                     return False
+                
+                # Debug logging for motion tracking
+                if elapsed > 0.5 and int(elapsed * 10) % 5 == 0:  # Log every 500ms
+                    logger.debug(f"⏳ Motion monitoring: {state} (elapsed: {elapsed*1000:.0f}ms)")
         
-        logger.warning(f"⏰ Motion completion timeout after {self.motion_timeout}s")
+        total_time = time.time() - start_time
+        logger.warning(f"⏰ Motion completion timeout after {total_time*1000:.0f}ms")
         return False
     
     def _wait_for_immediate_response(self, timeout: float) -> Optional[str]:
