@@ -187,8 +187,8 @@ class MockCameraManager:
     def get_status(self) -> Dict[str, Any]:
         """Mock status for testing"""
         return {
-            'cameras': ['camera_1', 'camera_2'],
-            'active_cameras': ['camera_1', 'camera_2'] if self._initialized else [],
+            'cameras': ['camera_0', 'camera_1'],
+            'active_cameras': ['camera_0', 'camera_1'] if self._initialized else [],
             'initialized': self._initialized
         }
 
@@ -845,21 +845,19 @@ class CameraManagerAdapter:
                 self.logger.info(f"CAMERA: Native preview frame requested for {camera_id}")
                 self._last_debug_log = current_time
             
-            # Support both Camera 0 and Camera 1 for dual camera system
-            if camera_id not in [0, 1, '0', '1', 'camera_1', 'camera_2']:
-                return None
-            
-            # Map camera ID
-            mapped_camera_id = 0  # Default to camera 0
-            if isinstance(camera_id, str) and camera_id.startswith('camera_'):
-                try:
-                    mapped_camera_id = int(camera_id.split('_')[1]) - 1  # camera_1 -> 0, camera_2 -> 1
-                except (ValueError, IndexError):
+                # Support both Camera 0 and Camera 1 using physical IDs
+                if camera_id not in [0, 1, '0', '1', 'camera_0', 'camera_1']:
                     return None
-            elif isinstance(camera_id, (int, str)):
-                mapped_camera_id = int(camera_id)
-            
-            # Access Camera 0 directly
+                
+                # Map camera ID to physical camera index
+                mapped_camera_id = 0  # Default to camera 0
+                if isinstance(camera_id, str) and camera_id.startswith('camera_'):
+                    try:
+                        mapped_camera_id = int(camera_id.split('_')[1])  # camera_0 -> 0, camera_1 -> 1
+                    except (ValueError, IndexError):
+                        return None
+                elif isinstance(camera_id, (int, str)):
+                    mapped_camera_id = int(camera_id)            # Access Camera 0 directly
             if hasattr(self.controller, 'cameras') and mapped_camera_id in self.controller.cameras:
                 camera = self.controller.cameras[mapped_camera_id]
                 
@@ -938,11 +936,11 @@ class CameraManagerAdapter:
                 # Switch to capture mode for maximum quality
                 await self._switch_camera_mode("capture")
                 
-                # Support both Camera 0 and Camera 1
+                # Map camera ID to physical camera index
                 mapped_camera_id = 0  # Default to camera 0
                 if isinstance(camera_id, str) and camera_id.startswith('camera_'):
                     try:
-                        mapped_camera_id = int(camera_id.split('_')[1]) - 1  # camera_1 -> 0, camera_2 -> 1
+                        mapped_camera_id = int(camera_id.split('_')[1])  # camera_0 -> 0, camera_1 -> 1
                     except (ValueError, IndexError):
                         return None
                 elif isinstance(camera_id, (int, str)):
@@ -1206,23 +1204,23 @@ class CameraManagerAdapter:
                 # Always show both cameras as available, but active cameras depend on mode
                 if getattr(self, '_streaming_mode', False):
                     status = {
-                        'cameras': ['camera_1', 'camera_2'],  # Both cameras available
-                        'active_cameras': ['camera_1'],  # Only Camera 0 active in streaming mode
+                        'cameras': ['camera_0', 'camera_1'],  # Both cameras available
+                        'active_cameras': ['camera_0'],  # Only Camera 0 active in streaming mode
                         'initialized': True
                     }
                     self.logger.debug(f"Camera status (streaming mode): {status}")
                 else:
                     # Scanning mode - both cameras available and active
                     status = {
-                        'cameras': ['camera_1', 'camera_2'],  # Both cameras available
-                        'active_cameras': ['camera_1', 'camera_2'],  # Both cameras active for scanning
+                        'cameras': ['camera_0', 'camera_1'],  # Both cameras available
+                        'active_cameras': ['camera_0', 'camera_1'],  # Both cameras active for scanning
                         'initialized': True
                     }
                     self.logger.info(f"Camera status (scanning mode): {status}")
                 return status
             else:
                 status = {
-                    'cameras': ['camera_1', 'camera_2'],  # Still available but not active
+                    'cameras': ['camera_0', 'camera_1'],  # Still available but not active
                     'active_cameras': [],
                     'initialized': False
                 }

@@ -65,7 +65,7 @@ async def test_sequential_capture():
             print("📷 Testing sequential capture with timeout protection...")
             
             results = []
-            camera_ids = ['camera_1', 'camera_2']
+            camera_ids = ['camera_0', 'camera_1']
             
             for camera_index, camera_id in enumerate(camera_ids):
                 print(f"\n  📸 Capturing {camera_id}...")

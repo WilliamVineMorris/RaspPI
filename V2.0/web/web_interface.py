@@ -1062,7 +1062,7 @@ class ScannerWebInterface:
             """Set camera controls (autofocus, exposure, etc.)"""
             try:
                 data = request.get_json() or {}
-                camera_id = data.get('camera_id', 'camera_1')
+                camera_id = data.get('camera_id', 'camera_0')
                 controls = data.get('controls', {})
                 
                 result = self._execute_camera_controls(camera_id, controls)
@@ -2443,8 +2443,8 @@ class ScannerWebInterface:
             # Create session for synchronized captures
             session_id = f"Manual_Captures_{timestamp}"
             
-            # Capture from both cameras using string IDs with sequential timing
-            for camera_index, camera_id in enumerate(['camera_1', 'camera_2']):
+            # Capture from both cameras using correct physical IDs (0 and 1)
+            for camera_index, camera_id in enumerate(['camera_0', 'camera_1']):
                 try:
                     self.logger.info(f"📸 Capturing {camera_id}")
                     
@@ -2791,7 +2791,7 @@ class ScannerWebInterface:
         
         # Only allow Camera 0 streaming
         # Enable both cameras - Camera 0 and Camera 1
-        if camera_id not in [0, '0', 1, '1', 'camera_1', 'camera_2']:
+        if camera_id not in [0, '0', 1, '1', 'camera_0', 'camera_1']:
             self.logger.warning(f"STREAM DISABLED: Camera {camera_id} not supported, only Camera 0 and 1 supported")
             # Generate a simple "Camera Disabled" frame
             while True:
@@ -2861,13 +2861,13 @@ class ScannerWebInterface:
                             
                         # Map camera_id to the correct backend camera
                         if camera_id in [0, '0']:
-                            camera_key = 'camera_1'
+                            camera_key = 'camera_0'
                         elif camera_id in [1, '1']:
-                            camera_key = 'camera_2'
-                        elif camera_id in ['camera_1', 'camera_2']:
+                            camera_key = 'camera_1'
+                        elif camera_id in ['camera_0', 'camera_1']:
                             camera_key = camera_id
                         else:
-                            camera_key = 'camera_1'  # Default fallback
+                            camera_key = 'camera_0'  # Default fallback
                             
                         frame = orchestrator.camera_manager.get_preview_frame(camera_key)
                         
