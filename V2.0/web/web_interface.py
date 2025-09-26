@@ -2196,7 +2196,20 @@ class ScannerWebInterface:
                     self.logger.info(f"📍 Motion controller exists: {self.orchestrator.motion_controller is not None}")
                     if self.orchestrator.motion_controller:
                         self.logger.info("📍 Calling get_current_position()...")
-                        current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
+                        try:
+                            # Try to use existing event loop first
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                # Event loop is running, create a task instead
+                                import concurrent.futures
+                                with concurrent.futures.ThreadPoolExecutor() as executor:
+                                    future = executor.submit(asyncio.run, self.orchestrator.motion_controller.get_current_position())
+                                    current_position = future.result()
+                            else:
+                                current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
+                        except:
+                            # Fallback to simple asyncio.run
+                            current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
                         self.logger.info(f"📍 Motion controller returned: {current_position}")
                         if current_position:
                             self.logger.info(f"📍 Captured scanner coordinates for camera pair: X={current_position.x:.3f}, Y={current_position.y:.3f}, Z={current_position.z:.1f}°, C={current_position.c:.1f}°")
