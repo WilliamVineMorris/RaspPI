@@ -93,9 +93,9 @@ async def test_production_scanning_pipeline():
         print("\n📐 Creating minimal production scan pattern...")
         pattern_params = GridPatternParameters(
             min_x=15.0, max_x=25.0,  # Small 10mm range
-            min_y=20.0, max_y=20.0,  # Single Y line
+            min_y=20.0, max_y=21.0,  # Minimal Y range (just 1mm)
             x_spacing=10.0,           # 10mm spacing = 2 points (15, 25)
-            y_spacing=0.0,            # No Y spacing (single line)
+            y_spacing=10.0,           # Large Y spacing = 1 point at 20mm
             c_steps=1,                # Single rotation position
             zigzag=False              # Simple linear pattern
         )
