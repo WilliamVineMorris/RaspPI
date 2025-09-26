@@ -1130,8 +1130,28 @@ class CameraManagerAdapter:
                             
                             if image_array is not None and image_array.size > 0:
                                 image_bgr = image_array.copy()
+                                
+                                # Capture metadata immediately after successful capture
+                                capture_metadata = {}
+                                try:
+                                    if hasattr(camera, 'capture_metadata'):
+                                        capture_metadata = camera.capture_metadata.copy()
+                                    elif hasattr(camera, 'camera_metadata'):
+                                        capture_metadata = camera.camera_metadata.copy()
+                                    
+                                    # Also get current controls
+                                    if hasattr(camera, 'camera_controls'):
+                                        controls = camera.camera_controls
+                                        if controls:
+                                            capture_metadata.update({'controls': controls})
+                                    
+                                    self.logger.info(f"CAMERA: Captured metadata for {camera_id}: {list(capture_metadata.keys())}")
+                                    
+                                except Exception as meta_error:
+                                    self.logger.warning(f"CAMERA: Could not capture metadata for {camera_id}: {meta_error}")
+                                
                                 self.logger.info(f"CAMERA: Simultaneous capture successful for {camera_id}: {image_bgr.shape}")
-                                return image_bgr
+                                return {'image': image_bgr, 'metadata': capture_metadata}
                             else:
                                 self.logger.error(f"CAMERA: Simultaneous capture returned empty array for {camera_id}")
                                 
@@ -1156,10 +1176,17 @@ class CameraManagerAdapter:
                     self.logger.error(f"CAMERA: Exception in {camera_id}: {result}")
                     results[camera_id] = None
                 else:
-                    results[camera_id] = result
-                    if result is not None:
-                        self.logger.info(f"CAMERA: {camera_id} simultaneous capture: SUCCESS")
+                    # Handle new structure with metadata
+                    if result is not None and isinstance(result, dict) and 'image' in result:
+                        # New structure with metadata
+                        results[camera_id] = result  # Keep both image and metadata
+                        self.logger.info(f"CAMERA: {camera_id} simultaneous capture: SUCCESS (with metadata)")
+                    elif result is not None:
+                        # Backward compatibility - just image array
+                        results[camera_id] = {'image': result, 'metadata': {}}
+                        self.logger.info(f"CAMERA: {camera_id} simultaneous capture: SUCCESS (image only)")
                     else:
+                        results[camera_id] = None
                         self.logger.warning(f"CAMERA: {camera_id} simultaneous capture: FAILED")
             
             self.logger.info(f"CAMERA: Simultaneous capture complete - {sum(1 for v in results.values() if v is not None)}/2 cameras successful")

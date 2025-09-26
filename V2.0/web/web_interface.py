@@ -2274,47 +2274,60 @@ class ScannerWebInterface:
                 loop.close()
             
             # Process results for each camera
-            for camera_key, camera_data in camera_data_dict.items():
+            for camera_key, camera_result in camera_data_dict.items():
                 # Extract camera ID from key (camera_0 -> 0, camera_1 -> 1)
                 camera_id = int(camera_key.split('_')[1]) if '_' in camera_key else 0
                 try:
-                    if camera_data is not None:
-                        self.logger.info(f"✅ Camera_{camera_id} captured successfully: shape {camera_data.shape}")
+                    if camera_result is not None:
+                        # Handle new structure with metadata
+                        if isinstance(camera_result, dict) and 'image' in camera_result:
+                            # New structure with metadata
+                            camera_data = camera_result['image']
+                            capture_metadata = camera_result.get('metadata', {})
+                            self.logger.info(f"✅ Camera_{camera_id} captured with metadata: shape {camera_data.shape}, metadata keys: {list(capture_metadata.keys())}")
+                        else:
+                            # Backward compatibility - just image array
+                            camera_data = camera_result
+                            capture_metadata = {}
+                            self.logger.info(f"✅ Camera_{camera_id} captured (no metadata): shape {camera_data.shape}")
                         
                         # Try to use storage manager for proper metadata integration
                         if hasattr(self.orchestrator, 'storage_manager') and self.orchestrator.storage_manager:
                             try:
                                 file_id = self._store_image_with_metadata_sync(
                                     camera_data, camera_id, session_id, current_position, 
-                                    flash_intensity, flash_result
+                                    flash_intensity, flash_result, capture_metadata
                                 )
                                 results.append({
                                     'camera_id': camera_id,
                                     'file_id': file_id,
                                     'success': True,
                                     'storage_method': 'session_manager',
-                                    'session_id': session_id
+                                    'session_id': session_id,
+                                    'has_metadata': bool(capture_metadata)
                                 })
-                                self.logger.info(f"✅ Stored camera_{camera_id} with file_id: {file_id}")
+                                self.logger.info(f"✅ Stored camera_{camera_id} with file_id: {file_id} (metadata: {bool(capture_metadata)})")
                             except Exception as storage_error:
                                 self.logger.error(f"Storage failed for camera_{camera_id}: {storage_error}")
                                 # Fallback to direct file saving
-                                filename = self._fallback_save_image_sync(camera_data, camera_id, timestamp)
+                                filename = self._fallback_save_image_sync(camera_data, camera_id, timestamp, capture_metadata)
                                 results.append({
                                     'camera_id': camera_id,
                                     'filename': str(filename),
                                     'success': True,
-                                    'storage_method': 'fallback_file'
+                                    'storage_method': 'fallback_file',
+                                    'has_metadata': bool(capture_metadata)
                                 })
                         else:
                             # No storage manager - use fallback
                             self.logger.warning("No storage manager available, using fallback file saving")
-                            filename = self._fallback_save_image_sync(camera_data, camera_id, timestamp)
+                            filename = self._fallback_save_image_sync(camera_data, camera_id, timestamp, capture_metadata)
                             results.append({
                                 'camera_id': camera_id,
                                 'filename': str(filename),
                                 'success': True,
-                                'storage_method': 'fallback_file'
+                                'storage_method': 'fallback_file',
+                                'has_metadata': bool(capture_metadata)
                             })
                     else:
                         self.logger.error(f"❌ Camera_{camera_id} returned no data")
@@ -2382,7 +2395,7 @@ class ScannerWebInterface:
             raise HardwareError(f"Failed to capture synchronized images with flash: {e}")
 
     def _store_image_with_metadata_sync(self, image_data, camera_id: int, session_id: str, 
-                                       current_position, flash_intensity: int, flash_result) -> str:
+                                       current_position, flash_intensity: int, flash_result, capture_metadata=None) -> str:
         """Store image using proper storage manager with full metadata (synchronous wrapper)"""
         try:
             # Import required modules
@@ -2394,7 +2407,7 @@ class ScannerWebInterface:
             
             # Embed camera metadata directly into JPEG EXIF data
             img_bytes = self._embed_camera_metadata_in_jpeg(
-                image_data, camera_id, current_position, flash_intensity, session_id
+                image_data, camera_id, current_position, flash_intensity, session_id, capture_metadata
             )
             
             # Create comprehensive metadata
@@ -2473,84 +2486,172 @@ class ScannerWebInterface:
             raise
     
     def _embed_camera_metadata_in_jpeg(self, image_data, camera_id: int, current_position, 
-                                     flash_intensity: int, session_id: str) -> bytes:
-        """Embed camera-specific metadata directly into JPEG EXIF data"""
+                                     flash_intensity: int, session_id: str, capture_metadata=None) -> bytes:
+        """Extract actual Picamera2 metadata and embed into JPEG EXIF data"""
         try:
-            import cv2
             import time
             from PIL import Image
-            from PIL.ExifTags import TAGS
             import io
             
-            # Convert numpy array to JPEG with OpenCV first
-            _, img_encoded = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            # Use provided capture metadata if available, otherwise try to get from camera
+            actual_metadata = capture_metadata or {}
+            camera_controls = None
             
-            # Load with PIL for EXIF manipulation
-            img_pil = Image.open(io.BytesIO(img_encoded.tobytes()))
+            if not actual_metadata:
+                try:
+                    # Try to get actual camera metadata from the camera manager as fallback
+                    if hasattr(self.orchestrator, 'camera_manager') and self.orchestrator.camera_manager:
+                        if hasattr(self.orchestrator.camera_manager, 'controller') and self.orchestrator.camera_manager.controller:
+                            if hasattr(self.orchestrator.camera_manager.controller, 'cameras'):
+                                cameras = self.orchestrator.camera_manager.controller.cameras
+                                if camera_id in cameras and cameras[camera_id]:
+                                    camera = cameras[camera_id]
+                                    
+                                    # Get the actual camera metadata from last capture
+                                    if hasattr(camera, 'capture_metadata'):
+                                        actual_metadata = camera.capture_metadata
+                                        self.logger.info(f"📷 Found actual camera metadata for camera {camera_id}")
+                                    
+                                    # Get current camera controls/settings
+                                    if hasattr(camera, 'camera_controls'):
+                                        camera_controls = camera.camera_controls
+                                    elif hasattr(camera, 'controls'):
+                                        camera_controls = camera.controls
+                                        
+                except Exception as meta_error:
+                    self.logger.warning(f"Could not extract camera metadata: {meta_error}")
+            else:
+                self.logger.info(f"📷 Using provided capture metadata for camera {camera_id}: {list(actual_metadata.keys())}")
             
-            # Create EXIF dictionary with only photo-related metadata
-            exif_dict = {}
+            # Create PIL Image from numpy array
+            if len(image_data.shape) == 3:
+                # RGB image
+                img_pil = Image.fromarray(image_data, 'RGB')
+            else:
+                # Grayscale image
+                img_pil = Image.fromarray(image_data, 'L')
             
-            # Standard photo EXIF tags only
-            exif_dict['DateTime'] = time.strftime('%Y:%m:%d %H:%M:%S')
-            exif_dict['Make'] = 'Arducam'
-            exif_dict['Model'] = f'64MP Camera {camera_id}'
-            
-            # Photo-specific settings (these would normally come from camera, using defaults for now)
-            exif_dict['FocalLength'] = (16, 1)  # 16mm equivalent focal length
-            exif_dict['FNumber'] = (22, 10)  # f/2.2 aperture 
-            exif_dict['ExposureTime'] = (1, 60)  # 1/60 second exposure
-            exif_dict['ISOSpeedRatings'] = 100  # ISO 100
-            exif_dict['MeteringMode'] = 5  # Pattern metering
-            exif_dict['Flash'] = 24 if flash_intensity > 0 else 16  # Flash fired or not
-            
-            # Try to embed EXIF data (fallback gracefully if not supported)
+            # Try to use piexif for proper EXIF handling
             try:
-                # Save with EXIF data
+                import piexif
+                
+                # Create EXIF dictionary structure
+                exif_dict = {
+                    "0th": {},  # Main image IFD
+                    "Exif": {},  # EXIF SubIFD
+                    "GPS": {},  # GPS IFD
+                    "1st": {},  # Thumbnail IFD
+                    "thumbnail": None
+                }
+                
+                # Basic camera identification
+                exif_dict["0th"][piexif.ImageIFD.Make] = "Arducam"
+                exif_dict["0th"][piexif.ImageIFD.Model] = f"64MP Camera {camera_id}"
+                exif_dict["0th"][piexif.ImageIFD.Software] = "4DOF Scanner V2.0"
+                
+                # Date and time
+                timestamp = time.strftime("%Y:%m:%d %H:%M:%S")
+                exif_dict["0th"][piexif.ImageIFD.DateTime] = timestamp
+                exif_dict["Exif"][piexif.ExifIFD.DateTimeOriginal] = timestamp
+                exif_dict["Exif"][piexif.ExifIFD.DateTimeDigitized] = timestamp
+                
+                # Use actual camera metadata if available
+                if actual_metadata:
+                    self.logger.info(f"📷 Using actual Picamera2 metadata: {list(actual_metadata.keys())}")
+                    
+                    # Extract real values from Picamera2 metadata
+                    if 'ExposureTime' in actual_metadata:
+                        exposure_us = actual_metadata['ExposureTime']
+                        # Convert microseconds to fraction (e.g., 16667 us = 1/60 sec)
+                        if exposure_us > 0:
+                            exposure_sec = exposure_us / 1000000.0
+                            if exposure_sec >= 1:
+                                exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = (int(exposure_sec), 1)
+                            else:
+                                # Convert to fraction like 1/60
+                                denominator = int(1 / exposure_sec)
+                                exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = (1, denominator)
+                    
+                    if 'AnalogueGain' in actual_metadata:
+                        # Convert analogue gain to ISO equivalent
+                        gain = actual_metadata['AnalogueGain']
+                        iso_equivalent = int(gain * 100)  # Rough conversion
+                        exif_dict["Exif"][piexif.ExifIFD.ISOSpeedRatings] = iso_equivalent
+                    
+                    if 'FocusFoM' in actual_metadata:
+                        # Lens information - may need adjustment based on actual lens
+                        exif_dict["Exif"][piexif.ExifIFD.FocalLength] = (16, 1)  # 16mm equivalent
+                    
+                    if 'Lux' in actual_metadata:
+                        # Light level can inform metering mode
+                        exif_dict["Exif"][piexif.ExifIFD.MeteringMode] = 5  # Pattern
+                
+                # Use camera controls if available
+                if camera_controls:
+                    self.logger.info(f"📷 Using camera controls: {list(camera_controls.keys()) if hasattr(camera_controls, 'keys') else 'Available'}")
+                    
+                    # If we have direct access to camera settings
+                    if hasattr(camera_controls, 'get'):
+                        if camera_controls.get('ExposureTime'):
+                            exposure_us = camera_controls.get('ExposureTime')
+                            exposure_sec = exposure_us / 1000000.0
+                            if exposure_sec >= 1:
+                                exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = (int(exposure_sec), 1)
+                            else:
+                                denominator = int(1 / exposure_sec)
+                                exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = (1, denominator)
+                        
+                        if camera_controls.get('AnalogueGain'):
+                            gain = camera_controls.get('AnalogueGain')
+                            iso_equivalent = int(gain * 100)
+                            exif_dict["Exif"][piexif.ExifIFD.ISOSpeedRatings] = iso_equivalent
+                
+                # Fallback to reasonable defaults if no metadata available
+                if piexif.ExifIFD.ExposureTime not in exif_dict["Exif"]:
+                    exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = (1, 60)  # 1/60 second
+                if piexif.ExifIFD.ISOSpeedRatings not in exif_dict["Exif"]:
+                    exif_dict["Exif"][piexif.ExifIFD.ISOSpeedRatings] = 100
+                if piexif.ExifIFD.FocalLength not in exif_dict["Exif"]:
+                    exif_dict["Exif"][piexif.ExifIFD.FocalLength] = (16, 1)  # 16mm
+                
+                # Aperture - Arducam 64MP typically has fixed aperture
+                exif_dict["Exif"][piexif.ExifIFD.FNumber] = (22, 10)  # f/2.2
+                exif_dict["Exif"][piexif.ExifIFD.ApertureValue] = (227, 100)  # APEX value for f/2.2
+                
+                # Flash information
+                if flash_intensity > 0:
+                    exif_dict["Exif"][piexif.ExifIFD.Flash] = 0x0001  # Flash fired
+                else:
+                    exif_dict["Exif"][piexif.ExifIFD.Flash] = 0x0000  # Flash did not fire
+                
+                # Standard values
+                exif_dict["Exif"][piexif.ExifIFD.MeteringMode] = 5  # Pattern
+                exif_dict["Exif"][piexif.ExifIFD.ExposureMode] = 0   # Auto
+                exif_dict["Exif"][piexif.ExifIFD.WhiteBalance] = 0   # Auto
+                
+                # Convert to bytes and save
+                exif_bytes = piexif.dump(exif_dict)
                 output_buffer = io.BytesIO()
+                img_pil.save(output_buffer, format='JPEG', quality=95, exif=exif_bytes)
                 
-                # Simple approach using existing EXIF and updating key fields
-                existing_exif = img_pil.getexif()
-                
-                # Update with photo-specific EXIF data using standard tag numbers
-                # Standard TIFF/EXIF tag numbers
-                existing_exif[271] = exif_dict.get('Make', 'Arducam')  # Make
-                existing_exif[272] = exif_dict.get('Model', f'64MP Camera {camera_id}')  # Model  
-                existing_exif[306] = exif_dict.get('DateTime', time.strftime('%Y:%m:%d %H:%M:%S'))  # DateTime
-                
-                # EXIF-specific tags
-                if 'FocalLength' in exif_dict:
-                    existing_exif[37386] = exif_dict['FocalLength']  # FocalLength
-                if 'FNumber' in exif_dict:
-                    existing_exif[33437] = exif_dict['FNumber']  # FNumber
-                if 'ExposureTime' in exif_dict:
-                    existing_exif[33434] = exif_dict['ExposureTime']  # ExposureTime
-                if 'ISOSpeedRatings' in exif_dict:
-                    existing_exif[34855] = exif_dict['ISOSpeedRatings']  # ISOSpeedRatings
-                if 'MeteringMode' in exif_dict:
-                    existing_exif[37383] = exif_dict['MeteringMode']  # MeteringMode
-                if 'Flash' in exif_dict:
-                    existing_exif[37385] = exif_dict['Flash']  # Flash
-                
-                # Save with updated EXIF
-                img_pil.save(output_buffer, format='JPEG', quality=95, exif=existing_exif)
-                
-                self.logger.info(f"📷 Embedded camera metadata in JPEG for camera_{camera_id}")
+                self.logger.info(f"📷 Embedded actual camera metadata in JPEG for camera_{camera_id}")
                 return output_buffer.getvalue()
                 
-            except Exception as exif_error:
-                self.logger.warning(f"Could not embed EXIF data: {exif_error}, using standard JPEG")
-                # Fallback to standard JPEG without EXIF
-                return img_encoded.tobytes()
+            except ImportError:
+                self.logger.warning("piexif not available, using basic EXIF")
+                # Fallback to basic PIL EXIF
+                output_buffer = io.BytesIO()
+                img_pil.save(output_buffer, format='JPEG', quality=95)
+                return output_buffer.getvalue()
                 
         except Exception as e:
             self.logger.error(f"EXIF embedding failed: {e}, using standard encoding")
-            # Final fallback - standard OpenCV encoding
+            # Final fallback - convert to JPEG without EXIF
             import cv2
             _, img_encoded = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
             return img_encoded.tobytes()
     
-    def _fallback_save_image_sync(self, image_data, camera_id: int, timestamp: str) -> Path:
+    def _fallback_save_image_sync(self, image_data, camera_id: int, timestamp: str, capture_metadata=None) -> Path:
         """Fallback image saving to filesystem (synchronous) with EXIF metadata"""
         try:
             from pathlib import Path
@@ -2571,7 +2672,7 @@ class ScannerWebInterface:
             # Create JPEG with embedded metadata
             session_id = f"fallback_{timestamp}"
             img_bytes = self._embed_camera_metadata_in_jpeg(
-                image_data, camera_id, current_position, 0, session_id  # 0 flash intensity for fallback
+                image_data, camera_id, current_position, 0, session_id, capture_metadata  # 0 flash intensity for fallback
             )
             
             # Save image with metadata
