@@ -1784,8 +1784,16 @@ class ScannerWebInterface:
                     if "alarm" in str(safety_e).lower():
                         raise  # Re-raise alarm-related errors
             
+            # Convert dictionary to Position4D object for motion controller
+            position_obj = Position4D(
+                x=position.get('x', 0.0),
+                y=position.get('y', 0.0),
+                z=position.get('z', 0.0),
+                c=position.get('c', 0.0)
+            )
+            
             # Execute the position movement
-            result = await self.orchestrator.motion_controller.move_to_position(position)
+            result = await self.orchestrator.motion_controller.move_to_position(position_obj)
             
             # Get updated position from cached value
             motion_controller = self.orchestrator.motion_controller
