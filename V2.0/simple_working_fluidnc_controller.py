@@ -52,6 +52,7 @@ class SimpleWorkingFluidNCController:
         # Auto-reporting status from FluidNC messages
         self._current_status = "Disconnected"
         self._last_status_message = ""
+        self._last_message_time = time.time()  # For timeout detection
         self._message_reader_thread = None
         self._stop_reading = False
         
@@ -77,6 +78,9 @@ class SimpleWorkingFluidNCController:
     
     def _process_fluidnc_message(self, message: str):
         """Process incoming FluidNC messages and update status."""
+        # Track when we last received a message (for timeout detection)
+        self._last_message_time = time.time()
+        
         self._last_status_message = message
         
         # Extract status from FluidNC status reports like <Idle|MPos:...>
@@ -196,7 +200,8 @@ class SimpleWorkingFluidNCController:
             # Wait for completion using background message reader
             self.logger.info("📊 Waiting for homing completion via auto-reporting...")
             start_time = time.time()
-            timeout = 60.0  # 60 seconds
+            timeout = 120.0  # 30 seconds per axis (4 axes = 120 seconds total)
+            last_message_time = start_time
             
             # Reset homed flag
             self.homed = False
@@ -208,22 +213,23 @@ class SimpleWorkingFluidNCController:
                     self.logger.info(f"✅ Homing completed successfully in {elapsed:.1f}s!")
                     return True
                 
-                # Check if status shows we're back to Idle (alternative completion detection)
-                # Only use this as backup - require much longer time to avoid false positives
-                if self._current_status == "Idle" and (time.time() - start_time) > 20.0:
-                    # Only consider Idle as completion if we've been homing for at least 20 seconds
-                    # This avoids false positives from brief Idle states between axes
+                # Update last message time if we received any FluidNC message recently
+                if hasattr(self, '_last_message_time'):
+                    last_message_time = max(last_message_time, self._last_message_time)
+                
+                # Check for communication timeout (no messages for 30 seconds = system unresponsive)
+                if (time.time() - last_message_time) > 30.0:
                     elapsed = time.time() - start_time
-                    self.logger.warning(f"⚠️ Homing completion detected via status (backup method) in {elapsed:.1f}s!")
-                    self.logger.warning("⚠️ This suggests '[MSG:DBG: Homing done]' message was missed")
-                    self.homed = True
-                    self.position = Position4D(0, 200, 0, 0)  # FluidNC home position
-                    return True
+                    self.logger.error(f"❌ Homing failed - no FluidNC messages for 30+ seconds (total time: {elapsed:.1f}s)")
+                    self.logger.error("❌ System appears unresponsive")
+                    return False
                 
                 time.sleep(0.1)  # Check every 100ms
             
             # Timeout
-            self.logger.error(f"❌ Homing timeout after {timeout}s")
+            elapsed = time.time() - start_time
+            self.logger.error(f"❌ Homing timeout after {elapsed:.1f}s (max: {timeout}s)")
+            self.logger.error("❌ Timeout reached but system was still responsive")
             return False
             
         except Exception as e:
