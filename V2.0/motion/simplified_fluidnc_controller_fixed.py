@@ -77,6 +77,9 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         # Feedrate configuration per mode and axis
         self.feedrate_config = config.get('feedrates', {})
         
+        # Modal state tracking to avoid redundant commands
+        self._modal_absolute_mode = False  # Track if G90 has been set
+        
         # Capabilities and limits
         self.capabilities = MotionCapabilities(
             max_feedrate=config.get('max_feedrate', 1000.0),
@@ -143,6 +146,9 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 
                 # Get initial position
                 await self._update_current_position()
+                
+                # Reset modal state tracking for clean start
+                self._modal_absolute_mode = False
                 
                 # Emit connection event
                 self._emit_event("motion_connected", {"port": self.port})
@@ -315,27 +321,26 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             
             # Optimize for manual operations: combine commands to reduce delays
             if self.operating_mode == "manual_mode":
-                # For manual jogging, MUST include feedrate to avoid error:22
-                # Use provided feedrate or default to reasonable speed
-                if feedrate is None:
-                    feedrate = 1000.0  # Default feedrate for manual moves
-                gcode = f"G90 G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f} F{feedrate}"
-                logger.debug(f"🚀 Using feedrate: {feedrate} for manual jogging")
+                # For manual jogging, use G0 (rapid) for maximum speed - no F parameter needed!
+                # G0 automatically uses FluidNC's maximum configured feed rates
+                gcode = f"G0 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
+                logger.debug(f"🚀 Using G0 rapid motion for maximum speed manual jogging")
                 
                 success, response = await self._send_command(gcode, priority="high")
             else:
-                # For scan operations, use separate commands for precision and reliability
-                # Set feedrate
-                await self._send_command(f"F{feedrate}", priority="normal")
+                # For scan operations, use G1 with precise feedrate control
+                # Only set absolute mode if not already set (modal state optimization)
+                if not self._modal_absolute_mode:
+                    success, response = await self._send_command("G90", priority="normal")
+                    if not success:
+                        return False
+                    self._modal_absolute_mode = True
+                    logger.debug("🎯 Set absolute positioning mode (G90)")
                 
-                # Use absolute positioning to avoid coordinate drift
-                success, response = await self._send_command("G90", priority="normal")
-                if not success:
-                    return False
-                
-                # Send absolute move to calculated target
-                gcode = f"G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
+                # Send absolute move with feedrate - combine for efficiency
+                gcode = f"G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f} F{feedrate}"
                 success, response = await self._send_command(gcode, priority="normal")
+                logger.debug(f"🎯 Scan move with feedrate: {feedrate}")
             
             if success:
                 self.target_position = target.copy()
