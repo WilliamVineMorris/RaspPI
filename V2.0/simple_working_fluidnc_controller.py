@@ -88,11 +88,13 @@ class SimpleWorkingFluidNCController:
         
         # Handle specific messages
         if '[MSG:DBG: Homing done]' in message:
-            self.logger.info(f"✅ Homing completed: {message}")
+            self.logger.info(f"🏠 COMPLETE: Homing sequence finished: {message}")
             self.homed = True
             self.position = Position4D(0, 200, 0, 0)  # FluidNC home position
         elif '[MSG:Homed:' in message:
-            self.logger.info(f"✅ Axis homed: {message}")
+            self.logger.info(f"🏠 AXIS: Individual axis homed: {message}")
+        elif '[MSG:DBG:' in message and 'Homing' in message:
+            self.logger.info(f"🏠 DEBUG: {message}")
     
     def connect(self) -> bool:
         """Connect to FluidNC using the proven approach."""
@@ -207,10 +209,13 @@ class SimpleWorkingFluidNCController:
                     return True
                 
                 # Check if status shows we're back to Idle (alternative completion detection)
-                if self._current_status == "Idle" and (time.time() - start_time) > 5.0:
-                    # Only consider Idle as completion if we've been homing for at least 5 seconds
+                # Only use this as backup - require much longer time to avoid false positives
+                if self._current_status == "Idle" and (time.time() - start_time) > 20.0:
+                    # Only consider Idle as completion if we've been homing for at least 20 seconds
+                    # This avoids false positives from brief Idle states between axes
                     elapsed = time.time() - start_time
-                    self.logger.info(f"✅ Homing completed (detected via status) in {elapsed:.1f}s!")
+                    self.logger.warning(f"⚠️ Homing completion detected via status (backup method) in {elapsed:.1f}s!")
+                    self.logger.warning("⚠️ This suggests '[MSG:DBG: Homing done]' message was missed")
                     self.homed = True
                     self.position = Position4D(0, 200, 0, 0)  # FluidNC home position
                     return True
