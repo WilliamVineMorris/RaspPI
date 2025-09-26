@@ -2,7 +2,7 @@
 
 {% block title %}Scan Management{% endblock %}
 
-{% block extra_css %}
+{% block content %}
 <style>
     /* Clean page layout */
     .scan-page {
@@ -772,9 +772,8 @@
         }
     }
 </style>
-{% endblock %}
 
-{% block content %}
+<div class="scan-page">
 <div class="scan-grid">
     <!-- Scan Builder -->
     <div class="scan-builder">
@@ -1098,6 +1097,7 @@
         </div>
     </div>
 </div>
+</div>
 
 <script>
 // Scan type switching functionality
@@ -1166,7 +1166,5 @@ switchScanType('surface');
 const surfaceCard = document.querySelector('[data-type="surface"]');
 if (surfaceCard) surfaceCard.classList.add('selected');
 </script>
-
-{% endblock %}
 
 {% endblock %}
