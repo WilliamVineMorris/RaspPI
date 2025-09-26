@@ -186,11 +186,23 @@ class SimpleWorkingFluidNCController:
         try:
             self.logger.info("🏠 Starting homing sequence...")
             
-            # Clear alarm ($X)
-            self.logger.info("📤 Clearing alarm ($X)")
-            unlock_response = self._send_command("$X")
-            if unlock_response:
-                self.logger.info(f"🔓 Unlock response: {unlock_response}")
+            # Clear alarm ($X) - Multiple attempts to ensure it works
+            self.logger.info("📤 Clearing alarm with $X command")
+            for attempt in range(3):  # Try up to 3 times
+                unlock_response = self._send_command("$X")
+                if unlock_response:
+                    self.logger.info(f"🔓 Unlock attempt {attempt + 1} response: {unlock_response}")
+                    if 'ok' in unlock_response.lower() or 'Idle' in unlock_response:
+                        self.logger.info("✅ Successfully unlocked FluidNC")
+                        break
+                else:
+                    self.logger.warning(f"⚠️ Unlock attempt {attempt + 1} - no response")
+                
+                if attempt < 2:  # Don't sleep after last attempt
+                    time.sleep(0.5)  # Wait before retry
+            
+            # Give system time to process unlock
+            time.sleep(1.0)
             
             # Send homing command
             self.logger.info("📤 Sending homing command ($H)")
@@ -345,6 +357,7 @@ class SimpleWorkingFluidNCController:
     def _send_command(self, command: str) -> Optional[str]:
         """Send command and get response (synchronous)."""
         if not self.serial_connection or not self.serial_connection.is_open:
+            self.logger.error("❌ Cannot send command - serial connection not available")
             return None
         
         try:
@@ -352,20 +365,25 @@ class SimpleWorkingFluidNCController:
             self.serial_connection.reset_input_buffer()
             
             # Send command
+            self.logger.debug(f"📤 Sending command: {command}")
             self.serial_connection.write((command + '\n').encode())
             self.serial_connection.flush()
             
-            # Wait for response
-            time.sleep(0.5)  # Give FluidNC time to respond
+            # Wait for response with longer timeout for $X command
+            timeout = 2.0 if command == "$X" else 0.5
+            time.sleep(timeout)
             
             if self.serial_connection.in_waiting > 0:
                 response = self.serial_connection.read(self.serial_connection.in_waiting)
-                return response.decode('utf-8', errors='ignore').strip()
-            
-            return None
+                decoded_response = response.decode('utf-8', errors='ignore').strip()
+                self.logger.debug(f"📥 Response: {decoded_response}")
+                return decoded_response
+            else:
+                self.logger.debug(f"⚠️ No response to command: {command}")
+                return None
             
         except Exception as e:
-            self.logger.error(f"❌ Command error: {e}")
+            self.logger.error(f"❌ Command '{command}' error: {e}")
             return None
 
 # Test function for direct testing
