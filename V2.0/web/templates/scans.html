@@ -320,7 +320,7 @@
                 <h4>Volume Scan</h4>
                 <p>Complete 360° volumetric capture</p>
             </div>
-            <div class="scan-type-card" data-type="cylindrical" onclick="console.log('Cylindrical clicked!'); alert('Cylindrical clicked!');">
+            <div class="scan-type-card" data-type="cylindrical" onclick="console.log('Cylindrical clicked!'); window.switchScanType('cylindrical');">
                 <h4>Cylindrical Scan</h4>
                 <p>Continuous rotation scan with height steps</p>
             </div>
@@ -518,6 +518,62 @@
         </div>
     </div>
 </div>
+
+<script>
+console.log('=== DIRECT SCAN TYPE SCRIPT STARTING ===');
+
+// Direct approach - no waiting for DOM
+function switchScanType(scanType) {
+    console.log('=== SWITCHING TO SCAN TYPE:', scanType, '===');
+    
+    const cylindricalParams = document.getElementById('cylindrical-parameters');
+    const gridBoundaries = document.getElementById('grid-boundaries');
+    
+    console.log('Cylindrical element:', cylindricalParams);
+    console.log('Grid element:', gridBoundaries);
+    
+    if (scanType === 'cylindrical') {
+        console.log('>>> SHOWING CYLINDRICAL <<<');
+        if (cylindricalParams) cylindricalParams.style.display = 'block';
+        if (gridBoundaries) gridBoundaries.style.display = 'none';
+    } else {
+        console.log('>>> SHOWING GRID <<<');
+        if (cylindricalParams) cylindricalParams.style.display = 'none';
+        if (gridBoundaries) gridBoundaries.style.display = 'block';
+    }
+}
+
+// Make it globally available
+window.switchScanType = switchScanType;
+
+// Try to set up click handlers immediately
+const cards = document.querySelectorAll('.scan-type-card');
+console.log('Found cards:', cards.length);
+
+cards.forEach(card => {
+    card.addEventListener('click', function() {
+        const scanType = card.dataset.type;
+        console.log('=== CARD CLICKED:', scanType, '===');
+        
+        // Remove selected from all cards
+        cards.forEach(c => c.classList.remove('selected'));
+        // Add selected to clicked card
+        card.classList.add('selected');
+        
+        // Switch parameters
+        switchScanType(scanType);
+    });
+});
+
+// Set initial state
+console.log('Setting initial state...');
+switchScanType('surface');
+const surfaceCard = document.querySelector('[data-type="surface"]');
+if (surfaceCard) surfaceCard.classList.add('selected');
+
+console.log('=== DIRECT SCRIPT COMPLETE ===');
+</script>
+
 {% endblock %}
 
 {% block extra_js %}
