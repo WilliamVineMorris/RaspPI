@@ -2398,7 +2398,9 @@ class ScannerWebInterface:
                     'flash_duration': 100,
                     'flash_result': str(flash_result) if flash_result else 'success'
                 },
-                tags=['manual_capture', 'flash_sync', f'camera_{camera_id}', 'web_interface']
+                tags=['manual_capture', 'flash_sync', f'camera_{camera_id}', 'web_interface'],
+                file_extension='.jpg',
+                filename=f"manual_capture_camera_{camera_id}"
             )
             
             # Store using async wrapper with error handling

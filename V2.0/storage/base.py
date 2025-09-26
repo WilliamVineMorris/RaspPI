@@ -91,6 +91,8 @@ class StorageMetadata:
     camera_settings: Optional[Dict[str, Any]] = None
     lighting_settings: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
+    file_extension: Optional[str] = None
+    filename: Optional[str] = None
     
     def __post_init__(self):
         if self.tags is None:
@@ -110,7 +112,9 @@ class StorageMetadata:
             'position_data': self.position_data,
             'camera_settings': self.camera_settings,
             'lighting_settings': self.lighting_settings,
-            'tags': self.tags
+            'tags': self.tags,
+            'file_extension': self.file_extension,
+            'filename': self.filename
         }
 
 
