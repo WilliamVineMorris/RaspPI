@@ -448,6 +448,10 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             logger.info("🏠 Monitoring for '[MSG:DBG: Homing done]' message...")
             logger.info("🔧 Smart error detection: Ignoring alarms for first 5s, monitoring state transitions")
             
+            # Record homing start timestamp to filter out old messages
+            homing_start_timestamp = time.time()
+            logger.info(f"🕐 Homing command timestamp: {homing_start_timestamp:.3f} - will ignore older messages")
+            
             while time.time() - start_time < homing_timeout:
                 elapsed = time.time() - start_time
                 
@@ -457,20 +461,39 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                         recent_messages = self.protocol.get_recent_raw_messages(50)
                         
                         for message in recent_messages:
-                            # Primary completion detection - exactly like proven test
+                            # Extract timestamp from message if available
+                            message_timestamp = None
+                            try:
+                                if ':' in message and message.split(':')[0].replace('.', '').isdigit():
+                                    message_timestamp = float(message.split(':')[0])
+                            except:
+                                pass
+                            
+                            # Primary completion detection - only consider NEW messages
                             if "[MSG:DBG: Homing done]" in message:
+                                # Check if this message is from AFTER homing started
+                                if message_timestamp and message_timestamp < homing_start_timestamp:
+                                    logger.debug(f"🔧 Ignoring OLD homing done message: {message_timestamp:.3f} < {homing_start_timestamp:.3f}")
+                                    continue
+                                
                                 logger.info(f"🎯 DETECTED: [MSG:DBG: Homing done] at {elapsed:.1f}s!")
                                 logger.info(f"   Message: {message}")
+                                logger.info(f"   Message timestamp: {message_timestamp:.3f} vs start: {homing_start_timestamp:.3f}")
                                 homing_done_detected = True
                                 break
                             
                             # Individual axis completion tracking
                             if "[MSG:Homed:" in message:
+                                # Check if this message is from AFTER homing started
+                                if message_timestamp and message_timestamp < homing_start_timestamp:
+                                    logger.debug(f"🔧 Ignoring OLD axis homed message: {message_timestamp:.3f}")
+                                    continue
+                                
                                 try:
                                     axis = message.split("[MSG:Homed:")[1].split("]")[0]
                                     if axis not in axes_homed:
                                         axes_homed.add(axis)
-                                        logger.info(f"✅ Axis homed: {axis}")
+                                        logger.info(f"✅ Axis homed: {axis} (timestamp: {message_timestamp:.3f})")
                                 except:
                                     pass
                             
