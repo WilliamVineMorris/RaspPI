@@ -114,51 +114,54 @@ async def test_simultaneous_camera_capture():
         # Test simultaneous capture using asyncio.gather
         camera_ids = ['camera_0', 'camera_1']
         
-        print("🚀 Starting SIMULTANEOUS capture of both cameras...")
+        print("🚀 Starting TRUE SIMULTANEOUS capture of both cameras...")
+        print("Using optimized dual-camera capture method...")
+        
         simultaneous_start = time.time()
         
-        # Use asyncio.gather to capture both cameras simultaneously
-        results = await asyncio.gather(
-            capture_single_camera('camera_0'),
-            capture_single_camera('camera_1'),
-            return_exceptions=True
-        )
-        
-        simultaneous_total = time.time() - simultaneous_start
-        print(f"⏱️  Total simultaneous capture time: {simultaneous_total:.2f}s")
-        print()
-        
-        # Analyze results
-        print("📊 SIMULTANEOUS CAPTURE RESULTS:")
-        print("=" * 50)
-        
-        successful_captures = 0
-        for result in results:
-            if isinstance(result, dict):
-                camera_id = result.get('camera_id', 'unknown')
-                if result.get('success', False):
+        # Use the new simultaneous capture method
+        try:
+            results = await asyncio.wait_for(
+                orchestrator.camera_manager.capture_both_cameras_simultaneously(),
+                timeout=30.0  # 30 second timeout for both cameras
+            )
+            
+            simultaneous_total = time.time() - simultaneous_start
+            print(f"⏱️  Total simultaneous capture time: {simultaneous_total:.2f}s")
+            print()
+            
+            # Analyze results
+            print("📊 SIMULTANEOUS CAPTURE RESULTS:")
+            print("=" * 50)
+            
+            successful_captures = 0
+            for camera_id, image_data in results.items():
+                if image_data is not None:
                     successful_captures += 1
-                    shape = result.get('image_shape', 'unknown')
-                    time_taken = result.get('capture_time', 0)
-                    print(f"✅ {camera_id}: SUCCESS - Shape: {shape}, Time: {time_taken:.2f}s")
+                    shape = image_data.shape if hasattr(image_data, 'shape') else 'unknown'
+                    print(f"✅ {camera_id}: SUCCESS - Shape: {shape}")
                 else:
-                    error = result.get('error', 'Unknown error')
-                    print(f"❌ {camera_id}: FAILED - {error}")
+                    print(f"❌ {camera_id}: FAILED - No image data")
+            
+            print()
+            print(f"📈 SUCCESS RATE: {successful_captures}/2 cameras ({successful_captures/2*100:.1f}%)")
+            
+            if successful_captures == 2:
+                print("🎉 TRUE SIMULTANEOUS DUAL CAMERA CAPTURE: SUCCESS!")
+                print("Both cameras captured successfully at the same time!")
+                return True
+            elif successful_captures == 1:
+                print("⚠️  PARTIAL SUCCESS: Only one camera captured successfully")
+                return False
             else:
-                print(f"❌ Unexpected result type: {type(result)} - {result}")
-        
-        print()
-        print(f"📈 SUCCESS RATE: {successful_captures}/2 cameras ({successful_captures/2*100:.1f}%)")
-        
-        if successful_captures == 2:
-            print("🎉 SIMULTANEOUS DUAL CAMERA CAPTURE: SUCCESS!")
-            print("Both cameras captured successfully at the same time!")
-            return True
-        elif successful_captures == 1:
-            print("⚠️  PARTIAL SUCCESS: Only one camera captured successfully")
+                print("❌ COMPLETE FAILURE: No cameras captured successfully")
+                return False
+                
+        except asyncio.TimeoutError:
+            print("⏰ TIMEOUT: Simultaneous capture took longer than 30 seconds")
             return False
-        else:
-            print("❌ COMPLETE FAILURE: No cameras captured successfully")
+        except Exception as e:
+            print(f"❌ SIMULTANEOUS CAPTURE ERROR: {e}")
             return False
             
     except Exception as e:

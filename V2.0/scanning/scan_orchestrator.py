@@ -128,6 +128,23 @@ class MockCameraManager:
         mock_image = np.zeros((2592, 4608, 3), dtype=np.uint8)
         mock_image.fill(128)  # Gray image
         return mock_image
+    
+    async def capture_both_cameras_simultaneously(self, settings=None):
+        """Mock simultaneous capture for both cameras"""
+        import numpy as np
+        await asyncio.sleep(0.8)  # Simulate simultaneous capture time
+        
+        # Return mock images for both cameras
+        mock_image_0 = np.zeros((2592, 4608, 3), dtype=np.uint8)
+        mock_image_0.fill(100)  # Darker gray for camera 0
+        
+        mock_image_1 = np.zeros((2592, 4608, 3), dtype=np.uint8)
+        mock_image_1.fill(150)  # Lighter gray for camera 1
+        
+        return {
+            'camera_0': mock_image_0,
+            'camera_1': mock_image_1
+        }
         
     async def capture_all(self, output_dir: Path, filename_base: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
         await asyncio.sleep(0.3)  # Slightly increase to allow pause testing
@@ -650,7 +667,8 @@ class CameraManagerAdapter:
         # Camera resource locking (simplified for dual-mode)
         import threading
         self._mode_lock = threading.Lock()  # Lock for mode switching
-        self._capture_lock = threading.Lock()  # Lock for captures
+        # Initialize per-camera locks for simultaneous capture (will be created later)
+        self._capture_locks = {}
         
         # OPTIMAL CONFIGURATION: Camera native output used directly
         self._force_color_conversion = 'native_direct'  # Fixed optimal mode
@@ -976,25 +994,32 @@ class CameraManagerAdapter:
         Returns:
             numpy.ndarray: High-resolution image or None if failed
         """
+        # Map camera ID to physical camera index first
+        mapped_camera_id = 0  # Default to camera 0
+        if isinstance(camera_id, str) and camera_id.startswith('camera_'):
+            try:
+                mapped_camera_id = int(camera_id.split('_')[1])  # camera_0 -> 0, camera_1 -> 1
+            except (ValueError, IndexError):
+                return None
+        elif isinstance(camera_id, (int, str)):
+            mapped_camera_id = int(camera_id)
+        
+        # Validate camera ID is within valid range (0 or 1)
+        if mapped_camera_id not in [0, 1]:
+            self.logger.warning(f"CAMERA: Invalid camera ID {mapped_camera_id} (from {camera_id})")
+            return None
+        
         try:
-            with self._capture_lock:
-                # Switch to capture mode for maximum quality
-                await self._switch_camera_mode("capture")
-                
-                # Map camera ID to physical camera index
-                mapped_camera_id = 0  # Default to camera 0
-                if isinstance(camera_id, str) and camera_id.startswith('camera_'):
-                    try:
-                        mapped_camera_id = int(camera_id.split('_')[1])  # camera_0 -> 0, camera_1 -> 1
-                    except (ValueError, IndexError):
-                        return None
-                elif isinstance(camera_id, (int, str)):
-                    mapped_camera_id = int(camera_id)
-                
-                # Validate camera ID is within valid range (0 or 1)
-                if mapped_camera_id not in [0, 1]:
-                    self.logger.warning(f"CAMERA: Invalid camera ID {mapped_camera_id} (from {camera_id})")
-                    return None
+            # Create async lock for this camera if it doesn't exist
+            if mapped_camera_id not in self._capture_locks:
+                self._capture_locks[mapped_camera_id] = asyncio.Lock()
+            
+            # For simultaneous capture, ensure cameras are in capture mode
+            # Mode switching should happen before calling capture_high_resolution
+            # so we don't need to do it here for each camera individually
+            
+            # Use per-camera async lock to allow simultaneous capture
+            async with self._capture_locks[mapped_camera_id]:
                 
                 if hasattr(self.controller, 'cameras') and mapped_camera_id in self.controller.cameras:
                     camera = self.controller.cameras[mapped_camera_id]
@@ -1054,6 +1079,100 @@ class CameraManagerAdapter:
                 pass
                 
         return None
+    
+    async def capture_both_cameras_simultaneously(self, settings=None):
+        """
+        Capture from both cameras simultaneously for optimal dual-camera performance
+        
+        Args:
+            settings: Optional camera settings
+            
+        Returns:
+            Dict: Results from both cameras {'camera_0': image_array, 'camera_1': image_array}
+        """
+        results = {}
+        
+        try:
+            # Switch to capture mode ONCE for both cameras
+            await self._switch_camera_mode("capture")
+            self.logger.info("CAMERA: Both cameras prepared for simultaneous capture")
+            
+            # Define capture function for individual camera (without mode switching)
+            async def capture_camera_direct(camera_id: str, mapped_id: int):
+                """Direct camera capture without mode switching"""
+                try:
+                    # Create async lock for this camera if it doesn't exist
+                    if mapped_id not in self._capture_locks:
+                        self._capture_locks[mapped_id] = asyncio.Lock()
+                    
+                    async with self._capture_locks[mapped_id]:
+                        if hasattr(self.controller, 'cameras') and mapped_id in self.controller.cameras:
+                            camera = self.controller.cameras[mapped_id]
+                            
+                            if camera and hasattr(camera, 'capture_array'):
+                                # Apply custom settings if provided
+                                if settings:
+                                    controls = {}
+                                    if hasattr(settings, 'exposure_time') and settings.exposure_time:
+                                        controls['ExposureTime'] = int(settings.exposure_time * 1000000)
+                                    if hasattr(settings, 'iso') and settings.iso:
+                                        controls['AnalogueGain'] = settings.iso / 100.0
+                                    
+                                    if controls:
+                                        camera.set_controls(controls)
+                                
+                                # Capture high-resolution image
+                                self.logger.info(f"CAMERA: Starting simultaneous capture for camera {mapped_id} ({camera_id})")
+                                image_array = camera.capture_array("main")
+                                
+                                if image_array is not None and image_array.size > 0:
+                                    image_bgr = image_array.copy()
+                                    self.logger.info(f"CAMERA: Simultaneous capture successful for {camera_id}: {image_bgr.shape}")
+                                    return image_bgr
+                                else:
+                                    self.logger.error(f"CAMERA: Simultaneous capture returned empty array for {camera_id}")
+                                    
+                        return None
+                        
+                except Exception as e:
+                    self.logger.error(f"CAMERA: Simultaneous capture failed for {camera_id}: {e}")
+                    return None
+            
+            # Capture both cameras simultaneously using asyncio.gather
+            self.logger.info("CAMERA: Starting true simultaneous dual camera capture...")
+            
+            camera_results = await asyncio.gather(
+                capture_camera_direct('camera_0', 0),
+                capture_camera_direct('camera_1', 1),
+                return_exceptions=True
+            )
+            
+            # Process results
+            for i, (camera_id, result) in enumerate(zip(['camera_0', 'camera_1'], camera_results)):
+                if isinstance(result, Exception):
+                    self.logger.error(f"CAMERA: Exception in {camera_id}: {result}")
+                    results[camera_id] = None
+                else:
+                    results[camera_id] = result
+                    if result is not None:
+                        self.logger.info(f"CAMERA: {camera_id} simultaneous capture: SUCCESS")
+                    else:
+                        self.logger.warning(f"CAMERA: {camera_id} simultaneous capture: FAILED")
+            
+            self.logger.info(f"CAMERA: Simultaneous capture complete - {sum(1 for v in results.values() if v is not None)}/2 cameras successful")
+            
+        except Exception as e:
+            self.logger.error(f"CAMERA: Simultaneous capture operation failed: {e}")
+            results = {'camera_0': None, 'camera_1': None}
+        
+        finally:
+            # Always switch back to streaming mode
+            try:
+                await self._switch_camera_mode("streaming")
+            except Exception as cleanup_error:
+                self.logger.warning(f"CAMERA: Cleanup mode switch failed: {cleanup_error}")
+        
+        return results
     
     async def set_camera_controls(self, camera_id, controls_dict):
         """
