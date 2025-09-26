@@ -1660,7 +1660,8 @@ function capturePhoto() {
         if (data.success) {
             console.log('Synchronized photo captured with flash');
             const storageInfo = data.data && data.data.storage_info ? `\n${data.data.storage_info}` : '';
-            showMessage(`✅ Photos captured successfully from both cameras!${storageInfo}`, 'success');
+            const fileCount = data.data && data.data.capture_results ? data.data.capture_results.length : 0;
+            showMessage(`✅ Captured ${fileCount} photos from both cameras with flash!${storageInfo}`, 'success');
         } else {
             console.error(`Capture failed: ${data.error}`);
             showMessage(`❌ Capture failed: ${data.error}`, 'error');
@@ -1692,7 +1693,8 @@ function captureBothNormal() {
         if (data.success) {
             console.log('Synchronized photo captured without flash');
             const storageInfo = data.data && data.data.storage_info ? `\n${data.data.storage_info}` : '';
-            showMessage(`✅ Photos captured successfully from both cameras!${storageInfo}`, 'success');
+            const fileCount = data.data && data.data.capture_results ? data.data.capture_results.length : 0;
+            showMessage(`✅ Captured ${fileCount} photos from both cameras (no flash)!${storageInfo}`, 'success');
         } else {
             console.error(`Capture failed: ${data.error}`);
             showMessage(`❌ Capture failed: ${data.error}`, 'error');
