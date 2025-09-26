@@ -1210,6 +1210,361 @@ cards.forEach(card => {
 switchScanType('surface');
 const surfaceCard = document.querySelector('[data-type="surface"]');
 if (surfaceCard) surfaceCard.classList.add('selected');
+
+// Scan control functions
+async function startScanNow() {
+    try {
+        // Collect scan parameters
+        const scanData = collectScanParameters();
+        if (!scanData) return;
+        
+        // Show loading state
+        const button = event.target;
+        const originalText = button.innerHTML;
+        button.innerHTML = '<span class="btn-icon">⏳</span>Starting...';
+        button.disabled = true;
+        
+        // Start the scan
+        const response = await fetch('/api/scan/start', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(scanData)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showAlert('Scan started successfully!', 'success');
+            updateScanProgress(true);
+        } else {
+            showAlert('Failed to start scan: ' + result.error, 'error');
+        }
+        
+        // Restore button
+        button.innerHTML = originalText;
+        button.disabled = false;
+        
+    } catch (error) {
+        console.error('Error starting scan:', error);
+        showAlert('Error starting scan: ' + error.message, 'error');
+        
+        // Restore button
+        const button = event.target;
+        button.innerHTML = '<span class="btn-icon">▶️</span>Start Scan Now';
+        button.disabled = false;
+    }
+}
+
+async function stopCurrentScan() {
+    try {
+        const response = await fetch('/api/scan/stop', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showAlert('Scan stopped successfully', 'success');
+            updateScanProgress(false);
+        } else {
+            showAlert('Failed to stop scan: ' + result.error, 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error stopping scan:', error);
+        showAlert('Error stopping scan: ' + error.message, 'error');
+    }
+}
+
+function addToQueue() {
+    try {
+        const scanData = collectScanParameters();
+        if (!scanData) return;
+        
+        // Add to local queue display
+        addScanToQueueDisplay(scanData);
+        showAlert('Scan added to queue', 'success');
+        
+    } catch (error) {
+        console.error('Error adding to queue:', error);
+        showAlert('Error adding to queue: ' + error.message, 'error');
+    }
+}
+
+function startQueue() {
+    showAlert('Queue functionality coming soon', 'info');
+}
+
+function pauseQueue() {
+    showAlert('Queue functionality coming soon', 'info');
+}
+
+function clearQueue() {
+    const container = document.getElementById('scanQueueContainer');
+    if (container) {
+        container.innerHTML = '<p style="text-align: center; color: #666; padding: 2rem;">Queue is empty</p>';
+        showAlert('Queue cleared', 'success');
+    }
+}
+
+function previewScan() {
+    try {
+        const scanData = collectScanParameters();
+        if (!scanData) return;
+        
+        // Update preview display
+        updatePreviewDisplay(scanData);
+        showAlert('Scan preview updated', 'success');
+        
+    } catch (error) {
+        console.error('Error previewing scan:', error);
+        showAlert('Error previewing scan: ' + error.message, 'error');
+    }
+}
+
+function saveScanTemplate() {
+    try {
+        const scanData = collectScanParameters();
+        if (!scanData) return;
+        
+        const templateName = prompt('Enter template name:');
+        if (templateName) {
+            // Save to localStorage for now
+            const templates = JSON.parse(localStorage.getItem('scanTemplates') || '[]');
+            templates.push({
+                name: templateName,
+                data: scanData,
+                created: new Date().toISOString()
+            });
+            localStorage.setItem('scanTemplates', JSON.stringify(templates));
+            showAlert('Template saved: ' + templateName, 'success');
+        }
+        
+    } catch (error) {
+        console.error('Error saving template:', error);
+        showAlert('Error saving template: ' + error.message, 'error');
+    }
+}
+
+function toggleAdvancedSettings() {
+    const panel = document.getElementById('cylindrical-parameters');
+    if (panel) {
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+// Helper functions
+function collectScanParameters() {
+    try {
+        // Get selected scan type
+        const selectedCard = document.querySelector('.scan-type-card.selected');
+        const scanType = selectedCard ? selectedCard.dataset.type : 'surface';
+        
+        // Get basic parameters
+        const scanName = document.getElementById('scanName')?.value || 'Untitled Scan';
+        const resolution = document.getElementById('scanResolution')?.value || 'medium';
+        const speed = document.getElementById('scanSpeed')?.value || 'medium';
+        const cameraCount = document.getElementById('cameraCount')?.value || '2';
+        
+        let scanPattern;
+        
+        if (scanType === 'cylindrical') {
+            // Get cylindrical parameters
+            const radius = document.getElementById('cylindricalRadius')?.value || '30';
+            const yMin = document.getElementById('cylindricalYMin')?.value || '40';
+            const yMax = document.getElementById('cylindricalYMax')?.value || '120';
+            const yStep = document.getElementById('cylindricalYStep')?.value || '20';
+            const rotationStep = document.getElementById('cylindricalRotationStep')?.value || '60';
+            
+            // Calculate steps
+            const heightRange = parseFloat(yMax) - parseFloat(yMin);
+            const heightSteps = Math.max(1, Math.ceil(heightRange / parseFloat(yStep)));
+            const rotationSteps = Math.ceil(360 / parseFloat(rotationStep));
+            
+            scanPattern = {
+                type: 'cylindrical',
+                radius: parseFloat(radius),
+                rotation_steps: rotationSteps,
+                rotation_step: parseFloat(rotationStep),
+                z_rotations: Array.from({length: heightSteps}, (_, i) => 
+                    parseFloat(yMin) + (i * (parseFloat(yMax) - parseFloat(yMin)) / Math.max(1, heightSteps - 1))
+                ),
+                z_positions: Array.from({length: heightSteps}, (_, i) => 
+                    parseFloat(yMin) + (i * (parseFloat(yMax) - parseFloat(yMin)) / Math.max(1, heightSteps - 1))
+                )
+            };
+        } else {
+            // Get grid parameters
+            const xMin = document.getElementById('boundaryXMin')?.value || '-50';
+            const xMax = document.getElementById('boundaryXMax')?.value || '50';
+            const yMin = document.getElementById('boundaryYMin')?.value || '-50';
+            const yMax = document.getElementById('boundaryYMax')?.value || '50';
+            const zMin = document.getElementById('boundaryZMin')?.value || '0';
+            const zMax = document.getElementById('boundaryZMax')?.value || '100';
+            
+            scanPattern = {
+                type: 'grid',
+                x_range: [parseFloat(xMin), parseFloat(xMax)],
+                y_range: [parseFloat(yMin), parseFloat(yMax)],
+                z_range: [parseFloat(zMin), parseFloat(zMax)],
+                x_step: 10, // Default step size
+                y_step: 10,
+                z_step: 10
+            };
+        }
+        
+        return {
+            name: scanName,
+            pattern: scanPattern,
+            settings: {
+                resolution: resolution,
+                speed: speed,
+                camera_count: parseInt(cameraCount)
+            }
+        };
+        
+    } catch (error) {
+        showAlert('Error collecting scan parameters: ' + error.message, 'error');
+        return null;
+    }
+}
+
+function addScanToQueueDisplay(scanData) {
+    const container = document.getElementById('scanQueueContainer');
+    if (!container) return;
+    
+    // Clear empty message
+    if (container.innerHTML.includes('Queue is empty')) {
+        container.innerHTML = '';
+    }
+    
+    const queueItem = document.createElement('div');
+    queueItem.className = 'queue-item';
+    queueItem.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <strong>${scanData.name}</strong><br>
+                <small>Type: ${scanData.pattern.type} | Quality: ${scanData.settings.resolution}</small>
+            </div>
+            <button class="btn btn-sm btn-outline" onclick="this.parentElement.parentElement.remove()">Remove</button>
+        </div>
+    `;
+    
+    container.appendChild(queueItem);
+}
+
+function updatePreviewDisplay(scanData) {
+    // Update preview values
+    const previewPoints = document.getElementById('previewPoints');
+    const previewTime = document.getElementById('previewTime');
+    const previewSize = document.getElementById('previewSize');
+    const previewImages = document.getElementById('previewImages');
+    
+    if (scanData.pattern.type === 'cylindrical') {
+        const points = scanData.pattern.rotation_steps * scanData.pattern.z_rotations.length;
+        const images = points * scanData.settings.camera_count;
+        const timeMinutes = Math.ceil(points * 4); // Estimate 4 seconds per point
+        
+        if (previewPoints) previewPoints.textContent = points.toLocaleString();
+        if (previewTime) previewTime.textContent = `${timeMinutes} min`;
+        if (previewSize) previewSize.textContent = `${(images * 2.5).toFixed(1)} MB`; // Slightly larger file estimate
+        if (previewImages) previewImages.textContent = images.toLocaleString();
+    } else {
+        const xRange = scanData.pattern.x_range[1] - scanData.pattern.x_range[0];
+        const yRange = scanData.pattern.y_range[1] - scanData.pattern.y_range[0];
+        const zRange = scanData.pattern.z_range[1] - scanData.pattern.z_range[0];
+        
+        const points = Math.ceil(xRange/10) * Math.ceil(yRange/10) * Math.ceil(zRange/10);
+        const images = points * scanData.settings.camera_count;
+        const timeMinutes = Math.ceil(points * 3); // Estimate 3 seconds per point
+        
+        if (previewPoints) previewPoints.textContent = points.toLocaleString();
+        if (previewTime) previewTime.textContent = `${timeMinutes} min`;
+        if (previewSize) previewSize.textContent = `${(images * 2).toFixed(1)} MB`;
+        if (previewImages) previewImages.textContent = images.toLocaleString();
+    }
+}
+
+function updateScanProgress(isActive) {
+    const panel = document.getElementById('currentScanPanel');
+    if (panel) {
+        panel.style.display = isActive ? 'block' : 'none';
+    }
+    
+    if (isActive) {
+        // Start progress monitoring
+        monitorScanProgress();
+    }
+}
+
+async function monitorScanProgress() {
+    try {
+        const response = await fetch('/api/status');
+        const result = await response.json();
+        
+        if (result.success && result.data.scan_active) {
+            // Update progress display
+            const nameEl = document.getElementById('currentScanName');
+            const phaseEl = document.getElementById('currentScanPhase');
+            const pointEl = document.getElementById('currentScanPoint');
+            const progressEl = document.getElementById('currentScanProgress');
+            const progressBar = document.getElementById('currentScanProgressBar');
+            
+            if (nameEl) nameEl.textContent = result.data.scan_name || 'Active Scan';
+            if (phaseEl) phaseEl.textContent = result.data.scan_phase || 'Running';
+            if (pointEl) pointEl.textContent = `${result.data.scan_current_point || 0}/${result.data.scan_total_points || 0}`;
+            if (progressEl) progressEl.textContent = `${result.data.scan_progress || 0}%`;
+            if (progressBar) progressBar.style.width = `${result.data.scan_progress || 0}%`;
+            
+            // Continue monitoring
+            setTimeout(monitorScanProgress, 2000);
+        } else {
+            updateScanProgress(false);
+        }
+        
+    } catch (error) {
+        console.error('Error monitoring scan progress:', error);
+        setTimeout(monitorScanProgress, 5000); // Retry in 5 seconds
+    }
+}
+
+function showAlert(message, type = 'info') {
+    // Create alert element
+    const alert = document.createElement('div');
+    alert.className = `alert alert-${type}`;
+    alert.innerHTML = `
+        <div style="padding: 1rem; margin: 1rem 0; border-radius: 6px; 
+                    background: ${type === 'error' ? '#fee' : type === 'success' ? '#efe' : '#eef'};
+                    border: 1px solid ${type === 'error' ? '#fcc' : type === 'success' ? '#cfc' : '#ccf'};
+                    color: ${type === 'error' ? '#c00' : type === 'success' ? '#060' : '#006'};">
+            ${message}
+        </div>
+    `;
+    
+    // Add to page
+    const container = document.getElementById('alertContainer') || document.body;
+    container.appendChild(alert);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        if (alert.parentNode) {
+            alert.parentNode.removeChild(alert);
+        }
+    }, 5000);
+}
+
+// Initialize preview on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Set default values and update preview
+    setTimeout(() => {
+        previewScan();
+    }, 500);
+});
 </script>
 
 {% endblock %}
