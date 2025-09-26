@@ -92,19 +92,16 @@ async def test_production_scanning_pipeline():
         # Create a MINIMAL production scan pattern (2 positions only for testing)
         print("\n📐 Creating minimal production scan pattern...")
         pattern_params = GridPatternParameters(
-            min_x=15.0, max_x=25.0,   # Small 10mm X range
-            min_y=20.0, max_y=20.0,   # Single Y position (will be adjusted in post_init)
-            min_z=0.0, max_z=0.0,     # Single Z position  
-            min_c=0.0, max_c=0.0,     # Single C position
-            x_spacing=10.0,            # 10mm spacing = 2 points (15, 25)
-            y_spacing=0.0,             # No Y spacing
-            z_spacing=0.0,             # No Z spacing
+            min_x=15.0, max_x=25.0,   # Small 10mm X range -> 2 points
+            min_y=20.0, max_y=20.1,   # Minimal Y range to pass validation
+            min_z=0.0, max_z=0.1,     # Minimal Z range to pass validation  
+            min_c=0.0, max_c=0.1,     # Minimal C range to pass validation
+            x_spacing=10.0,            # 10mm spacing = 2 X points (15, 25)
+            y_spacing=10.0,            # Large spacing = 1 Y point (20.0)
+            z_spacing=10.0,            # Large spacing = 1 Z point (0.0)
             c_steps=1,                 # Single rotation position
             zigzag=False               # Simple linear pattern
         )
-        
-        # Override the problematic validation
-        pattern_params.max_y = 20.1  # Minimal fix to pass validation
         
         pattern = GridScanPattern(
             pattern_id="production_test",
