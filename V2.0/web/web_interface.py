@@ -2254,10 +2254,10 @@ class ScannerWebInterface:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                # Use the orchestrator's simultaneous capture method that we know works
+                # Use the camera manager's simultaneous capture method that we know works
                 camera_data_dict = loop.run_until_complete(
                     asyncio.wait_for(
-                        self.orchestrator.capture_both_cameras_simultaneously(),
+                        self.orchestrator.camera_manager.capture_both_cameras_simultaneously(),
                         timeout=30.0
                     )
                 )
