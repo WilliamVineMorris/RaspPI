@@ -320,6 +320,10 @@
                 <h4>Volume Scan</h4>
                 <p>Complete 360° volumetric capture</p>
             </div>
+            <div class="scan-type-card" data-type="cylindrical">
+                <h4>Cylindrical Scan</h4>
+                <p>Continuous rotation scan with height steps</p>
+            </div>
             <div class="scan-type-card" data-type="detail">
                 <h4>Detail Scan</h4>
                 <p>Ultra-high resolution focused scan</p>
@@ -369,6 +373,36 @@
                 <input type="number" id="boundaryYMax" class="parameter-input" placeholder="Y Max" value="50">
                 <input type="number" id="boundaryZMin" class="parameter-input" placeholder="Z Min" value="0">
                 <input type="number" id="boundaryZMax" class="parameter-input" placeholder="Z Max" value="100">
+            </div>
+        </div>
+
+        <!-- Cylindrical Scan Parameters (hidden by default) -->
+        <div id="cylindrical-parameters" class="scan-parameters" style="display: none;">
+            <h4>Cylindrical Scan Settings</h4>
+            <div class="parameter-group">
+                <label for="cylindricalRadius">Camera Radius (mm)</label>
+                <input type="number" id="cylindricalRadius" class="parameter-input" min="10" max="100" value="30" step="5">
+            </div>
+            <div class="parameter-group">
+                <label for="cylindricalYMin">Start Height (mm)</label>
+                <input type="number" id="cylindricalYMin" class="parameter-input" min="10" max="200" value="40" step="5">
+            </div>
+            <div class="parameter-group">
+                <label for="cylindricalYMax">End Height (mm)</label>
+                <input type="number" id="cylindricalYMax" class="parameter-input" min="10" max="200" value="120" step="5">
+            </div>
+            <div class="parameter-group">
+                <label for="cylindricalYStep">Height Step (mm)</label>
+                <input type="number" id="cylindricalYStep" class="parameter-input" min="5" max="50" value="20" step="5">
+            </div>
+            <div class="parameter-group">
+                <label for="cylindricalRotationStep">Rotation Step (degrees)</label>
+                <select id="cylindricalRotationStep" class="parameter-input">
+                    <option value="30">30° (12 positions)</option>
+                    <option value="45">45° (8 positions)</option>
+                    <option value="60" selected>60° (6 positions)</option>
+                    <option value="90">90° (4 positions)</option>
+                </select>
             </div>
         </div>
 

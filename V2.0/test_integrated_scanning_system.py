@@ -73,7 +73,7 @@ async def test_integrated_scanning_system():
             'radius': 50.0,       # 50mm radius
             'y_range': [100.0, 120.0],  # Small Y range: 20mm
             'y_step': 10.0,       # 2 height levels
-            'z_rotations': 4,     # 4 rotation angles (90° steps)
+            'z_rotations': [0.0, 90.0, 180.0, 270.0],  # 4 rotation angles (90° steps)
             'c_angles': [0.0]     # Single camera angle
         }
         
@@ -81,13 +81,13 @@ async def test_integrated_scanning_system():
         logger.info(f"   • Radius: {pattern_data['radius']}mm")
         logger.info(f"   • Y range: {pattern_data['y_range'][0]}-{pattern_data['y_range'][1]}mm")
         logger.info(f"   • Y step: {pattern_data['y_step']}mm")
-        logger.info(f"   • Z rotations: {pattern_data['z_rotations']}")
+        logger.info(f"   • Z rotations: {len(pattern_data['z_rotations'])} angles")
         logger.info(f"   • C angles: {pattern_data['c_angles']}")
         
         # Create the pattern
         pattern = orchestrator.create_cylindrical_pattern(
             radius=pattern_data['radius'],
-            y_range=pattern_data['y_range'],
+            y_range=tuple(pattern_data['y_range']),
             y_step=pattern_data['y_step'],
             z_rotations=pattern_data['z_rotations'],
             c_angles=pattern_data['c_angles']
@@ -151,7 +151,7 @@ async def test_integrated_scanning_system():
             'radius': 30.0,
             'y_range': [90.0, 110.0],
             'y_step': 20.0,
-            'z_rotations': 2,
+            'z_rotations': [0.0, 180.0],  # 2 angles
             'c_angles': [0.0]
         }
         
@@ -161,7 +161,7 @@ async def test_integrated_scanning_system():
         # This is what the web UI would do
         web_pattern = orchestrator.create_cylindrical_pattern(
             radius=web_pattern_data['radius'],
-            y_range=web_pattern_data['y_range'],
+            y_range=tuple(web_pattern_data['y_range']),
             y_step=web_pattern_data['y_step'],
             z_rotations=web_pattern_data['z_rotations'],
             c_angles=web_pattern_data['c_angles']

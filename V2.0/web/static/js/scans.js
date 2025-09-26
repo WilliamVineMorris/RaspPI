@@ -22,6 +22,12 @@ const ScanManager = {
                 timeMultiplier: 2.5,
                 sizeMultiplier: 3.0
             },
+            cylindrical: {
+                name: 'Cylindrical Scan',
+                defaultPoints: 120,
+                timeMultiplier: 2.0,
+                sizeMultiplier: 2.5
+            },
             detail: {
                 name: 'Detail Scan',
                 defaultPoints: 100,
@@ -87,6 +93,14 @@ const ScanManager = {
                 
                 // Update state
                 this.state.selectedScanType = card.dataset.type;
+                
+                // Show/hide cylindrical parameters
+                const cylindricalParams = document.getElementById('cylindrical-parameters');
+                if (this.state.selectedScanType === 'cylindrical') {
+                    cylindricalParams.style.display = 'block';
+                } else {
+                    cylindricalParams.style.display = 'none';
+                }
                 
                 // Update preview
                 this.updateScanPreview();
@@ -473,7 +487,7 @@ const ScanManager = {
     collectScanConfiguration() {
         const boundaries = this.getBoundaries();
         
-        return {
+        const config = {
             name: document.getElementById('scanName')?.value || this.generateScanName(),
             type: this.state.selectedScanType,
             resolution: document.getElementById('scanResolution')?.value || 'medium',
@@ -487,6 +501,28 @@ const ScanManager = {
                 auto_focus: document.getElementById('autoFocus')?.value || 'enabled'
             }
         };
+
+        // Add scan pattern type and specific parameters
+        if (this.state.selectedScanType === 'cylindrical') {
+            config.pattern_type = 'cylindrical';
+            config.radius = parseInt(document.getElementById('cylindricalRadius')?.value || '30');
+            config.y_min = parseInt(document.getElementById('cylindricalYMin')?.value || '40');
+            config.y_max = parseInt(document.getElementById('cylindricalYMax')?.value || '120');
+            config.y_step = parseInt(document.getElementById('cylindricalYStep')?.value || '20');
+            config.rotation_step = parseInt(document.getElementById('cylindricalRotationStep')?.value || '60');
+            config.c_angles = [-10, 0, 10]; // Default camera angles
+        } else {
+            // Default to grid pattern for other scan types
+            config.pattern_type = 'grid';
+            config.x_min = boundaries.x_min;
+            config.x_max = boundaries.x_max;
+            config.y_min = boundaries.y_min;
+            config.y_max = boundaries.y_max;
+            config.spacing = 10.0; // Default spacing
+            config.z_height = 25.0; // Default Z height
+        }
+
+        return config;
     },
 
     /**
