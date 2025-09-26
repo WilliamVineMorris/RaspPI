@@ -158,11 +158,6 @@
         <div class="camera-actions">
             <button class="action-btn primary" onclick="capturePhoto()" id="flashCaptureBtn">📸⚡ Capture Both Cameras (Flash)</button>
             <button class="action-btn secondary" onclick="captureBothNormal()" id="normalCaptureBtn">📸 Capture Both Cameras (No Flash)</button>
-            <br><br>
-            <!-- DEBUG: Alternative test buttons -->
-            <button class="action-btn primary" onclick="testCaptureFlash()" id="testFlashBtn">🔥 TEST Flash Capture</button>
-            <button class="action-btn secondary" onclick="testCaptureNormal()" id="testNormalBtn">🔧 TEST Normal Capture</button>
-            <button class="action-btn secondary" onclick="alert('Basic test button works!')" id="basicTestBtn">✅ Basic Test</button>
         </div>
 
         <!-- Camera Preview -->
@@ -294,70 +289,5 @@
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/manual-control.js') }}"></script>
 
-<!-- DEBUG: Backup JavaScript functions directly in HTML -->
-<script>
-function testCaptureFlash() {
-    console.log('🎯 DEBUG: testCaptureFlash called from HTML');
-    alert('🔥 Flash capture test from HTML!');
-    
-    fetch('/api/camera/capture/both', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            flash: true,
-            flash_intensity: 80
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        console.log('Flash capture response:', data);
-        alert(`Flash capture result: ${data.success ? 'SUCCESS' : 'FAILED: ' + data.error}`);
-    })
-    .catch(error => {
-        console.error('Flash capture error:', error);
-        alert(`Flash capture error: ${error.message}`);
-    });
-}
 
-function testCaptureNormal() {
-    console.log('🎯 DEBUG: testCaptureNormal called from HTML');
-    alert('📷 Normal capture test from HTML!');
-    
-    fetch('/api/camera/capture/both', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            flash: false
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
-        console.log('Normal capture response:', data);
-        alert(`Normal capture result: ${data.success ? 'SUCCESS' : 'FAILED: ' + data.error}`);
-    })
-    .catch(error => {
-        console.error('Normal capture error:', error);
-        alert(`Normal capture error: ${error.message}`);
-    });
-}
-
-// Override the existing functions if they exist
-if (typeof capturePhoto !== 'undefined') {
-    console.log('🔧 Original capturePhoto function exists');
-} else {
-    console.log('⚠️ Original capturePhoto function NOT found - using backup');
-    window.capturePhoto = testCaptureFlash;
-}
-
-if (typeof captureBothNormal !== 'undefined') {
-    console.log('🔧 Original captureBothNormal function exists');  
-} else {
-    console.log('⚠️ Original captureBothNormal function NOT found - using backup');
-    window.captureBothNormal = testCaptureNormal;
-}
-</script>
 {% endblock %}

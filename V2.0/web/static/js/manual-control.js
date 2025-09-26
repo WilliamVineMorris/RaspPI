@@ -1640,8 +1640,6 @@ function gotoPosition() {
 }
 
 function capturePhoto() {
-    console.log('🎯 DEBUG: capturePhoto() function called');
-    alert('DEBUG: capturePhoto button clicked!'); // Temporary debug
     console.log('Capturing photo from both cameras with flash');
     
     // Show loading indicator - use alert if showMessage not available
@@ -1650,10 +1648,6 @@ function capturePhoto() {
     } else {
         alert('📸 Capturing synchronized photos with flash...');
     }
-    
-    // Add detailed debugging for the fetch request
-    console.log('🔍 DEBUG: About to make fetch request to /api/camera/capture/both');
-    alert('🔍 DEBUG: About to make fetch request');
     
     fetch('/api/camera/capture/both', {
         method: 'POST',
@@ -1665,14 +1659,8 @@ function capturePhoto() {
             flash_intensity: 80
         })
     })
-    .then(response => {
-        console.log('🔍 DEBUG: Got response from server:', response);
-        alert('🔍 DEBUG: Got response - status: ' + response.status);
-        return response.json();
-    })
+    .then(response => response.json())
     .then(data => {
-        console.log('🔍 DEBUG: Parsed response data:', data);
-        alert('🔍 DEBUG: Got data: ' + JSON.stringify(data));
         if (data.success) {
             console.log('Synchronized photo captured with flash');
             const storageInfo = data.data && data.data.storage_info ? `\n${data.data.storage_info}` : '';
@@ -1692,9 +1680,7 @@ function capturePhoto() {
         }
     })
     .catch(error => {
-        console.error('🔍 DEBUG: Capture error caught (flash):', error);
-        alert('🔍 DEBUG: Fetch error (flash): ' + error.message);
-        console.error('🔍 DEBUG: Error details (flash):', error);
+        console.error('Capture error:', error);
         if (typeof showMessage === 'function') {
             showMessage(`❌ Capture error: ${error.message}`, 'error');
         } else {
@@ -1704,8 +1690,6 @@ function capturePhoto() {
 }
 
 function captureBothNormal() {
-    console.log('🎯 DEBUG: captureBothNormal() function called');
-    alert('DEBUG: captureBothNormal button clicked!'); // Temporary debug
     console.log('Capturing photo from both cameras without flash');
     
     // Show loading indicator - use alert if showMessage not available
@@ -1714,10 +1698,6 @@ function captureBothNormal() {
     } else {
         alert('📸 Capturing synchronized photos (no flash)...');
     }
-    
-    // Add detailed debugging for the fetch request
-    console.log('🔍 DEBUG: About to make fetch request to /api/camera/capture/both (no flash)');
-    alert('🔍 DEBUG: About to make fetch request (no flash)');
     
     fetch('/api/camera/capture/both', {
         method: 'POST',
@@ -1728,14 +1708,8 @@ function captureBothNormal() {
             flash: false
         })
     })
-    .then(response => {
-        console.log('🔍 DEBUG: Got response from server (no flash):', response);
-        alert('🔍 DEBUG: Got response (no flash) - status: ' + response.status);
-        return response.json();
-    })
+    .then(response => response.json())
     .then(data => {
-        console.log('🔍 DEBUG: Parsed response data (no flash):', data);
-        alert('🔍 DEBUG: Got data (no flash): ' + JSON.stringify(data));
         if (data.success) {
             console.log('Synchronized photo captured without flash');
             const storageInfo = data.data && data.data.storage_info ? `\n${data.data.storage_info}` : '';
@@ -1755,9 +1729,7 @@ function captureBothNormal() {
         }
     })
     .catch(error => {
-        console.error('🔍 DEBUG: Capture error caught (no flash):', error);
-        alert('🔍 DEBUG: Fetch error (no flash): ' + error.message);
-        console.error('🔍 DEBUG: Error details (no flash):', error);
+        console.error('Capture error:', error);
         if (typeof showMessage === 'function') {
             showMessage(`❌ Capture error: ${error.message}`, 'error');
         } else {

@@ -1211,13 +1211,11 @@ class ScannerWebInterface:
         def api_both_cameras_capture():
             """Capture synchronized photos from both cameras with flash"""
             try:
-                print("🎯 FLASK DEBUG: /api/camera/capture/both endpoint hit!")  # Console debug
-                self.logger.info("🎯 API: Synchronized capture request received")
+                self.logger.info("📸 API: Synchronized camera capture request received")
                 data = request.get_json() or {}
                 use_flash = data.get('flash', True)  # Default to flash enabled
                 flash_intensity = data.get('flash_intensity', 80)
                 
-                print(f"📸 FLASK DEBUG: flash={use_flash}, intensity={flash_intensity}")  # Console debug
                 self.logger.info(f"📸 Synchronized capture: flash={use_flash}, intensity={flash_intensity}")
                 
                 # For synchronized capture, always use the flash sync method
