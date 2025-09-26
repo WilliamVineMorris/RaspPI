@@ -42,41 +42,32 @@ def test_web_ui_integration():
     # Test 2: Test scan parameter collection (simulate frontend)
     print("\n2. Testing scan parameter format...")
     
-    # Surface scan parameters
+    # Surface scan parameters (flattened structure expected by backend)
     surface_scan_data = {
-        "name": "Test Surface Scan",
-        "pattern": {
-            "type": "grid",
-            "x_range": [-50, 50],
-            "y_range": [-50, 50],
-            "z_range": [0, 100],
-            "x_step": 10,
-            "y_step": 10,
-            "z_step": 10
-        },
-        "settings": {
-            "resolution": "medium",
-            "speed": "medium",
-            "camera_count": 2
-        }
+        "pattern_type": "grid",
+        "x_min": -50,
+        "x_max": 50,
+        "y_min": -50,
+        "y_max": 50,
+        "spacing": 10,
+        "z_height": 25,
+        "scan_name": "Test Surface Scan",
+        "resolution": "medium",
+        "speed": "medium",
+        "camera_count": 2
     }
     
-    # Cylindrical scan parameters
+    # Cylindrical scan parameters (flattened structure expected by backend)
     cylindrical_scan_data = {
-        "name": "Test Cylindrical Scan",
-        "pattern": {
-            "type": "cylindrical",
-            "radius": 30,
-            "rotation_steps": 6,
-            "rotation_step": 60,
-            "z_rotations": [40, 60, 80, 100, 120],
-            "z_positions": [40, 60, 80, 100, 120]
-        },
-        "settings": {
-            "resolution": "high",
-            "speed": "medium",
-            "camera_count": 2
-        }
+        "pattern_type": "cylindrical",
+        "radius": 30,
+        "y_range": [40, 120],
+        "y_step": 20,
+        "z_rotations": [0, 60, 120, 180, 240, 300],
+        "scan_name": "Test Cylindrical Scan",
+        "resolution": "high",
+        "speed": "medium",
+        "camera_count": 2
     }
     
     # Test 3: Test scan start API

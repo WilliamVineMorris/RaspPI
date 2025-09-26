@@ -935,6 +935,16 @@
                                 <input type="number" id="boundaryZMax" class="parameter-input" placeholder="Max" value="100">
                             </div>
                         </div>
+                        <div class="boundary-group">
+                            <label for="gridSpacing">📏 Grid Spacing</label>
+                            <input type="number" id="gridSpacing" class="parameter-input" min="1" max="25" value="10" step="1">
+                            <small class="parameter-help">Distance between scan points (1-25mm)</small>
+                        </div>
+                        <div class="boundary-group">
+                            <label for="gridZHeight">📐 Scan Height</label>
+                            <input type="number" id="gridZHeight" class="parameter-input" min="5" max="50" value="25" step="5">
+                            <small class="parameter-help">Fixed scanning height above surface (5-50mm)</small>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1381,22 +1391,23 @@ function collectScanParameters() {
             const yStep = document.getElementById('cylindricalYStep')?.value || '20';
             const rotationStep = document.getElementById('cylindricalRotationStep')?.value || '60';
             
-            // Calculate steps
-            const heightRange = parseFloat(yMax) - parseFloat(yMin);
-            const heightSteps = Math.max(1, Math.ceil(heightRange / parseFloat(yStep)));
+            // Calculate z_rotations based on rotation step
             const rotationSteps = Math.ceil(360 / parseFloat(rotationStep));
+            const z_rotations = Array.from({length: rotationSteps}, (_, i) => 
+                i * parseFloat(rotationStep)
+            );
             
-            scanPattern = {
-                type: 'cylindrical',
+            // Return flattened structure expected by backend
+            return {
+                pattern_type: 'cylindrical',
                 radius: parseFloat(radius),
-                rotation_steps: rotationSteps,
-                rotation_step: parseFloat(rotationStep),
-                z_rotations: Array.from({length: heightSteps}, (_, i) => 
-                    parseFloat(yMin) + (i * (parseFloat(yMax) - parseFloat(yMin)) / Math.max(1, heightSteps - 1))
-                ),
-                z_positions: Array.from({length: heightSteps}, (_, i) => 
-                    parseFloat(yMin) + (i * (parseFloat(yMax) - parseFloat(yMin)) / Math.max(1, heightSteps - 1))
-                )
+                y_range: [parseFloat(yMin), parseFloat(yMax)],
+                y_step: parseFloat(yStep),
+                z_rotations: z_rotations,
+                scan_name: scanName,
+                resolution: resolution,
+                speed: speed,
+                camera_count: parseInt(cameraCount)
             };
         } else {
             // Get grid parameters
@@ -1404,29 +1415,24 @@ function collectScanParameters() {
             const xMax = document.getElementById('boundaryXMax')?.value || '50';
             const yMin = document.getElementById('boundaryYMin')?.value || '-50';
             const yMax = document.getElementById('boundaryYMax')?.value || '50';
-            const zMin = document.getElementById('boundaryZMin')?.value || '0';
-            const zMax = document.getElementById('boundaryZMax')?.value || '100';
+            const spacing = document.getElementById('gridSpacing')?.value || '10';
+            const zHeight = document.getElementById('gridZHeight')?.value || '25';
             
-            scanPattern = {
-                type: 'grid',
-                x_range: [parseFloat(xMin), parseFloat(xMax)],
-                y_range: [parseFloat(yMin), parseFloat(yMax)],
-                z_range: [parseFloat(zMin), parseFloat(zMax)],
-                x_step: 10, // Default step size
-                y_step: 10,
-                z_step: 10
-            };
-        }
-        
-        return {
-            name: scanName,
-            pattern: scanPattern,
-            settings: {
+            // Return flattened structure expected by backend
+            return {
+                pattern_type: 'grid',
+                x_min: parseFloat(xMin),
+                x_max: parseFloat(xMax),
+                y_min: parseFloat(yMin),
+                y_max: parseFloat(yMax),
+                spacing: parseFloat(spacing),
+                z_height: parseFloat(zHeight),
+                scan_name: scanName,
                 resolution: resolution,
                 speed: speed,
                 camera_count: parseInt(cameraCount)
-            }
-        };
+            };
+        }
         
     } catch (error) {
         showAlert('Error collecting scan parameters: ' + error.message, 'error');
@@ -1448,8 +1454,8 @@ function addScanToQueueDisplay(scanData) {
     queueItem.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
-                <strong>${scanData.name}</strong><br>
-                <small>Type: ${scanData.pattern.type} | Quality: ${scanData.settings.resolution}</small>
+                <strong>${scanData.scan_name}</strong><br>
+                <small>Type: ${scanData.pattern_type} | Quality: ${scanData.resolution}</small>
             </div>
             <button class="btn btn-sm btn-outline" onclick="this.parentElement.parentElement.remove()">Remove</button>
         </div>
@@ -1465,9 +1471,9 @@ function updatePreviewDisplay(scanData) {
     const previewSize = document.getElementById('previewSize');
     const previewImages = document.getElementById('previewImages');
     
-    if (scanData.pattern.type === 'cylindrical') {
-        const points = scanData.pattern.rotation_steps * scanData.pattern.z_rotations.length;
-        const images = points * scanData.settings.camera_count;
+    if (scanData.pattern_type === 'cylindrical') {
+        const points = scanData.z_rotations.length;
+        const images = points * scanData.camera_count;
         const timeMinutes = Math.ceil(points * 4); // Estimate 4 seconds per point
         
         if (previewPoints) previewPoints.textContent = points.toLocaleString();
@@ -1475,12 +1481,14 @@ function updatePreviewDisplay(scanData) {
         if (previewSize) previewSize.textContent = `${(images * 2.5).toFixed(1)} MB`; // Slightly larger file estimate
         if (previewImages) previewImages.textContent = images.toLocaleString();
     } else {
-        const xRange = scanData.pattern.x_range[1] - scanData.pattern.x_range[0];
-        const yRange = scanData.pattern.y_range[1] - scanData.pattern.y_range[0];
-        const zRange = scanData.pattern.z_range[1] - scanData.pattern.z_range[0];
+        const xRange = scanData.x_max - scanData.x_min;
+        const yRange = scanData.y_max - scanData.y_min;
+        const spacing = scanData.spacing;
         
-        const points = Math.ceil(xRange/10) * Math.ceil(yRange/10) * Math.ceil(zRange/10);
-        const images = points * scanData.settings.camera_count;
+        const xPoints = Math.ceil(xRange / spacing);
+        const yPoints = Math.ceil(yRange / spacing);
+        const points = xPoints * yPoints;
+        const images = points * scanData.camera_count;
         const timeMinutes = Math.ceil(points * 3); // Estimate 3 seconds per point
         
         if (previewPoints) previewPoints.textContent = points.toLocaleString();
