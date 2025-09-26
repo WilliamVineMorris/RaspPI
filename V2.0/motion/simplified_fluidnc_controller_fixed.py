@@ -342,8 +342,52 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                             self.protocol.serial_connection.write(command_bytes)
                             self.protocol.serial_connection.flush()
                             logger.info("🚀 ✅ DIRECT SERIAL: Movement command sent successfully")
+                            
+                            # Immediately check for any error response
+                            import time
+                            time.sleep(0.1)  # Brief wait for response
+                            if self.protocol.serial_connection.in_waiting > 0:
+                                immediate_response = self.protocol.serial_connection.readline().decode('utf-8', errors='ignore').strip()
+                                logger.info(f"📥 DIRECT SERIAL: Immediate response: '{immediate_response}'")
+                                if 'error' in immediate_response.lower():
+                                    logger.error(f"❌ DIRECT SERIAL: FluidNC reported error: {immediate_response}")
+                                elif 'ok' in immediate_response.lower():
+                                    logger.info("✅ DIRECT SERIAL: FluidNC acknowledged command")
+                            else:
+                                logger.info("📥 DIRECT SERIAL: No immediate response from FluidNC")
                             success = True
                             response = "Command sent via direct serial"
+                            
+                            # Wait for motion to complete (like the protocol wrapper does)
+                            logger.info("⏳ DIRECT SERIAL: Waiting for motion completion...")
+                            import time
+                            time.sleep(0.1)  # Small delay to let motion start
+                            
+                            # Wait for idle status (motion complete)
+                            timeout = 10.0  # 10 second timeout
+                            start_time = time.time()
+                            while time.time() - start_time < timeout:
+                                try:
+                                    # Send status query
+                                    self.protocol.serial_connection.write(b"?\n")
+                                    self.protocol.serial_connection.flush()
+                                    time.sleep(0.05)  # Brief delay for response
+                                    
+                                    # Read response
+                                    if self.protocol.serial_connection.in_waiting > 0:
+                                        response_line = self.protocol.serial_connection.readline().decode('utf-8', errors='ignore').strip()
+                                        if 'Idle' in response_line:
+                                            logger.info("✅ DIRECT SERIAL: Motion completed (Idle status detected)")
+                                            break
+                                        elif 'Run' in response_line:
+                                            logger.debug("🏃 DIRECT SERIAL: Motion in progress...")
+                                            time.sleep(0.1)
+                                            continue
+                                except Exception as status_e:
+                                    logger.debug(f"Status check error: {status_e}")
+                                    time.sleep(0.1)
+                            else:
+                                logger.warning("⚠️ DIRECT SERIAL: Motion completion timeout")
                         else:
                             logger.error("❌ DIRECT SERIAL: No serial connection available")
                             response = "No serial connection available"
