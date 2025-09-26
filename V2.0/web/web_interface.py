@@ -2191,16 +2191,25 @@ class ScannerWebInterface:
             # Get current position for metadata
             current_position = None
             try:
-                if hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
-                    current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
-                    if current_position:
-                        self.logger.info(f"📍 Captured scanner coordinates for camera pair: X={current_position.x:.3f}, Y={current_position.y:.3f}, Z={current_position.z:.1f}°, C={current_position.c:.1f}°")
+                self.logger.info("📍 Attempting to capture scanner coordinates...")
+                if hasattr(self.orchestrator, 'motion_controller'):
+                    self.logger.info(f"📍 Motion controller exists: {self.orchestrator.motion_controller is not None}")
+                    if self.orchestrator.motion_controller:
+                        self.logger.info("📍 Calling get_current_position()...")
+                        current_position = asyncio.run(self.orchestrator.motion_controller.get_current_position())
+                        self.logger.info(f"📍 Motion controller returned: {current_position}")
+                        if current_position:
+                            self.logger.info(f"📍 Captured scanner coordinates for camera pair: X={current_position.x:.3f}, Y={current_position.y:.3f}, Z={current_position.z:.1f}°, C={current_position.c:.1f}°")
+                        else:
+                            self.logger.warning("📍 Motion controller returned None position")
                     else:
-                        self.logger.warning("📍 Motion controller returned None position")
+                        self.logger.warning("📍 Motion controller is None")
                 else:
-                    self.logger.warning("📍 Motion controller not available for position capture")
+                    self.logger.warning("📍 Motion controller attribute not found on orchestrator")
             except Exception as pos_error:
-                self.logger.warning(f"📍 Could not get current position: {pos_error}")
+                self.logger.error(f"📍 Could not get current position: {pos_error}")
+                import traceback
+                self.logger.error(f"📍 Position error traceback: {traceback.format_exc()}")
                 current_position = None
             
             # Create and start session for this capture
@@ -2440,6 +2449,17 @@ class ScannerWebInterface:
                 image_data, camera_id, current_position, flash_intensity, session_id, capture_metadata
             )
             
+            # Create position data dictionary
+            position_dict = {
+                'x': current_position.x if current_position else 0.0,
+                'y': current_position.y if current_position else 0.0,
+                'z': current_position.z if current_position else 0.0,
+                'c': current_position.c if current_position else 0.0
+            }
+            
+            self.logger.info(f"📍 Creating position_data for storage: {position_dict}")
+            self.logger.info(f"📍 current_position object: {current_position}")
+            
             # Create comprehensive metadata
             metadata = StorageMetadata(
                 file_id=str(uuid.uuid4()),
@@ -2450,12 +2470,7 @@ class ScannerWebInterface:
                 creation_time=time.time(),
                 scan_session_id=session_id,
                 sequence_number=camera_id,
-                position_data={
-                    'x': current_position.x if current_position else 0.0,
-                    'y': current_position.y if current_position else 0.0,
-                    'z': current_position.z if current_position else 0.0,
-                    'c': current_position.c if current_position else 0.0
-                },
+                position_data=position_dict,
                 camera_settings={
                     'camera_id': camera_id,
                     'physical_camera': f'camera_{camera_id}',
