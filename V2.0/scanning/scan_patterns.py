@@ -307,11 +307,11 @@ class CylindricalPatternParameters(PatternParameters):
         if self.c_angles is None:
             self.c_angles = list(range(-30, 31, int(self.c_step)))
             
-        # Validate ranges
-        if self.x_start >= self.x_end:
-            raise ValueError("x_start must be less than x_end")
-        if self.y_start >= self.y_end:
-            raise ValueError("y_start must be less than y_end")
+        # Validate ranges (allow equal values for fixed positions)
+        if self.x_start > self.x_end:
+            raise ValueError("x_start must be less than or equal to x_end")
+        if self.y_start > self.y_end:
+            raise ValueError("y_start must be less than or equal to y_end")
 
 
 class CylindricalScanPattern(ScanPattern):
