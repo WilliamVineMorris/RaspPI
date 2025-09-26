@@ -2156,26 +2156,27 @@ class ScannerWebInterface:
             raise HardwareError(f"Failed to capture image with flash: {e}")
     
     def _execute_synchronized_capture_with_flash(self, flash_intensity: int = 80) -> Dict[str, Any]:
-        """Execute synchronized capture from both cameras with flash - SIMPLE WORKING VERSION"""
+        """Execute synchronized capture with flash using proper storage integration"""
         try:
             if not self.orchestrator or not hasattr(self.orchestrator, 'camera_manager') or not self.orchestrator.camera_manager:
                 raise HardwareError("Camera manager not available")
             
-            # Prepare capture parameters
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            self.logger.info(f"🔥 Starting synchronized flash capture with storage integration - intensity: {flash_intensity}%")
             
-            self.logger.info(f"🔥 Starting synchronized flash capture - intensity: {flash_intensity}%")
+            # Get current position for metadata
+            current_position = None
+            try:
+                if hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+                    current_position = self.orchestrator.motion_controller.get_current_position()
+            except Exception as pos_error:
+                self.logger.warning(f"Could not get current position: {pos_error}")
             
-            # Simple approach: Just capture from both cameras like the working dashboard capture
+            # Create session for this capture
+            session_id = f"manual_capture_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             results = []
-            from pathlib import Path
-            import cv2
-            
-            # Create output directory
-            output_dir = Path.home() / "manual_captures" / datetime.now().strftime('%Y-%m-%d')
-            output_dir.mkdir(parents=True, exist_ok=True)
             
             # Flash coordination (if lighting controller available)
+            flash_result = None
             try:
                 if hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
                     flash_settings = {
@@ -2186,13 +2187,13 @@ class ScannerWebInterface:
                     
                     import asyncio
                     async def trigger_flash():
-                        await self.orchestrator.lighting_controller.flash(['all'], flash_settings)
+                        return await self.orchestrator.lighting_controller.flash(['all'], flash_settings)
                     
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
-                        loop.run_until_complete(trigger_flash())
-                        self.logger.info("⚡ Flash triggered")
+                        flash_result = loop.run_until_complete(trigger_flash())
+                        self.logger.info("⚡ Flash triggered successfully")
                     finally:
                         loop.close()
                     
@@ -2204,7 +2205,9 @@ class ScannerWebInterface:
             except Exception as flash_error:
                 self.logger.warning(f"⚠️ Flash failed: {flash_error}, continuing with capture")
             
-            # Capture from both cameras using the same method as the working dashboard
+            # Capture from both cameras with proper storage integration
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            
             for camera_id in [0, 1]:
                 try:
                     self.logger.info(f"📸 Capturing camera {camera_id + 1}")
@@ -2213,6 +2216,7 @@ class ScannerWebInterface:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
+                        # Capture using picamera2 - returns numpy array directly
                         image_data = loop.run_until_complete(
                             self.orchestrator.camera_manager.capture_high_resolution(camera_id)
                         )
@@ -2220,15 +2224,41 @@ class ScannerWebInterface:
                         loop.close()
                     
                     if image_data is not None:
-                        # Save image
-                        filename = output_dir / f"flash_sync_{timestamp}_camera_{camera_id + 1}.jpg"
-                        cv2.imwrite(str(filename), image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                        results.append({
-                            'camera_id': camera_id, 
-                            'filename': str(filename),
-                            'success': True
-                        })
-                        self.logger.info(f"✅ Saved camera {camera_id + 1}: {filename}")
+                        # Try to use storage manager for proper metadata integration
+                        if hasattr(self.orchestrator, 'storage_manager') and self.orchestrator.storage_manager:
+                            try:
+                                file_id = self._store_image_with_metadata_sync(
+                                    image_data, camera_id, session_id, current_position, 
+                                    flash_intensity, flash_result
+                                )
+                                results.append({
+                                    'camera_id': camera_id,
+                                    'file_id': file_id,
+                                    'success': True,
+                                    'storage_method': 'session_manager',
+                                    'session_id': session_id
+                                })
+                                self.logger.info(f"✅ Stored camera {camera_id + 1} with file_id: {file_id}")
+                            except Exception as storage_error:
+                                self.logger.error(f"Storage failed for camera {camera_id + 1}: {storage_error}")
+                                # Fallback to direct file saving
+                                filename = self._fallback_save_image_sync(image_data, camera_id, timestamp)
+                                results.append({
+                                    'camera_id': camera_id,
+                                    'filename': str(filename),
+                                    'success': True,
+                                    'storage_method': 'fallback_file'
+                                })
+                        else:
+                            # No storage manager - use fallback
+                            self.logger.warning("No storage manager available, using fallback file saving")
+                            filename = self._fallback_save_image_sync(image_data, camera_id, timestamp)
+                            results.append({
+                                'camera_id': camera_id,
+                                'filename': str(filename),
+                                'success': True,
+                                'storage_method': 'fallback_file'
+                            })
                     else:
                         self.logger.error(f"❌ Camera {camera_id + 1} returned no data")
                         results.append({
@@ -2251,7 +2281,12 @@ class ScannerWebInterface:
             
             if successful_captures > 0:
                 self.logger.info(f"✅ Synchronized flash capture completed: {successful_captures}/{len(results)} images")
-                self.logger.info(f"📁 Photos saved to: {output_dir}")
+                
+                storage_info = f"Session: {session_id}, Files: {successful_captures}"
+                if any(r.get('storage_method') == 'session_manager' for r in results):
+                    storage_info += " (stored in session manager)"
+                else:
+                    storage_info += " (fallback file storage)"
                 
                 return {
                     'cameras': 'both',
@@ -2262,8 +2297,8 @@ class ScannerWebInterface:
                     'synchronized': True,
                     'capture_results': results,
                     'successful_captures': successful_captures,
-                    'output_directory': str(output_dir),
-                    'storage_info': f'Photos saved to: {output_dir}'
+                    'session_id': session_id,
+                    'storage_info': storage_info
                 }
             else:
                 raise HardwareError("No cameras captured successfully")
@@ -2271,6 +2306,94 @@ class ScannerWebInterface:
         except Exception as e:
             self.logger.error(f"❌ Synchronized flash capture execution failed: {e}")
             raise HardwareError(f"Failed to capture synchronized images with flash: {e}")
+
+    def _store_image_with_metadata_sync(self, image_data, camera_id: int, session_id: str, 
+                                       current_position, flash_intensity: int, flash_result) -> str:
+        """Store image using proper storage manager with full metadata (synchronous wrapper)"""
+        try:
+            # Import required modules
+            from storage.base import StorageMetadata, DataType
+            import uuid
+            import hashlib
+            import cv2
+            import time
+            
+            # Convert numpy array to JPEG bytes for storage
+            _, img_encoded = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            img_bytes = img_encoded.tobytes()
+            
+            # Create comprehensive metadata
+            metadata = StorageMetadata(
+                file_id=str(uuid.uuid4()),
+                original_filename=f"manual_capture_camera_{camera_id + 1}.jpg",
+                data_type=DataType.RAW_IMAGE,  # Use RAW_IMAGE for manual captures
+                file_size_bytes=len(img_bytes),
+                checksum=hashlib.sha256(img_bytes).hexdigest(),
+                creation_time=time.time(),
+                scan_session_id=session_id,
+                sequence_number=camera_id,
+                position_data={
+                    'x': current_position.x if current_position else 0.0,
+                    'y': current_position.y if current_position else 0.0,
+                    'z': current_position.z if current_position else 0.0,
+                    'c': current_position.c if current_position else 0.0
+                } if current_position else None,
+                camera_settings={
+                    'camera_id': camera_id,
+                    'resolution': 'high',
+                    'capture_mode': 'manual',
+                    'image_format': 'JPEG',
+                    'quality': 95
+                },
+                lighting_settings={
+                    'flash_used': True,
+                    'flash_intensity': flash_intensity,
+                    'flash_duration': 100,
+                    'flash_result': str(flash_result) if flash_result else 'success'
+                },
+                tags=['manual_capture', 'flash_sync', f'camera_{camera_id + 1}', 'web_interface']
+            )
+            
+            # Store using async wrapper with error handling
+            if not hasattr(self.orchestrator, 'storage_manager') or not self.orchestrator.storage_manager:
+                raise Exception("Storage manager not available")
+                
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                file_id = loop.run_until_complete(
+                    self.orchestrator.storage_manager.store_file(img_bytes, metadata)
+                )
+                self.logger.info(f"📦 Stored image with metadata: {file_id}")
+                return file_id
+            finally:
+                loop.close()
+                
+        except Exception as e:
+            self.logger.error(f"Failed to store image with metadata: {e}")
+            raise
+    
+    def _fallback_save_image_sync(self, image_data, camera_id: int, timestamp: str) -> Path:
+        """Fallback image saving to filesystem (synchronous)"""
+        try:
+            from pathlib import Path
+            import cv2
+            
+            # Create output directory
+            output_dir = Path.home() / "manual_captures" / datetime.now().strftime('%Y-%m-%d')
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Save image
+            filename = output_dir / f"flash_sync_{timestamp}_camera_{camera_id + 1}.jpg"
+            cv2.imwrite(str(filename), image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            
+            self.logger.info(f"💾 Fallback saved: {filename}")
+            return filename
+            
+        except Exception as e:
+            self.logger.error(f"Fallback image save failed: {e}")
+            raise
     
     def _execute_synchronized_capture(self) -> Dict[str, Any]:
         """Execute synchronized capture from both cameras without flash - SIMPLE WORKING VERSION"""
