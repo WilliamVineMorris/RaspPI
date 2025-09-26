@@ -240,26 +240,17 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 position.c - current.c
             )
             
-            # Use provided feedrate or get fast feedrate for manual positioning
-            if feedrate is None:
-                if self.operating_mode == "manual_mode":
-                    # For manual positioning, use the fastest safe feedrate for responsive movement
-                    feedrate = min(
-                        self.get_feedrate_for_axis('x'),
-                        self.get_feedrate_for_axis('y'),
-                        self.get_feedrate_for_axis('z'),
-                        self.get_feedrate_for_axis('c')
-                    )
-                    logger.debug(f"🚀 Fast positioning feedrate: {feedrate} (manual_mode)")
-                else:
-                    feedrate = self.get_optimal_feedrate(delta)
-                    logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
+            # Use provided feedrate or get optimal feedrate (only needed for scanning mode)
+            if feedrate is None and self.operating_mode != "manual_mode":
+                feedrate = self.get_optimal_feedrate(delta)
+                logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
             
             # Optimize for manual operations: combine commands to reduce delays
             if self.operating_mode == "manual_mode":
-                # For manual positioning, combine mode, move, and feedrate into single command
-                # FluidNC supports F parameter directly in move commands
-                gcode = f"G90 G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f} F{feedrate}"
+                # For manual positioning, use FluidNC default feedrates (fastest)
+                # Omit F parameter to let FluidNC use its configured default speeds
+                gcode = f"G90 G1 X{position.x:.3f} Y{position.y:.3f} Z{position.z:.3f} A{position.c:.3f}"
+                logger.debug(f"🚀 Using FluidNC default feedrates for maximum speed")
                 success, response = await self._send_command(gcode, priority="high")
             else:
                 # For scan operations, use separate commands for precision and reliability
@@ -317,16 +308,17 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             if not self._validate_position_limits(target):
                 raise MotionSafetyError(f"Relative move {delta} would exceed limits")
             
-            # Use provided feedrate or get optimal feedrate based on current mode
-            if feedrate is None:
+            # Use provided feedrate or get optimal feedrate (only needed for scanning mode)
+            if feedrate is None and self.operating_mode != "manual_mode":
                 feedrate = self.get_optimal_feedrate(delta)
                 logger.debug(f"🎯 Auto-selected feedrate: {feedrate} ({self.operating_mode})")
             
             # Optimize for manual operations: combine commands to reduce delays
             if self.operating_mode == "manual_mode":
-                # For manual jogging, combine feedrate and move into single command
-                # FluidNC supports F parameter directly in move commands
-                gcode = f"G90 G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f} F{feedrate}"
+                # For manual jogging, use FluidNC default feedrates (fastest)
+                # Omit F parameter to let FluidNC use its configured default speeds
+                gcode = f"G90 G1 X{target.x:.3f} Y{target.y:.3f} Z{target.z:.3f} A{target.c:.3f}"
+                logger.debug(f"🚀 Using FluidNC default feedrates for maximum speed")
                 success, response = await self._send_command(gcode, priority="high")
             else:
                 # For scan operations, use separate commands for precision and reliability
