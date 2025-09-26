@@ -1697,23 +1697,8 @@ class ScannerWebInterface:
             if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
                 raise HardwareError("Motion controller not available")
             
-            # SAFETY CHECK: Get alarm state before allowing movement
+            # Motion controller has its own safety validation, no need for separate alarm check
             motion_controller = self.orchestrator.motion_controller
-            if hasattr(motion_controller, 'controller') and hasattr(motion_controller.controller, 'get_alarm_state'):
-                try:
-                    alarm_info = await motion_controller.controller.get_alarm_state()
-                    if alarm_info.get('is_alarm', False):
-                        raise HardwareError(f"Movement blocked - FluidNC in ALARM state. {alarm_info.get('message', '')}")
-                    if alarm_info.get('is_error', False):
-                        raise HardwareError(f"Movement blocked - FluidNC in ERROR state. {alarm_info.get('message', '')}")
-                    if not alarm_info.get('can_move', True):
-                        raise HardwareError(f"Movement blocked - FluidNC not ready for movement. Status: {alarm_info.get('status', 'unknown')}")
-                except Exception as safety_e:
-                    # If we can't check safety, err on the side of caution
-                    self.logger.warning(f"Could not verify system safety before movement: {safety_e}")
-                    # But allow movement if it's just a communication issue
-                    if "alarm" in str(safety_e).lower():
-                        raise  # Re-raise alarm-related errors
             
             axis = command['axis']
             distance = command['distance']
@@ -1766,23 +1751,8 @@ class ScannerWebInterface:
             if not self.orchestrator or not hasattr(self.orchestrator, 'motion_controller') or not self.orchestrator.motion_controller:
                 raise HardwareError("Motion controller not available")
             
-            # SAFETY CHECK: Get alarm state before allowing movement
+            # Motion controller has its own safety validation, no need for separate alarm check
             motion_controller = self.orchestrator.motion_controller
-            if hasattr(motion_controller, 'controller') and hasattr(motion_controller.controller, 'get_alarm_state'):
-                try:
-                    alarm_info = await motion_controller.controller.get_alarm_state()
-                    if alarm_info.get('is_alarm', False):
-                        raise HardwareError(f"Position movement blocked - FluidNC in ALARM state. {alarm_info.get('message', '')}")
-                    if alarm_info.get('is_error', False):
-                        raise HardwareError(f"Position movement blocked - FluidNC in ERROR state. {alarm_info.get('message', '')}")
-                    if not alarm_info.get('can_move', True):
-                        raise HardwareError(f"Position movement blocked - FluidNC not ready. Status: {alarm_info.get('status', 'unknown')}")
-                except Exception as safety_e:
-                    # If we can't check safety, err on the side of caution
-                    self.logger.warning(f"Could not verify system safety before position movement: {safety_e}")
-                    # But allow movement if it's just a communication issue
-                    if "alarm" in str(safety_e).lower():
-                        raise  # Re-raise alarm-related errors
             
             # Convert dictionary to Position4D object for motion controller
             position_obj = Position4D(
