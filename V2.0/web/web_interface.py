@@ -258,15 +258,26 @@ class CommandValidator:
         y_range = (float(data.get('y_min', 40.0)), float(data.get('y_max', 120.0)))
         y_step = float(data.get('y_step', 20.0))
         
-        # Rotation parameters (Z-axis)
-        if 'z_rotations' in data:
+        # Z-axis rotation parameters (cylinder rotation)
+        if 'z_rotations' in data and data['z_rotations']:
             z_rotations = [float(r) for r in data['z_rotations']]
         else:
+            # Calculate Z-axis rotations from rotation_step
             rotation_step = float(data.get('rotation_step', 60.0))
             z_rotations = [float(i) for i in range(0, 360, int(rotation_step))]
         
-        # Camera angles (C-axis)
-        c_angles = [float(a) for a in data.get('c_angles', [-10, 0, 10])]
+        # Camera servo angle (C-axis) - convert to single angle for cylindrical scan
+        if 'c_angles' in data and data['c_angles']:
+            # Use first angle if multiple provided, or parse from array
+            c_angles_input = data['c_angles']
+            if isinstance(c_angles_input, list) and len(c_angles_input) > 0:
+                servo_angle = float(c_angles_input[0])  # Use first angle only
+            else:
+                servo_angle = 0.0
+        else:
+            servo_angle = float(data.get('servo_angle', 0.0))
+        
+        c_angles = [servo_angle]  # Single servo angle for cylindrical scan
         
         # Validate parameters
         if not (5.0 <= radius <= 100.0):
@@ -291,9 +302,11 @@ class CommandValidator:
             'pattern_type': 'cylindrical',
             'radius': radius,
             'y_range': y_range,
-            'y_step': y_step,
-            'z_rotations': z_rotations,
-            'c_angles': c_angles,
+            'y_step': y_step, 
+            'z_rotations': z_rotations,    # Z-axis: cylinder rotation angles
+            'c_angles': c_angles,          # C-axis: single fixed servo angle
+            'rotation_step': data.get('rotation_step', 60.0),  # For reference
+            'servo_angle': servo_angle,    # Single servo angle value
             'validated': True
         }
 
@@ -2034,9 +2047,14 @@ class ScannerWebInterface:
                 )
             elif pattern_data['pattern_type'] == 'cylindrical':
                 # Cylindrical pattern: Z axis rotates cylinder, C axis controls servo
-                # Ensure proper cylindrical scan setup
-                z_rotations = pattern_data.get('z_rotations', list(range(0, 360, 45)))  # Default: 8 angles
-                c_angles = pattern_data.get('c_angles', [0.0])  # Default: fixed servo angle
+                # Ensure proper cylindrical scan setup with Z-axis rotation
+                z_rotations = pattern_data.get('z_rotations')
+                if not z_rotations or len(z_rotations) == 0:
+                    # Force Z-axis rotation if not provided
+                    z_rotations = list(range(0, 360, 60))  # 6 positions at 60° intervals
+                    self.logger.warning(f"No Z-rotations provided, using default: {z_rotations}")
+                
+                c_angles = pattern_data.get('c_angles', [0.0])  # Single servo angle
                 
                 pattern = self.orchestrator.create_cylindrical_pattern(
                     radius=pattern_data['radius'],
@@ -2045,8 +2063,9 @@ class ScannerWebInterface:
                     z_rotations=z_rotations,  # CYLINDER rotation angles
                     c_angles=c_angles         # SERVO angle (typically fixed)
                 )
-                self.logger.info(f"🔄 Cylindrical scan: Z-axis (cylinder) rotations={z_rotations}")
-                self.logger.info(f"📐 Cylindrical scan: C-axis (servo) angles={c_angles}")
+                self.logger.info(f"🔄 Cylindrical scan: Z-axis (cylinder) rotations={z_rotations} ({len(z_rotations)} positions)")
+                self.logger.info(f"📐 Cylindrical scan: C-axis (servo) angles={c_angles} (fixed servo)")
+                self.logger.info(f"📈 Pattern parameters: radius={pattern_data['radius']}, y_range={pattern_data['y_range']}, y_step={pattern_data['y_step']}")
             else:
                 raise ValueError(f"Unknown pattern type: {pattern_data['pattern_type']}")
             

@@ -180,14 +180,15 @@ function getCylindricalScanConfig() {
     const rotationStep = parseFloat(document.getElementById('rotation-step').value) || 60;
     const radius = parseFloat(document.getElementById('radius').value) || 30;
     
-    // Parse camera angles
+    // Use single camera angle for cylindrical scanning (C-axis fixed)
     const angleText = document.getElementById('camera-angles').value;
-    const cAngles = angleText.split(',').map(a => parseFloat(a.trim())).filter(a => !isNaN(a));
+    const parsedAngles = angleText.split(',').map(a => parseFloat(a.trim())).filter(a => !isNaN(a));
+    const servoAngle = parsedAngles.length > 0 ? parsedAngles[0] : 0.0;  // Use first angle only
     
-    // Calculate statistics
+    // Calculate statistics (Z-axis rotations × Y-axis heights, C-axis fixed)
     const heightLevels = Math.floor((yMax - yMin) / yStep) + 1;
     const rotationPositions = Math.floor(360 / rotationStep);
-    const totalPoints = heightLevels * rotationPositions * cAngles.length;
+    const totalPoints = heightLevels * rotationPositions;  // No C-axis multiplication!
     const estimatedTime = Math.ceil(totalPoints * 2 / 60);
     
     return {
@@ -197,7 +198,8 @@ function getCylindricalScanConfig() {
         y_max: yMax,
         y_step: yStep,
         rotation_step: rotationStep,
-        c_angles: cAngles,
+        servo_angle: servoAngle,        // Single fixed servo angle
+        c_angles: [servoAngle],         // Array with single angle for backend
         estimated_points: totalPoints,
         estimated_time: estimatedTime
     };
@@ -213,9 +215,9 @@ Start Cylindrical Scan?
 📊 ${config.estimated_points} total positions
 ⏱️ ~${config.estimated_time} minutes estimated
 📐 Fixed radius: ${config.radius}mm
-📏 ${Math.floor((config.y_max - config.y_min) / config.y_step) + 1} height levels
-🔄 ${Math.floor(360 / config.rotation_step)} rotation positions
-📷 ${config.c_angles.length} camera angles per position
+📏 ${Math.floor((config.y_max - config.y_min) / config.y_step) + 1} height levels  
+🔄 ${Math.floor(360 / config.rotation_step)} Z-axis rotations (cylinder)
+📷 Fixed servo angle: ${config.servo_angle}° (C-axis)
 
 This will capture ${config.estimated_points * 2} photos total (2 cameras).
     `;

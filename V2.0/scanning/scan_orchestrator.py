@@ -2354,6 +2354,18 @@ class ScanOrchestrator:
         from .scan_patterns import CylindricalPatternParameters, CylindricalScanPattern
         
         # Create pattern parameters with fixed radius (x_start = x_end)
+        # Ensure Z-axis rotations are provided for cylindrical scan
+        if z_rotations is None or len(z_rotations) == 0:
+            z_rotations = list(range(0, 360, 60))  # Default: 6 positions
+            logger.warning(f"No Z-rotations provided for cylindrical scan, using default: {z_rotations}")
+            
+        # Ensure single servo angle for consistency
+        if c_angles is None or len(c_angles) == 0:
+            c_angles = [0.0]  # Default: servo at center
+        elif len(c_angles) > 1:
+            c_angles = [c_angles[0]]  # Use only first angle for consistency
+            logger.info(f"Multiple servo angles provided, using single angle: {c_angles[0]}°")
+        
         parameters = CylindricalPatternParameters(
             x_start=radius,      # Fixed camera radius
             x_end=radius,        # Same as start for fixed position
@@ -2361,8 +2373,8 @@ class ScanOrchestrator:
             y_end=y_range[1],
             x_step=1.0,          # Not used when x_start = x_end
             y_step=y_step,
-            z_rotations=z_rotations,
-            c_angles=c_angles,
+            z_rotations=z_rotations,  # Z-axis: cylinder rotation angles
+            c_angles=c_angles,        # C-axis: single servo angle
             safety_margin=0.5
         )
         
