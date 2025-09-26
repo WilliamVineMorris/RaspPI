@@ -2400,7 +2400,14 @@ class ScannerWebInterface:
                 },
                 tags=['manual_capture', 'flash_sync', f'camera_{camera_id}', 'web_interface'],
                 file_extension='.jpg',
-                filename=f"manual_capture_camera_{camera_id}"
+                filename=f"manual_capture_camera_{camera_id}",
+                scan_point_id=f"manual_point_{camera_id}",
+                camera_id=str(camera_id),
+                metadata={
+                    'capture_type': 'manual_flash',
+                    'web_interface_version': '2.0',
+                    'synchronized': True
+                }
             )
             
             # Store using async wrapper with error handling

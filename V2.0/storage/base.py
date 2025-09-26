@@ -93,6 +93,9 @@ class StorageMetadata:
     tags: Optional[List[str]] = None
     file_extension: Optional[str] = None
     filename: Optional[str] = None
+    scan_point_id: Optional[str] = None
+    camera_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
     
     def __post_init__(self):
         if self.tags is None:
@@ -114,7 +117,10 @@ class StorageMetadata:
             'lighting_settings': self.lighting_settings,
             'tags': self.tags,
             'file_extension': self.file_extension,
-            'filename': self.filename
+            'filename': self.filename,
+            'scan_point_id': self.scan_point_id,
+            'camera_id': self.camera_id,
+            'metadata': self.metadata
         }
 
 
