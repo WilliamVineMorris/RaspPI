@@ -274,6 +274,31 @@ class SimpleWorkingFluidNCController:
             self.logger.error(f"❌ Homing error: {e}")
             return False
     
+    def _query_current_status(self) -> Optional[str]:
+        """Query current FluidNC status when specifically needed (not for general monitoring)."""
+        if not self.is_connected():
+            return None
+        
+        try:
+            # Send status query and wait for response
+            response = self._send_command("?")
+            if response:
+                # Parse status from response like <Idle|MPos:...> or <Alarm|...>
+                status_match = self._status_pattern.search(response)
+                if status_match:
+                    raw_status = status_match.group(1)
+                    current_status = raw_status.capitalize()
+                    self.logger.debug(f"📊 Queried status: {current_status}")
+                    self._current_status = current_status  # Update cached status
+                    return current_status
+            
+            self.logger.debug("⚠️ No status response from query")
+            return None
+            
+        except Exception as e:
+            self.logger.debug(f"Status query error: {e}")
+            return None
+    
     def clear_alarm(self) -> bool:
         """Clear alarm state manually - useful for web interface."""
         if not self.is_connected():
@@ -288,7 +313,14 @@ class SimpleWorkingFluidNCController:
                 self.logger.info(f"🔓 Alarm clear attempt {attempt + 1}: {unlock_response}")
                 if 'ok' in unlock_response.lower() or 'Idle' in unlock_response:
                     self.logger.info("✅ Alarm cleared successfully!")
-                    return True
+                    # Verify status after unlock
+                    time.sleep(0.5)
+                    final_status = self._query_current_status()
+                    if final_status and final_status != "Alarm":
+                        self.logger.info(f"✅ Status confirmed: {final_status}")
+                        return True
+                    else:
+                        self.logger.warning(f"⚠️ Status still shows: {final_status}")
             else:
                 self.logger.warning(f"⚠️ Alarm clear attempt {attempt + 1} - no response")
             
@@ -302,8 +334,12 @@ class SimpleWorkingFluidNCController:
         """Web interface compatibility method for homing."""
         self.logger.info(f"🏠 Web interface homing request for axes: {axes}")
         
+        # Query current status to check for alarm state (don't rely on cached status)
+        current_status = self._query_current_status()
+        self.logger.info(f"📊 Current system status: {current_status}")
+        
         # Check if system is in alarm state and try to clear it first
-        if self._current_status == "Alarm":
+        if current_status == "Alarm":
             self.logger.info("⚠️ System in alarm state - attempting to clear before homing")
             if not self.clear_alarm():
                 return {
