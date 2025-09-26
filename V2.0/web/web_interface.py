@@ -416,8 +416,14 @@ class ScannerWebInterface:
                 # Validate command
                 validated_position = CommandValidator.validate_position_command(data)
                 
-                # Execute movement
-                result = self._execute_position_command(validated_position)
+                # Execute movement with proper async handling
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(self._execute_position_command(validated_position))
+                finally:
+                    loop.close()
                 
                 return jsonify({
                     'success': True,
