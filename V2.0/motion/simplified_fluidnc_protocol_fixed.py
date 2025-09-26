@@ -247,18 +247,23 @@ class SimplifiedFluidNCProtocolFixed:
                 command_sent_time = time.time()
                 logger.debug(f"📤 [TIMING] Command sent after: {(command_sent_time-start_time)*1000:.1f}ms")
                 
-                # Wait for immediate response (ok/error) - shorter timeout for manual commands
-                response_timeout = 2.0 if priority == "high" else self.command_timeout
-                logger.info(f"📥 PROTOCOL DEBUG: Waiting for response (timeout: {response_timeout}s)...")
-                immediate_response = self._wait_for_immediate_response(response_timeout)
-                response_received_time = time.time() 
-                logger.debug(f"📥 [TIMING] Response received after: {(response_received_time-start_time)*1000:.1f}ms")
-                logger.info(f"📥 PROTOCOL DEBUG: FluidNC immediate response: '{immediate_response}'")
-                
-                if not immediate_response:
-                    self.stats['timeouts'] += 1
-                    logger.error("❌ PROTOCOL DEBUG: Command timeout - no response from FluidNC")
-                    return False, "Command timeout"
+                # Special handling for homing commands - they don't send immediate 'ok' response
+                if command.strip() == '$H':
+                    logger.info("🏠 PROTOCOL DEBUG: Homing command - skipping immediate response wait")
+                    immediate_response = "homing_started"  # Fake response for homing
+                else:
+                    # Wait for immediate response (ok/error) - shorter timeout for manual commands
+                    response_timeout = 2.0 if priority == "high" else self.command_timeout
+                    logger.info(f"📥 PROTOCOL DEBUG: Waiting for response (timeout: {response_timeout}s)...")
+                    immediate_response = self._wait_for_immediate_response(response_timeout)
+                    response_received_time = time.time() 
+                    logger.debug(f"📥 [TIMING] Response received after: {(response_received_time-start_time)*1000:.1f}ms")
+                    logger.info(f"📥 PROTOCOL DEBUG: FluidNC immediate response: '{immediate_response}'")
+                    
+                    if not immediate_response:
+                        self.stats['timeouts'] += 1
+                        logger.error("❌ PROTOCOL DEBUG: Command timeout - no response from FluidNC")
+                        return False, "Command timeout"
                 
                 # Check if this is a motion command
                 is_motion_command = self._is_motion_command(command)
