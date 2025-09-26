@@ -2053,28 +2053,51 @@ class ScannerWebInterface:
                 loop.close()
             
             if image_data is not None:
-                # Save the captured image to disk
-                from pathlib import Path
-                import cv2
-                
-                # Create output directory
-                output_dir = Path.home() / "manual_captures" / datetime.now().strftime('%Y-%m-%d')
-                output_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Save image
-                filename = output_dir / f"single_capture_{timestamp}_camera_{camera_id + 1}.jpg"
-                cv2.imwrite(str(filename), image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                
-                self.logger.info(f"✅ Camera capture executed: Camera {camera_id}")
-                self.logger.info(f"📁 Photo saved to: {filename}")
+                # Save using proper storage system with full metadata
+                try:
+                    # Get current position if motion controller available
+                    current_position = None
+                    if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+                        try:
+                            current_position = self.orchestrator.motion_controller.get_current_position()
+                        except:
+                            current_position = None
+                    
+                    # Use proper storage with metadata
+                    session_id = f"Manual_Captures_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    saved_path = self._store_image_with_metadata_sync(
+                        image_data=image_data,
+                        camera_id=camera_id,
+                        session_id=session_id,
+                        current_position=current_position,
+                        flash_intensity=0,  # No flash for single capture
+                        flash_result={'flash_used': False}
+                    )
+                    self.logger.info(f"✅ Camera capture executed: Camera {camera_id}")
+                    self.logger.info(f"📁 Photo saved with metadata to: {saved_path}")
+                    
+                except Exception as storage_error:
+                    # Fallback to basic file saving if storage fails
+                    self.logger.warning(f"Storage system failed: {storage_error}, using fallback")
+                    from pathlib import Path
+                    import cv2
+                    
+                    output_dir = Path.home() / "manual_captures" / datetime.now().strftime('%Y-%m-%d')
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    filename = output_dir / f"single_capture_{timestamp}_camera_{camera_id + 1}.jpg"
+                    cv2.imwrite(str(filename), image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    
+                    self.logger.info(f"✅ Camera capture executed: Camera {camera_id}")
+                    self.logger.info(f"📁 Photo saved to fallback location: {filename}")
+                    saved_path = str(filename)
                 
                 return {
                     'camera_id': camera_id,
                     'timestamp': timestamp,
                     'success': True,
                     'image_captured': True,
-                    'filename': str(filename),
-                    'storage_info': f'Photo saved to: {filename}'
+                    'filename': saved_path,
+                    'storage_info': f'Photo saved with metadata to: {saved_path}'
                 }
             else:
                 raise HardwareError("Camera capture returned no data")
@@ -2406,16 +2429,21 @@ class ScannerWebInterface:
             
             self.logger.info(f"📷 Starting synchronized capture (no flash)")
             
-            # Simple approach: Just capture from both cameras like the working dashboard capture
+            # Capture from both cameras using proper storage system
             results = []
-            from pathlib import Path
-            import cv2
             
-            # Create output directory
-            output_dir = Path.home() / "manual_captures" / datetime.now().strftime('%Y-%m-%d')
-            output_dir.mkdir(parents=True, exist_ok=True)
+            # Get current position if available
+            current_position = None
+            if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+                try:
+                    current_position = self.orchestrator.motion_controller.get_current_position()
+                except:
+                    current_position = None
             
-            # Capture from both cameras using the same method as the working dashboard
+            # Create session for synchronized captures
+            session_id = f"Manual_Captures_{timestamp}"
+            
+            # Capture from both cameras
             for camera_id in [0, 1]:
                 try:
                     self.logger.info(f"📸 Capturing camera {camera_id + 1}")
@@ -2431,15 +2459,39 @@ class ScannerWebInterface:
                         loop.close()
                     
                     if image_data is not None:
-                        # Save image
-                        filename = output_dir / f"sync_{timestamp}_camera_{camera_id + 1}.jpg"
-                        cv2.imwrite(str(filename), image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                        results.append({
-                            'camera_id': camera_id, 
-                            'filename': str(filename),
-                            'success': True
-                        })
-                        self.logger.info(f"✅ Saved camera {camera_id + 1}: {filename}")
+                        # Save using proper storage system
+                        try:
+                            saved_path = self._store_image_with_metadata_sync(
+                                image_data=image_data,
+                                camera_id=camera_id,
+                                session_id=session_id,
+                                current_position=current_position,
+                                flash_intensity=0,  # No flash for sync capture
+                                flash_result={'flash_used': False}
+                            )
+                            results.append({
+                                'camera_id': camera_id, 
+                                'filename': saved_path,
+                                'success': True
+                            })
+                            self.logger.info(f"✅ Saved camera {camera_id + 1} with metadata: {saved_path}")
+                        except Exception as storage_error:
+                            # Fallback to basic file saving
+                            self.logger.warning(f"Storage failed for camera {camera_id + 1}: {storage_error}, using fallback")
+                            from pathlib import Path
+                            import cv2
+                            
+                            output_dir = Path.home() / "manual_captures" / datetime.now().strftime('%Y-%m-%d')
+                            output_dir.mkdir(parents=True, exist_ok=True)
+                            filename = output_dir / f"sync_{timestamp}_camera_{camera_id + 1}.jpg"
+                            cv2.imwrite(str(filename), image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                            
+                            results.append({
+                                'camera_id': camera_id, 
+                                'filename': str(filename),
+                                'success': True
+                            })
+                            self.logger.info(f"✅ Saved camera {camera_id + 1} to fallback: {filename}")
                     else:
                         self.logger.error(f"❌ Camera {camera_id + 1} returned no data")
                         results.append({
@@ -2462,7 +2514,10 @@ class ScannerWebInterface:
             
             if successful_captures > 0:
                 self.logger.info(f"✅ Synchronized capture completed: {successful_captures}/{len(results)} images")
-                self.logger.info(f"📁 Photos saved to: {output_dir}")
+                
+                # Determine storage location from results
+                storage_locations = [r.get('filename', '') for r in results if r.get('success', False)]
+                primary_location = storage_locations[0] if storage_locations else "Unknown"
                 
                 return {
                     'cameras': 'both',
@@ -2472,8 +2527,8 @@ class ScannerWebInterface:
                     'synchronized': True,
                     'capture_results': results,
                     'successful_captures': successful_captures,
-                    'output_directory': str(output_dir),
-                    'storage_info': f'Photos saved to: {output_dir}'
+                    'output_directory': primary_location,
+                    'storage_info': f'Photos saved with full metadata to session: {session_id}'
                 }
             else:
                 raise HardwareError("No cameras captured successfully")
