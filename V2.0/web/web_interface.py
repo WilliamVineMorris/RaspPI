@@ -2244,30 +2244,61 @@ class ScannerWebInterface:
             except Exception as flash_error:
                 self.logger.warning(f"⚠️ Flash failed: {flash_error}, continuing with capture")
             
-            # Capture from both cameras with proper storage integration
+            # Capture from both cameras simultaneously to avoid resource conflicts
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             
-            for camera_id in [0, 1]:
+            self.logger.info("📸 Starting simultaneous capture from both cameras")
+            
+            # Use simultaneous capture method proven to work reliably
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                # Capture both cameras simultaneously using asyncio.gather()
+                capture_tasks = [
+                    self.orchestrator.camera_manager.capture_high_resolution(0),
+                    self.orchestrator.camera_manager.capture_high_resolution(1)
+                ]
+                
+                # Execute both captures simultaneously with timeout
+                camera_data_list = loop.run_until_complete(
+                    asyncio.wait_for(
+                        asyncio.gather(*capture_tasks, return_exceptions=True),
+                        timeout=30.0
+                    )
+                )
+                
+                self.logger.info(f"📸 Simultaneous capture completed, processing {len(camera_data_list)} results")
+                
+            except asyncio.TimeoutError:
+                self.logger.error("❌ Simultaneous capture timed out after 30 seconds")
+                camera_data_list = [Exception("Timeout"), Exception("Timeout")]
+            except Exception as capture_error:
+                self.logger.error(f"❌ Simultaneous capture failed: {capture_error}")
+                camera_data_list = [capture_error, capture_error]
+            finally:
+                loop.close()
+            
+            # Process results for each camera
+            for camera_id, camera_data in enumerate(camera_data_list):
                 try:
-                    self.logger.info(f"📸 Capturing camera_{camera_id}")
+                    if isinstance(camera_data, Exception):
+                        self.logger.error(f"❌ Camera_{camera_id} capture failed: {camera_data}")
+                        results.append({
+                            'camera_id': camera_id,
+                            'success': False,
+                            'error': str(camera_data)
+                        })
+                        continue
                     
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        # Capture using picamera2 - returns numpy array directly
-                        image_data = loop.run_until_complete(
-                            self.orchestrator.camera_manager.capture_high_resolution(camera_id)
-                        )
-                    finally:
-                        loop.close()
-                    
-                    if image_data is not None:
+                    if camera_data is not None:
+                        self.logger.info(f"✅ Camera_{camera_id} captured successfully: shape {camera_data.shape}")
+                        
                         # Try to use storage manager for proper metadata integration
                         if hasattr(self.orchestrator, 'storage_manager') and self.orchestrator.storage_manager:
                             try:
                                 file_id = self._store_image_with_metadata_sync(
-                                    image_data, camera_id, session_id, current_position, 
+                                    camera_data, camera_id, session_id, current_position, 
                                     flash_intensity, flash_result
                                 )
                                 results.append({
@@ -2281,7 +2312,7 @@ class ScannerWebInterface:
                             except Exception as storage_error:
                                 self.logger.error(f"Storage failed for camera_{camera_id}: {storage_error}")
                                 # Fallback to direct file saving
-                                filename = self._fallback_save_image_sync(image_data, camera_id, timestamp)
+                                filename = self._fallback_save_image_sync(camera_data, camera_id, timestamp)
                                 results.append({
                                     'camera_id': camera_id,
                                     'filename': str(filename),
@@ -2291,7 +2322,7 @@ class ScannerWebInterface:
                         else:
                             # No storage manager - use fallback
                             self.logger.warning("No storage manager available, using fallback file saving")
-                            filename = self._fallback_save_image_sync(image_data, camera_id, timestamp)
+                            filename = self._fallback_save_image_sync(camera_data, camera_id, timestamp)
                             results.append({
                                 'camera_id': camera_id,
                                 'filename': str(filename),
@@ -2306,14 +2337,13 @@ class ScannerWebInterface:
                             'error': 'No image data'
                         })
                         
-                except Exception as cam_error:
-                    self.logger.error(f"❌ Failed to capture camera_{camera_id}: {cam_error}")
+                except Exception as processing_error:
+                    self.logger.error(f"❌ Failed to process camera_{camera_id} data: {processing_error}")
                     results.append({
                         'camera_id': camera_id,
                         'success': False,
-                        'error': str(cam_error)
+                        'error': str(processing_error)
                     })
-                    continue
             
             # Count successful captures
             successful_captures = sum(1 for r in results if r.get('success', False))
