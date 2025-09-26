@@ -1082,7 +1082,7 @@ class ScannerWebInterface:
             """Trigger autofocus on camera"""
             try:
                 data = request.get_json() or {}
-                camera_id = data.get('camera_id', 'camera_1')
+                camera_id = data.get('camera_id', 'camera_0')
                 
                 result = self._execute_camera_autofocus(camera_id)
                 
@@ -1101,7 +1101,7 @@ class ScannerWebInterface:
             """Set manual focus position"""
             try:
                 data = request.get_json() or {}
-                camera_id = data.get('camera_id', 'camera_1')
+                camera_id = data.get('camera_id', 'camera_0')
                 focus_position = float(data.get('focus_position', 5.0))
                 
                 result = self._execute_manual_focus(camera_id, focus_position)
@@ -1121,7 +1121,7 @@ class ScannerWebInterface:
             """Enable camera stabilization to reduce flickering"""
             try:
                 data = request.get_json() or {}
-                camera_id = data.get('camera_id', 'camera_1')
+                camera_id = data.get('camera_id', 'camera_0')
                 enable = data.get('enable', True)
                 
                 controls = {
@@ -1147,7 +1147,7 @@ class ScannerWebInterface:
             """Set white balance mode to fix color switching"""
             try:
                 data = request.get_json() or {}
-                camera_id = data.get('camera_id', 'camera_1')
+                camera_id = data.get('camera_id', 'camera_0')
                 wb_mode = data.get('mode', 'auto')  # auto, daylight, tungsten, indoor, lock
                 
                 if wb_mode == 'auto':
@@ -1175,7 +1175,7 @@ class ScannerWebInterface:
         def api_camera_detailed_status():
             """Get detailed camera status including current controls"""
             try:
-                camera_id = request.args.get('camera_id', 'camera_1')
+                camera_id = request.args.get('camera_id', 'camera_0')
                 
                 result = self._get_camera_detailed_status(camera_id)
                 
@@ -1275,7 +1275,7 @@ class ScannerWebInterface:
                 
                 # Map frontend camera IDs (0, 1) to backend camera IDs
                 # Frontend: Camera 0, Camera 1
-                # Backend might use: 0, 1 or 'camera_1', 'camera_2' or other formats
+                # Backend might use: 0, 1 or 'camera_0', 'camera_1' or other formats
                 
                 # Try the ID as-is first, then try mapped versions
                 mapped_id = camera_id
@@ -1288,11 +1288,11 @@ class ScannerWebInterface:
                         available_cameras = status.get('cameras', [])
                         self.logger.info(f"Available cameras for mapping: {available_cameras}")
                         
-                        # If backend uses string IDs like 'camera_1', 'camera_2'
+                        # If backend uses string IDs like 'camera_0', 'camera_1'
                         if available_cameras and isinstance(available_cameras[0], str):
                             if 'camera_' in str(available_cameras[0]):
-                                # Map 0 -> 'camera_1', 1 -> 'camera_2', etc.
-                                mapped_id = f'camera_{camera_id + 1}'
+                                # Map 0 -> 'camera_0', 1 -> 'camera_1', etc.
+                                mapped_id = f'camera_{camera_id}'
                                 self.logger.info(f"Mapped camera ID {camera_id} to {mapped_id}")
                         
                     except Exception as mapping_error:
@@ -2084,7 +2084,7 @@ class ScannerWebInterface:
                     
                     output_dir = Path.home() / "manual_captures" / datetime.now().strftime('%Y-%m-%d')
                     output_dir.mkdir(parents=True, exist_ok=True)
-                    filename = output_dir / f"single_capture_{timestamp}_camera_{camera_id + 1}.jpg"
+                    filename = output_dir / f"single_capture_{timestamp}_camera_{camera_id}.jpg"
                     cv2.imwrite(str(filename), image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
                     
                     self.logger.info(f"✅ Camera capture executed: Camera {camera_id}")
@@ -2233,7 +2233,7 @@ class ScannerWebInterface:
             
             for camera_id in [0, 1]:
                 try:
-                    self.logger.info(f"📸 Capturing camera {camera_id + 1}")
+                    self.logger.info(f"📸 Capturing camera_{camera_id}")
                     
                     import asyncio
                     loop = asyncio.new_event_loop()
