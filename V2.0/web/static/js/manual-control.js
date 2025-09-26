@@ -1644,8 +1644,12 @@ function capturePhoto() {
     alert('DEBUG: capturePhoto button clicked!'); // Temporary debug
     console.log('Capturing photo from both cameras with flash');
     
-    // Show loading indicator
-    showMessage('📸 Capturing synchronized photos with flash...', 'info');
+    // Show loading indicator - use alert if showMessage not available
+    if (typeof showMessage === 'function') {
+        showMessage('📸 Capturing synchronized photos with flash...', 'info');
+    } else {
+        alert('📸 Capturing synchronized photos with flash...');
+    }
     
     // Add detailed debugging for the fetch request
     console.log('🔍 DEBUG: About to make fetch request to /api/camera/capture/both');
@@ -1673,17 +1677,29 @@ function capturePhoto() {
             console.log('Synchronized photo captured with flash');
             const storageInfo = data.data && data.data.storage_info ? `\n${data.data.storage_info}` : '';
             const fileCount = data.data && data.data.capture_results ? data.data.capture_results.length : 0;
-            showMessage(`✅ Captured ${fileCount} photos from both cameras with flash!${storageInfo}`, 'success');
+            if (typeof showMessage === 'function') {
+                showMessage(`✅ Captured ${fileCount} photos from both cameras with flash!${storageInfo}`, 'success');
+            } else {
+                alert(`✅ Captured ${fileCount} photos from both cameras with flash!${storageInfo}`);
+            }
         } else {
             console.error(`Capture failed: ${data.error}`);
-            showMessage(`❌ Capture failed: ${data.error}`, 'error');
+            if (typeof showMessage === 'function') {
+                showMessage(`❌ Capture failed: ${data.error}`, 'error');
+            } else {
+                alert(`❌ Capture failed: ${data.error}`);
+            }
         }
     })
     .catch(error => {
         console.error('🔍 DEBUG: Capture error caught (flash):', error);
         alert('🔍 DEBUG: Fetch error (flash): ' + error.message);
         console.error('🔍 DEBUG: Error details (flash):', error);
-        showMessage(`❌ Capture error: ${error.message}`, 'error');
+        if (typeof showMessage === 'function') {
+            showMessage(`❌ Capture error: ${error.message}`, 'error');
+        } else {
+            alert(`❌ Capture error: ${error.message}`);
+        }
     });
 }
 
@@ -1692,8 +1708,12 @@ function captureBothNormal() {
     alert('DEBUG: captureBothNormal button clicked!'); // Temporary debug
     console.log('Capturing photo from both cameras without flash');
     
-    // Show loading indicator
-    showMessage('📸 Capturing synchronized photos (no flash)...', 'info');
+    // Show loading indicator - use alert if showMessage not available
+    if (typeof showMessage === 'function') {
+        showMessage('📸 Capturing synchronized photos (no flash)...', 'info');
+    } else {
+        alert('📸 Capturing synchronized photos (no flash)...');
+    }
     
     // Add detailed debugging for the fetch request
     console.log('🔍 DEBUG: About to make fetch request to /api/camera/capture/both (no flash)');
@@ -1720,17 +1740,29 @@ function captureBothNormal() {
             console.log('Synchronized photo captured without flash');
             const storageInfo = data.data && data.data.storage_info ? `\n${data.data.storage_info}` : '';
             const fileCount = data.data && data.data.capture_results ? data.data.capture_results.length : 0;
-            showMessage(`✅ Captured ${fileCount} photos from both cameras (no flash)!${storageInfo}`, 'success');
+            if (typeof showMessage === 'function') {
+                showMessage(`✅ Captured ${fileCount} photos from both cameras (no flash)!${storageInfo}`, 'success');
+            } else {
+                alert(`✅ Captured ${fileCount} photos from both cameras (no flash)!${storageInfo}`);
+            }
         } else {
             console.error(`Capture failed: ${data.error}`);
-            showMessage(`❌ Capture failed: ${data.error}`, 'error');
+            if (typeof showMessage === 'function') {
+                showMessage(`❌ Capture failed: ${data.error}`, 'error');
+            } else {
+                alert(`❌ Capture failed: ${data.error}`);
+            }
         }
     })
     .catch(error => {
         console.error('🔍 DEBUG: Capture error caught (no flash):', error);
         alert('🔍 DEBUG: Fetch error (no flash): ' + error.message);
         console.error('🔍 DEBUG: Error details (no flash):', error);
-        showMessage(`❌ Capture error: ${error.message}`, 'error');
+        if (typeof showMessage === 'function') {
+            showMessage(`❌ Capture error: ${error.message}`, 'error');
+        } else {
+            alert(`❌ Capture error: ${error.message}`);
+        }
     });
 }
 
