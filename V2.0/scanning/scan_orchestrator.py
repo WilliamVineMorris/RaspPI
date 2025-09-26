@@ -1867,7 +1867,27 @@ class ScanOrchestrator:
             self.current_scan.set_phase(ScanPhase.HOMING)
         self.logger.info("Homing motion system")
         
-        if not await self.motion_controller.home():
+        # Use the working synchronous homing method that the web UI uses
+        # Run it in a thread pool to make it async-compatible
+        import asyncio
+        import concurrent.futures
+        
+        def sync_home():
+            # Check if the synchronous method exists (real hardware), otherwise use async method
+            if hasattr(self.motion_controller, 'home_axes_sync'):
+                return self.motion_controller.home_axes_sync()
+            else:
+                # Fallback for mock controllers - this will still fail but with proper error handling
+                return False
+        
+        try:
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                success = await asyncio.get_event_loop().run_in_executor(executor, sync_home)
+            
+            if not success:
+                raise HardwareError("Failed to home motion system")
+        except Exception as e:
+            self.logger.error(f"Homing error: {e}")
             raise HardwareError("Failed to home motion system")
     
     async def _execute_scan_points(self):
