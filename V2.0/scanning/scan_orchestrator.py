@@ -1097,43 +1097,46 @@ class CameraManagerAdapter:
             await self._switch_camera_mode("capture")
             self.logger.info("CAMERA: Both cameras prepared for simultaneous capture")
             
-            # Define capture function for individual camera (without mode switching)
+            # Define capture function for individual camera (without locks for true simultaneity)
             async def capture_camera_direct(camera_id: str, mapped_id: int):
-                """Direct camera capture without mode switching"""
+                """Direct camera capture optimized for true simultaneous operation"""
                 try:
-                    # Create async lock for this camera if it doesn't exist
-                    if mapped_id not in self._capture_locks:
-                        self._capture_locks[mapped_id] = asyncio.Lock()
-                    
-                    async with self._capture_locks[mapped_id]:
-                        if hasattr(self.controller, 'cameras') and mapped_id in self.controller.cameras:
-                            camera = self.controller.cameras[mapped_id]
-                            
-                            if camera and hasattr(camera, 'capture_array'):
-                                # Apply custom settings if provided
-                                if settings:
-                                    controls = {}
-                                    if hasattr(settings, 'exposure_time') and settings.exposure_time:
-                                        controls['ExposureTime'] = int(settings.exposure_time * 1000000)
-                                    if hasattr(settings, 'iso') and settings.iso:
-                                        controls['AnalogueGain'] = settings.iso / 100.0
-                                    
-                                    if controls:
-                                        camera.set_controls(controls)
-                                
-                                # Capture high-resolution image
-                                self.logger.info(f"CAMERA: Starting simultaneous capture for camera {mapped_id} ({camera_id})")
-                                image_array = camera.capture_array("main")
-                                
-                                if image_array is not None and image_array.size > 0:
-                                    image_bgr = image_array.copy()
-                                    self.logger.info(f"CAMERA: Simultaneous capture successful for {camera_id}: {image_bgr.shape}")
-                                    return image_bgr
-                                else:
-                                    self.logger.error(f"CAMERA: Simultaneous capture returned empty array for {camera_id}")
-                                    
-                        return None
+                    if hasattr(self.controller, 'cameras') and mapped_id in self.controller.cameras:
+                        camera = self.controller.cameras[mapped_id]
                         
+                        if camera and hasattr(camera, 'capture_array'):
+                            # Apply custom settings if provided (do this quickly)
+                            if settings:
+                                controls = {}
+                                if hasattr(settings, 'exposure_time') and settings.exposure_time:
+                                    controls['ExposureTime'] = int(settings.exposure_time * 1000000)
+                                if hasattr(settings, 'iso') and settings.iso:
+                                    controls['AnalogueGain'] = settings.iso / 100.0
+                                
+                                if controls:
+                                    camera.set_controls(controls)
+                            
+                            # Start capture immediately without waiting for other camera
+                            self.logger.info(f"CAMERA: Starting simultaneous capture for camera {mapped_id} ({camera_id})")
+                            
+                            # Use asyncio to run the blocking capture_array in thread pool for true concurrency
+                            import asyncio
+                            import concurrent.futures
+                            
+                            loop = asyncio.get_event_loop()
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                # Run capture_array in thread pool to prevent blocking other camera
+                                image_array = await loop.run_in_executor(executor, camera.capture_array, "main")
+                            
+                            if image_array is not None and image_array.size > 0:
+                                image_bgr = image_array.copy()
+                                self.logger.info(f"CAMERA: Simultaneous capture successful for {camera_id}: {image_bgr.shape}")
+                                return image_bgr
+                            else:
+                                self.logger.error(f"CAMERA: Simultaneous capture returned empty array for {camera_id}")
+                                
+                    return None
+                    
                 except Exception as e:
                     self.logger.error(f"CAMERA: Simultaneous capture failed for {camera_id}: {e}")
                     return None
