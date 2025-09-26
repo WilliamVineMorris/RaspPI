@@ -180,6 +180,28 @@ class SimpleWorkingFluidNCController:
             self.logger.error(f"❌ Homing error: {e}")
             return False
     
+    def home_axes_sync(self, axes: list = None) -> dict:
+        """Web interface compatibility method for homing."""
+        self.logger.info(f"🏠 Web interface homing request for axes: {axes}")
+        
+        # Call the working home method
+        success = self.home()
+        
+        if success:
+            return {
+                'success': True,
+                'message': f'Homing completed successfully for axes: {", ".join(axes) if axes else "all"}',
+                'status': 'completed',
+                'axes': axes or ['X', 'Y', 'Z', 'C']
+            }
+        else:
+            return {
+                'success': False,
+                'message': 'Homing failed',
+                'status': 'error',
+                'axes': axes or ['X', 'Y', 'Z', 'C']
+            }
+    
     def move_to_position(self, position: Position4D) -> bool:
         """Move to specified position."""
         if not self.is_connected():
