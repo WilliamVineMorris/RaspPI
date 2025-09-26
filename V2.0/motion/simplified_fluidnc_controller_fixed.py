@@ -233,6 +233,11 @@ class SimplifiedFluidNCControllerFixed(MotionController):
     async def move_to_position(self, position: Position4D, feedrate: Optional[float] = None) -> bool:
         """Move to absolute position with safety validation and intelligent feedrate"""
         try:
+            # CRITICAL: Validate C-axis (servo) limits to prevent FluidNC rejection
+            if abs(position.c) > 90.0:  # FluidNC servo has ±90° range from center (180° total)
+                logger.error(f"❌ C-axis position {position.c}° exceeds servo limits (±90°)")
+                return False
+            
             # Validate position
             if not self._validate_position_limits(position):
                 raise MotionSafetyError(f"Position {position} exceeds limits")

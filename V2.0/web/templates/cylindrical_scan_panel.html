@@ -133,15 +133,15 @@ function updateScanSummary() {
     const yStep = parseFloat(document.getElementById('y-step').value) || 20;
     const rotationStep = parseFloat(document.getElementById('rotation-step').value) || 60;
     
-    // Parse camera angles
+    // Parse camera angles (use single angle for cylindrical scanning)
     const angleText = document.getElementById('camera-angles').value;
     const angles = angleText.split(',').map(a => parseFloat(a.trim())).filter(a => !isNaN(a));
+    const servoAngle = angles.length > 0 ? angles[0] : 0.0;  // Single servo angle
     
-    // Calculate totals
+    // Calculate totals (Z-axis rotations × Y-axis heights, C-axis fixed)
     const heightLevels = Math.floor((yMax - yMin) / yStep) + 1;
     const rotationPositions = Math.floor(360 / rotationStep);
-    const cameraAngles = angles.length;
-    const totalPoints = heightLevels * rotationPositions * cameraAngles;
+    const totalPoints = heightLevels * rotationPositions;  // No C-axis multiplication!
     
     // Estimate time (2 seconds per point)
     const estimatedMinutes = Math.ceil(totalPoints * 2 / 60);
@@ -150,7 +150,7 @@ function updateScanSummary() {
     document.getElementById('total-points').textContent = totalPoints;
     document.getElementById('estimated-time').textContent = `${estimatedMinutes} min`;
     document.getElementById('coverage-info').textContent = 
-        `${heightLevels} heights × ${rotationPositions} rotations × ${cameraAngles} angles`;
+        `${heightLevels} heights × ${rotationPositions} Z-rotations (servo fixed at ${servoAngle}°)`;
 }
 
 function previewCylindricalScan() {

@@ -51,7 +51,7 @@ class SimplifiedFluidNCProtocolFixed:
     """
     
     def __init__(self, port: str = '/dev/ttyUSB0', baud_rate: int = 115200, 
-                 command_timeout: float = 10.0):
+                 command_timeout: float = 20.0):  # Increased timeout for reliability
         self.port = port
         self.baud_rate = baud_rate
         self.command_timeout = command_timeout
@@ -72,7 +72,7 @@ class SimplifiedFluidNCProtocolFixed:
         self.last_command_time = 0
         self.command_delay = 0.02  # Reduced from 0.1s to 20ms for responsiveness
         self.manual_command_delay = 0.005  # Ultra-fast for manual operations - 5ms
-        self.motion_timeout = 30.0  # Maximum time to wait for motion completion
+        self.motion_timeout = 60.0  # Maximum time to wait for motion completion (increased)
         
         # Command queue management  
         self.pending_commands = 0
@@ -230,6 +230,11 @@ class SimplifiedFluidNCProtocolFixed:
                 logger.debug(f"🕐 [TIMING] Command ready after: {(command_ready_time-start_time)*1000:.1f}ms")
                 logger.info(f"📤 PROTOCOL DEBUG: Sending command: '{command}'")
                 
+                # Check connection before sending command
+                if not self.is_connected():
+                    logger.error(f"❌ Cannot send command '{command}' - not connected")
+                    return False, "Not connected"
+                
                 # Send command
                 if self.serial_connection is None:
                     logger.error("❌ PROTOCOL DEBUG: No serial connection available")
@@ -256,9 +261,12 @@ class SimplifiedFluidNCProtocolFixed:
                 logger.info(f"📥 PROTOCOL DEBUG: FluidNC immediate response: '{immediate_response}'")
                 
                 if not immediate_response:
+                    # Command timeout - log detailed info for debugging
                     self.stats['timeouts'] += 1
-                    logger.error("❌ PROTOCOL DEBUG: Command timeout - no response from FluidNC")
-                    return False, "Command timeout"
+                    logger.error(f"❌ PROTOCOL DEBUG: Command timeout - no response from FluidNC for: '{command}'")
+                    logger.error(f"   📊 Serial stats - In waiting: {self.serial_connection.in_waiting if self.serial_connection else 'N/A'}")
+                    logger.error(f"   📊 Connection status: {self.is_connected()}")
+                    return False, f"Command timeout: {command}"
                 
                 # Check if the immediate response indicates an error
                 response_lower = immediate_response.lower().strip()
