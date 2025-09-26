@@ -119,15 +119,17 @@ const ScanManager = {
         const gridBoundaries = document.getElementById('grid-boundaries');
         
         console.log(`Updating parameter panels for: ${this.state.selectedScanType}`);
+        console.log('cylindricalParams element:', cylindricalParams);
+        console.log('gridBoundaries element:', gridBoundaries);
         
         if (this.state.selectedScanType === 'cylindrical') {
             console.log('Showing cylindrical parameters');
-            cylindricalParams.style.display = 'block';
-            gridBoundaries.style.display = 'none';
+            if (cylindricalParams) cylindricalParams.style.display = 'block';
+            if (gridBoundaries) gridBoundaries.style.display = 'none';
         } else {
             console.log('Showing grid boundaries');
-            cylindricalParams.style.display = 'none';
-            gridBoundaries.style.display = 'block';
+            if (cylindricalParams) cylindricalParams.style.display = 'none';
+            if (gridBoundaries) gridBoundaries.style.display = 'block';
         }
     },
 
