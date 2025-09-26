@@ -2247,50 +2247,37 @@ class ScannerWebInterface:
             # Capture from both cameras simultaneously to avoid resource conflicts
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             
-            self.logger.info("📸 Starting simultaneous capture from both cameras")
+            self.logger.info("📸 Starting simultaneous capture from both cameras using orchestrator method")
             
-            # Use simultaneous capture method proven to work reliably
+            # Use the proven simultaneous capture method from scan orchestrator
             import asyncio
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                # Capture both cameras simultaneously using asyncio.gather()
-                capture_tasks = [
-                    self.orchestrator.camera_manager.capture_high_resolution(0),
-                    self.orchestrator.camera_manager.capture_high_resolution(1)
-                ]
-                
-                # Execute both captures simultaneously with timeout
-                camera_data_list = loop.run_until_complete(
+                # Use the orchestrator's simultaneous capture method that we know works
+                camera_data_dict = loop.run_until_complete(
                     asyncio.wait_for(
-                        asyncio.gather(*capture_tasks, return_exceptions=True),
+                        self.orchestrator.capture_both_cameras_simultaneously(),
                         timeout=30.0
                     )
                 )
                 
-                self.logger.info(f"📸 Simultaneous capture completed, processing {len(camera_data_list)} results")
+                self.logger.info(f"📸 Simultaneous capture completed successfully: {list(camera_data_dict.keys())}")
                 
             except asyncio.TimeoutError:
                 self.logger.error("❌ Simultaneous capture timed out after 30 seconds")
-                camera_data_list = [Exception("Timeout"), Exception("Timeout")]
+                camera_data_dict = {}
             except Exception as capture_error:
                 self.logger.error(f"❌ Simultaneous capture failed: {capture_error}")
-                camera_data_list = [capture_error, capture_error]
+                camera_data_dict = {}
             finally:
                 loop.close()
             
             # Process results for each camera
-            for camera_id, camera_data in enumerate(camera_data_list):
+            for camera_key, camera_data in camera_data_dict.items():
+                # Extract camera ID from key (camera_0 -> 0, camera_1 -> 1)
+                camera_id = int(camera_key.split('_')[1]) if '_' in camera_key else 0
                 try:
-                    if isinstance(camera_data, Exception):
-                        self.logger.error(f"❌ Camera_{camera_id} capture failed: {camera_data}")
-                        results.append({
-                            'camera_id': camera_id,
-                            'success': False,
-                            'error': str(camera_data)
-                        })
-                        continue
-                    
                     if camera_data is not None:
                         self.logger.info(f"✅ Camera_{camera_id} captured successfully: shape {camera_data.shape}")
                         
@@ -2343,6 +2330,16 @@ class ScannerWebInterface:
                         'camera_id': camera_id,
                         'success': False,
                         'error': str(processing_error)
+                    })
+            
+            # Handle case where no cameras captured successfully
+            if not camera_data_dict:
+                self.logger.error("❌ No cameras captured successfully")
+                for camera_id in [0, 1]:
+                    results.append({
+                        'camera_id': camera_id,
+                        'success': False,
+                        'error': 'Simultaneous capture failed'
                     })
             
             # Count successful captures
