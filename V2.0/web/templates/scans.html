@@ -6,20 +6,42 @@
 <style>
     /* Clean page layout */
     .scan-page {
-        max-width: 1400px;
-        margin: 0 auto;
+        max-width: 100%;
+        margin: 0;
         padding: 1rem;
+    }
+
+    /* Horizontal steps layout */
+    .steps-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .steps-row {
+        display: flex;
+        gap: 1.5rem;
+    }
+
+    .steps-row.single {
+        grid-column: 1 / -1;
+        justify-content: center;
     }
 
     /* Step-by-step layout */
     .scan-step {
-        margin-bottom: 1.5rem;
+        flex: 1;
         background: white;
         border-radius: 12px;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
         overflow: hidden;
         border: 1px solid #f0f4f8;
         transition: all 0.3s ease;
+    }
+
+    .scan-step.full-width {
+        grid-column: 1 / -1;
     }
 
     .scan-step:hover {
@@ -107,16 +129,16 @@
 
     .scan-type-selector {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.75rem;
         padding: 0;
         background: transparent;
     }
 
     .scan-grid {
         display: grid;
-        grid-template-columns: 2fr 1fr;
-        gap: 1.5rem;
+        grid-template-columns: 1fr 1fr;
+        gap: 2rem;
         margin-bottom: 1rem;
     }
 
@@ -179,9 +201,9 @@
 
     .scan-type-card {
         position: relative;
-        padding: 1.25rem;
+        padding: 1rem;
         border: 2px solid #e1e8ed;
-        border-radius: 12px;
+        border-radius: 10px;
         background: white;
         cursor: pointer;
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -189,7 +211,7 @@
         flex-direction: column;
         align-items: center;
         text-align: center;
-        min-height: 140px;
+        min-height: 120px;
         justify-content: center;
     }
 
@@ -753,12 +775,18 @@
         display: block;
     }
 
-    @media (max-width: 768px) {
-        .scan-grid {
+    /* Responsive design */
+    @media (max-width: 1200px) {
+        .steps-container {
             grid-template-columns: 1fr;
-            gap: 1rem;
         }
+        
+        .scan-step.full-width {
+            grid-column: 1;
+        }
+    }
 
+    @media (max-width: 768px) {
         .scan-parameters {
             grid-template-columns: 1fr;
         }
@@ -770,13 +798,16 @@
         .scan-actions {
             flex-direction: column;
         }
+        
+        .parameters-grid {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 
 <div class="scan-page">
-<div class="scan-grid">
-    <!-- Scan Builder -->
-    <div class="scan-builder">
+    <!-- Row 1: Scan Type & Basic Settings -->
+    <div class="steps-container">
         <!-- Step 1: Scan Type Selection -->
         <div class="scan-step">
             <div class="step-header">
@@ -787,7 +818,8 @@
                 </div>
             </div>
             
-            <div class="scan-type-selector">
+            <div class="step-content">
+                <div class="scan-type-selector">
                 <div class="scan-type-card" data-type="surface">
                     <div class="card-icon">📐</div>
                     <h4>Surface Scan</h4>
@@ -812,6 +844,7 @@
                     <p>Ultra-high resolution focused scan</p>
                     <div class="card-badge">Precision</div>
                 </div>
+            </div>
             </div>
         </div>
 
@@ -859,9 +892,10 @@
             </div>
             </div>
         </div>
+    </div>
 
-        <!-- Step 3: Scan Area Configuration -->
-        <div class="scan-step" id="scan-configuration">
+    <!-- Step 3: Scan Area Configuration (Full Width) -->
+    <div class="scan-step full-width" id="scan-configuration">
             <div class="step-header">
                 <span class="step-number">3</span>
                 <div class="step-info">
@@ -1012,6 +1046,8 @@
             </div>
         </div>
 
+    <!-- Row 2: Actions & Queue -->
+    <div class="steps-container">
         <!-- Step 4: Actions -->
         <div class="scan-step">
             <div class="step-header">
@@ -1054,19 +1090,28 @@
             </div>
             </div>
         </div>
-    </div>
 
-    <!-- Scan Queue -->
-    <div class="scan-queue">
-        <h3>Scan Queue</h3>
-        <div class="queue-controls" style="margin-bottom: 1rem;">
-            <button class="btn btn-sm btn-primary" onclick="startQueue()">Start Queue</button>
-            <button class="btn btn-sm btn-secondary" onclick="pauseQueue()">Pause</button>
-            <button class="btn btn-sm btn-secondary" onclick="clearQueue()">Clear All</button>
-        </div>
-        
-        <div id="scanQueueContainer">
-            <!-- Queue items will be populated here -->
+        <!-- Scan Queue -->
+        <div class="scan-step">
+            <div class="step-header">
+                <span class="step-number">📋</span>
+                <div class="step-info">
+                    <h2>Scan Queue</h2>
+                    <p>Manage and monitor your scan queue</p>
+                </div>
+            </div>
+            
+            <div class="step-content">
+                <div class="queue-controls" style="margin-bottom: 1rem;">
+                    <button class="btn btn-primary" onclick="startQueue()">Start Queue</button>
+                    <button class="btn btn-outline" onclick="pauseQueue()">Pause</button>
+                    <button class="btn btn-outline" onclick="clearQueue()">Clear All</button>
+                </div>
+                
+                <div id="scanQueueContainer">
+                    <!-- Queue items will be populated here -->
+                </div>
+            </div>
         </div>
     </div>
 </div>
