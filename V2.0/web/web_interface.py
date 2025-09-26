@@ -2455,7 +2455,7 @@ class ScannerWebInterface:
                     'y': current_position.y if current_position else 0.0,
                     'z': current_position.z if current_position else 0.0,
                     'c': current_position.c if current_position else 0.0
-                } if current_position else None,
+                },
                 camera_settings={
                     'camera_id': camera_id,
                     'physical_camera': f'camera_{camera_id}',
@@ -2494,7 +2494,12 @@ class ScannerWebInterface:
                     'synchronized': True,
                     'camera_metadata': capture_metadata if capture_metadata and isinstance(capture_metadata, dict) else {},
                     'camera_metadata_available': bool(capture_metadata and isinstance(capture_metadata, dict)),
-                    'camera_metadata_fields': list(capture_metadata.keys()) if capture_metadata and isinstance(capture_metadata, dict) else []
+                    'camera_metadata_fields': list(capture_metadata.keys()) if capture_metadata and isinstance(capture_metadata, dict) else [],
+                    'position_info': {
+                        'position_available': current_position is not None,
+                        'position_source': 'motion_controller' if current_position else 'default_values',
+                        'coordinates_captured_at_sync_time': True
+                    }
                 }
             )
             
