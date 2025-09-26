@@ -1,6 +1,53 @@
 {% extends "base.html" %}
 
-{% block title %}Scan Management{% endblock %}
+{% block title %}Scan Management{%    /* Step-by-step layout */
+    .scan-step {
+        margin-bottom: 2rem;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        background: var(--bg-primary);
+        overflow: hidden;
+    }
+
+    .step-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.5rem;
+        background: linear-gradient(135deg, var(--accent-color) 0%, #5a9bd4 100%);
+        color: white;
+    }
+
+    .step-number {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        font-size: 1.2rem;
+    }
+
+    .step-info h2 {
+        margin: 0 0 0.25rem 0;
+        font-size: 1.4rem;
+        font-weight: 600;
+    }
+
+    .step-info p {
+        margin: 0;
+        opacity: 0.9;
+        font-size: 0.9rem;
+    }
+
+    .scan-type-selector {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        padding: 1.5rem;
+    }ock %}
 
 {% block extra_css %}
 <style>
@@ -69,23 +116,53 @@
     }
 
     .scan-type-card {
-        padding: 1rem;
+        position: relative;
+        padding: 1.5rem;
         border: 2px solid var(--border-color);
-        border-radius: 8px;
+        border-radius: 12px;
         text-align: center;
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: all 0.3s ease;
         background: var(--bg-primary);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .card-icon {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .card-badge {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        background: var(--accent-color);
+        color: white;
+        padding: 0.25rem 0.5rem;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 600;
     }
 
     .scan-type-card:hover {
         border-color: var(--accent-color);
         background: rgba(74, 144, 226, 0.05);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(74, 144, 226, 0.15);
     }
 
     .scan-type-card.selected {
         border-color: var(--accent-color);
         background: rgba(74, 144, 226, 0.1);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(74, 144, 226, 0.2);
+    }
+
+    .scan-type-card.selected .card-badge {
+        background: #28a745;
     }
 
     .scan-type-card h4 {
@@ -197,6 +274,87 @@
         box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.1);
     }
 
+    /* New grid layouts */
+    .parameters-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        padding: 1.5rem;
+    }
+
+    .scan-config-panel {
+        padding: 1.5rem;
+    }
+
+    .config-section h4 {
+        margin: 0 0 0.5rem 0;
+        color: var(--text-primary);
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+
+    .config-help {
+        margin: 0 0 1.5rem 0;
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        line-height: 1.4;
+    }
+
+    .boundaries-grid {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .boundary-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .boundary-group label {
+        font-weight: 600;
+        color: var(--text-primary);
+        font-size: 0.9rem;
+    }
+
+    .range-inputs {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .range-inputs input {
+        flex: 1;
+    }
+
+    .range-separator {
+        color: var(--text-secondary);
+        font-weight: 500;
+        padding: 0 0.25rem;
+    }
+
+    .cylindrical-grid {
+        display: grid;
+        gap: 1.5rem;
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+        .scan-type-selector {
+            grid-template-columns: 1fr;
+        }
+        
+        .parameters-grid {
+            grid-template-columns: 1fr;
+        }
+        
+        .step-header {
+            flex-direction: column;
+            text-align: center;
+            gap: 0.5rem;
+        }
+    }
+
     .scan-preview {
         border: 1px solid var(--border-color);
         border-radius: 8px;
@@ -230,9 +388,84 @@
     }
 
     .scan-actions {
+        padding: 1.5rem;
+        display: grid;
+        gap: 2rem;
+    }
+
+    .action-group h4 {
+        margin: 0 0 1rem 0;
+        color: var(--text-primary);
+        font-size: 1rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .action-buttons {
         display: flex;
         gap: 1rem;
-        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .primary-actions {
+        justify-content: center;
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        border: none;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-decoration: none;
+    }
+
+    .btn-icon {
+        font-size: 1rem;
+    }
+
+    .btn-outline {
+        background: transparent;
+        border: 2px solid var(--border-color);
+        color: var(--text-primary);
+    }
+
+    .btn-outline:hover {
+        border-color: var(--accent-color);
+        background: rgba(74, 144, 226, 0.05);
+    }
+
+    .btn-primary {
+        background: var(--accent-color);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #5a9bd4;
+        transform: translateY(-1px);
+    }
+
+    .btn-success {
+        background: #28a745;
+        color: white;
+    }
+
+    .btn-success:hover {
+        background: #218838;
+        transform: translateY(-1px);
+    }
+
+    .btn-large {
+        padding: 1rem 2rem;
+        font-size: 1.1rem;
+        font-weight: 700;
     }
 
     .queue-item {
@@ -404,116 +637,172 @@
 <div class="scan-grid">
     <!-- Scan Builder -->
     <div class="scan-builder">
-        <h2>Scan Configuration</h2>
-        
-        <!-- Scan Type Selection -->
-        <div class="scan-type-selector">
-            <div class="scan-type-card" data-type="surface">
-                <h4>Surface Scan</h4>
-                <p>High-resolution surface capture with multiple angles</p>
-            </div>
-            <div class="scan-type-card" data-type="volume">
-                <h4>Volume Scan</h4>
-                <p>Complete 360° volumetric capture</p>
-            </div>
-            <div class="scan-type-card" data-type="cylindrical">
-                <h4>Cylindrical Scan</h4>
-                <p>Continuous rotation scan with height steps</p>
-            </div>
-            <div class="scan-type-card" data-type="detail">
-                <h4>Detail Scan</h4>
-                <p>Ultra-high resolution focused scan</p>
-            </div>
-        </div>
-
-        <!-- Basic Parameters -->
-        <div class="scan-parameters">
-            <div class="parameter-group">
-                <label for="scanName">Scan Name</label>
-                <input type="text" id="scanName" class="parameter-input" placeholder="My Scan" value="">
-            </div>
-            <div class="parameter-group">
-                <label for="scanResolution">Resolution</label>
-                <select id="scanResolution" class="parameter-input">
-                    <option value="low">Low (Draft)</option>
-                    <option value="medium" selected>Medium (Standard)</option>
-                    <option value="high">High (Detailed)</option>
-                    <option value="ultra">Ultra (Maximum)</option>
-                </select>
-            </div>
-            <div class="parameter-group">
-                <label for="scanSpeed">Scan Speed</label>
-                <select id="scanSpeed" class="parameter-input">
-                    <option value="slow">Slow (Highest Quality)</option>
-                    <option value="medium" selected>Medium (Balanced)</option>
-                    <option value="fast">Fast (Quick Preview)</option>
-                </select>
-            </div>
-            <div class="parameter-group">
-                <label for="cameraCount">Cameras</label>
-                <select id="cameraCount" class="parameter-input">
-                    <option value="1">Single Camera</option>
-                    <option value="2" selected>Dual Camera</option>
-                    <option value="auto">Auto Select</option>
-                </select>
-            </div>
-        </div>
-
-        <!-- Grid Scan Boundaries (hidden by default for cylindrical) -->
-        <div id="grid-boundaries" class="parameter-group">
-            <label>Scan Boundaries (mm)</label>
-            <div class="scan-parameters">
-                <input type="number" id="boundaryXMin" class="parameter-input" placeholder="X Min" value="-50">
-                <input type="number" id="boundaryXMax" class="parameter-input" placeholder="X Max" value="50">
-                <input type="number" id="boundaryYMin" class="parameter-input" placeholder="Y Min" value="-50">
-                <input type="number" id="boundaryYMax" class="parameter-input" placeholder="Y Max" value="50">
-                <input type="number" id="boundaryZMin" class="parameter-input" placeholder="Z Min" value="0">
-                <input type="number" id="boundaryZMax" class="parameter-input" placeholder="Z Max" value="100">
-            </div>
-        </div>
-
-        <!-- Cylindrical Scan Parameters (hidden by default) -->
-        <div id="cylindrical-parameters" class="scan-parameters" style="display: none;">
-            <div class="parameter-section-header">
-                <h4><span class="icon">🔄</span> Cylindrical Scan Settings</h4>
-                <p class="section-description">Configure rotation and height parameters for cylindrical object scanning</p>
-            </div>
-            <div class="parameter-group">
-                <label for="cylindricalRadius">📐 Camera Distance</label>
-                <input type="number" id="cylindricalRadius" class="parameter-input" min="10" max="100" value="30" step="5">
-                <small class="parameter-help">Fixed radius from object center (10-100mm)</small>
-            </div>
-            
-            <div class="parameter-group">
-                <label for="cylindricalYMin">📏 Scan Height Range</label>
-                <div class="input-row">
-                    <div class="input-group">
-                        <input type="number" id="cylindricalYMin" class="parameter-input" min="10" max="200" value="40" step="5" placeholder="Start">
-                        <small>Start (mm)</small>
-                    </div>
-                    <div class="input-separator">to</div>
-                    <div class="input-group">
-                        <input type="number" id="cylindricalYMax" class="parameter-input" min="10" max="200" value="120" step="5" placeholder="End">
-                        <small>End (mm)</small>
-                    </div>
+        <!-- Step 1: Scan Type Selection -->
+        <div class="scan-step">
+            <div class="step-header">
+                <span class="step-number">1</span>
+                <div class="step-info">
+                    <h2>Choose Scan Type</h2>
+                    <p>Select the type of scan that best fits your object</p>
                 </div>
             </div>
             
-            <div class="parameter-group">
-                <label for="cylindricalYStep">📐 Height Increment</label>
-                <input type="number" id="cylindricalYStep" class="parameter-input" min="5" max="50" value="20" step="5">
-                <small class="parameter-help">Vertical step between scan levels (5-50mm)</small>
+            <div class="scan-type-selector">
+                <div class="scan-type-card" data-type="surface">
+                    <div class="card-icon">📐</div>
+                    <h4>Surface Scan</h4>
+                    <p>High-resolution surface capture with multiple angles</p>
+                    <div class="card-badge">Standard</div>
+                </div>
+                <div class="scan-type-card" data-type="volume">
+                    <div class="card-icon">📦</div>
+                    <h4>Volume Scan</h4>
+                    <p>Complete 360° volumetric capture</p>
+                    <div class="card-badge">Advanced</div>
+                </div>
+                <div class="scan-type-card" data-type="cylindrical">
+                    <div class="card-icon">🔄</div>
+                    <h4>Cylindrical Scan</h4>
+                    <p>Continuous rotation scan with height steps</p>
+                    <div class="card-badge">Specialized</div>
+                </div>
+                <div class="scan-type-card" data-type="detail">
+                    <div class="card-icon">🔍</div>
+                    <h4>Detail Scan</h4>
+                    <p>Ultra-high resolution focused scan</p>
+                    <div class="card-badge">Precision</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: Basic Configuration -->
+        <div class="scan-step">
+            <div class="step-header">
+                <span class="step-number">2</span>
+                <div class="step-info">
+                    <h2>Basic Settings</h2>
+                    <p>Configure general scan parameters</p>
+                </div>
             </div>
             
-            <div class="parameter-group">
-                <label for="cylindricalRotationStep">🔄 Rotation Density</label>
-                <select id="cylindricalRotationStep" class="parameter-input">
-                    <option value="30">High Detail (30° - 12 positions)</option>
-                    <option value="45">Standard (45° - 8 positions)</option>
-                    <option value="60" selected>Fast (60° - 6 positions)</option>
-                    <option value="90">Quick (90° - 4 positions)</option>
-                </select>
-                <small class="parameter-help">More positions = higher detail but longer scan time</small>
+            <div class="parameters-grid">
+                <div class="parameter-group">
+                    <label for="scanName">📝 Scan Name</label>
+                    <input type="text" id="scanName" class="parameter-input" placeholder="Enter scan name" value="">
+                </div>
+                <div class="parameter-group">
+                    <label for="scanResolution">🎯 Quality</label>
+                    <select id="scanResolution" class="parameter-input">
+                        <option value="low">Draft Quality (Fast)</option>
+                        <option value="medium" selected>Standard Quality</option>
+                        <option value="high">High Quality (Detailed)</option>
+                        <option value="ultra">Maximum Quality (Slow)</option>
+                    </select>
+                </div>
+                <div class="parameter-group">
+                    <label for="scanSpeed">⚡ Speed</label>
+                    <select id="scanSpeed" class="parameter-input">
+                        <option value="slow">Precision (Slowest)</option>
+                        <option value="medium" selected>Balanced</option>
+                        <option value="fast">Quick Scan (Fastest)</option>
+                    </select>
+                </div>
+                <div class="parameter-group">
+                    <label for="cameraCount">📷 Cameras</label>
+                    <select id="cameraCount" class="parameter-input">
+                        <option value="1">Single Camera</option>
+                        <option value="2" selected>Dual Camera</option>
+                        <option value="auto">Auto Select</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: Scan Area Configuration -->
+        <div class="scan-step" id="scan-configuration">
+            <div class="step-header">
+                <span class="step-number">3</span>
+                <div class="step-info">
+                    <h2 id="config-title">Configure Scan Area</h2>
+                    <p id="config-description">Set up the scanning parameters for your selected scan type</p>
+                </div>
+            </div>
+
+            <!-- Grid Scan Configuration -->
+            <div id="grid-boundaries" class="scan-config-panel">
+                <div class="config-section">
+                    <h4>📐 Scan Boundaries</h4>
+                    <p class="config-help">Define the rectangular area to scan (in millimeters)</p>
+                    <div class="boundaries-grid">
+                        <div class="boundary-group">
+                            <label>X-Axis (Width)</label>
+                            <div class="range-inputs">
+                                <input type="number" id="boundaryXMin" class="parameter-input" placeholder="Min" value="-50">
+                                <span class="range-separator">to</span>
+                                <input type="number" id="boundaryXMax" class="parameter-input" placeholder="Max" value="50">
+                            </div>
+                        </div>
+                        <div class="boundary-group">
+                            <label>Y-Axis (Depth)</label>
+                            <div class="range-inputs">
+                                <input type="number" id="boundaryYMin" class="parameter-input" placeholder="Min" value="-50">
+                                <span class="range-separator">to</span>
+                                <input type="number" id="boundaryYMax" class="parameter-input" placeholder="Max" value="50">
+                            </div>
+                        </div>
+                        <div class="boundary-group">
+                            <label>Z-Axis (Height)</label>
+                            <div class="range-inputs">
+                                <input type="number" id="boundaryZMin" class="parameter-input" placeholder="Min" value="0">
+                                <span class="range-separator">to</span>
+                                <input type="number" id="boundaryZMax" class="parameter-input" placeholder="Max" value="100">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cylindrical Scan Configuration -->
+            <div id="cylindrical-parameters" class="scan-config-panel" style="display: none;">
+                <div class="config-section">
+                    <h4>🔄 Cylindrical Scan Setup</h4>
+                    <p class="config-help">Configure rotation and height parameters for cylindrical objects</p>
+                    
+                    <div class="cylindrical-grid">
+                        <div class="parameter-group">
+                            <label for="cylindricalRadius">📐 Camera Distance</label>
+                            <input type="number" id="cylindricalRadius" class="parameter-input" min="10" max="100" value="30" step="5">
+                            <small class="parameter-help">Fixed radius from object center (10-100mm)</small>
+                        </div>
+                        
+                        <div class="parameter-group">
+                            <label>📏 Scan Height Range</label>
+                            <div class="range-inputs">
+                                <input type="number" id="cylindricalYMin" class="parameter-input" min="10" max="200" value="40" step="5" placeholder="Start">
+                                <span class="range-separator">to</span>
+                                <input type="number" id="cylindricalYMax" class="parameter-input" min="10" max="200" value="120" step="5" placeholder="End">
+                            </div>
+                            <small class="parameter-help">Vertical scanning range in millimeters</small>
+                        </div>
+                        
+                        <div class="parameter-group">
+                            <label for="cylindricalYStep">📐 Height Step</label>
+                            <input type="number" id="cylindricalYStep" class="parameter-input" min="5" max="50" value="20" step="5">
+                            <small class="parameter-help">Vertical distance between scan levels (5-50mm)</small>
+                        </div>
+                        
+                        <div class="parameter-group">
+                            <label for="cylindricalRotationStep">🔄 Rotation Detail</label>
+                            <select id="cylindricalRotationStep" class="parameter-input">
+                                <option value="30">Maximum Detail (30° - 12 positions)</option>
+                                <option value="45">High Detail (45° - 8 positions)</option>
+                                <option value="60" selected>Standard (60° - 6 positions)</option>
+                                <option value="90">Quick Scan (90° - 4 positions)</option>
+                            </select>
+                            <small class="parameter-help">More positions = higher detail but longer scan time</small>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -579,12 +868,45 @@
             </div>
         </div>
 
-        <!-- Actions -->
-        <div class="scan-actions">
-            <button class="btn btn-secondary" onclick="previewScan()">Preview Path</button>
-            <button class="btn btn-secondary" onclick="saveScanTemplate()">Save Template</button>
-            <button class="btn btn-primary" onclick="addToQueue()">Add to Queue</button>
-            <button class="btn btn-success" onclick="startScanNow()">Start Now</button>
+        <!-- Step 4: Actions -->
+        <div class="scan-step">
+            <div class="step-header">
+                <span class="step-number">4</span>
+                <div class="step-info">
+                    <h2>Start Scanning</h2>
+                    <p>Review your settings and begin the scan process</p>
+                </div>
+            </div>
+            
+            <div class="scan-actions">
+                <div class="action-group">
+                    <h4>🔍 Preview & Prepare</h4>
+                    <div class="action-buttons">
+                        <button class="btn btn-outline" onclick="previewScan()">
+                            <span class="btn-icon">👁️</span>
+                            Preview Scan Path
+                        </button>
+                        <button class="btn btn-outline" onclick="saveScanTemplate()">
+                            <span class="btn-icon">💾</span>
+                            Save as Template
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="action-group">
+                    <h4>🚀 Execute Scan</h4>
+                    <div class="action-buttons primary-actions">
+                        <button class="btn btn-primary" onclick="addToQueue()">
+                            <span class="btn-icon">📋</span>
+                            Add to Queue
+                        </button>
+                        <button class="btn btn-success btn-large" onclick="startScanNow()">
+                            <span class="btn-icon">▶️</span>
+                            Start Scan Now
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -635,7 +957,36 @@
 function switchScanType(scanType) {
     const cylindricalParams = document.getElementById('cylindrical-parameters');
     const gridBoundaries = document.getElementById('grid-boundaries');
+    const configTitle = document.getElementById('config-title');
+    const configDescription = document.getElementById('config-description');
     
+    // Configuration content based on scan type
+    const configs = {
+        surface: {
+            title: 'Configure Scan Area',
+            description: 'Define the rectangular scanning boundaries for surface capture'
+        },
+        volume: {
+            title: 'Configure Scan Volume',
+            description: 'Set up the 3D space for complete volumetric capture'
+        },
+        cylindrical: {
+            title: 'Configure Cylindrical Scan',
+            description: 'Set rotation and height parameters for cylindrical objects'
+        },
+        detail: {
+            title: 'Configure Detail Scan',
+            description: 'Define the focused area for high-resolution detail capture'
+        }
+    };
+    
+    // Update configuration section title and description
+    if (configTitle && configDescription && configs[scanType]) {
+        configTitle.textContent = configs[scanType].title;
+        configDescription.textContent = configs[scanType].description;
+    }
+    
+    // Show/hide appropriate parameter panels
     if (scanType === 'cylindrical') {
         if (cylindricalParams) cylindricalParams.style.display = 'block';
         if (gridBoundaries) gridBoundaries.style.display = 'none';
