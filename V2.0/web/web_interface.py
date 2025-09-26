@@ -2053,14 +2053,22 @@ class ScannerWebInterface:
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     
-                    # Run the scan
-                    result = loop.run_until_complete(
-                        self.orchestrator.start_scan(
+                    async def run_complete_scan():
+                        # Start the scan (this creates the background task)
+                        scan_state = await self.orchestrator.start_scan(
                             pattern=pattern,
                             output_directory=output_dir,
                             scan_id=scan_id
                         )
-                    )
+                        
+                        # Wait for the scan to complete
+                        success = await self.orchestrator.wait_for_scan_completion()
+                        
+                        self.logger.info(f"✅ Scan completion status: {success}")
+                        return scan_state, success
+                    
+                    # Run the complete scan process
+                    result = loop.run_until_complete(run_complete_scan())
                     
                     loop.close()
                     self.logger.info(f"✅ Background scan completed: {scan_id}")
