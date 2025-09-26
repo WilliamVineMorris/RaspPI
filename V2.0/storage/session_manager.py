@@ -906,7 +906,14 @@ class SessionManager(StorageManager):
     async def start_session(self, scan_name: str, description: str = "", 
                            operator: str = "Unknown") -> ScanSession:
         """Start new scan session (interface method)"""
-        return await self.create_session(scan_name, description, operator, {})
+        session_metadata = {
+            'name': scan_name,
+            'description': description,
+            'operator': operator,
+            'scan_parameters': {}
+        }
+        session_id = await self.create_session(session_metadata)
+        return self.sessions_index[session_id]
     
     async def end_session(self, session_id: str) -> bool:
         """End scan session (interface method)"""
