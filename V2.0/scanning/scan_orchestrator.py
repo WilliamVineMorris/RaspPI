@@ -12,6 +12,7 @@ implemented when the motion and camera modules are complete.
 import asyncio
 import logging
 import time
+import json
 import cv2
 import numpy as np
 from datetime import datetime
@@ -270,12 +271,17 @@ class MockLightingController:
                    for zone_id in self._zones}
 
 class MockStorageManager:
-    """Mock storage manager for testing"""
+    """Mock storage manager for testing - now saves files to disk!"""
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
         self._initialized = False
         self._sessions = {}
         self._current_session_id = None
+        
+        # Create output directory for saved files
+        from pathlib import Path
+        self.base_dir = Path("scan_images")
+        self.base_dir.mkdir(exist_ok=True)
         
     async def initialize(self) -> bool:
         await asyncio.sleep(0.1)
@@ -308,11 +314,41 @@ class MockStorageManager:
         
     async def store_file(self, file_data: bytes, metadata: Any, location_name: Optional[str] = None) -> str:
         file_id = f"mock_file_{len(self._sessions.get(self._current_session_id, {}).get('files', [])) + 1}"
+        
+        # 💾 ACTUALLY SAVE THE FILE TO DISK!
+        try:
+            if self._current_session_id:
+                session_dir = self.base_dir / self._current_session_id
+                session_dir.mkdir(exist_ok=True)
+                
+                # Create filename from metadata
+                camera_id = metadata.get('camera_id', 'unknown')
+                point_index = metadata.get('point_index', 0)
+                timestamp = metadata.get('timestamp', time.time())
+                
+                filename = f"{camera_id}_point_{point_index:03d}_{int(timestamp)}.jpg"
+                file_path = session_dir / filename
+                
+                # Save the image file
+                with open(file_path, 'wb') as f:
+                    f.write(file_data)
+                
+                print(f"✅ SAVED IMAGE: {file_path}")  # Console output for immediate feedback
+                
+                # Store metadata
+                metadata_file = session_dir / f"{filename}.json"
+                with open(metadata_file, 'w') as f:
+                    json.dump(metadata, f, indent=2, default=str)
+                
+        except Exception as e:
+            print(f"❌ FAILED to save file: {e}")
+        
         if self._current_session_id and self._current_session_id in self._sessions:
             self._sessions[self._current_session_id]['files'].append({
                 'file_id': file_id,
                 'size': len(file_data),
-                'metadata': metadata
+                'metadata': metadata,
+                'file_path': str(file_path) if 'file_path' in locals() else None
             })
         return file_id
         
@@ -1797,6 +1833,21 @@ class ScanOrchestrator:
             scan_parameters=scan_parameters
         )
         
+        # 💾 CREATE STORAGE SESSION for saving images
+        try:
+            session_metadata = {
+                'scan_id': scan_id,
+                'pattern_type': pattern.pattern_type.value,
+                'total_points': len(pattern.generate_points()),
+                'created_at': datetime.now().isoformat(),
+                'parameters': scan_parameters
+            }
+            session_id = await self.storage_manager.create_session(session_metadata)
+            self.logger.info(f"📁 Created storage session: {session_id}")
+        except Exception as e:
+            self.logger.error(f"❌ Failed to create storage session: {e}")
+            # Continue anyway - better to have scan without storage than no scan
+        
         # Reset flags
         self._stop_requested = False
         self._pause_requested = False
@@ -2124,12 +2175,74 @@ class ScanOrchestrator:
                         recoverable=True
                     )
             
+            # 💾 SAVE CAPTURED IMAGES TO STORAGE
+            if images_captured > 0:
+                try:
+                    await self._save_captured_images(capture_results, point, point_index)
+                except Exception as storage_error:
+                    self.logger.error(f"❌ Failed to save images to storage: {storage_error}")
+                    if self.current_scan:
+                        self.current_scan.add_error(
+                            "storage_error",
+                            f"Failed to save images at point {point_index}: {storage_error}",
+                            {'point_index': point_index, 'images_captured': images_captured},
+                            recoverable=True
+                        )
+            
             self._timing_stats['capture_time'] += time.time() - capture_start
             return images_captured
             
         except Exception as e:
             self._timing_stats['capture_time'] += time.time() - capture_start
             raise HardwareError(f"Failed to capture images at point {point_index}: {e}")
+    
+    async def _save_captured_images(self, capture_results: List[Dict], point: ScanPoint, point_index: int):
+        """Save captured images to storage manager with proper metadata"""
+        import cv2
+        import numpy as np
+        
+        for result in capture_results:
+            if result['success'] and result.get('image_data') is not None:
+                try:
+                    # Extract image data
+                    image_data = result['image_data']
+                    camera_id = result['camera_id']
+                    metadata = result.get('metadata', {})
+                    
+                    # Encode image as JPEG
+                    success, encoded_image = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    
+                    if success:
+                        # Create comprehensive metadata
+                        file_metadata = {
+                            'camera_id': camera_id,
+                            'point_index': point_index,
+                            'position': {
+                                'x': point.position.x,
+                                'y': point.position.y, 
+                                'z': point.position.z,
+                                'c': point.position.c
+                            },
+                            'timestamp': time.time(),
+                            'image_shape': image_data.shape if hasattr(image_data, 'shape') else None,
+                            'encoding': 'JPEG',
+                            'quality': 95,
+                            'camera_metadata': metadata
+                        }
+                        
+                        # Store file in storage manager
+                        file_id = await self.storage_manager.store_file(
+                            encoded_image.tobytes(),
+                            file_metadata
+                        )
+                        
+                        self.logger.info(f"💾 Saved image from {camera_id} at point {point_index}: {file_id}")
+                        
+                    else:
+                        self.logger.error(f"❌ Failed to encode image from {camera_id} at point {point_index}")
+                        
+                except Exception as e:
+                    self.logger.error(f"❌ Error saving image from {result.get('camera_id', 'unknown')}: {e}")
     
     async def _handle_pause(self):
         """Handle pause requests"""
