@@ -13,7 +13,7 @@ import time
 # Add the current directory to Python path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from core.data_structures import Position4D
+from motion.base import Position4D
 from motion.simplified_fluidnc_controller_fixed import SimplifiedFluidNCControllerFixed
 
 # Setup logging

@@ -260,6 +260,17 @@ class SimplifiedFluidNCProtocolFixed:
                     logger.error("❌ PROTOCOL DEBUG: Command timeout - no response from FluidNC")
                     return False, "Command timeout"
                 
+                # Check if the immediate response indicates an error
+                response_lower = immediate_response.lower().strip()
+                is_error_response = (response_lower.startswith('error:') or 
+                                   response_lower.startswith('alarm:') or
+                                   response_lower == 'error')
+                
+                if is_error_response:
+                    logger.error(f"❌ PROTOCOL DEBUG: FluidNC returned error: '{immediate_response}'")
+                    self.stats['errors'] += 1
+                    return False, immediate_response
+                
                 # Check if this is a motion command
                 is_motion_command = self._is_motion_command(command)
                 
