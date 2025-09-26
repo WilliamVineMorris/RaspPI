@@ -386,6 +386,10 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         try:
             logger.info("🏠 Starting ENHANCED homing with debug message detection")
             
+            # CRITICAL: Reset homed status IMMEDIATELY at function start
+            self.is_homed = False
+            logger.info("🔄 IMMEDIATE reset: is_homed flag set to False at function start")
+            
             # STEP 1: Clear alarm state BEFORE homing
             logger.info("🔓 Step 1: Clearing alarm state before homing")
             alarm_clear_success = await self.clear_alarm()
@@ -395,10 +399,6 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             # Wait for system to settle after alarm clear
             await asyncio.sleep(1.0)
             logger.info("⏳ Waited 1 second after alarm clear")
-            
-            # Reset homed status at start of homing
-            self.is_homed = False
-            logger.info(f"🔄 Reset is_homed flag to False at homing start")
             
             # Determine homing command
             if axes is None or (isinstance(axes, list) and set([ax.upper() for ax in axes]) == {'X', 'Y', 'Z', 'C'}):
