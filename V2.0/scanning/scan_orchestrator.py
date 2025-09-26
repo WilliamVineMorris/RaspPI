@@ -1728,10 +1728,15 @@ class ScanOrchestrator:
     async def _health_check(self) -> bool:
         """Perform system health check"""
         try:
-            # Check motion controller
-            if not await self.motion_controller.is_connected():
-                self.logger.error("Motion controller not connected")
-                return False
+            # Check motion controller - handle both sync and async is_connected methods
+            if hasattr(self.motion_controller.is_connected, '__call__'):
+                if asyncio.iscoroutinefunction(self.motion_controller.is_connected):
+                    connected = await self.motion_controller.is_connected()
+                else:
+                    connected = self.motion_controller.is_connected()
+                if not connected:
+                    self.logger.error("Motion controller not connected")
+                    return False
             
             # Check cameras
             if not await self.camera_manager.check_camera_health():
