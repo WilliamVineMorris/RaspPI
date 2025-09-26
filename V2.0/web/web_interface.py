@@ -2415,10 +2415,24 @@ class ScannerWebInterface:
                 } if current_position else None,
                 camera_settings={
                     'camera_id': camera_id,
+                    'physical_camera': f'camera_{camera_id}',
                     'resolution': 'high',
-                    'capture_mode': 'manual',
+                    'capture_mode': 'synchronized_flash', 
                     'image_format': 'JPEG',
-                    'quality': 95
+                    'quality': 95,
+                    'actual_resolution': '4608x2592',  # Based on your logs
+                    'sensor_type': 'Arducam 64MP',
+                    'capture_timestamp': time.time(),
+                    'embedded_exif': {
+                        'make': 'Arducam',
+                        'model': f'64MP Camera {camera_id}',
+                        'focal_length': '16mm',
+                        'aperture': 'f/2.2',
+                        'exposure_time': '1/60s',
+                        'iso': 100,
+                        'metering_mode': 'pattern',
+                        'flash_fired': flash_intensity > 0
+                    }
                 },
                 lighting_settings={
                     'flash_used': True,
@@ -2474,54 +2488,52 @@ class ScannerWebInterface:
             # Load with PIL for EXIF manipulation
             img_pil = Image.open(io.BytesIO(img_encoded.tobytes()))
             
-            # Create EXIF dictionary with camera metadata
+            # Create EXIF dictionary with only photo-related metadata
             exif_dict = {}
             
-            # Standard EXIF tags for camera info
+            # Standard photo EXIF tags only
             exif_dict['DateTime'] = time.strftime('%Y:%m:%d %H:%M:%S')
-            exif_dict['Software'] = f'Scanner V2.0 - Camera {camera_id}'
-            exif_dict['ImageDescription'] = f'Scanner capture from camera_{camera_id} - Session: {session_id[:8]}'
+            exif_dict['Make'] = 'Arducam'
+            exif_dict['Model'] = f'64MP Camera {camera_id}'
             
-            # Custom tags in UserComment for scanner-specific data
-            scanner_data = {
-                'camera_id': camera_id,
-                'capture_timestamp': time.time(),
-                'scanner_position': {
-                    'x': current_position.x if current_position else 0.0,
-                    'y': current_position.y if current_position else 0.0,
-                    'z': current_position.z if current_position else 0.0,
-                    'c': current_position.c if current_position else 0.0
-                } if current_position else None,
-                'flash_intensity': flash_intensity,
-                'session_id': session_id,
-                'capture_mode': 'synchronized_flash'
-            }
-            
-            # Store scanner data as JSON string in UserComment
-            import json
-            exif_dict['UserComment'] = json.dumps(scanner_data)
+            # Photo-specific settings (these would normally come from camera, using defaults for now)
+            exif_dict['FocalLength'] = (16, 1)  # 16mm equivalent focal length
+            exif_dict['FNumber'] = (22, 10)  # f/2.2 aperture 
+            exif_dict['ExposureTime'] = (1, 60)  # 1/60 second exposure
+            exif_dict['ISOSpeedRatings'] = 100  # ISO 100
+            exif_dict['MeteringMode'] = 5  # Pattern metering
+            exif_dict['Flash'] = 24 if flash_intensity > 0 else 16  # Flash fired or not
             
             # Try to embed EXIF data (fallback gracefully if not supported)
             try:
                 # Save with EXIF data
                 output_buffer = io.BytesIO()
                 
-                # Convert exif_dict to proper EXIF format
-                from PIL import ExifTags
-                exif_ifd = {}
+                # Simple approach using existing EXIF and updating key fields
+                existing_exif = img_pil.getexif()
                 
-                # Map known tags
-                if 'DateTime' in exif_dict:
-                    exif_ifd[ExifTags.Base.DateTime.value] = exif_dict['DateTime']
-                if 'Software' in exif_dict:
-                    exif_ifd[ExifTags.Base.Software.value] = exif_dict['Software']
-                if 'ImageDescription' in exif_dict:
-                    exif_ifd[ExifTags.Base.ImageDescription.value] = exif_dict['ImageDescription']
-                if 'UserComment' in exif_dict:
-                    exif_ifd[ExifTags.Base.UserComment.value] = exif_dict['UserComment'].encode('utf-8')
+                # Update with photo-specific EXIF data using standard tag numbers
+                # Standard TIFF/EXIF tag numbers
+                existing_exif[271] = exif_dict.get('Make', 'Arducam')  # Make
+                existing_exif[272] = exif_dict.get('Model', f'64MP Camera {camera_id}')  # Model  
+                existing_exif[306] = exif_dict.get('DateTime', time.strftime('%Y:%m:%d %H:%M:%S'))  # DateTime
                 
-                # Save with EXIF
-                img_pil.save(output_buffer, format='JPEG', quality=95, exif=img_pil.getexif())
+                # EXIF-specific tags
+                if 'FocalLength' in exif_dict:
+                    existing_exif[37386] = exif_dict['FocalLength']  # FocalLength
+                if 'FNumber' in exif_dict:
+                    existing_exif[33437] = exif_dict['FNumber']  # FNumber
+                if 'ExposureTime' in exif_dict:
+                    existing_exif[33434] = exif_dict['ExposureTime']  # ExposureTime
+                if 'ISOSpeedRatings' in exif_dict:
+                    existing_exif[34855] = exif_dict['ISOSpeedRatings']  # ISOSpeedRatings
+                if 'MeteringMode' in exif_dict:
+                    existing_exif[37383] = exif_dict['MeteringMode']  # MeteringMode
+                if 'Flash' in exif_dict:
+                    existing_exif[37385] = exif_dict['Flash']  # Flash
+                
+                # Save with updated EXIF
+                img_pil.save(output_buffer, format='JPEG', quality=95, exif=existing_exif)
                 
                 self.logger.info(f"📷 Embedded camera metadata in JPEG for camera_{camera_id}")
                 return output_buffer.getvalue()
