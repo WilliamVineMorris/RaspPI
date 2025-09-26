@@ -638,8 +638,8 @@ class CameraManagerAdapter:
         self._is_scanning = False
         
         # Picamera2 dual-configuration system
-        self._stream_config = None    # 1080p streaming configuration
-        self._capture_config = None   # High-res capture configuration
+        self._stream_configs = {}     # 1080p streaming configurations per camera
+        self._capture_configs = {}    # High-res capture configurations per camera
         self._current_mode = "streaming"  # Current camera mode
         
         # Performance and resource management
@@ -682,77 +682,112 @@ class CameraManagerAdapter:
     async def _setup_dual_mode_configurations(self):
         """Setup optimized camera configurations for streaming and capture"""
         try:
-            # Only configure Camera 0 for dual-mode operation
-            camera_id = 0
+            # Configure BOTH cameras for dual-mode operation
+            for camera_id in [0, 1]:
+                if hasattr(self.controller, 'cameras') and camera_id in self.controller.cameras:
+                    camera = self.controller.cameras[camera_id]
+                    
+                    if camera:
+                        # OPTIMAL: RGB888 format with direct output provides correct colors
+                        stream_config = camera.create_video_configuration(
+                            main={"size": (1920, 1080), "format": "RGB888"},
+                            lores={"size": (640, 480), "format": "YUV420"},  # Thumbnail for processing
+                            display="lores"  # Use low-res for display efficiency
+                        )
+                        
+                        # OPTIMAL: RGB888 format for high-res capture
+                        capture_config = camera.create_still_configuration(
+                            main={"size": (4608, 2592), "format": "RGB888"},  # Native optimal still capture
+                            lores={"size": (1920, 1080), "format": "YUV420"},  # Preview
+                            display="lores"
+                        )
+                        
+                        # Store configurations per camera
+                        if not hasattr(self, '_stream_configs'):
+                            self._stream_configs = {}
+                            self._capture_configs = {}
+                        
+                        self._stream_configs[camera_id] = stream_config
+                        self._capture_configs[camera_id] = capture_config
+                        
+                        self.logger.info(f"CAMERA: Camera {camera_id} configured for dual-mode operation")
             
-            if hasattr(self.controller, 'cameras') and camera_id in self.controller.cameras:
-                camera = self.controller.cameras[camera_id]
-                
-                if camera:
-                    # OPTIMAL: RGB888 format with direct output provides correct colors
-                    self._stream_config = camera.create_video_configuration(
-                        main={"size": (1920, 1080), "format": "RGB888"},
-                        lores={"size": (640, 480), "format": "YUV420"},  # Thumbnail for processing
-                        display="lores"  # Use low-res for display efficiency
-                    )
-                    
-                    # OPTIMAL: RGB888 format for high-res capture
-                    self._capture_config = camera.create_still_configuration(
-                        main={"size": (4608, 2592), "format": "RGB888"},  # Full sensor resolution
-                        lores={"size": (1920, 1080), "format": "YUV420"},  # Preview
-                        display="lores"
-                    )
-                    
-                    # Start in streaming mode
-                    camera.configure(self._stream_config)
+            # Start camera 0 in streaming mode initially
+            if hasattr(self.controller, 'cameras') and 0 in self.controller.cameras:
+                camera = self.controller.cameras[0]
+                if camera and 0 in self._stream_configs:
+                    camera.configure(self._stream_configs[0])
                     camera.start()
-                    
-                    self._current_mode = "streaming"
-                    self.logger.info("CAMERA: OPTIMAL CONFIGURATION - RGB888 native output provides perfect colors")
+                    self.logger.info("CAMERA: Camera 0 started in streaming mode")
+            
+            self._current_mode = "streaming"
+            self.logger.info("CAMERA: OPTIMAL CONFIGURATION - RGB888 native output provides perfect colors")
                     
         except Exception as e:
             self.logger.error(f"CAMERA: Failed to setup dual-mode configurations: {e}")
     
     async def _switch_camera_mode(self, target_mode: str):
         """Efficiently switch between streaming and capture modes"""
-        try:
+        with self._mode_lock:
+            if self._current_mode == target_mode:
+                return True  # Already in target mode
+            
             current_time = time.time()
+            if (current_time - self._last_mode_switch) < self._mode_switch_cooldown:
+                await asyncio.sleep(self._mode_switch_cooldown - (current_time - self._last_mode_switch))
             
-            # Check cooldown to prevent rapid switching
-            if current_time - self._last_mode_switch < self._mode_switch_cooldown:
-                return False
-            
-            with self._mode_lock:
-                if self._current_mode == target_mode:
-                    return True  # Already in target mode
-                
-                camera_id = 0
-                if hasattr(self.controller, 'cameras') and camera_id in self.controller.cameras:
-                    camera = self.controller.cameras[camera_id]
-                    
-                    if camera:
-                        # Stop current mode
-                        if hasattr(camera, 'stop'):
+            try:
+                if target_mode == "streaming":
+                    # Stop and reconfigure camera 0 for streaming
+                    if hasattr(self.controller, 'cameras') and 0 in self.controller.cameras:
+                        camera = self.controller.cameras[0]
+                        if camera:
                             camera.stop()
-                        
-                        # Switch configuration
-                        if target_mode == "streaming":
-                            camera.configure(self._stream_config)
-                        elif target_mode == "capture":
-                            camera.configure(self._capture_config)
-                        
-                        # Restart with new configuration
-                        camera.start()
-                        
-                        self._current_mode = target_mode
-                        self._last_mode_switch = current_time
-                        
-                        self.logger.info(f"CAMERA: Switched to {target_mode} mode")
-                        return True
-                        
-        except Exception as e:
-            self.logger.error(f"CAMERA: Mode switch to {target_mode} failed: {e}")
-            return False
+                            if hasattr(self, '_stream_configs') and 0 in self._stream_configs:
+                                camera.configure(self._stream_configs[0])
+                            else:
+                                # Fallback configuration
+                                config = camera.create_video_configuration(
+                                    main={"size": (1920, 1080), "format": "RGB888"}
+                                )
+                                camera.configure(config)
+                            camera.start()
+                            self.logger.info("CAMERA: Switched to streaming mode")
+                    
+                elif target_mode == "capture":
+                    # Stop and reconfigure BOTH cameras for high-res capture
+                    for camera_id in [0, 1]:
+                        if hasattr(self.controller, 'cameras') and camera_id in self.controller.cameras:
+                            camera = self.controller.cameras[camera_id]
+                            if camera:
+                                # Only stop if running
+                                if camera_id == 0:  # Camera 0 is usually running in stream mode
+                                    camera.stop()
+                                
+                                # Configure for capture
+                                if hasattr(self, '_capture_configs') and camera_id in self._capture_configs:
+                                    camera.configure(self._capture_configs[camera_id])
+                                else:
+                                    # Fallback configuration
+                                    config = camera.create_still_configuration(
+                                        main={"size": (4608, 2592), "format": "RGB888"}
+                                    )
+                                    camera.configure(config)
+                                camera.start()
+                                self.logger.info(f"CAMERA: Camera {camera_id} switched to capture mode")
+                    
+                    self.logger.info("CAMERA: Switched to capture mode")
+                
+                self._current_mode = target_mode
+                self._last_mode_switch = time.time()
+                return True
+                
+            except Exception as e:
+                self.logger.error(f"CAMERA: Mode switch to {target_mode} failed: {e}")
+                # Try to recover to streaming mode
+                if target_mode != "streaming":
+                    await self._switch_camera_mode("streaming")
+                return False
         
     async def capture_all(self, output_dir: Path, filename_base: str, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Capture from all available cameras with autofocus and optimization"""
@@ -978,7 +1013,7 @@ class CameraManagerAdapter:
                                 camera.set_controls(controls)
                         
                         # Capture full resolution image using main stream
-                        self.logger.info("CAMERA: Capturing high-resolution image (4K+)")
+                        self.logger.info(f"CAMERA: Capturing high-resolution image (4K+) from physical camera {mapped_camera_id}")
                         
                         # Use still capture for maximum quality with timeout
                         try:
