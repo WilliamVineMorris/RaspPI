@@ -2151,19 +2151,16 @@ class ScannerWebInterface:
                 'pulse_count': 1
             }
             
-            # Manual coordination for synchronized flash capture
+            # Manual coordination for synchronized flash capture using storage system
             async def synchronized_flash_capture():
-                # Create persistent output directory for manual captures
                 from pathlib import Path
-                import os
                 
-                # Create manual capture directory in user's home directory
-                manual_capture_base = Path.home() / "manual_captures"
-                date_folder = manual_capture_base / datetime.now().strftime('%Y-%m-%d')
-                output_dir = date_folder
+                # Create or use existing manual capture session
+                session_id = await self._get_or_create_manual_capture_session()
                 
-                # Ensure directory exists
-                output_dir.mkdir(parents=True, exist_ok=True)
+                # Use temporary capture directory for immediate storage
+                temp_output_dir = Path('/tmp') / f"manual_capture_{timestamp}"
+                temp_output_dir.mkdir(parents=True, exist_ok=True)
                 
                 filename_base = f"flash_sync_{timestamp}"
                 
@@ -2178,7 +2175,7 @@ class ScannerWebInterface:
                 # Capture from all cameras using the available method
                 capture_task = asyncio.create_task(
                     self.orchestrator.camera_manager.capture_all(
-                        output_dir=output_dir,
+                        output_dir=temp_output_dir,
                         filename_base=filename_base,
                         metadata={'flash_intensity': flash_intensity, 'manual_capture': True}
                     )
@@ -2188,19 +2185,24 @@ class ScannerWebInterface:
                 flash_result = await flash_task
                 capture_results = await capture_task
                 
-                return flash_result, capture_results, output_dir
+                # Store captured files in the proper storage system
+                storage_results = await self._store_manual_captures(
+                    session_id, temp_output_dir, filename_base, flash_intensity, True
+                )
+                
+                return flash_result, capture_results, storage_results
             
             import asyncio
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                flash_result, capture_results, output_dir = loop.run_until_complete(synchronized_flash_capture())
+                flash_result, capture_results, storage_results = loop.run_until_complete(synchronized_flash_capture())
             finally:
                 loop.close()
             
-            if capture_results:
+            if capture_results and storage_results:
                 self.logger.info(f"Synchronized flash capture executed: Both cameras, Flash intensity: {flash_intensity}%")
-                self.logger.info(f"Photos saved to: {output_dir}")
+                self.logger.info(f"Photos stored in session: {storage_results['session_id']}")
                 
                 return {
                     'cameras': 'both',
@@ -2210,8 +2212,8 @@ class ScannerWebInterface:
                     'success': True,
                     'synchronized': True,
                     'capture_results': capture_results,
-                    'output_directory': str(output_dir),
-                    'storage_info': f'Photos saved to: {output_dir}'
+                    'storage_results': storage_results,
+                    'storage_info': f"Photos stored in session: {storage_results['session_name']}"
                 }
             else:
                 raise HardwareError("Synchronized capture returned no results")
@@ -2234,35 +2236,39 @@ class ScannerWebInterface:
             from pathlib import Path
             
             async def synchronized_capture():
-                # Create persistent output directory for manual captures
-                manual_capture_base = Path.home() / "manual_captures"
-                date_folder = manual_capture_base / datetime.now().strftime('%Y-%m-%d')
-                output_dir = date_folder
+                # Create or use existing manual capture session
+                session_id = await self._get_or_create_manual_capture_session()
                 
-                # Ensure directory exists
-                output_dir.mkdir(parents=True, exist_ok=True)
+                # Use temporary capture directory for immediate storage
+                temp_output_dir = Path('/tmp') / f"manual_capture_{timestamp}"
+                temp_output_dir.mkdir(parents=True, exist_ok=True)
                 
                 filename_base = f"sync_{timestamp}"
                 
                 # Capture from all cameras
                 capture_results = await self.orchestrator.camera_manager.capture_all(
-                    output_dir=output_dir,
+                    output_dir=temp_output_dir,
                     filename_base=filename_base,
                     metadata={'flash_used': False, 'manual_capture': True}
                 )
                 
-                return capture_results, output_dir
+                # Store captured files in the proper storage system
+                storage_results = await self._store_manual_captures(
+                    session_id, temp_output_dir, filename_base, 0, False
+                )
+                
+                return capture_results, storage_results
             
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                capture_results, output_dir = loop.run_until_complete(synchronized_capture())
+                capture_results, storage_results = loop.run_until_complete(synchronized_capture())
             finally:
                 loop.close()
             
-            if capture_results:
+            if capture_results and storage_results:
                 self.logger.info(f"Synchronized capture executed: Both cameras, No flash")
-                self.logger.info(f"Photos saved to: {output_dir}")
+                self.logger.info(f"Photos stored in session: {storage_results['session_id']}")
                 
                 return {
                     'cameras': 'both',
@@ -2271,8 +2277,8 @@ class ScannerWebInterface:
                     'success': True,
                     'synchronized': True,
                     'capture_results': capture_results,
-                    'output_directory': str(output_dir),
-                    'storage_info': f'Photos saved to: {output_dir}'
+                    'storage_results': storage_results,
+                    'storage_info': f"Photos stored in session: {storage_results['session_name']}"
                 }
             else:
                 raise HardwareError("Synchronized capture returned no results")
@@ -2723,6 +2729,132 @@ class ScannerWebInterface:
         update_thread = threading.Thread(target=status_updater, daemon=True)
         update_thread.start()
         self.logger.info("Status updater started")
+
+    async def _get_or_create_manual_capture_session(self) -> str:
+        """Get or create a session for manual captures using the storage system"""
+        try:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
+                raise HardwareError("Storage manager not available")
+            
+            storage_manager = self.orchestrator.storage_manager
+            
+            # Check if there's already an active manual capture session
+            if hasattr(storage_manager, 'active_session_id') and storage_manager.active_session_id:
+                # Get session info to check if it's a manual capture session
+                session = storage_manager.sessions_index.get(storage_manager.active_session_id)
+                if session and session.scan_name.startswith("Manual_Captures"):
+                    return storage_manager.active_session_id
+            
+            # Create new manual capture session
+            session_metadata = {
+                'name': f"Manual_Captures_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                'description': 'Manual camera captures from web interface',
+                'operator': 'Web Interface',
+                'scan_parameters': {
+                    'capture_type': 'manual',
+                    'interface': 'web'
+                }
+            }
+            
+            session_id = await storage_manager.create_session(session_metadata)
+            self.logger.info(f"Created manual capture session: {session_id}")
+            return session_id
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create manual capture session: {e}")
+            raise HardwareError(f"Manual capture session creation failed: {e}")
+
+    async def _store_manual_captures(self, session_id: str, temp_dir: Path, filename_base: str, 
+                                   flash_intensity: int, flash_used: bool) -> Dict[str, Any]:
+        """Store manual capture files using the storage system"""
+        try:
+            if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
+                raise HardwareError("Storage manager not available")
+            
+            storage_manager = self.orchestrator.storage_manager
+            
+            # Import required classes
+            from storage.base import StorageMetadata, DataType
+            import hashlib
+            import time
+            
+            # Find captured files in temp directory
+            captured_files = []
+            for file_path in temp_dir.glob("*.jpg"):
+                captured_files.append(file_path)
+            
+            if not captured_files:
+                raise HardwareError("No captured files found to store")
+            
+            # Store each file in the storage system
+            stored_files = []
+            for file_path in captured_files:
+                try:
+                    # Read file data
+                    with open(file_path, 'rb') as f:
+                        file_data = f.read()
+                    
+                    # Calculate checksum
+                    checksum = hashlib.sha256(file_data).hexdigest()
+                    
+                    # Determine camera ID from filename
+                    camera_id = None
+                    if "_camera_1.jpg" in file_path.name:
+                        camera_id = 0
+                    elif "_camera_2.jpg" in file_path.name:
+                        camera_id = 1
+                    
+                    # Create storage metadata
+                    metadata = StorageMetadata(
+                        file_id="",  # Will be set by storage manager
+                        original_filename=file_path.name,
+                        data_type=DataType.RAW_IMAGE,
+                        file_size_bytes=len(file_data),
+                        checksum=checksum,
+                        creation_time=time.time(),
+                        scan_session_id=session_id,
+                        camera_settings={'flash_intensity': flash_intensity, 'flash_used': flash_used},
+                        lighting_settings={'flash_intensity': flash_intensity} if flash_used else None,
+                        tags=['manual_capture', 'web_interface', f'camera_{camera_id}' if camera_id is not None else 'unknown_camera']
+                    )
+                    
+                    # Store file in storage system
+                    file_id = await storage_manager.store_file(file_data, metadata)
+                    stored_files.append({
+                        'file_id': file_id,
+                        'original_filename': file_path.name,
+                        'camera_id': camera_id,
+                        'file_size': len(file_data)
+                    })
+                    
+                    self.logger.info(f"Stored manual capture: {file_path.name} -> {file_id}")
+                    
+                except Exception as e:
+                    self.logger.error(f"Failed to store file {file_path}: {e}")
+                    continue
+            
+            # Clean up temp directory
+            try:
+                import shutil
+                shutil.rmtree(temp_dir)
+            except Exception as e:
+                self.logger.warning(f"Failed to clean up temp directory {temp_dir}: {e}")
+            
+            # Get session info for return
+            session = storage_manager.sessions_index.get(session_id)
+            session_name = session.scan_name if session else f"Session_{session_id[:8]}"
+            
+            return {
+                'session_id': session_id,
+                'session_name': session_name,
+                'stored_files': stored_files,
+                'total_files': len(stored_files),
+                'storage_location': str(storage_manager.base_storage_path / 'sessions' / session_id)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to store manual captures: {e}")
+            raise HardwareError(f"Manual capture storage failed: {e}")
 
 
 if __name__ == "__main__":

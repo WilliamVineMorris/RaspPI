@@ -395,7 +395,7 @@ class SessionManager(StorageManager):
             session_path = self.base_storage_path / 'sessions' / self.active_session_id
             
             # Determine storage subdirectory based on data type
-            if metadata.data_type == DataType.IMAGE:
+            if metadata.data_type in [DataType.SCAN_IMAGE, DataType.RAW_IMAGE, DataType.PROCESSED_IMAGE]:
                 file_path = session_path / 'images' / filename
             else:
                 file_path = session_path / 'metadata' / filename
