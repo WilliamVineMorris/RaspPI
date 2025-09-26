@@ -523,9 +523,11 @@
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/scans.js') }}"></script>
 <script>
-// Simple scan type switching - direct approach
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('Scan type switching script loaded');
+console.log('=== SCAN TYPE SCRIPT STARTING ===');
+
+// Try multiple approaches to ensure script runs
+function initScanTypeSwitching() {
+    console.log('=== Initializing scan type switching ===');
     
     const scanTypeCards = document.querySelectorAll('.scan-type-card');
     const cylindricalParams = document.getElementById('cylindrical-parameters');
@@ -535,25 +537,45 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('Cylindrical params element:', cylindricalParams);
     console.log('Grid boundaries element:', gridBoundaries);
     
+    if (scanTypeCards.length === 0) {
+        console.error('ERROR: No scan type cards found!');
+        return;
+    }
+    
+    if (!cylindricalParams) {
+        console.error('ERROR: Cylindrical parameters element not found!');
+        return;
+    }
+    
+    if (!gridBoundaries) {
+        console.error('ERROR: Grid boundaries element not found!');
+        return;
+    }
+    
     function updateParameterPanels(scanType) {
-        console.log('Updating panels for scan type:', scanType);
+        console.log('=== UPDATING PANELS FOR:', scanType, '===');
         
         if (scanType === 'cylindrical') {
-            console.log('Showing cylindrical parameters');
-            if (cylindricalParams) cylindricalParams.style.display = 'block';
-            if (gridBoundaries) gridBoundaries.style.display = 'none';
+            console.log('>>> SHOWING CYLINDRICAL PARAMETERS <<<');
+            cylindricalParams.style.display = 'block';
+            gridBoundaries.style.display = 'none';
         } else {
-            console.log('Showing grid boundaries');
-            if (cylindricalParams) cylindricalParams.style.display = 'none';
-            if (gridBoundaries) gridBoundaries.style.display = 'block';
+            console.log('>>> SHOWING GRID BOUNDARIES <<<');
+            cylindricalParams.style.display = 'none';
+            gridBoundaries.style.display = 'block';
         }
+        
+        console.log('Cylindrical display:', cylindricalParams.style.display);
+        console.log('Grid display:', gridBoundaries.style.display);
     }
     
     // Add click handlers to scan type cards
-    scanTypeCards.forEach(card => {
+    scanTypeCards.forEach((card, index) => {
+        console.log(`Setting up click handler for card ${index}:`, card.dataset.type);
+        
         card.addEventListener('click', function() {
             const scanType = card.dataset.type;
-            console.log('Scan type card clicked:', scanType);
+            console.log('=== SCAN TYPE CARD CLICKED:', scanType, '===');
             
             // Update selection visual
             scanTypeCards.forEach(c => c.classList.remove('selected'));
@@ -565,11 +587,31 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Set initial state - surface scan selected
+    console.log('Setting initial state...');
     const defaultCard = document.querySelector('[data-type="surface"]');
     if (defaultCard) {
         defaultCard.classList.add('selected');
         updateParameterPanels('surface');
+        console.log('Initial state set to surface scan');
+    } else {
+        console.error('ERROR: Default surface card not found!');
     }
-});
+    
+    console.log('=== SCAN TYPE SWITCHING INITIALIZED ===');
+}
+
+// Try multiple initialization approaches
+document.addEventListener('DOMContentLoaded', initScanTypeSwitching);
+
+// Also try after a short delay in case DOM isn't fully ready
+setTimeout(initScanTypeSwitching, 100);
+
+// And also try immediately if DOM is already loaded
+if (document.readyState === 'loading') {
+    console.log('DOM is still loading, waiting...');
+} else {
+    console.log('DOM already loaded, initializing immediately...');
+    initScanTypeSwitching();
+}
 </script>
 {% endblock %}
