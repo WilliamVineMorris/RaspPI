@@ -52,14 +52,14 @@ async def test_complete_scan_execution():
         from scanning.scan_patterns import GridPatternParameters
         
         grid_params = GridPatternParameters(
-            min_x=-5.0,   # Smaller test area
-            max_x=5.0,
-            min_y=-5.0,
-            max_y=5.0,
-            x_spacing=5.0,    # This gives us 2 points in X  
-            y_spacing=5.0,    # This gives us 2 points in Y
-            z_spacing=20.0,   # Only 1 Z level 
-            c_steps=2         # Only 2 rotation positions
+            min_x=50.0,       # Safe positive X positions
+            max_x=150.0,      # Within 0-200 limits
+            min_y=50.0,       # Safe positive Y positions  
+            max_y=150.0,      # Within limits
+            x_spacing=50.0,   # This gives us 3 points: 50, 100, 150
+            y_spacing=50.0,   # This gives us 3 points: 50, 100, 150
+            z_spacing=90.0,   # Only 2 Z levels: 0°, 90°
+            c_steps=2         # Only 2 rotation positions: -30°, 30°
         )
         
         pattern = GridScanPattern(
