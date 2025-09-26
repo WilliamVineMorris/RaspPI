@@ -230,21 +230,27 @@ class CommandValidator:
         if not (1.0 <= spacing <= 25.0):
             raise ValueError(f"Spacing {spacing}mm outside valid range [1.0, 25.0]")
         
-        if not (5.0 <= z_height <= 50.0):
-            raise ValueError(f"Z height {z_height}mm outside valid range [5.0, 50.0]")
+        # z_height in grid scan represents cylinder rotation angle, not height
+        if not (0.0 <= z_height <= 360.0):
+            raise ValueError(f"Z rotation angle {z_height}° outside valid range [0.0, 360.0]°")
         
         return {
             'pattern_type': 'grid',
             'x_range': x_range,
             'y_range': y_range,
             'spacing': spacing,
-            'z_height': z_height,
+            'z_height': z_height,  # Cylinder rotation angle for grid scan
             'validated': True
         }
     
     @classmethod
     def _validate_cylindrical_pattern(cls, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate cylindrical pattern parameters for fixed radius scanning"""
+        """Validate cylindrical pattern parameters for cylinder + servo scanning
+        
+        Cylindrical scan strategy:
+        - Z-axis: Cylinder/turntable rotation (multiple angles)
+        - C-axis: Camera servo positioning (typically fixed)
+        """
         # Fixed camera radius (X-axis) - single value, not range
         radius = float(data.get('radius', 25.0))
         
@@ -2018,20 +2024,29 @@ class ScannerWebInterface:
                     self.logger.warning(f"Could not set scanning mode: {e}")
                 
             if pattern_data['pattern_type'] == 'grid':
+                # For grid pattern, treat z_height as fixed cylinder rotation angle
+                z_rotation = pattern_data.get('z_height', 0.0)  # Use z_height as cylinder angle
                 pattern = self.orchestrator.create_grid_pattern(
                     x_range=pattern_data['x_range'],
-                    y_range=pattern_data['y_range'],
+                    y_range=pattern_data['y_range'], 
                     spacing=pattern_data['spacing'],
-                    z_height=pattern_data['z_height']
+                    z_rotation=z_rotation  # Fixed cylinder angle for grid scan
                 )
             elif pattern_data['pattern_type'] == 'cylindrical':
+                # Cylindrical pattern: Z axis rotates cylinder, C axis controls servo
+                # Ensure proper cylindrical scan setup
+                z_rotations = pattern_data.get('z_rotations', list(range(0, 360, 45)))  # Default: 8 angles
+                c_angles = pattern_data.get('c_angles', [0.0])  # Default: fixed servo angle
+                
                 pattern = self.orchestrator.create_cylindrical_pattern(
                     radius=pattern_data['radius'],
                     y_range=pattern_data['y_range'],
                     y_step=pattern_data['y_step'],
-                    z_rotations=pattern_data['z_rotations'],
-                    c_angles=pattern_data.get('c_angles', None)  # Optional parameter
+                    z_rotations=z_rotations,  # CYLINDER rotation angles
+                    c_angles=c_angles         # SERVO angle (typically fixed)
                 )
+                self.logger.info(f"🔄 Cylindrical scan: Z-axis (cylinder) rotations={z_rotations}")
+                self.logger.info(f"📐 Cylindrical scan: C-axis (servo) angles={c_angles}")
             else:
                 raise ValueError(f"Unknown pattern type: {pattern_data['pattern_type']}")
             
@@ -2040,7 +2055,11 @@ class ScannerWebInterface:
             output_dir = Path.cwd() / "scans" / scan_id
             
             self.logger.info(f"🎯 Starting scan with motion completion timing:")
-            self.logger.info(f"   • Pattern: {pattern_data['pattern_type']}")
+            self.logger.info(f"   • Pattern: {pattern_data['pattern_type']} scan")
+            if pattern_data['pattern_type'] == 'grid':
+                self.logger.info(f"   • Grid scan: Z-axis fixed at {pattern_data.get('z_height', 0.0)}° (cylinder position)")
+            elif pattern_data['pattern_type'] == 'cylindrical':
+                self.logger.info(f"   • Cylindrical scan: Z-axis rotations for cylinder, C-axis servo control")
             self.logger.info(f"   • Points: {len(pattern.generate_points())}")
             self.logger.info(f"   • Motion mode: scanning_mode (with feedrate control)")
             self.logger.info(f"   • Motion completion: enabled (waits for position)")

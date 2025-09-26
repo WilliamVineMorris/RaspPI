@@ -303,9 +303,11 @@ class CylindricalPatternParameters(PatternParameters):
         if self.z_rotations is None:
             self.z_rotations = list(range(0, 360, int(self.z_step)))
             
-        # Set default camera angles if not provided  
+        # Set default camera servo angles if not provided
+        # For cylindrical scanning, typically use fixed servo angle for consistency
         if self.c_angles is None:
-            self.c_angles = list(range(-30, 31, int(self.c_step)))
+            self.c_angles = [0.0]  # Default: fixed servo at center position
+            # Alternative: self.c_angles = [0.0, 15.0, -15.0] for multi-angle views
             
         # Validate ranges (allow equal values for fixed positions)
         if self.x_start > self.x_end:
@@ -338,25 +340,44 @@ class CylindricalScanPattern(ScanPattern):
         return PatternType.CYLINDRICAL
     
     def generate_points(self) -> List[ScanPoint]:
-        """Generate scan points for cylindrical pattern"""
+        """Generate scan points for cylindrical pattern
+        
+        Cylindrical scanning strategy:
+        - Z-axis: Rotates cylinder/turntable through multiple angles
+        - C-axis: Camera servo stays at fixed angle (or minimal variation)
+        - X,Y: Camera positioning for coverage
+        """
         points = []
         params = self.cylinder_params
         
-        # Ensure rotation lists are initialized
+        # Z-axis: Cylinder rotation angles (primary rotation axis)
         z_rotations = params.z_rotations or list(range(0, 360, int(params.z_step)))
-        c_angles = params.c_angles or list(range(-30, 31, int(params.c_step)))
         
-        # Generate positions for each combination of coordinates
-        for z_rotation in z_rotations:
-            for c_angle in c_angles:
+        # C-axis: Camera servo angle(s) - typically fixed for consistency
+        # For cylindrical scan, usually keep servo at one angle for consistent viewpoint
+        c_angles = params.c_angles
+        if c_angles is None or len(c_angles) == 0:
+            # Default: single servo angle for consistent camera positioning
+            c_angles = [0.0]  # Fixed servo angle
+            self.logger.info(f"Cylindrical scan: Using fixed servo angle C=0.0°")
+        elif len(c_angles) > 3:
+            # Limit servo variations in cylindrical scan to avoid excessive points
+            c_angles = c_angles[:3]
+            self.logger.warning(f"Cylindrical scan: Limited servo angles to {c_angles} (max 3 for efficiency)")
+        
+        self.logger.info(f"Cylindrical scan setup: {len(z_rotations)} cylinder rotations × {len(c_angles)} servo angle(s)")
+        
+        # Generate positions: CYLINDER rotates (Z), SERVO fixed or minimal (C)
+        for z_rotation in z_rotations:  # Primary: rotate cylinder
+            for c_angle in c_angles:    # Secondary: servo angle (usually single value)
                 for y_pos in self._generate_y_positions():
                     for x_pos in self._generate_x_positions(y_pos):
                         
                         position = Position4D(
                             x=x_pos,
                             y=y_pos, 
-                            z=z_rotation,  # Turntable angle
-                            c=c_angle       # Camera pivot
+                            z=z_rotation,  # CYLINDER rotation angle
+                            c=c_angle       # SERVO angle (typically fixed)
                         )
                         
                         # Create scan point
