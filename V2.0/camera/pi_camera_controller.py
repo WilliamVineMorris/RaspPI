@@ -775,6 +775,8 @@ class PiCameraController(CameraController):
 
     async def auto_focus_and_get_value(self, camera_id: str) -> Optional[float]:
         """Perform autofocus and return the optimal focus value - integrated approach"""
+        logger.info(f"🔍 ENTRY: auto_focus_and_get_value({camera_id}) called")
+        
         try:
             cam_id = int(camera_id.replace('camera', ''))
             if cam_id not in self.cameras or not self.cameras[cam_id]:
@@ -818,12 +820,14 @@ class PiCameraController(CameraController):
                         return success, None
                     
                     result_task = asyncio.create_task(asyncio.to_thread(wait_and_get_position))
-                    success, lens_pos = await asyncio.wait_for(result_task, timeout=3.5)
+                    success, lens_pos = await asyncio.wait_for(result_task, timeout=10.0)  # Increased to 10s
                     
                     if success and lens_pos is not None:
                         final_lens_position = lens_pos
                         autofocus_success = True
                         logger.info(f"✅ Camera {camera_id} async autofocus successful, lens: {lens_pos}")
+                    else:
+                        logger.warning(f"📷 Camera {camera_id} async autofocus returned success={success}, lens_pos={lens_pos}")
                     
             except Exception as async_error:
                 logger.debug(f"📷 Camera {camera_id} async autofocus failed: {async_error}")
@@ -836,7 +840,7 @@ class PiCameraController(CameraController):
                     picamera2.set_controls({"AfTrigger": 0})
                     
                     start_time = time.time()
-                    while (time.time() - start_time) < 3.0:
+                    while (time.time() - start_time) < 10.0:  # Increased to 10s
                         metadata = picamera2.capture_metadata()
                         af_state = metadata.get('AfState', 0)
                         lens_pos = metadata.get('LensPosition')
@@ -854,17 +858,26 @@ class PiCameraController(CameraController):
                     logger.warning(f"📷 Camera {camera_id} manual AF failed: {manual_error}")
             
             # Convert lens position to normalized value
+            logger.debug(f"📷 Camera {camera_id} autofocus_success={autofocus_success}, final_lens_position={final_lens_position}")
+            
             if autofocus_success and final_lens_position is not None:
                 # ArduCam lens positions typically range 0-10+ (higher = closer)
                 normalized_focus = min(1.0, max(0.0, final_lens_position / 10.0))
-                logger.info(f"📷 Camera {camera_id} returning focus value: {normalized_focus:.3f} (raw: {final_lens_position})")
+                logger.info(f"🎯 Camera {camera_id} SUCCESS: Returning focus value {normalized_focus:.3f} (raw: {final_lens_position})")
+                logger.info(f"🔍 EXIT: auto_focus_and_get_value({camera_id}) returning {normalized_focus:.3f}")
                 return normalized_focus
+            elif autofocus_success:
+                logger.warning(f"📷 Camera {camera_id} autofocus succeeded but no lens position available")
+                logger.info(f"🔍 EXIT: auto_focus_and_get_value({camera_id}) returning default 0.5 (no lens pos)")
+                return 0.5  # Default value
             else:
-                logger.warning(f"📷 Camera {camera_id} autofocus incomplete, using default")
+                logger.warning(f"📷 Camera {camera_id} autofocus did not succeed, using default")
+                logger.info(f"🔍 EXIT: auto_focus_and_get_value({camera_id}) returning default 0.5 (failed)")
                 return 0.5  # Default value
             
         except Exception as e:
             logger.error(f"📷 Camera {camera_id} autofocus and value retrieval failed: {e}")
+            logger.info(f"🔍 EXIT: auto_focus_and_get_value({camera_id}) returning default 0.5 (exception)")
             return 0.5  # Return default instead of None to prevent scan failure
 
     async def capture_with_flash_sync(self, flash_controller, settings: Optional[Dict[str, CameraSettings]] = None) -> SyncCaptureResult:
