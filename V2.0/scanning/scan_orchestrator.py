@@ -2048,7 +2048,8 @@ class ScanOrchestrator:
         
         # 📋 GENERATE SCAN POSITIONS METADATA FILE and store in storage manager
         try:
-            positions_metadata = await self._generate_scan_positions_file(pattern, Path(output_directory), scan_id)
+            # Generate initial positions file with planning defaults
+            positions_metadata = await self._generate_scan_positions_file(pattern, Path(output_directory), scan_id, prefer_calibrated=False)
             
             # Also save positions file to session directory if session exists
             if 'session_id' in locals() and positions_metadata:
@@ -2126,7 +2127,7 @@ class ScanOrchestrator:
         
         return relevant_params
     
-    async def _get_actual_camera_settings(self) -> dict:
+    async def _get_actual_camera_settings(self, prefer_calibrated: bool = True) -> dict:
         """Get actual calibrated camera settings instead of template values"""
         actual_settings = {
             'exposure_time': '1/30s',  # Sensible default for ArduCam 64MP
@@ -2138,11 +2139,24 @@ class ScanOrchestrator:
         }
         
         try:
-            # Try to get calibrated settings from camera controller
-            if (hasattr(self.camera_manager, 'controller') and 
-                hasattr(self.camera_manager.controller, '_calibrated_settings')):
-                
-                calibrated = self.camera_manager.controller._calibrated_settings
+            # Check if camera manager is available and accessible
+            camera_controller = None
+            
+            # Try different ways to access the camera controller
+            if hasattr(self, 'camera_manager'):
+                if hasattr(self.camera_manager, 'controller'):
+                    camera_controller = self.camera_manager.controller
+                elif hasattr(self.camera_manager, '_controller'):
+                    camera_controller = self.camera_manager._controller
+                elif hasattr(self.camera_manager, 'camera_controller'):
+                    camera_controller = self.camera_manager.camera_controller
+                else:
+                    # Camera manager might be the controller itself (Pi setup)
+                    if hasattr(self.camera_manager, '_calibrated_settings'):
+                        camera_controller = self.camera_manager
+            
+            if camera_controller and hasattr(camera_controller, '_calibrated_settings'):
+                calibrated = camera_controller._calibrated_settings
                 
                 # Use Camera 0 calibrated settings as reference (both cameras should be similar)
                 if calibrated and (0 in calibrated or 1 in calibrated):
@@ -2181,16 +2195,30 @@ class ScanOrchestrator:
                         if 'focus_value' in ref_settings:
                             actual_settings['focus_position'] = ref_settings['focus_value']
                         
+                        # Add calibration timestamp if available
+                        if 'timestamp' in ref_settings:
+                            actual_settings['calibration_timestamp'] = ref_settings['timestamp']
+                        
                         self.logger.info(f"📋 Using calibrated camera settings: "
                                        f"{actual_settings['exposure_time']}, ISO {actual_settings['iso']}")
+                        return actual_settings
                     else:
                         self.logger.warning("📋 Invalid calibrated settings format, using defaults")
+                        actual_settings['calibration_source'] = 'invalid_calibration_format'
                 else:
-                    self.logger.warning("📋 No calibrated settings available, using sensible defaults")
-                    actual_settings['calibration_source'] = 'no_calibration_available'
+                    if prefer_calibrated:
+                        self.logger.warning("📋 No calibrated settings available, using sensible defaults")
+                        actual_settings['calibration_source'] = 'no_calibration_available'
+                    else:
+                        self.logger.debug("📋 Calibration not required at this stage, using defaults")
+                        actual_settings['calibration_source'] = 'planning_stage_defaults'
             else:
-                self.logger.info("📋 Camera controller not available, using default settings")
-                actual_settings['calibration_source'] = 'controller_unavailable'
+                if prefer_calibrated:
+                    self.logger.warning("📋 Camera controller not accessible, using default settings")
+                    actual_settings['calibration_source'] = 'controller_unavailable'
+                else:
+                    self.logger.debug("📋 Using planning-stage defaults (controller will be available during execution)")
+                    actual_settings['calibration_source'] = 'planning_stage_defaults'
                 
         except Exception as e:
             self.logger.warning(f"📋 Failed to get calibrated settings: {e}, using defaults")
@@ -2198,14 +2226,26 @@ class ScanOrchestrator:
         
         return actual_settings
 
-    async def _generate_scan_positions_file(self, pattern: ScanPattern, output_directory: Path, scan_id: str) -> dict:
+    async def _generate_scan_positions_file(self, pattern: ScanPattern, output_directory: Path, scan_id: str, 
+                                           prefer_calibrated: bool = False) -> dict:
         """Generate a detailed metadata file with all scan point positions using actual camera settings"""
         try:
             # Generate all scan points
             scan_points = pattern.generate_points()
             
-            # Get actual calibrated camera settings
-            actual_camera_settings = await self._get_actual_camera_settings()
+            # Get camera settings - prefer planning stage defaults during initial generation
+            actual_camera_settings = await self._get_actual_camera_settings(prefer_calibrated=prefer_calibrated)
+            
+            # Determine appropriate note based on settings source
+            settings_source = actual_camera_settings.get('calibration_source', 'unknown')
+            if settings_source == 'camera_calibrated':
+                settings_note = 'Camera settings reflect actual calibrated values from scan execution'
+            elif settings_source == 'planning_stage_defaults':
+                settings_note = 'Camera settings are planning defaults - will be updated with calibrated values during scan execution'
+            elif settings_source == 'controller_unavailable':
+                settings_note = 'Camera controller not available during positions file generation - using sensible defaults'
+            else:
+                settings_note = f'Camera settings source: {settings_source} - may be updated during scan execution'
             
             # Create positions metadata with actual camera settings information
             positions_metadata = {
@@ -2217,9 +2257,10 @@ class ScanOrchestrator:
                     'generated_at': datetime.now().isoformat(),
                     'pattern_parameters': self._extract_relevant_pattern_parameters(pattern.parameters.__dict__),
                     'camera_settings_info': {
-                        'settings_source': actual_camera_settings.get('calibration_source', 'unknown'),
+                        'settings_source': settings_source,
                         'settings_generated_at': datetime.now().isoformat(),
-                        'note': 'Camera settings reflect actual calibrated values from scan execution, not template defaults'
+                        'note': settings_note,
+                        'will_be_updated': settings_source in ['planning_stage_defaults', 'controller_unavailable', 'no_calibration_available']
                     }
                 },
                 'scan_positions': []
@@ -2273,6 +2314,64 @@ class ScanOrchestrator:
         except Exception as e:
             self.logger.error(f"❌ Failed to generate scan positions file: {e}")
             raise
+
+    async def _update_scan_positions_with_calibration(self, scan_id: str, output_directory: Path):
+        """Update scan positions file with actual calibrated camera settings after calibration"""
+        try:
+            positions_file = output_directory / f"{scan_id}_scan_positions.json"
+            
+            if not positions_file.exists():
+                self.logger.warning(f"📋 Positions file not found for updating: {positions_file}")
+                return
+            
+            # Get actual calibrated settings
+            calibrated_settings = await self._get_actual_camera_settings(prefer_calibrated=True)
+            
+            # Only update if we actually have calibrated settings
+            if calibrated_settings.get('calibration_source') != 'camera_calibrated':
+                self.logger.debug("📋 No calibrated settings available for positions file update")
+                return
+            
+            # Read existing positions file
+            import json
+            with open(positions_file, 'r') as f:
+                positions_data = json.load(f)
+            
+            # Update camera settings info in scan_info
+            positions_data['scan_info']['camera_settings_info'].update({
+                'settings_source': calibrated_settings['calibration_source'],
+                'settings_updated_at': datetime.now().isoformat(),
+                'note': 'Camera settings updated with actual calibrated values after scan calibration',
+                'will_be_updated': False
+            })
+            
+            # Update camera settings in all scan positions
+            for position in positions_data['scan_positions']:
+                position['camera_settings'].update({
+                    'exposure_time': calibrated_settings['exposure_time'],
+                    'iso': calibrated_settings['iso'],
+                    'calibration_source': calibrated_settings['calibration_source']
+                })
+                
+                # Add calibration timestamp if available
+                if 'calibration_timestamp' in calibrated_settings:
+                    position['camera_settings']['calibration_timestamp'] = calibrated_settings['calibration_timestamp']
+                
+                # Add focus position if available
+                if 'focus_position' in calibrated_settings:
+                    position['camera_settings']['focus_position'] = calibrated_settings['focus_position']
+            
+            # Write updated positions file
+            with open(positions_file, 'w') as f:
+                json.dump(positions_data, f, indent=2, default=str)
+            
+            self.logger.info(f"📋 Updated scan positions file with calibrated settings: "
+                           f"Exposure: {calibrated_settings['exposure_time']}, "
+                           f"ISO: {calibrated_settings['iso']}")
+            
+        except Exception as e:
+            self.logger.warning(f"📋 Failed to update positions file with calibration: {e}")
+            # Don't raise - this is not critical to scan execution
     
     async def _execute_scan(self):
         """Main scan execution loop"""
@@ -2411,6 +2510,15 @@ class ScanOrchestrator:
                         
                         self.logger.info(f"✅ Primary camera calibration completed:")
                         self.logger.info(f"   Focus: {focus_value:.3f}, Exposure: {exposure/1000:.1f}ms, Gain: {gain:.2f}")
+                        
+                        # Update scan positions file with actual calibrated settings
+                        if hasattr(self, 'current_scan') and self.current_scan and hasattr(self.current_scan, 'scan_id'):
+                            try:
+                                scan_output_dir = Path(self.current_scan.output_directory) if hasattr(self.current_scan, 'output_directory') else None
+                                if scan_output_dir:
+                                    await self._update_scan_positions_with_calibration(self.current_scan.scan_id, scan_output_dir)
+                            except Exception as pos_update_error:
+                                self.logger.warning(f"📋 Failed to update positions file with calibration: {pos_update_error}")
                         
                         # Apply the same focus value to all other cameras (but let them auto-expose independently)
                         for camera_id in available_cameras:
