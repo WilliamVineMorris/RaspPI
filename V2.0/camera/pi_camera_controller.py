@@ -545,14 +545,23 @@ class PiCameraController(CameraController):
                 try:
                     # Create async wrapper for autofocus_cycle since it's synchronous
                     def run_autofocus():
-                        return picamera2.autofocus_cycle()
+                        logger.debug(f"📷 Camera {camera_id} executing autofocus_cycle() in thread...")
+                        start_time = time.time()
+                        result = picamera2.autofocus_cycle()
+                        duration = time.time() - start_time
+                        logger.debug(f"📷 Camera {camera_id} autofocus_cycle() completed in {duration:.2f}s, result: {result}")
+                        return result
                     
-                    # Run with timeout to prevent hanging
+                    # Run with extended timeout for ArduCam cameras (they need more time)
                     focus_task = asyncio.create_task(
                         asyncio.to_thread(run_autofocus)
                     )
                     
-                    success = await asyncio.wait_for(focus_task, timeout=2.0)
+                    # ArduCam 64MP cameras need longer timeout
+                    timeout_duration = 5.0  # Increased from 2s to 5s
+                    
+                    logger.debug(f"📷 Camera {camera_id} waiting up to {timeout_duration}s for autofocus completion...")
+                    success = await asyncio.wait_for(focus_task, timeout=timeout_duration)
                     
                     if success:
                         logger.info(f"✅ Camera {camera_id} autofocus cycle completed successfully")
@@ -562,7 +571,15 @@ class PiCameraController(CameraController):
                     return True  # Always return True to not block scanning
                     
                 except asyncio.TimeoutError:
-                    logger.warning(f"⏱️ Camera {camera_id} autofocus cycle timed out after 2s, continuing")
+                    logger.warning(f"⏱️ Camera {camera_id} autofocus cycle timed out after {timeout_duration}s, continuing")
+                    # Check if we can get current lens position for diagnostics
+                    try:
+                        metadata = picamera2.capture_metadata()
+                        lens_pos = metadata.get('LensPosition', 'unknown')
+                        af_state = metadata.get('AfState', 'unknown')
+                        logger.info(f"📷 Camera {camera_id} final state: lens_pos={lens_pos}, af_state={af_state}")
+                    except:
+                        pass
                     return True  # Don't block scan for timeout
                     
                 except Exception as cycle_error:
