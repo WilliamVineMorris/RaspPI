@@ -1821,7 +1821,7 @@ class ScanOrchestrator:
         scan_parameters = scan_parameters or {}
         scan_parameters.update({
             'pattern_type': pattern.pattern_type.value,
-            'pattern_parameters': pattern.parameters.__dict__,
+            'pattern_parameters': self._extract_relevant_pattern_parameters(pattern.parameters.__dict__),
             'total_points': len(pattern.generate_points()),
             'camera_settings': self.camera_manager.get_current_settings(),
             'motion_settings': self.motion_controller.get_current_settings()
@@ -1849,7 +1849,7 @@ class ScanOrchestrator:
                     'pattern_id': pattern.pattern_id,
                     'total_points': len(scan_points),
                     'created_at': datetime.now().isoformat(),
-                    'pattern_parameters': pattern.parameters.__dict__,
+                    'pattern_parameters': self._extract_relevant_pattern_parameters(pattern.parameters.__dict__),
                     'web_parameters': scan_parameters,
                     'output_directory': str(output_directory),
                     # Add complete scan positions array
@@ -1940,6 +1940,23 @@ class ScanOrchestrator:
         
         return self.current_scan
     
+    def _extract_relevant_pattern_parameters_legacy(self, pattern_params) -> dict:
+        """Extract only the relevant pattern parameters, filtering out base PatternParameters"""
+        # Convert to dict if it's a dataclass
+        if hasattr(pattern_params, '__dict__'):
+            all_params = pattern_params.__dict__
+        else:
+            all_params = pattern_params
+        
+        # Filter out base PatternParameters that are inherited but not specific to the pattern
+        base_params = {'min_x', 'max_x', 'min_y', 'max_y', 'min_z', 'max_z', 'min_c', 'max_c', 
+                      'overlap_percentage', 'max_distance', 'max_feedrate', 'safety_margin'}
+        
+        # Keep only pattern-specific parameters
+        relevant_params = {k: v for k, v in all_params.items() if k not in base_params}
+        
+        return relevant_params
+    
     async def _generate_scan_positions_file(self, pattern: ScanPattern, output_directory: Path, scan_id: str) -> dict:
         """Generate a detailed metadata file with all scan point positions"""
         try:
@@ -1954,7 +1971,7 @@ class ScanOrchestrator:
                     'pattern_id': pattern.pattern_id,
                     'total_points': len(scan_points),
                     'generated_at': datetime.now().isoformat(),
-                    'pattern_parameters': pattern.parameters.__dict__
+                    'pattern_parameters': self._extract_relevant_pattern_parameters(pattern.parameters.__dict__)
                 },
                 'scan_positions': []
             }
@@ -2972,6 +2989,29 @@ class ScanOrchestrator:
         pattern_id = f"cylindrical_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         return CylindricalScanPattern(pattern_id=pattern_id, parameters=parameters)
+    
+    def _extract_relevant_pattern_parameters(self, pattern_params_dict: dict) -> dict:
+        """Extract only the relevant parameters specific to the pattern type, excluding base class parameters"""
+        # Define which parameters are specific to each pattern type
+        cylindrical_specific = {
+            'x_start', 'x_end', 'x_step', 'y_start', 'y_end', 'y_step', 'y_positions',
+            'z_rotations', 'z_step', 'c_angles', 'c_step', 'scan_pattern'
+        }
+        
+        grid_specific = {
+            'x_start', 'x_end', 'x_step', 'y_start', 'y_end', 'y_step', 
+            'z_height', 'spacing', 'scan_pattern'
+        }
+        
+        # Filter out base PatternParameters that aren't pattern-specific
+        base_params_to_exclude = {
+            'min_x', 'max_x', 'min_y', 'max_y', 'min_z', 'max_z', 'min_c', 'max_c',
+            'overlap_percentage', 'max_distance', 'max_feedrate', 'safety_margin'
+        }
+        
+        # Return only the relevant parameters
+        return {k: v for k, v in pattern_params_dict.items() 
+                if k not in base_params_to_exclude}
     
     async def shutdown(self):
         """Shutdown the orchestrator"""

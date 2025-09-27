@@ -240,6 +240,7 @@ class CommandValidator:
             'y_range': y_range,
             'spacing': spacing,
             'z_height': z_height,  # Cylinder rotation angle for grid scan
+            'scan_name': data.get('scan_name', 'Untitled_Scan'),  # Preserve scan name
             'validated': True
         }
     
@@ -328,6 +329,7 @@ class CommandValidator:
             'c_angles': c_angles,          # C-axis: single fixed servo angle
             'rotation_step': data.get('rotation_step', 60.0),  # For reference
             'servo_angle': servo_angle,    # Single servo angle value
+            'scan_name': data.get('scan_name', 'Untitled_Scan'),  # Preserve scan name
             'validated': True
         }
 
@@ -2093,11 +2095,14 @@ class ScannerWebInterface:
             
             # Generate scan output directory using provided scan name
             scan_name = pattern_data.get('scan_name', 'Untitled_Scan')
+            self.logger.info(f"🏷️ Received scan name: '{scan_name}' from pattern_data")
+            
             # Clean scan name for filesystem use
             clean_name = "".join(c for c in scan_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
             clean_name = clean_name.replace(' ', '_')
             scan_id = f"{clean_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             output_dir = Path.cwd() / "scans" / scan_id
+            self.logger.info(f"🆔 Generated scan_id: '{scan_id}' from scan_name: '{scan_name}'")
             
             self.logger.info(f"🎯 Starting scan with motion completion timing:")
             self.logger.info(f"   • Pattern: {pattern_data['pattern_type']} scan")
@@ -2111,7 +2116,7 @@ class ScannerWebInterface:
             
             # Start the scan in a background thread with its own event loop
             def run_scan_in_background():
-                """Run the async scan in a separate thread with its own event loop"""
+                    """Run the async scan in a separate thread with its own event loop"""
                 try:
                     # Create a new event loop for this thread
                     loop = asyncio.new_event_loop()
@@ -2170,7 +2175,7 @@ class ScannerWebInterface:
                 'success': True,
                 'status': 'started'
             }
-            
+        
         except Exception as e:
             self.logger.error(f"Scan start execution failed: {e}")
             raise ScannerSystemError(f"Failed to start scan: {e}")
