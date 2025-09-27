@@ -2116,7 +2116,7 @@ class ScannerWebInterface:
             
             # Start the scan in a background thread with its own event loop
             def run_scan_in_background():
-                    """Run the async scan in a separate thread with its own event loop"""
+                """Run the async scan in a separate thread with its own event loop"""
                 try:
                     # Create a new event loop for this thread
                     loop = asyncio.new_event_loop()
