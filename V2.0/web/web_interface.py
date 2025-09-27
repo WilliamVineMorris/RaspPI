@@ -1215,6 +1215,64 @@ class ScannerWebInterface:
                 self.logger.error(f"Scan autofocus API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
+        @self.app.route('/api/scan/focus/sync', methods=['POST'])
+        def api_scan_focus_sync():
+            """Enable or disable focus synchronization between cameras"""
+            try:
+                data = request.get_json() or {}
+                enabled = data.get('enabled')
+                
+                if enabled is None:
+                    raise BadRequest("Enabled flag is required")
+                
+                if not self.orchestrator:
+                    raise ScannerSystemError("Scanner system not initialized")
+                
+                self.orchestrator.set_focus_sync_enabled(bool(enabled))
+                
+                return jsonify({
+                    'success': True,
+                    'data': {'sync_enabled': bool(enabled)},
+                    'message': f"Focus synchronization {'enabled' if enabled else 'disabled'}",
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except BadRequest as e:
+                self.logger.warning(f"Focus sync validation failed: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 400
+            except Exception as e:
+                self.logger.error(f"Focus sync API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/scan/focus/individual', methods=['POST'])
+        def api_scan_focus_individual():
+            """Set individual focus values for each camera"""
+            try:
+                data = request.get_json() or {}
+                camera_values = data.get('camera_values')
+                
+                if not camera_values or not isinstance(camera_values, dict):
+                    raise BadRequest("Camera values dictionary is required")
+                
+                if not self.orchestrator:
+                    raise ScannerSystemError("Scanner system not initialized")
+                
+                success = self.orchestrator.set_manual_focus_value_per_camera(camera_values)
+                
+                return jsonify({
+                    'success': success,
+                    'data': {'camera_values': camera_values} if success else None,
+                    'message': "Individual focus values set" if success else "Failed to set focus values",
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except BadRequest as e:
+                self.logger.warning(f"Individual focus validation failed: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 400
+            except Exception as e:
+                self.logger.error(f"Individual focus API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
         @self.app.route('/api/camera/capture', methods=['POST'])
         def api_camera_capture():
             """Capture image from camera with optional flash"""

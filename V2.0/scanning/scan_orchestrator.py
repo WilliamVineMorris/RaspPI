@@ -1678,9 +1678,11 @@ class ScanOrchestrator:
         self._pause_requested = False
         self._emergency_stop = False
         
-        # Focus control
-        self._scan_focus_value: Optional[float] = None
+        # Focus control - Independent autofocus enabled by default for best results
+        self._scan_focus_values: Dict[str, float] = {}  # Focus values for each camera
+        self._primary_focus_value: Optional[float] = None  # Primary focus value for synced mode
         self._focus_mode = 'auto'  # 'auto', 'manual', or 'fixed'
+        self._focus_sync_enabled = False  # Independent focus by default for best camera performance
         
         # Performance tracking
         self._timing_stats = {
@@ -2048,10 +2050,8 @@ class ScanOrchestrator:
             await self._home_system()
             self.logger.info("Homing completed")
             
-            # Setup focus for scan
-            self.logger.info("Setting up focus for scan")
-            await self._setup_scan_focus()
-            self.logger.info("Focus setup completed")
+            # Focus will be set up at the first scan point for object-based focusing
+            self.logger.info("Focus will be configured at first scan point")
             
             # Execute scan points
             self.logger.info("Starting scan points execution")
@@ -2113,7 +2113,7 @@ class ScanOrchestrator:
             raise HardwareError("Failed to home motion system")
     
     async def _setup_scan_focus(self):
-        """Setup focus for the scan - perform initial autofocus and set consistent focus for both cameras"""
+        """Setup focus for the scan at first scan point - perform object-based autofocus and set consistent focus for both cameras"""
         try:
             if self._focus_mode == 'fixed':
                 self.logger.info("Focus mode is fixed, skipping focus setup")
@@ -2135,41 +2135,66 @@ class ScanOrchestrator:
             
             self.logger.info(f"Setting up focus for cameras: {available_cameras}")
             
-            if self._focus_mode == 'manual' and self._scan_focus_value is not None:
-                # Use manual focus value
-                self.logger.info(f"Setting manual focus value {self._scan_focus_value:.3f} for all cameras")
+            if self._focus_mode == 'manual' and self._primary_focus_value is not None:
+                # Use manual focus value for all cameras
+                self.logger.info(f"Setting manual focus value {self._primary_focus_value:.3f} for all cameras")
                 for camera_id in available_cameras:
-                    success = await self.camera_manager.controller.set_focus_value(camera_id, self._scan_focus_value)
+                    success = await self.camera_manager.controller.set_focus_value(camera_id, self._primary_focus_value)
                     if success:
-                        self.logger.info(f"✅ Set manual focus for {camera_id}: {self._scan_focus_value:.3f}")
+                        self._scan_focus_values[camera_id] = self._primary_focus_value
+                        self.logger.info(f"✅ Set manual focus for {camera_id}: {self._primary_focus_value:.3f}")
                     else:
                         self.logger.warning(f"❌ Failed to set manual focus for {camera_id}")
                         
             elif self._focus_mode == 'auto':
-                # Perform autofocus on the first camera and apply same focus to all cameras
-                primary_camera = available_cameras[0]
-                self.logger.info(f"Performing autofocus on primary camera: {primary_camera}")
-                
-                # Perform autofocus and get the optimal value
-                focus_value = await self.camera_manager.controller.auto_focus_and_get_value(primary_camera)
-                
-                if focus_value is not None:
-                    self._scan_focus_value = focus_value
-                    self.logger.info(f"✅ Autofocus completed. Optimal focus value: {focus_value:.3f}")
+                if self._focus_sync_enabled:
+                    # Synchronized focus mode: autofocus primary camera and copy to others
+                    primary_camera = available_cameras[0]
+                    self.logger.info(f"🔄 Synchronized focus mode: Performing autofocus on primary camera: {primary_camera}")
                     
-                    # Apply the same focus value to all cameras for consistency
-                    for camera_id in available_cameras:
-                        if camera_id != primary_camera:  # Skip primary camera as it's already focused
-                            success = await self.camera_manager.controller.set_focus_value(camera_id, focus_value)
-                            if success:
-                                self.logger.info(f"✅ Applied focus value {focus_value:.3f} to {camera_id}")
-                            else:
-                                self.logger.warning(f"❌ Failed to apply focus to {camera_id}")
+                    focus_value = await self.camera_manager.controller.auto_focus_and_get_value(primary_camera)
+                    
+                    if focus_value is not None:
+                        self._primary_focus_value = focus_value
+                        self._scan_focus_values[primary_camera] = focus_value
+                        self.logger.info(f"✅ Primary autofocus completed. Focus value: {focus_value:.3f}")
+                        
+                        # Apply the same focus value to all other cameras
+                        for camera_id in available_cameras:
+                            if camera_id != primary_camera:
+                                success = await self.camera_manager.controller.set_focus_value(camera_id, focus_value)
+                                if success:
+                                    self._scan_focus_values[camera_id] = focus_value
+                                    self.logger.info(f"✅ Synchronized focus {focus_value:.3f} applied to {camera_id}")
+                                else:
+                                    self.logger.warning(f"❌ Failed to sync focus to {camera_id}")
+                    else:
+                        self.logger.error("❌ Primary camera autofocus failed")
+                        
                 else:
-                    self.logger.error("❌ Autofocus failed - cameras may not support autofocus or focus detection failed")
-                    self.logger.info("Continuing with automatic focus control...")
+                    # Independent focus mode: each camera gets its own autofocus
+                    self.logger.info(f"🎯 Independent focus mode: Performing autofocus on each camera")
+                    
+                    for camera_id in available_cameras:
+                        self.logger.info(f"Performing autofocus on {camera_id}...")
+                        focus_value = await self.camera_manager.controller.auto_focus_and_get_value(camera_id)
+                        
+                        if focus_value is not None:
+                            self._scan_focus_values[camera_id] = focus_value
+                            self.logger.info(f"✅ Autofocus completed for {camera_id}: {focus_value:.3f}")
+                        else:
+                            self.logger.warning(f"❌ Autofocus failed for {camera_id}")
+                    
+                    # Log summary of independent focus values
+                    focus_summary = ", ".join([f"{cam}: {val:.3f}" for cam, val in self._scan_focus_values.items()])
+                    self.logger.info(f"📊 Independent focus values: {focus_summary}")
             
-            self.logger.info(f"Focus setup completed. Mode: {self._focus_mode}, Value: {self._scan_focus_value}")
+            # Log final focus setup summary
+            if self._focus_sync_enabled and self._primary_focus_value is not None:
+                self.logger.info(f"Focus setup completed. Mode: {self._focus_mode}, Sync: enabled, Value: {self._primary_focus_value:.3f}")
+            else:
+                focus_summary = ", ".join([f"{cam}: {val:.3f}" for cam, val in self._scan_focus_values.items()])
+                self.logger.info(f"Focus setup completed. Mode: {self._focus_mode}, Sync: disabled, Values: {focus_summary}")
             
         except Exception as e:
             self.logger.error(f"Focus setup failed: {e}")
@@ -2200,6 +2225,12 @@ class ScanOrchestrator:
                 
                 # Move to position
                 await self._move_to_point(point)
+                
+                # Setup focus at first point so cameras can focus on the object
+                if i == 0:
+                    self.logger.info("🎯 Setting up focus at first scan point for object-based focusing")
+                    await self._setup_scan_focus()
+                    self.logger.info("✅ Focus setup completed at first scan point")
                 
                 # Capture images
                 images_captured = await self._capture_at_point(point, i)
@@ -3086,7 +3117,7 @@ class ScanOrchestrator:
     
     def set_manual_focus_value(self, focus_value: float) -> bool:
         """
-        Set manual focus value for scans (only used in manual mode)
+        Set manual focus value for all cameras (only used in manual mode)
         
         Args:
             focus_value: Focus value (0.0 = near, 1.0 = infinity)
@@ -3098,20 +3129,58 @@ class ScanOrchestrator:
             self.logger.error(f"Invalid focus value: {focus_value}. Must be between 0.0 and 1.0")
             return False
             
-        self._scan_focus_value = focus_value
+        self._primary_focus_value = focus_value
         self.logger.info(f"Manual focus value set to: {focus_value:.3f}")
         return True
+        
+    def set_manual_focus_value_per_camera(self, camera_values: Dict[str, float]) -> bool:
+        """
+        Set individual manual focus values for each camera
+        
+        Args:
+            camera_values: Dictionary mapping camera_id to focus value (0.0-1.0)
+            
+        Returns:
+            True if all values were set successfully
+        """
+        for camera_id, value in camera_values.items():
+            if not 0.0 <= value <= 1.0:
+                self.logger.error(f"Invalid focus value for {camera_id}: {value}. Must be between 0.0 and 1.0")
+                return False
+        
+        self._scan_focus_values = camera_values.copy()
+        self._focus_sync_enabled = False  # Individual values means no sync
+        
+        focus_summary = ", ".join([f"{cam}: {val:.3f}" for cam, val in camera_values.items()])
+        self.logger.info(f"Individual manual focus values set: {focus_summary}")
+        return True
+        
+    def set_focus_sync_enabled(self, enabled: bool):
+        """Enable or disable focus synchronization between cameras
+        
+        Args:
+            enabled: If True, cameras will use the same focus value.
+                    If False, each camera will have independent focus.
+        """
+        self._focus_sync_enabled = enabled
+        self.logger.info(f"Focus synchronization {'enabled' if enabled else 'disabled'}")
+        
+    def is_focus_sync_enabled(self) -> bool:
+        """Check if focus synchronization is enabled"""
+        return self._focus_sync_enabled
     
     def get_focus_settings(self) -> Dict[str, Any]:
         """
         Get current focus settings
         
         Returns:
-            Dictionary with current focus mode and value
+            Dictionary with current focus mode, sync setting, and values
         """
         return {
             'focus_mode': self._focus_mode,
-            'focus_value': self._scan_focus_value
+            'sync_enabled': self._focus_sync_enabled,
+            'primary_value': self._primary_focus_value,
+            'camera_values': self._scan_focus_values.copy()
         }
     
     async def perform_autofocus(self, camera_id: Optional[str] = None) -> Optional[float]:
