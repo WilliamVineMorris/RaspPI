@@ -524,28 +524,36 @@ class ScannerWebInterface:
         
         @self.app.route('/api/homing-confirmation', methods=['POST'])
         def api_homing_confirmation():
-            """Handle homing confirmation response from user"""
+            """Handle homing confirmation response from user (supports both old and new formats)"""
             try:
                 data = request.get_json() or {}
-                should_home = data.get('should_home', True)  # Default to true for safety
                 
-                if self._homing_confirmation_requested:
-                    self._homing_confirmation_response = should_home
-                    self.logger.info(f"🏠 Received homing confirmation: {'Yes' if should_home else 'No'}")
-                    return jsonify({
-                        'status': 'success',
-                        'message': f"Homing {'confirmed' if should_home else 'declined'}"
-                    })
-                else:
-                    return jsonify({
-                        'status': 'error',
-                        'message': 'No homing confirmation pending'
-                    })
+                # Support both old format (should_home) and new format (proceed)
+                should_home = data.get('should_home')  # Old format
+                if should_home is None:
+                    should_home = data.get('proceed', True)  # New format, default to true for safety
+                
+                # Store the homing response
+                self._homing_confirmation_response = should_home
+                self._homing_confirmation_requested = False
+                
+                action = "proceed" if should_home else "skip"
+                self.logger.info(f"🏠 User homing confirmation: {action}")
+                
+                return jsonify({
+                    'success': True,
+                    'status': 'success',
+                    'action': action,
+                    'message': f"Homing {'confirmed' if should_home else 'declined'}",
+                    'timestamp': datetime.now().isoformat()
+                })
                     
             except Exception as e:
                 self.logger.error(f"❌ Homing confirmation API error: {e}")
                 return jsonify({
+                    'success': False,
                     'status': 'error',
+                    'error': str(e),
                     'message': str(e)
                 })
                 
@@ -1146,29 +1154,7 @@ class ScannerWebInterface:
                 self.logger.error(f"Scan stop API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
-        @self.app.route('/api/scan/homing-confirmation', methods=['POST'])
-        def api_homing_confirmation():
-            """Handle homing confirmation from user before scan starts"""
-            try:
-                data = request.get_json() or {}
-                response = data.get('proceed', False)  # True = proceed with homing, False = skip
-                
-                # Store the homing response
-                self._homing_confirmation_response = response
-                self._homing_confirmation_requested = False
-                
-                action = "proceed" if response else "skip"
-                self.logger.info(f"🏠 User homing confirmation: {action}")
-                
-                return jsonify({
-                    'success': True,
-                    'action': action,
-                    'timestamp': datetime.now().isoformat()
-                })
-                
-            except Exception as e:
-                self.logger.error(f"Homing confirmation API error: {e}")
-                return jsonify({'success': False, 'error': str(e)}), 500
+
         
         @self.app.route('/api/scan/pause', methods=['POST'])
         def api_scan_pause():

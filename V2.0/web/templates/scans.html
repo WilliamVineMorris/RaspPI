@@ -1322,7 +1322,7 @@ async function startScanNow() {
         
         // STEP 2: Send homing confirmation to backend
         try {
-            const homingResponse = await fetch('/api/scan/homing-confirmation', {
+            const homingResponse = await fetch('/api/homing-confirmation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ proceed: homingDecision })
