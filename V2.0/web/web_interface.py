@@ -2441,75 +2441,24 @@ class ScannerWebInterface:
                     asyncio.set_event_loop(loop)
                     
                     async def run_complete_scan():
-                        # Prepare scan parameters with all metadata
+                        # Extract homing confirmation from pattern_data (frontend already handled this)
+                        homing_confirmed = pattern_data.get('homing_confirmed', False)  # Default to False (skip) for safety
+                        self.logger.info(f"🏠 Using pre-confirmed homing decision from frontend: {'proceed' if homing_confirmed else 'skip'}")
+                        
+                        # Prepare scan parameters with all metadata including homing decision
                         scan_params = {
                             'scan_name': scan_name,
                             'pattern_data': pattern_data,
+                            'homing_confirmed': homing_confirmed,  # Include homing decision in scan params
                             'web_request_time': datetime.now().isoformat(),
                             'scan_type': 'web_interface',
                             'operator': 'web_user'
                         }
                         
-                        # Create homing confirmation callback for user interaction
-                        async def homing_confirmation_callback():
-                            """Handle homing confirmation request from scan orchestrator"""
-                            try:
-                                self.logger.info("🏠 Homing confirmation requested - notifying user")
-                                # Set confirmation request flag
-                                self._homing_confirmation_requested = True
-                                self._homing_confirmation_response = None
-                                
-                                # Wait for user response (with 30 second timeout)
-                                timeout_seconds = 30
-                                for i in range(timeout_seconds * 10):  # Check every 100ms
-                                    if self._homing_confirmation_response is not None:
-                                        response = self._homing_confirmation_response
-                                        # Reset flags
-                                        self._homing_confirmation_requested = False
-                                        self._homing_confirmation_response = None
-                                        self.logger.info(f"🏠 User homing decision: {'Yes' if response else 'No'}")
-                                        return response
-                                    await asyncio.sleep(0.1)
-                                
-                                # Timeout - default to yes (safe behavior)
-                                self.logger.warning("🏠 Homing confirmation timeout - defaulting to YES (safe)")
-                                self._homing_confirmation_requested = False
-                                return True
-                                
-                            except Exception as e:
-                                self.logger.error(f"❌ Error in homing confirmation: {e}")
-                                return True  # Default to safe behavior
-                        
                         # Set notification callback
                         self.orchestrator.set_notification_callback(self._add_global_notification)
                         
-                        # REQUEST HOMING CONFIRMATION FIRST (before scan starts)
-                        self.logger.info("🏠 Requesting homing confirmation before scan start...")
-                        self._homing_confirmation_requested = True
-                        self._homing_confirmation_response = None
-                        
-                        # Wait for homing confirmation with timeout
-                        homing_confirmed = False
-                        timeout_seconds = 30
-                        for i in range(timeout_seconds * 10):  # Check every 100ms
-                            if self._homing_confirmation_response is not None:
-                                homing_confirmed = self._homing_confirmation_response
-                                self.logger.info(f"🏠 Homing decision received: {'proceed' if homing_confirmed else 'skip'}")
-                                break
-                            await asyncio.sleep(0.1)
-                        
-                        if self._homing_confirmation_response is None:
-                            self.logger.warning("🏠 Homing confirmation timeout - defaulting to YES (safe)")
-                            homing_confirmed = True
-                        
-                        # Reset confirmation flags
-                        self._homing_confirmation_requested = False
-                        self._homing_confirmation_response = None
-                        
-                        # Store homing preference for the scan
-                        scan_params['homing_confirmed'] = homing_confirmed
-                        
-                        # NOW start the scan with the confirmed homing preference
+                        # NOW start the scan with the pre-confirmed homing preference
                         scan_state = await self.orchestrator.start_scan(
                             pattern=pattern,
                             output_directory=output_dir,

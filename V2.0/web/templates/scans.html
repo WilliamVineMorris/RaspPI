@@ -1320,26 +1320,11 @@ async function startScanNow() {
         // Update button to show actual scan starting
         button.innerHTML = '<span class="btn-icon">🚀</span>Starting Scan...';
         
-        // STEP 2: Send homing confirmation to backend
-        try {
-            const homingResponse = await fetch('/api/homing-confirmation', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ proceed: homingDecision })
-            });
-            
-            if (!homingResponse.ok) {
-                throw new Error('Failed to send homing confirmation');
-            }
-        } catch (homingError) {
-            console.error('Homing confirmation error:', homingError);
-            showAlert('Error with homing confirmation: ' + homingError.message, 'error');
-            button.innerHTML = originalText;
-            button.disabled = false;
-            return;
-        }
+        // STEP 2: Include homing confirmation directly in scan data
+        scanData.homing_confirmed = homingDecision;
+        console.log('Starting scan with pre-confirmed homing:', homingDecision ? 'YES' : 'SKIP');
         
-        // STEP 3: Now start the actual scan
+        // STEP 3: Now start the actual scan with homing preference included
         const response = await fetch('/api/scan/start', {
             method: 'POST',
             headers: {
