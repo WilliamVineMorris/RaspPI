@@ -1678,6 +1678,10 @@ class ScanOrchestrator:
         self._pause_requested = False
         self._emergency_stop = False
         
+        # Focus control
+        self._scan_focus_value: Optional[float] = None
+        self._focus_mode = 'auto'  # 'auto', 'manual', or 'fixed'
+        
         # Performance tracking
         self._timing_stats = {
             'movement_time': 0.0,
@@ -2044,6 +2048,11 @@ class ScanOrchestrator:
             await self._home_system()
             self.logger.info("Homing completed")
             
+            # Setup focus for scan
+            self.logger.info("Setting up focus for scan")
+            await self._setup_scan_focus()
+            self.logger.info("Focus setup completed")
+            
             # Execute scan points
             self.logger.info("Starting scan points execution")
             await self._execute_scan_points()
@@ -2102,6 +2111,69 @@ class ScanOrchestrator:
         except Exception as e:
             self.logger.error(f"Homing error: {e}")
             raise HardwareError("Failed to home motion system")
+    
+    async def _setup_scan_focus(self):
+        """Setup focus for the scan - perform initial autofocus and set consistent focus for both cameras"""
+        try:
+            if self._focus_mode == 'fixed':
+                self.logger.info("Focus mode is fixed, skipping focus setup")
+                return
+            
+            # Get available cameras
+            available_cameras = []
+            if hasattr(self.camera_manager, 'controller') and self.camera_manager.controller:
+                # Get camera IDs from the controller
+                if hasattr(self.camera_manager.controller, 'cameras'):
+                    for cam_id in self.camera_manager.controller.cameras.keys():
+                        available_cameras.append(f"camera{cam_id}")
+                else:
+                    # Default to camera0 and camera1
+                    available_cameras = ["camera0", "camera1"]
+            else:
+                self.logger.warning("No camera controller available, skipping focus setup")
+                return
+            
+            self.logger.info(f"Setting up focus for cameras: {available_cameras}")
+            
+            if self._focus_mode == 'manual' and self._scan_focus_value is not None:
+                # Use manual focus value
+                self.logger.info(f"Setting manual focus value {self._scan_focus_value:.3f} for all cameras")
+                for camera_id in available_cameras:
+                    success = await self.camera_manager.controller.set_focus_value(camera_id, self._scan_focus_value)
+                    if success:
+                        self.logger.info(f"✅ Set manual focus for {camera_id}: {self._scan_focus_value:.3f}")
+                    else:
+                        self.logger.warning(f"❌ Failed to set manual focus for {camera_id}")
+                        
+            elif self._focus_mode == 'auto':
+                # Perform autofocus on the first camera and apply same focus to all cameras
+                primary_camera = available_cameras[0]
+                self.logger.info(f"Performing autofocus on primary camera: {primary_camera}")
+                
+                # Perform autofocus and get the optimal value
+                focus_value = await self.camera_manager.controller.auto_focus_and_get_value(primary_camera)
+                
+                if focus_value is not None:
+                    self._scan_focus_value = focus_value
+                    self.logger.info(f"✅ Autofocus completed. Optimal focus value: {focus_value:.3f}")
+                    
+                    # Apply the same focus value to all cameras for consistency
+                    for camera_id in available_cameras:
+                        if camera_id != primary_camera:  # Skip primary camera as it's already focused
+                            success = await self.camera_manager.controller.set_focus_value(camera_id, focus_value)
+                            if success:
+                                self.logger.info(f"✅ Applied focus value {focus_value:.3f} to {camera_id}")
+                            else:
+                                self.logger.warning(f"❌ Failed to apply focus to {camera_id}")
+                else:
+                    self.logger.error("❌ Autofocus failed - cameras may not support autofocus or focus detection failed")
+                    self.logger.info("Continuing with automatic focus control...")
+            
+            self.logger.info(f"Focus setup completed. Mode: {self._focus_mode}, Value: {self._scan_focus_value}")
+            
+        except Exception as e:
+            self.logger.error(f"Focus setup failed: {e}")
+            self.logger.info("Continuing scan without manual focus control...")
     
     async def _execute_scan_points(self):
         """Execute all scan points"""
@@ -2989,6 +3061,89 @@ class ScanOrchestrator:
         pattern_id = f"cylindrical_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         return CylindricalScanPattern(pattern_id=pattern_id, parameters=parameters)
+    
+    # Focus Control Methods
+    def set_focus_mode(self, mode: str) -> bool:
+        """
+        Set the focus mode for scans
+        
+        Args:
+            mode: Focus mode ('auto', 'manual', or 'fixed')
+                - 'auto': Perform autofocus before scan and apply to all cameras
+                - 'manual': Use specified manual focus value
+                - 'fixed': Use camera's default autofocus behavior
+                
+        Returns:
+            True if mode was set successfully
+        """
+        if mode not in ['auto', 'manual', 'fixed']:
+            self.logger.error(f"Invalid focus mode: {mode}. Must be 'auto', 'manual', or 'fixed'")
+            return False
+            
+        self._focus_mode = mode
+        self.logger.info(f"Focus mode set to: {mode}")
+        return True
+    
+    def set_manual_focus_value(self, focus_value: float) -> bool:
+        """
+        Set manual focus value for scans (only used in manual mode)
+        
+        Args:
+            focus_value: Focus value (0.0 = near, 1.0 = infinity)
+            
+        Returns:
+            True if value was set successfully
+        """
+        if not 0.0 <= focus_value <= 1.0:
+            self.logger.error(f"Invalid focus value: {focus_value}. Must be between 0.0 and 1.0")
+            return False
+            
+        self._scan_focus_value = focus_value
+        self.logger.info(f"Manual focus value set to: {focus_value:.3f}")
+        return True
+    
+    def get_focus_settings(self) -> Dict[str, Any]:
+        """
+        Get current focus settings
+        
+        Returns:
+            Dictionary with current focus mode and value
+        """
+        return {
+            'focus_mode': self._focus_mode,
+            'focus_value': self._scan_focus_value
+        }
+    
+    async def perform_autofocus(self, camera_id: Optional[str] = None) -> Optional[float]:
+        """
+        Perform autofocus on specified camera or primary camera
+        
+        Args:
+            camera_id: Camera to focus (defaults to camera0)
+            
+        Returns:
+            Focus value if successful, None otherwise
+        """
+        try:
+            if not hasattr(self.camera_manager, 'controller') or not self.camera_manager.controller:
+                self.logger.error("No camera controller available for autofocus")
+                return None
+            
+            target_camera = camera_id or "camera0"
+            self.logger.info(f"Performing manual autofocus on {target_camera}")
+            
+            focus_value = await self.camera_manager.controller.auto_focus_and_get_value(target_camera)
+            
+            if focus_value is not None:
+                self.logger.info(f"✅ Autofocus completed: {focus_value:.3f}")
+            else:
+                self.logger.error("❌ Autofocus failed")
+                
+            return focus_value
+            
+        except Exception as e:
+            self.logger.error(f"Autofocus error: {e}")
+            return None
     
     def _extract_relevant_pattern_parameters(self, pattern_params_dict: dict) -> dict:
         """Extract only the relevant parameters specific to the pattern type, excluding base class parameters"""

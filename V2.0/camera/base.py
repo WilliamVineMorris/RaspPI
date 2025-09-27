@@ -348,6 +348,46 @@ class CameraController(ABC):
         pass
     
     @abstractmethod
+    async def get_focus_value(self, camera_id: str) -> Optional[float]:
+        """
+        Get current focus value for camera
+        
+        Args:
+            camera_id: Camera identifier
+            
+        Returns:
+            Current focus value (0.0-1.0) or None if not supported
+        """
+        pass
+    
+    @abstractmethod
+    async def set_focus_value(self, camera_id: str, focus_value: float) -> bool:
+        """
+        Set manual focus value for camera
+        
+        Args:
+            camera_id: Camera identifier
+            focus_value: Focus value (0.0 = near, 1.0 = infinity)
+            
+        Returns:
+            True if focus was set successfully
+        """
+        pass
+    
+    @abstractmethod
+    async def auto_focus_and_get_value(self, camera_id: str) -> Optional[float]:
+        """
+        Perform autofocus and return the optimal focus value
+        
+        Args:
+            camera_id: Camera identifier
+            
+        Returns:
+            Optimal focus value (0.0-1.0) or None if autofocus failed
+        """
+        pass
+    
+    @abstractmethod
     async def auto_exposure(self, camera_id: str) -> bool:
         """
         Trigger auto-exposure on camera

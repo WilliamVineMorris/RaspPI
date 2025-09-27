@@ -509,9 +509,44 @@ class PiCameraController(CameraController):
             if cam_id not in self.cameras or not self.cameras[cam_id]:
                 return False
             
-            # Pi cameras typically have fixed focus, so this is a no-op
-            logger.debug(f"Auto-focus triggered for {camera_id} (Pi cameras have fixed focus)")
-            return True
+            picamera2 = self.cameras[cam_id]
+            
+            # Check if camera supports autofocus
+            if not self._supports_autofocus(cam_id):
+                logger.debug(f"Camera {camera_id} has fixed focus, skipping autofocus")
+                return True
+            
+            logger.info(f"Starting autofocus for {camera_id}")
+            
+            # Set autofocus mode and trigger
+            picamera2.set_controls({
+                "AfMode": 2,  # Auto focus continuous
+                "AfTrigger": 0  # Start autofocus
+            })
+            
+            # Wait for autofocus to complete
+            await asyncio.sleep(0.1)  # Brief delay for controls to take effect
+            
+            # Monitor autofocus state
+            max_wait_time = 3.0  # Maximum wait time in seconds
+            start_time = time.time()
+            
+            while time.time() - start_time < max_wait_time:
+                metadata = picamera2.capture_metadata()
+                af_state = metadata.get('AfState', 0)
+                
+                # AfState values: 0=Inactive, 1=PassiveScan, 2=PassiveFocused, 3=ActiveScan, 4=FocusedLocked, 5=NotFocusedLocked
+                if af_state in [2, 4]:  # PassiveFocused or FocusedLocked
+                    logger.info(f"Autofocus completed successfully for {camera_id} (state={af_state})")
+                    return True
+                elif af_state == 5:  # NotFocusedLocked
+                    logger.warning(f"Autofocus failed to lock focus for {camera_id}")
+                    return False
+                    
+                await asyncio.sleep(0.1)
+            
+            logger.warning(f"Autofocus timed out for {camera_id}")
+            return False
             
         except Exception as e:
             logger.error(f"Auto-focus failed for {camera_id}: {e}")
@@ -531,6 +566,96 @@ class PiCameraController(CameraController):
         except Exception as e:
             logger.error(f"Auto-exposure failed for {camera_id}: {e}")
             return False
+
+    def _supports_autofocus(self, cam_id: int) -> bool:
+        """Check if camera supports autofocus"""
+        try:
+            if cam_id not in self.cameras or not self.cameras[cam_id]:
+                return False
+            
+            picamera2 = self.cameras[cam_id]
+            # Check if the camera has autofocus capabilities by checking available controls
+            controls = picamera2.camera_controls
+            return 'AfMode' in controls and 'LensPosition' in controls
+        except Exception as e:
+            logger.debug(f"Could not determine autofocus support for camera {cam_id}: {e}")
+            return False
+
+    async def get_focus_value(self, camera_id: str) -> Optional[float]:
+        """Get current focus value for camera"""
+        try:
+            cam_id = int(camera_id.replace('camera', ''))
+            if cam_id not in self.cameras or not self.cameras[cam_id]:
+                return None
+            
+            if not self._supports_autofocus(cam_id):
+                return None
+                
+            picamera2 = self.cameras[cam_id]
+            metadata = picamera2.capture_metadata()
+            lens_position = metadata.get('LensPosition')
+            
+            if lens_position is not None:
+                # Convert lens position to 0.0-1.0 range
+                # Typical lens position range is 0-1023, where 0 is infinity and higher values are closer
+                # We'll normalize and invert so 0.0 = near (high lens position) and 1.0 = infinity (low lens position)
+                normalized = 1.0 - (lens_position / 1023.0)
+                return max(0.0, min(1.0, normalized))
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get focus value for {camera_id}: {e}")
+            return None
+
+    async def set_focus_value(self, camera_id: str, focus_value: float) -> bool:
+        """Set manual focus value for camera"""
+        try:
+            cam_id = int(camera_id.replace('camera', ''))
+            if cam_id not in self.cameras or not self.cameras[cam_id]:
+                return False
+                
+            if not self._supports_autofocus(cam_id):
+                logger.debug(f"Camera {camera_id} does not support manual focus")
+                return False
+            
+            # Clamp focus value to valid range
+            focus_value = max(0.0, min(1.0, focus_value))
+            
+            # Convert 0.0-1.0 range to lens position
+            # 0.0 = near (high lens position), 1.0 = infinity (low lens position)
+            lens_position = int((1.0 - focus_value) * 1023)
+            
+            picamera2 = self.cameras[cam_id]
+            picamera2.set_controls({
+                "AfMode": 0,  # Manual focus
+                "LensPosition": lens_position
+            })
+            
+            logger.info(f"Set focus value {focus_value:.3f} (lens position {lens_position}) for {camera_id}")
+            
+            # Give camera time to adjust focus
+            await asyncio.sleep(0.2)
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to set focus value for {camera_id}: {e}")
+            return False
+
+    async def auto_focus_and_get_value(self, camera_id: str) -> Optional[float]:
+        """Perform autofocus and return the optimal focus value"""
+        try:
+            # First perform autofocus
+            if not await self.auto_focus(camera_id):
+                return None
+            
+            # Get the focus value after autofocus completes
+            await asyncio.sleep(0.1)  # Brief delay to ensure focus has settled
+            return await self.get_focus_value(camera_id)
+            
+        except Exception as e:
+            logger.error(f"Failed to autofocus and get value for {camera_id}: {e}")
+            return None
 
     async def capture_with_flash_sync(self, flash_controller, settings: Optional[Dict[str, CameraSettings]] = None) -> SyncCaptureResult:
         """Capture synchronized photos with flash lighting"""

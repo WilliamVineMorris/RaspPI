@@ -1094,6 +1094,127 @@ class ScannerWebInterface:
                 self.logger.error(f"Scan pause API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
+        @self.app.route('/api/scan/focus/mode', methods=['POST'])
+        def api_scan_focus_mode():
+            """Set scan focus mode"""
+            try:
+                data = request.get_json()
+                if not data:
+                    raise BadRequest("No JSON data provided")
+                
+                mode = data.get('mode')
+                if not mode:
+                    raise BadRequest("Focus mode is required")
+                
+                if not self.orchestrator:
+                    raise ScannerSystemError("Scanner system not initialized")
+                
+                success = self.orchestrator.set_focus_mode(mode)
+                
+                return jsonify({
+                    'success': success,
+                    'data': {'mode': mode} if success else None,
+                    'message': f"Focus mode set to {mode}" if success else "Failed to set focus mode",
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except WebInterfaceError as e:
+                self.logger.warning(f"Scan focus mode validation failed: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 400
+            except Exception as e:
+                self.logger.error(f"Scan focus mode API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/scan/focus/value', methods=['POST'])
+        def api_scan_focus_value():
+            """Set manual scan focus value"""
+            try:
+                data = request.get_json()
+                if not data:
+                    raise BadRequest("No JSON data provided")
+                
+                focus_value = data.get('focus_value')
+                if focus_value is None:
+                    raise BadRequest("Focus value is required")
+                
+                focus_value = float(focus_value)
+                
+                if not self.orchestrator:
+                    raise ScannerSystemError("Scanner system not initialized")
+                
+                success = self.orchestrator.set_manual_focus_value(focus_value)
+                
+                return jsonify({
+                    'success': success,
+                    'data': {'focus_value': focus_value} if success else None,
+                    'message': f"Manual focus value set to {focus_value:.3f}" if success else "Failed to set focus value",
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except WebInterfaceError as e:
+                self.logger.warning(f"Scan focus value validation failed: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 400
+            except Exception as e:
+                self.logger.error(f"Scan focus value API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/scan/focus/settings', methods=['GET'])
+        def api_scan_focus_settings():
+            """Get current scan focus settings"""
+            try:
+                if not self.orchestrator:
+                    raise ScannerSystemError("Scanner system not initialized")
+                
+                settings = self.orchestrator.get_focus_settings()
+                
+                return jsonify({
+                    'success': True,
+                    'data': settings,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Scan focus settings API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/scan/focus/autofocus', methods=['POST'])
+        def api_scan_autofocus():
+            """Perform manual autofocus for scan setup"""
+            try:
+                data = request.get_json() or {}
+                camera_id = data.get('camera_id')  # Optional, defaults to camera0
+                
+                if not self.orchestrator:
+                    raise ScannerSystemError("Scanner system not initialized")
+                
+                # Perform autofocus in background thread
+                def perform_autofocus():
+                    try:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        result = loop.run_until_complete(self.orchestrator.perform_autofocus(camera_id))
+                        loop.close()
+                        return result
+                    except Exception as e:
+                        self.logger.error(f"Background autofocus failed: {e}")
+                        return None
+                
+                import threading
+                focus_thread = threading.Thread(target=perform_autofocus, daemon=True)
+                focus_thread.start()
+                
+                # Don't wait for completion, return immediately
+                return jsonify({
+                    'success': True,
+                    'data': {'status': 'autofocus_started', 'camera_id': camera_id or 'camera0'},
+                    'message': 'Autofocus started, check focus settings for result',
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Scan autofocus API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
         @self.app.route('/api/camera/capture', methods=['POST'])
         def api_camera_capture():
             """Capture image from camera with optional flash"""
