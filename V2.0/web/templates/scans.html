@@ -1387,21 +1387,23 @@ function collectScanParameters() {
             const rotationPositions = parseInt(document.getElementById('cylindricalRotationPositions')?.value) || 6;
             
             // 🎯 NEW HEIGHT STEP CALCULATION:
-            // 0 steps = 1 ring at min height
-            // 1 step = 2 rings at min and max height  
-            // 2+ steps = calculate intermediate heights
+            // 0 steps = no scan (0 positions)
+            // 1 step = 1 ring at min height
+            // 2 steps = 2 rings at min and max height  
+            // 3+ steps = calculate intermediate heights
             let yPositions = [];
             if (heightSteps === 0) {
-                yPositions = [parseFloat(yMin)];
+                yPositions = []; // No positions for 0 steps
             } else if (heightSteps === 1) {
-                yPositions = [parseFloat(yMin), parseFloat(yMax)];
+                yPositions = [parseFloat(yMin)]; // Single position at min height
+            } else if (heightSteps === 2) {
+                yPositions = [parseFloat(yMin), parseFloat(yMax)]; // Two positions at min and max
             } else {
-                yPositions = [parseFloat(yMin)];
-                for (let i = 1; i < heightSteps; i++) {
-                    const intermediate = parseFloat(yMin) + (parseFloat(yMax) - parseFloat(yMin)) * (i / heightSteps);
-                    yPositions.push(intermediate);
+                // For 3+ steps, distribute evenly from min to max
+                for (let i = 0; i < heightSteps; i++) {
+                    const position = parseFloat(yMin) + (parseFloat(yMax) - parseFloat(yMin)) * (i / (heightSteps - 1));
+                    yPositions.push(position);
                 }
-                yPositions.push(parseFloat(yMax));
             }
             
             // Calculate z_rotations based on number of positions
@@ -1488,7 +1490,7 @@ function updatePreviewDisplay(scanData) {
     
     if (scanData.pattern_type === 'cylindrical') {
         // Calculate total points: height levels × rotation positions
-        const heightLevels = scanData.y_positions ? scanData.y_positions.length : (scanData.height_steps + 1);
+        const heightLevels = scanData.y_positions ? scanData.y_positions.length : scanData.height_steps;
         const rotationPositions = scanData.z_rotations.length;
         const totalPoints = heightLevels * rotationPositions;
         const images = totalPoints * scanData.camera_count;
