@@ -1971,6 +1971,44 @@ class ScanOrchestrator:
         else:
             self.logger.info(f"NOTIFICATION: {message}")
     
+    def is_system_busy(self) -> bool:
+        """Check if system is busy with active operations that should block new scans"""
+        # Check for active scan
+        if self.current_scan and self.current_scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED, ScanStatus.INITIALIZING]:
+            return True
+            
+        # Check if motion controller is homing (for real hardware controllers)
+        if hasattr(self.motion_controller, 'is_homing'):
+            try:
+                if self.motion_controller.is_homing():
+                    return True
+            except Exception:
+                pass
+            
+        # Check if motion controller status indicates busy state
+        # Use get_current_status for FluidNC controllers
+        status_methods = ['get_current_status', 'get_status']
+        for method_name in status_methods:
+            if hasattr(self.motion_controller, method_name):
+                try:
+                    method = getattr(self.motion_controller, method_name)
+                    status = method()
+                    if status and isinstance(status, str):
+                        # FluidNC states that indicate system is busy
+                        busy_states = ['home', 'jog', 'hold']
+                        status_lower = status.lower()
+                        if any(state in status_lower for state in busy_states):
+                            return True
+                        # If status is 'run' but no active scan, system might be homing
+                        if 'run' in status_lower and not self.current_scan:
+                            return True  # Likely homing or other motion in progress
+                    break  # Found a working status method
+                except Exception as e:
+                    self.logger.debug(f"Error checking motion controller status via {method_name}: {e}")
+                    continue
+                
+        return False
+    
     async def start_scan(self, 
                         pattern: ScanPattern,
                         output_directory: Union[str, Path],
@@ -1989,6 +2027,24 @@ class ScanOrchestrator:
         Returns:
             ScanState object for tracking progress
         """
+        # CRITICAL: Check if system is busy before allowing new scan
+        if self.is_system_busy():
+            # Get detailed status for error message
+            status_details = []
+            if self.current_scan and self.current_scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED, ScanStatus.INITIALIZING]:
+                status_details.append(f"Active scan: {self.current_scan.status.value}")
+            if hasattr(self.motion_controller, 'get_status'):
+                try:
+                    motion_status = self.motion_controller.get_status()
+                    if motion_status:
+                        status_details.append(f"Motion: {motion_status}")
+                except Exception:
+                    pass
+            
+            error_msg = f"Cannot start scan - system is busy. {', '.join(status_details) if status_details else 'Please wait for current operations to complete.'}"
+            self.logger.warning(f"🚫 {error_msg}")
+            raise ScannerSystemError(error_msg)
+        
         # Check for active scans and clean up completed ones
         if self.current_scan:
             if self.current_scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED, ScanStatus.INITIALIZING]:
@@ -3468,6 +3524,49 @@ class ScanOrchestrator:
         
         self.logger.info("Scan stopped and state cleared")
         return True
+    
+    async def force_stop_all_operations(self) -> bool:
+        """Force stop all operations - for emergency dashboard use"""
+        try:
+            self.logger.warning("🛑 FORCE STOP: Canceling all operations from dashboard")
+            
+            # Set all stop flags
+            self._stop_requested = True
+            self._emergency_stop = True
+            
+            # Force cancel any active scan
+            if self.current_scan:
+                self.current_scan.cancel()
+                self.logger.info(f"Force cancelled active scan: {self.current_scan.scan_id}")
+            
+            # Cancel any running scan task
+            if self.scan_task and not self.scan_task.done():
+                self.scan_task.cancel()
+                self.logger.info("Force cancelled scan task")
+                await asyncio.sleep(0.1)  # Brief wait for cancellation
+            
+            # Force clear all state
+            self.current_scan = None
+            self.current_pattern = None
+            self.scan_task = None
+            self._stop_requested = False
+            self._emergency_stop = False
+            
+            # Add notification for user feedback
+            self._add_notification("🛑 All operations stopped", "warning", 3000)
+            
+            self.logger.warning("🛑 FORCE STOP completed - all operations cancelled")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error in force stop: {e}")
+            # Still try to clear state even if error occurred
+            self.current_scan = None
+            self.current_pattern = None
+            self.scan_task = None
+            self._stop_requested = False
+            self._emergency_stop = False
+            return False
     
     async def emergency_stop(self):
         """Emergency stop all operations"""

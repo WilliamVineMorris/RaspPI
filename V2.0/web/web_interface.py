@@ -2523,29 +2523,67 @@ class ScannerWebInterface:
             raise ScannerSystemError(f"Failed to start scan: {e}")
     
     def _execute_scan_stop(self) -> Dict[str, Any]:
-        """Execute scan stop command"""
+        """Execute scan stop command - Enhanced for emergency use"""
         try:
-            if not self.orchestrator or not hasattr(self.orchestrator, 'current_scan') or not self.orchestrator.current_scan:
-                raise ScannerSystemError("No active scan to stop")
+            if not self.orchestrator:
+                raise ScannerSystemError("Scanner system not initialized")
             
-            # Use simple flag-based stopping to avoid asyncio loop conflicts
-            # The scan orchestrator will check this flag and clean up properly
-            self.orchestrator._stop_requested = True
+            # Enhanced: Use force_stop_all_operations for better emergency handling
+            # This method can handle cases where current_scan is None but system is busy
+            def run_force_stop():
+                """Run force stop in background thread to avoid asyncio conflicts"""
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    result = loop.run_until_complete(self.orchestrator.force_stop_all_operations())
+                    loop.close()
+                    return result
+                except Exception as e:
+                    self.logger.error(f"Force stop background execution failed: {e}")
+                    return False
             
-            # Mark the scan as cancelled directly
-            if self.orchestrator.current_scan:
-                self.orchestrator.current_scan.cancel()
+            # Run force stop in background thread
+            import threading
+            result_container = {'success': False}
             
-            self.logger.info("Scan stop command executed")
+            def force_stop_thread():
+                result_container['success'] = run_force_stop()
+                
+            thread = threading.Thread(target=force_stop_thread)
+            thread.daemon = True
+            thread.start()
+            thread.join(timeout=5.0)  # 5 second timeout
+            
+            if thread.is_alive():
+                self.logger.warning("Force stop timeout - operation may still be in progress")
+                # Force clear state directly as backup
+                if hasattr(self.orchestrator, 'current_scan'):
+                    self.orchestrator.current_scan = None
+                if hasattr(self.orchestrator, 'current_pattern'):
+                    self.orchestrator.current_pattern = None
+                if hasattr(self.orchestrator, '_stop_requested'):
+                    self.orchestrator._stop_requested = False
+            
+            self.logger.info("Emergency scan stop executed")
             
             return {
-                'action': 'scan_stopped', 
+                'action': 'emergency_scan_stop',
                 'timestamp': datetime.now().isoformat(),
-                'success': True
+                'success': True,
+                'force_stop_used': True
             }
             
         except Exception as e:
-            self.logger.error(f"Scan stop execution failed: {e}")
+            self.logger.error(f"Emergency scan stop execution failed: {e}")
+            # As fallback, try basic flag clearing
+            try:
+                if self.orchestrator and hasattr(self.orchestrator, 'current_scan'):
+                    self.orchestrator.current_scan = None
+                    self.orchestrator.current_pattern = None
+                    self.orchestrator._stop_requested = False
+                    self.logger.info("Fallback: Cleared scan state flags")
+            except Exception as fallback_e:
+                self.logger.error(f"Even fallback failed: {fallback_e}")
             raise ScannerSystemError(f"Failed to stop scan: {e}")
     
     def _execute_scan_pause(self) -> Dict[str, Any]:
