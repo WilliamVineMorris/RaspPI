@@ -147,6 +147,9 @@ class PiCameraController(CameraController):
         self.capture_count = 0
         self.error_count = 0
         
+        # Scanning mode tracking
+        self.scanning_mode = False
+        
         # Initialize camera information
         self._initialize_camera_info()
     
@@ -299,9 +302,8 @@ class PiCameraController(CameraController):
             # Convert camera_id string to int
             cam_id = int(camera_id.replace('camera', ''))
             
-            # CRITICAL: Restore calibrated exposure settings before capture
-            # This prevents live streaming from resetting the exposure
-            await self.restore_calibrated_settings(camera_id)
+            # Apply calibrated settings for scan capture
+            await self.apply_scan_settings(camera_id)
             
             # Create temporary output path
             timestamp = int(time.time() * 1000)
@@ -311,6 +313,9 @@ class PiCameraController(CameraController):
                 await self.set_camera_settings(cam_id, settings)
             
             success = await self.capture_image(cam_id, settings or CameraSettings(resolution=(1920, 1080)), temp_path)
+            
+            # Restore live streaming settings after capture
+            await self.restore_live_settings(camera_id)
             
             return CaptureResult(
                 success=success,
@@ -961,27 +966,28 @@ class PiCameraController(CameraController):
             # Calculate brightness score (0-1) from current image
             brightness_score = await self._calculate_brightness_score(picamera2)
             
-            # CRITICAL: Lock exposure settings to prevent live streaming from resetting them
-            logger.info(f"📷 Camera {camera_id} locking exposure settings to prevent reset...")
+            # Store calibrated settings for scan-time application (don't lock during live streaming)
+            logger.info(f"📷 Camera {camera_id} storing calibrated settings for scan use...")
+            
+            # Store calibrated settings for this camera (but don't lock yet)
+            if not hasattr(self, '_calibrated_settings'):
+                self._calibrated_settings = {}
+            self._calibrated_settings[cam_id] = {
+                'exposure_time': int(final_exposure),
+                'analogue_gain': float(final_gain),
+                'focus_value': focus_value,
+                'brightness_score': brightness_score
+            }
+            
+            # Re-enable auto exposure for live streaming (keep it normal for preview)
             try:
                 picamera2.set_controls({
-                    "AeEnable": False,  # Disable auto-exposure to lock current values
-                    "ExposureTime": int(final_exposure),  # Lock exposure time
-                    "AnalogueGain": float(final_gain),    # Lock analogue gain
+                    "AeEnable": True,   # Keep auto-exposure enabled for live streaming
+                    "AwbEnable": True,  # Keep auto white balance enabled
                 })
-                logger.info(f"🔒 Camera {camera_id} exposure locked: {final_exposure}μs, gain: {final_gain:.2f}")
-                
-                # Store locked settings for this camera
-                if not hasattr(self, '_locked_exposure_settings'):
-                    self._locked_exposure_settings = {}
-                self._locked_exposure_settings[cam_id] = {
-                    'exposure_time': int(final_exposure),
-                    'analogue_gain': float(final_gain),
-                    'ae_enabled': False
-                }
-                
-            except Exception as lock_error:
-                logger.warning(f"⚠️ Camera {camera_id} failed to lock exposure: {lock_error}")
+                logger.info(f"📷 Camera {camera_id} calibrated settings stored, live streaming mode restored")
+            except Exception as restore_error:
+                logger.warning(f"⚠️ Camera {camera_id} failed to restore live streaming mode: {restore_error}")
             
             calibration_result = {
                 'focus': focus_value,
@@ -989,7 +995,7 @@ class PiCameraController(CameraController):
                 'analogue_gain': final_gain,
                 'brightness_score': brightness_score,
                 'lux': final_lux,
-                'settings_locked': True
+                'settings_stored': True
             }
             
             logger.info(f"✅ Camera {camera_id} calibration complete:")
@@ -1033,34 +1039,81 @@ class PiCameraController(CameraController):
             
         return 0.5  # Default middle brightness if calculation fails
 
-    async def restore_calibrated_settings(self, camera_id: str) -> bool:
-        """Restore locked exposure settings before photo capture (prevents live streaming reset)"""
+    async def apply_scan_settings(self, camera_id: str) -> bool:
+        """Apply calibrated settings for scan capture (temporary lock during photo)"""
         try:
             cam_id = int(camera_id.replace('camera', ''))
             
-            # Check if we have locked settings for this camera
-            if (hasattr(self, '_locked_exposure_settings') and 
-                cam_id in self._locked_exposure_settings):
+            # Check if we have calibrated settings for this camera
+            if (hasattr(self, '_calibrated_settings') and 
+                cam_id in self._calibrated_settings):
                 
-                locked_settings = self._locked_exposure_settings[cam_id]
+                calibrated = self._calibrated_settings[cam_id]
                 picamera2 = self.cameras[cam_id]
                 
                 if picamera2:
-                    # Reapply locked exposure settings
+                    # Apply calibrated exposure settings for this capture only
                     picamera2.set_controls({
-                        "AeEnable": False,  # Ensure auto-exposure stays disabled
-                        "ExposureTime": locked_settings['exposure_time'],
-                        "AnalogueGain": locked_settings['analogue_gain'],
+                        "AeEnable": False,  # Temporarily disable auto-exposure
+                        "ExposureTime": calibrated['exposure_time'],
+                        "AnalogueGain": calibrated['analogue_gain'],
                     })
                     
-                    logger.debug(f"🔄 Camera {camera_id} exposure settings restored: "
-                               f"{locked_settings['exposure_time']}μs, gain: {locked_settings['analogue_gain']:.2f}")
+                    logger.debug(f"🎯 Camera {camera_id} scan settings applied: "
+                               f"{calibrated['exposure_time']}μs, gain: {calibrated['analogue_gain']:.2f}")
                     return True
                     
         except Exception as e:
-            logger.warning(f"⚠️ Camera {camera_id} failed to restore calibrated settings: {e}")
+            logger.warning(f"⚠️ Camera {camera_id} failed to apply scan settings: {e}")
             
         return False
+
+    async def restore_live_settings(self, camera_id: str) -> bool:
+        """Restore auto-exposure for live streaming after scan capture"""
+        try:
+            cam_id = int(camera_id.replace('camera', ''))
+            picamera2 = self.cameras[cam_id]
+            
+            if picamera2:
+                # Re-enable auto exposure for live streaming
+                picamera2.set_controls({
+                    "AeEnable": True,   # Enable auto-exposure for live preview
+                    "AwbEnable": True,  # Enable auto white balance
+                })
+                
+                logger.debug(f"🔄 Camera {camera_id} live streaming settings restored")
+                return True
+                    
+        except Exception as e:
+            logger.warning(f"⚠️ Camera {camera_id} failed to restore live settings: {e}")
+            
+        return False
+
+    async def set_scanning_mode(self, enabled: bool) -> bool:
+        """Enable/disable scanning mode - manages exposure settings appropriately"""
+        try:
+            self.scanning_mode = enabled
+            
+            for cam_id, picamera2 in self.cameras.items():
+                if picamera2:
+                    camera_id = f"camera{cam_id}"
+                    
+                    if enabled:
+                        # Entering scanning mode - apply calibrated settings if available
+                        logger.info(f"📷 Camera {camera_id} entering scanning mode")
+                        if (hasattr(self, '_calibrated_settings') and 
+                            cam_id in self._calibrated_settings):
+                            await self.apply_scan_settings(camera_id)
+                    else:
+                        # Exiting scanning mode - restore live streaming settings
+                        logger.info(f"📷 Camera {camera_id} returning to live streaming mode")
+                        await self.restore_live_settings(camera_id)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to set scanning mode: {e}")
+            return False
 
     async def capture_with_flash_sync(self, flash_controller, settings: Optional[Dict[str, CameraSettings]] = None) -> SyncCaptureResult:
         """Capture synchronized photos with flash lighting"""
