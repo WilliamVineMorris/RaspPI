@@ -884,15 +884,33 @@ class CameraManagerAdapter:
                                     
                                     camera.start()
                                     
-                                    # CRITICAL: Reapply calibrated settings immediately after restart
+                                    # CRITICAL: Restore calibrated settings from backup if needed, then apply
+                                    if hasattr(self.controller, 'restore_calibrated_settings_if_lost'):
+                                        await self.controller.restore_calibrated_settings_if_lost()
+                                    
+                                    # Check again if calibrated settings are available after potential restore
+                                    if (hasattr(self.controller, '_calibrated_settings') and 
+                                        camera_id in self.controller._calibrated_settings):
+                                        calibrated_settings = self.controller._calibrated_settings[camera_id]
+                                    
                                     if calibrated_settings:
+                                        # Apply with extra force after camera restart
                                         restore_controls = {
                                             'AeEnable': False,  # Disable auto-exposure
+                                            'AwbEnable': False, # Disable auto white balance
                                             'ExposureTime': calibrated_settings['exposure_time'],
                                             'AnalogueGain': calibrated_settings['analogue_gain']
                                         }
                                         camera.set_controls(restore_controls)
-                                        self.logger.info(f"🎯 Camera {camera_id}: Restored calibrated exposure: "
+                                        
+                                        # Wait extra time for settings to stick after camera restart
+                                        await asyncio.sleep(0.2)
+                                        
+                                        # Mark as locked
+                                        if 'locked' in calibrated_settings:
+                                            calibrated_settings['locked'] = True
+                                        
+                                        self.logger.info(f"🔐 Camera {camera_id}: LOCKED calibrated exposure after restart: "
                                                        f"{calibrated_settings['exposure_time']}μs, gain: {calibrated_settings['analogue_gain']:.2f}")
                                     
                                     self.logger.info(f"CAMERA: Camera {camera_id} switched to capture mode")
@@ -1218,28 +1236,53 @@ class CameraManagerAdapter:
                                 mapped_id in self.controller._calibrated_settings):
                                 
                                 calibrated = self.controller._calibrated_settings[mapped_id]
-                                calibrated_controls = {
-                                    'AeEnable': False,  # Disable auto-exposure
-                                    'ExposureTime': calibrated['exposure_time'],
-                                    'AnalogueGain': calibrated['analogue_gain']
-                                }
-                                camera.set_controls(calibrated_controls)
-                                self.logger.info(f"🎯 Camera {camera_id} scan settings applied: "
-                                               f"{calibrated['exposure_time']}μs, gain: {calibrated['analogue_gain']:.2f}")
                                 
-                                # Allow time for settings to be applied before capture
-                                import time
-                                time.sleep(0.1)
+                                # ROBUST EXPOSURE LOCK: Apply settings multiple times with verification
+                                for attempt in range(3):  # Try up to 3 times to ensure settings stick
+                                    calibrated_controls = {
+                                        'AeEnable': False,  # Disable auto-exposure FIRST
+                                        'AwbEnable': False, # Also disable auto white balance to prevent drift
+                                        'ExposureTime': calibrated['exposure_time'],
+                                        'AnalogueGain': calibrated['analogue_gain']
+                                    }
+                                    camera.set_controls(calibrated_controls)
+                                    
+                                    # Wait for settings to take effect
+                                    import time
+                                    time.sleep(0.15)  # Increased delay for Pi hardware
+                                    
+                                    # Verify settings actually took
+                                    try:
+                                        metadata_check = camera.capture_metadata()
+                                        actual_exposure = metadata_check.get('ExposureTime', 0)
+                                        actual_gain = metadata_check.get('AnalogueGain', 0)
+                                        
+                                        # Check if settings are close enough (within 10%)
+                                        exposure_ok = abs(actual_exposure - calibrated['exposure_time']) < (calibrated['exposure_time'] * 0.1)
+                                        gain_ok = abs(actual_gain - calibrated['analogue_gain']) < (calibrated['analogue_gain'] * 0.1)
+                                        
+                                        if exposure_ok and gain_ok:
+                                            self.logger.info(f"✅ Camera {camera_id} scan settings LOCKED (attempt {attempt+1}): "
+                                                           f"target={calibrated['exposure_time']}μs/{calibrated['analogue_gain']:.2f}, "
+                                                           f"actual={actual_exposure}μs/{actual_gain:.2f}")
+                                            calibrated_applied = True
+                                            break
+                                        else:
+                                            self.logger.warning(f"⚠️ Camera {camera_id} settings mismatch (attempt {attempt+1}): "
+                                                              f"target={calibrated['exposure_time']}μs/{calibrated['analogue_gain']:.2f}, "
+                                                              f"actual={actual_exposure}μs/{actual_gain:.2f}")
+                                    
+                                    except Exception as verify_error:
+                                        self.logger.warning(f"⚠️ Camera {camera_id} settings verification failed (attempt {attempt+1}): {verify_error}")
                                 
-                                # Verify settings were applied
-                                try:
-                                    metadata_check = camera.capture_metadata()
-                                    actual_exposure = metadata_check.get('ExposureTime', 0)
-                                    actual_gain = metadata_check.get('AnalogueGain', 0)
-                                    self.logger.info(f"📊 Camera {camera_id} settings verified: "
-                                                   f"exposure={actual_exposure}μs, gain={actual_gain:.2f}")
-                                except Exception as verify_error:
-                                    self.logger.warning(f"⚠️ Camera {camera_id} settings verification failed: {verify_error}")
+                                if not calibrated_applied:
+                                    self.logger.error(f"🚨 Camera {camera_id} FAILED to lock calibrated settings after 3 attempts!")
+                                else:
+                                    # Final verification before capture
+                                    final_metadata = camera.capture_metadata()
+                                    self.logger.info(f"🔒 Camera {camera_id} FINAL verification before capture: "
+                                                   f"exposure={final_metadata.get('ExposureTime', 0)}μs, "
+                                                   f"gain={final_metadata.get('AnalogueGain', 0):.2f}")
                                 
                                 calibrated_applied = True
                             
@@ -1254,17 +1297,43 @@ class CameraManagerAdapter:
                                 if controls:
                                     camera.set_controls(controls)
                             
-                            # Re-apply calibrated settings immediately before capture to prevent drift
+                            # CRITICAL: Final settings lock immediately before capture
                             if (hasattr(self.controller, '_calibrated_settings') and 
-                                mapped_id in self.controller._calibrated_settings):
+                                mapped_id in self.controller._calibrated_settings and calibrated_applied):
                                 calibrated = self.controller._calibrated_settings[mapped_id]
-                                final_controls = {
-                                    'AeEnable': False,  # Ensure auto-exposure stays off
-                                    'ExposureTime': calibrated['exposure_time'],
-                                    'AnalogueGain': calibrated['analogue_gain']
-                                }
-                                camera.set_controls(final_controls)
-                                self.logger.debug(f"🔒 Camera {camera_id} settings reapplied before capture")
+                                
+                                # Double-check exposure lock is still active
+                                pre_capture_metadata = camera.capture_metadata()
+                                current_exposure = pre_capture_metadata.get('ExposureTime', 0)
+                                current_gain = pre_capture_metadata.get('AnalogueGain', 0)
+                                
+                                # If settings have drifted, reapply them with force
+                                exposure_drift = abs(current_exposure - calibrated['exposure_time']) > (calibrated['exposure_time'] * 0.05)
+                                gain_drift = abs(current_gain - calibrated['analogue_gain']) > (calibrated['analogue_gain'] * 0.05)
+                                
+                                if exposure_drift or gain_drift:
+                                    self.logger.warning(f"🚨 Camera {camera_id} DRIFT detected before capture! "
+                                                      f"Expected: {calibrated['exposure_time']}μs/{calibrated['analogue_gain']:.2f}, "
+                                                      f"Actual: {current_exposure}μs/{current_gain:.2f}")
+                                    
+                                    # Force reapply settings
+                                    final_controls = {
+                                        'AeEnable': False,  # Force auto-exposure OFF
+                                        'AwbEnable': False, # Force auto-white-balance OFF
+                                        'ExposureTime': calibrated['exposure_time'],
+                                        'AnalogueGain': calibrated['analogue_gain']
+                                    }
+                                    camera.set_controls(final_controls)
+                                    time.sleep(0.1)  # Allow settings to apply
+                                    
+                                    # Verify correction
+                                    corrected_metadata = camera.capture_metadata()
+                                    self.logger.info(f"� Camera {camera_id} drift corrected: "
+                                                   f"new={corrected_metadata.get('ExposureTime', 0)}μs/"
+                                                   f"{corrected_metadata.get('AnalogueGain', 0):.2f}")
+                                else:
+                                    self.logger.debug(f"✅ Camera {camera_id} exposure stable before capture: "
+                                                    f"{current_exposure}μs/{current_gain:.2f}")
                             
                             # Start capture immediately without waiting for other camera
                             self.logger.info(f"CAMERA: Starting simultaneous capture for camera {mapped_id} ({camera_id})")

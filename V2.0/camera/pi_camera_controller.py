@@ -976,8 +976,15 @@ class PiCameraController(CameraController):
                 'exposure_time': int(final_exposure),
                 'analogue_gain': float(final_gain),
                 'focus_value': focus_value,
-                'brightness_score': brightness_score
+                'brightness_score': brightness_score,
+                'timestamp': time.time(),  # Track when calibration was done
+                'locked': False  # Track if settings are currently locked
             }
+            
+            # Also store a backup copy for persistence during mode switches
+            if not hasattr(self, '_calibration_backup'):
+                self._calibration_backup = {}
+            self._calibration_backup[cam_id] = self._calibrated_settings[cam_id].copy()
             
             # Re-enable auto exposure for live streaming (keep it normal for preview)
             try:
@@ -1086,6 +1093,32 @@ class PiCameraController(CameraController):
                     
         except Exception as e:
             logger.warning(f"⚠️ Camera {camera_id} failed to restore live settings: {e}")
+            
+        return False
+
+    async def restore_calibrated_settings_if_lost(self) -> bool:
+        """Restore calibrated settings from backup if they were lost during camera restarts"""
+        try:
+            restored_count = 0
+            
+            if hasattr(self, '_calibration_backup') and hasattr(self, '_calibrated_settings'):
+                for cam_id, backup_settings in self._calibration_backup.items():
+                    # Check if current calibrated settings are missing or corrupted
+                    if (cam_id not in self._calibrated_settings or 
+                        not isinstance(self._calibrated_settings[cam_id], dict) or
+                        'exposure_time' not in self._calibrated_settings[cam_id]):
+                        
+                        # Restore from backup
+                        self._calibrated_settings[cam_id] = backup_settings.copy()
+                        restored_count += 1
+                        logger.info(f"📋 Camera {cam_id}: Restored calibrated settings from backup")
+            
+            if restored_count > 0:
+                logger.info(f"🔄 Restored calibrated settings for {restored_count} cameras from backup")
+                return True
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to restore calibrated settings from backup: {e}")
             
         return False
 
