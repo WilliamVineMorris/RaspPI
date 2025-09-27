@@ -2091,8 +2091,12 @@ class ScannerWebInterface:
             else:
                 raise ValueError(f"Unknown pattern type: {pattern_data['pattern_type']}")
             
-            # Generate scan output directory (use relative path to avoid permission issues)
-            scan_id = f"web_scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            # Generate scan output directory using provided scan name
+            scan_name = pattern_data.get('scan_name', 'Untitled_Scan')
+            # Clean scan name for filesystem use
+            clean_name = "".join(c for c in scan_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+            clean_name = clean_name.replace(' ', '_')
+            scan_id = f"{clean_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             output_dir = Path.cwd() / "scans" / scan_id
             
             self.logger.info(f"🎯 Starting scan with motion completion timing:")

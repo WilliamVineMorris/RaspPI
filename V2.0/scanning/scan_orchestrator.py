@@ -1848,6 +1848,14 @@ class ScanOrchestrator:
             self.logger.error(f"❌ Failed to create storage session: {e}")
             # Continue anyway - better to have scan without storage than no scan
         
+        # 📋 GENERATE SCAN POSITIONS METADATA FILE
+        try:
+            await self._generate_scan_positions_file(pattern, Path(output_directory), scan_id)
+            self.logger.info(f"📋 Generated scan positions metadata file")
+        except Exception as e:
+            self.logger.error(f"❌ Failed to generate scan positions file: {e}")
+            # Continue anyway - this is just metadata
+        
         # Reset flags
         self._stop_requested = False
         self._pause_requested = False
@@ -1876,6 +1884,71 @@ class ScanOrchestrator:
         self.scan_task.add_done_callback(task_done_callback)
         
         return self.current_scan
+    
+    async def _generate_scan_positions_file(self, pattern: ScanPattern, output_directory: Path, scan_id: str):
+        """Generate a detailed metadata file with all scan point positions"""
+        try:
+            # Generate all scan points
+            scan_points = pattern.generate_points()
+            
+            # Create positions metadata
+            positions_metadata = {
+                'scan_info': {
+                    'scan_id': scan_id,
+                    'pattern_type': pattern.pattern_type.value,
+                    'pattern_id': pattern.pattern_id,
+                    'total_points': len(scan_points),
+                    'generated_at': datetime.now().isoformat(),
+                    'pattern_parameters': pattern.parameters.__dict__
+                },
+                'scan_positions': []
+            }
+            
+            # Add each scan point with detailed position information
+            for i, point in enumerate(scan_points):
+                point_info = {
+                    'point_index': i,
+                    'position': {
+                        'x': point.position.x,
+                        'y': point.position.y,
+                        'z': point.position.z,
+                        'c': point.position.c
+                    },
+                    'capture_settings': {
+                        'capture_count': point.capture_count,
+                        'dwell_time': point.dwell_time
+                    }
+                }
+                
+                # Add camera settings if available
+                if point.camera_settings:
+                    point_info['camera_settings'] = {
+                        'exposure_time': point.camera_settings.exposure_time,
+                        'iso': point.camera_settings.iso,
+                        'capture_format': point.camera_settings.capture_format,
+                        'resolution': point.camera_settings.resolution
+                    }
+                
+                # Add lighting settings if available
+                if point.lighting_settings:
+                    point_info['lighting_settings'] = point.lighting_settings
+                
+                positions_metadata['scan_positions'].append(point_info)
+            
+            # Ensure output directory exists
+            output_directory.mkdir(parents=True, exist_ok=True)
+            
+            # Write positions metadata to JSON file
+            positions_file = output_directory / f"{scan_id}_scan_positions.json"
+            with open(positions_file, 'w') as f:
+                import json
+                json.dump(positions_metadata, f, indent=2, default=str)
+            
+            self.logger.info(f"📋 Scan positions saved to: {positions_file}")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to generate scan positions file: {e}")
+            raise
     
     async def _execute_scan(self):
         """Main scan execution loop"""

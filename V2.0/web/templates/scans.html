@@ -1487,14 +1487,19 @@ function updatePreviewDisplay(scanData) {
     const previewImages = document.getElementById('previewImages');
     
     if (scanData.pattern_type === 'cylindrical') {
-        const points = scanData.z_rotations.length;
-        const images = points * scanData.camera_count;
-        const timeMinutes = Math.ceil(points * 4); // Estimate 4 seconds per point
+        // Calculate total points: height levels × rotation positions
+        const heightLevels = scanData.y_positions ? scanData.y_positions.length : (scanData.height_steps + 1);
+        const rotationPositions = scanData.z_rotations.length;
+        const totalPoints = heightLevels * rotationPositions;
+        const images = totalPoints * scanData.camera_count;
+        const timeMinutes = Math.ceil(totalPoints * 4); // Estimate 4 seconds per point
         
-        if (previewPoints) previewPoints.textContent = points.toLocaleString();
+        if (previewPoints) previewPoints.textContent = totalPoints.toLocaleString();
         if (previewTime) previewTime.textContent = `${timeMinutes} min`;
         if (previewSize) previewSize.textContent = `${(images * 2.5).toFixed(1)} MB`; // Slightly larger file estimate
         if (previewImages) previewImages.textContent = images.toLocaleString();
+        
+        console.log(`📊 Preview calculation: ${heightLevels} height levels × ${rotationPositions} rotations = ${totalPoints} points`);
     } else {
         const xRange = scanData.x_max - scanData.x_min;
         const yRange = scanData.y_max - scanData.y_min;
