@@ -1400,7 +1400,7 @@ function previewScan() {
         
         // Update preview display
         updatePreviewDisplay(scanData);
-        showAlert('Scan preview updated', 'success');
+        // Removed intrusive scan preview notification - preview updates are visual feedback enough
         
     } catch (error) {
         console.error('Error previewing scan:', error);
@@ -1724,7 +1724,7 @@ function cancelScan() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            showAlert('Scan cancelled successfully', 'info', 3000);
+            showAlert('🛑 Scan cancelled successfully', 'warning', 3000);
         } else {
             showAlert('Failed to cancel scan: ' + (data.error || 'Unknown error'), 'error', 5000);
         }
