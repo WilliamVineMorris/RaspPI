@@ -2855,10 +2855,7 @@ class ScanOrchestrator:
             self.current_scan.set_phase(ScanPhase.CLEANUP)
         
         try:
-            # Return to home position
-            await self.motion_controller.home()
-            
-            # Generate final report
+            # Generate final report (removed final homing)
             await self._generate_scan_report()
             
         except Exception as e:
