@@ -2443,8 +2443,9 @@ class ScanOrchestrator:
                 self.current_scan.complete()
                 self.logger.info(f"Scan {self.current_scan.scan_id} completed successfully")
                 # Add completion notification
+                scan_name = self.current_scan.scan_parameters.get('scan_name', self.current_scan.scan_id)
                 self._add_notification(
-                    f"✅ Scan '{self.current_scan.scan_name}' completed successfully!", 
+                    f"✅ Scan '{scan_name}' completed successfully!", 
                     'success', 
                     8000
                 )

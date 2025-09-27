@@ -773,43 +773,10 @@ ScannerBase.checkGlobalNotifications = async function() {
 };
 
 ScannerBase.showGlobalNotification = function(notification) {
-    const modal = document.getElementById('globalNotificationModal');
-    const title = document.getElementById('globalNotificationTitle');
-    const message = document.getElementById('globalNotificationMessage');
-    
-    if (!modal || !title || !message) {
-        // Fallback to regular alert
-        this.showAlert(notification.message, notification.type, notification.duration);
-        return;
-    }
-    
-    // Set notification content
-    let titleText = 'System Notification';
-    if (notification.type === 'success') {
-        titleText = '✅ Success';
-    } else if (notification.type === 'error') {
-        titleText = '❌ Error';
-    } else if (notification.type === 'warning') {
-        titleText = '⚠️ Warning';
-    }
-    
-    title.textContent = titleText;
-    message.textContent = notification.message;
-    
-    // Show modal
-    modal.style.display = 'flex';
-    
-    // Auto-dismiss if duration specified
-    if (notification.duration && notification.duration > 0) {
-        setTimeout(() => {
-            this.dismissGlobalNotification();
-        }, notification.duration);
-    }
+    // Use the existing floating alert system instead of modal
+    this.showAlert(notification.message, notification.type, notification.duration || 5000);
 };
 
 ScannerBase.dismissGlobalNotification = function() {
-    const modal = document.getElementById('globalNotificationModal');
-    if (modal) {
-        modal.style.display = 'none';
-    }
+    // No longer needed - using floating alerts instead of modal
 };
