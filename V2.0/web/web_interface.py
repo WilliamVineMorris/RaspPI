@@ -1186,6 +1186,17 @@ class ScannerWebInterface:
                 
                 if not self.orchestrator:
                     raise ScannerSystemError("Scanner system not initialized")
+                    
+                # Check if scan is currently active - prevent autofocus interference
+                force_autofocus = data.get('force', False)  # Emergency override
+                scan_status = self.orchestrator.get_scan_status()
+                if (scan_status and scan_status.get('status') in ['running', 'scanning', 'moving', 'homing'] and not force_autofocus):
+                    return jsonify({
+                        'success': False,
+                        'error': 'Cannot perform autofocus during active scan',
+                        'message': 'Autofocus blocked - scan in progress. Use force=true to override.',
+                        'scan_status': scan_status.get('status')
+                    }), 409  # Conflict status
                 
                 # Perform autofocus in background thread
                 def perform_autofocus():
@@ -1323,6 +1334,17 @@ class ScannerWebInterface:
             try:
                 data = request.get_json() or {}
                 camera_id = data.get('camera_id', 'camera_0')
+                
+                # Check if scan is currently active - prevent autofocus interference
+                if self.orchestrator:
+                    scan_status = self.orchestrator.get_scan_status()
+                    if (scan_status and scan_status.get('status') in ['running', 'scanning', 'moving', 'homing']):
+                        return jsonify({
+                            'success': False,
+                            'error': 'Cannot perform autofocus during active scan',
+                            'message': 'Autofocus blocked - scan in progress',
+                            'scan_status': scan_status.get('status')
+                        }), 409  # Conflict status
                 
                 result = self._execute_camera_autofocus(camera_id)
                 

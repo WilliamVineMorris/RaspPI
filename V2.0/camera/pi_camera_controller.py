@@ -1520,19 +1520,21 @@ class PiCameraController(CameraController):
             
             logger.info(f"📷 Camera {camera_id}: {camera_model}, sensor size: {pixel_array_size}")
             
-            # Create high-quality configuration optimized for ArduCam 64MP
+            # Create PREVIEW configuration for better livestream (not still config)
             if 'imx519' in camera_model.lower() or pixel_array_size[0] >= 9000:
-                logger.info(f"📷 Camera {camera_id}: Detected ArduCam 64MP (IMX519), applying optimized config")
-                # ArduCam 64MP specific configuration
-                config = camera.create_still_configuration(
-                    main={"size": (4096, 3072)},  # High resolution but not full sensor to avoid slowness
+                logger.info(f"📷 Camera {camera_id}: Detected ArduCam 64MP (IMX519), applying livestream-optimized config")
+                # ArduCam 64MP livestream configuration - lower resolution for smooth streaming
+                config = camera.create_preview_configuration(
+                    main={"size": (1920, 1080), "format": "RGB888"},  # Good quality but smooth for streaming
+                    lores={"size": (640, 480)},  # Low-res stream for web preview
                     raw=None  # Disable raw for performance
                 )
             else:
-                logger.info(f"📷 Camera {camera_id}: Standard Pi camera configuration")
-                # Standard Pi camera configuration  
-                config = camera.create_still_configuration(
-                    main={"size": (2592, 1944)},  # Standard Pi camera resolution
+                logger.info(f"📷 Camera {camera_id}: Standard Pi camera livestream configuration")
+                # Standard Pi camera livestream configuration  
+                config = camera.create_preview_configuration(
+                    main={"size": (1920, 1080), "format": "RGB888"},  # Standard streaming resolution
+                    lores={"size": (640, 480)},  # Low-res for web
                     raw=None
                 )
             
@@ -1545,17 +1547,26 @@ class PiCameraController(CameraController):
             
             # Set high quality capture controls for both camera types
             try:
-                # Build control dictionary starting with AUTO settings for proper livestream
+                # Build control dictionary optimized for livestream quality
                 control_dict = {
-                    # Image quality controls
-                    "AwbEnable": True,        # Auto white balance - ESSENTIAL for proper colors
-                    "AeEnable": True,         # Auto exposure - ESSENTIAL for proper brightness
-                    "NoiseReductionMode": 2,  # High quality noise reduction
-                    "Sharpness": 1.2,         # Slight sharpening
+                    # Core auto controls - ESSENTIAL for proper livestream
+                    "AwbEnable": True,              # Auto white balance for proper colors
+                    "AeEnable": True,               # Auto exposure for proper brightness
                     
-                    # DO NOT set fixed ExposureTime/AnalogueGain on initialization
-                    # Let auto-exposure determine optimal settings for current lighting
-                    # Fixed values will be applied only during scan captures via calibration
+                    # Exposure settings optimized for livestream responsiveness  
+                    "AeExposureMode": 0,            # Normal exposure mode
+                    "AeMeteringMode": 0,            # CentreWeighted metering
+                    "ExposureValue": 0.0,           # No exposure compensation initially
+                    
+                    # Image quality for streaming
+                    "Brightness": 0.0,              # Neutral brightness
+                    "Contrast": 1.0,                # Standard contrast  
+                    "Saturation": 1.0,              # Standard saturation
+                    "Sharpness": 1.0,               # Moderate sharpening for streaming
+                    
+                    # Performance settings
+                    "NoiseReductionMode": 1,        # Fast noise reduction for streaming
+                    "FrameRate": 30.0,              # Smooth 30 FPS for livestream
                 }
                 
                 # Add AF controls if supported (per Picamera2 docs section 5.2)
