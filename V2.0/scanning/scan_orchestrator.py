@@ -803,10 +803,23 @@ class CameraManagerAdapter:
             
             try:
                 if target_mode == "streaming":
+                    # Check if we're in an active scan - preserve exposure settings if so
+                    in_active_scan = False
+                    if hasattr(self, 'current_scan') and self.current_scan:
+                        scan_status = self.current_scan.status
+                        in_active_scan = scan_status.value in ['running', 'paused']
+                    
                     # Stop and reconfigure camera 0 for streaming
                     if hasattr(self.controller, 'cameras') and 0 in self.controller.cameras:
                         camera = self.controller.cameras[0]
                         if camera:
+                            # Store calibrated settings if in scan mode
+                            calibrated_settings = None
+                            if (in_active_scan and hasattr(self.controller, '_calibrated_settings') and 
+                                0 in self.controller._calibrated_settings):
+                                calibrated_settings = self.controller._calibrated_settings[0]
+                                self.logger.info("🔄 Camera 0: Preserving calibrated settings during scan livestream switch")
+                            
                             camera.stop()
                             if hasattr(self, '_stream_configs') and 0 in self._stream_configs:
                                 camera.configure(self._stream_configs[0])
@@ -817,6 +830,25 @@ class CameraManagerAdapter:
                                 )
                                 camera.configure(config)
                             camera.start()
+                            
+                            # Reapply calibrated settings during active scan
+                            if calibrated_settings:
+                                restore_controls = {
+                                    'AeEnable': False,  # Keep auto-exposure disabled during scan
+                                    'ExposureTime': calibrated_settings['exposure_time'],
+                                    'AnalogueGain': calibrated_settings['analogue_gain']
+                                }
+                                camera.set_controls(restore_controls)
+                                self.logger.info(f"🎯 Camera 0: Maintained calibrated exposure during livestream: "
+                                               f"{calibrated_settings['exposure_time']}μs, gain: {calibrated_settings['analogue_gain']:.2f}")
+                            else:
+                                # Only enable auto-exposure when NOT in scan mode
+                                camera.set_controls({
+                                    'AeEnable': True,   # Enable auto-exposure for normal livestream
+                                    'AwbEnable': True   # Enable auto white balance
+                                })
+                                self.logger.debug("Camera 0: Auto-exposure enabled for normal livestream")
+                            
                             self.logger.info("CAMERA: Switched to streaming mode")
                     
                 elif target_mode == "capture":
@@ -826,6 +858,13 @@ class CameraManagerAdapter:
                             camera = self.controller.cameras[camera_id]
                             if camera:
                                 try:
+                                    # Store calibrated settings before camera restart (CRITICAL FIX)
+                                    calibrated_settings = None
+                                    if (hasattr(self.controller, '_calibrated_settings') and 
+                                        camera_id in self.controller._calibrated_settings):
+                                        calibrated_settings = self.controller._calibrated_settings[camera_id]
+                                        self.logger.info(f"🔄 Camera {camera_id}: Preserving calibrated exposure settings during mode switch")
+                                    
                                     # Always stop camera before reconfiguring (fix for "Camera must be stopped" error)
                                     camera.stop()
                                     self.logger.debug(f"CAMERA: Stopped camera {camera_id} before reconfiguration")
@@ -844,6 +883,18 @@ class CameraManagerAdapter:
                                         camera.configure(config)
                                     
                                     camera.start()
+                                    
+                                    # CRITICAL: Reapply calibrated settings immediately after restart
+                                    if calibrated_settings:
+                                        restore_controls = {
+                                            'AeEnable': False,  # Disable auto-exposure
+                                            'ExposureTime': calibrated_settings['exposure_time'],
+                                            'AnalogueGain': calibrated_settings['analogue_gain']
+                                        }
+                                        camera.set_controls(restore_controls)
+                                        self.logger.info(f"🎯 Camera {camera_id}: Restored calibrated exposure: "
+                                                       f"{calibrated_settings['exposure_time']}μs, gain: {calibrated_settings['analogue_gain']:.2f}")
+                                    
                                     self.logger.info(f"CAMERA: Camera {camera_id} switched to capture mode")
                                     
                                 except Exception as camera_error:
@@ -1175,6 +1226,21 @@ class CameraManagerAdapter:
                                 camera.set_controls(calibrated_controls)
                                 self.logger.info(f"🎯 Camera {camera_id} scan settings applied: "
                                                f"{calibrated['exposure_time']}μs, gain: {calibrated['analogue_gain']:.2f}")
+                                
+                                # Allow time for settings to be applied before capture
+                                import time
+                                time.sleep(0.1)
+                                
+                                # Verify settings were applied
+                                try:
+                                    metadata_check = camera.capture_metadata()
+                                    actual_exposure = metadata_check.get('ExposureTime', 0)
+                                    actual_gain = metadata_check.get('AnalogueGain', 0)
+                                    self.logger.info(f"📊 Camera {camera_id} settings verified: "
+                                                   f"exposure={actual_exposure}μs, gain={actual_gain:.2f}")
+                                except Exception as verify_error:
+                                    self.logger.warning(f"⚠️ Camera {camera_id} settings verification failed: {verify_error}")
+                                
                                 calibrated_applied = True
                             
                             # Apply custom settings if provided (do this quickly)
@@ -1187,6 +1253,18 @@ class CameraManagerAdapter:
                                 
                                 if controls:
                                     camera.set_controls(controls)
+                            
+                            # Re-apply calibrated settings immediately before capture to prevent drift
+                            if (hasattr(self.controller, '_calibrated_settings') and 
+                                mapped_id in self.controller._calibrated_settings):
+                                calibrated = self.controller._calibrated_settings[mapped_id]
+                                final_controls = {
+                                    'AeEnable': False,  # Ensure auto-exposure stays off
+                                    'ExposureTime': calibrated['exposure_time'],
+                                    'AnalogueGain': calibrated['analogue_gain']
+                                }
+                                camera.set_controls(final_controls)
+                                self.logger.debug(f"🔒 Camera {camera_id} settings reapplied before capture")
                             
                             # Start capture immediately without waiting for other camera
                             self.logger.info(f"CAMERA: Starting simultaneous capture for camera {mapped_id} ({camera_id})")
@@ -2232,16 +2310,26 @@ class ScanOrchestrator:
                                 focus_value = calibration_result['focus']
                                 self._scan_focus_values[camera_id] = focus_value
                                 
-                                # Log calibration results
+                                # Log calibration results with exact values that will be used in scans
                                 exposure = calibration_result.get('exposure_time', 0)
                                 gain = calibration_result.get('analogue_gain', 1.0)
                                 brightness = calibration_result.get('brightness_score', 0.5)
                                 
                                 self.logger.info(f"✅ Camera calibration completed for {camera_id}:")
                                 self.logger.info(f"   Focus: {focus_value:.3f}")
-                                self.logger.info(f"   Exposure: {exposure/1000:.1f}ms")
-                                self.logger.info(f"   Gain: {gain:.2f}")
+                                self.logger.info(f"   Exposure: {exposure}μs ({exposure/1000:.1f}ms)")
+                                self.logger.info(f"   Gain: {gain:.2f} (ISO ~{int(gain*100)})")
                                 self.logger.info(f"   Brightness: {brightness:.2f}")
+                                
+                                # Store the exact calibrated values for verification
+                                if not hasattr(self, '_expected_scan_settings'):
+                                    self._expected_scan_settings = {}
+                                self._expected_scan_settings[camera_id] = {
+                                    'exposure_time': exposure,
+                                    'analogue_gain': gain,
+                                    'iso_equivalent': int(gain * 100),
+                                    'exposure_fraction': f"1/{int(1000000/exposure)}" if exposure > 0 else "1/30"
+                                }
                             else:
                                 self.logger.warning(f"⚠️ Camera calibration returned no values for {camera_id}, using defaults")
                                 # Set a reasonable default focus value (middle range)
