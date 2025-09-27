@@ -2148,35 +2148,52 @@ class ScanOrchestrator:
                         
             elif self._focus_mode == 'auto':
                 if self._focus_sync_enabled:
-                    # Synchronized focus mode: autofocus primary camera and copy to others
+                    # Synchronized focus mode: calibrate primary camera and copy focus to others
                     primary_camera = available_cameras[0]
-                    self.logger.info(f"🔄 Synchronized focus mode: Performing autofocus on primary camera: {primary_camera}")
+                    self.logger.info(f"🔄 Synchronized focus mode: Performing calibration on primary camera: {primary_camera}")
                     
-                    focus_value = await self.camera_manager.controller.auto_focus_and_get_value(primary_camera)
+                    calibration_result = await self.camera_manager.controller.auto_calibrate_camera(primary_camera)
                     
-                    if focus_value is not None:
+                    if calibration_result and 'focus' in calibration_result:
+                        focus_value = calibration_result['focus']
                         self._primary_focus_value = focus_value
                         self._scan_focus_values[primary_camera] = focus_value
-                        self.logger.info(f"✅ Primary autofocus completed. Focus value: {focus_value:.3f}")
                         
-                        # Apply the same focus value to all other cameras
+                        # Log primary camera calibration
+                        exposure = calibration_result.get('exposure_time', 0)
+                        gain = calibration_result.get('analogue_gain', 1.0)
+                        brightness = calibration_result.get('brightness_score', 0.5)
+                        
+                        self.logger.info(f"✅ Primary camera calibration completed:")
+                        self.logger.info(f"   Focus: {focus_value:.3f}, Exposure: {exposure/1000:.1f}ms, Gain: {gain:.2f}")
+                        
+                        # Apply the same focus value to all other cameras (but let them auto-expose independently)
                         for camera_id in available_cameras:
                             if camera_id != primary_camera:
                                 success = await self.camera_manager.controller.set_focus_value(camera_id, focus_value)
                                 if success:
                                     self._scan_focus_values[camera_id] = focus_value
                                     self.logger.info(f"✅ Synchronized focus {focus_value:.3f} applied to {camera_id}")
+                                    
+                                    # Let secondary cameras do their own exposure calibration
+                                    try:
+                                        secondary_calib = await self.camera_manager.controller.auto_calibrate_camera(camera_id)
+                                        sec_exposure = secondary_calib.get('exposure_time', 0)
+                                        sec_gain = secondary_calib.get('analogue_gain', 1.0)
+                                        self.logger.info(f"✅ {camera_id} exposure calibrated: {sec_exposure/1000:.1f}ms, gain: {sec_gain:.2f}")
+                                    except Exception as calib_error:
+                                        self.logger.warning(f"⚠️ {camera_id} exposure calibration failed: {calib_error}")
                                 else:
                                     self.logger.warning(f"❌ Failed to sync focus to {camera_id}")
                     else:
-                        self.logger.error("❌ Primary camera autofocus failed")
+                        self.logger.error("❌ Primary camera calibration failed")
                         
                 else:
                     # Independent focus mode: each camera gets its own autofocus
                     self.logger.info(f"🎯 Independent focus mode: Performing autofocus on each camera")
                     
-                    # Add overall timeout to prevent scan from stalling
-                    focus_timeout = 25.0  # Maximum time for all cameras to autofocus (10s per camera + buffer)
+                    # Add overall timeout to prevent scan from stalling  
+                    focus_timeout = 40.0  # Maximum time for all cameras to calibrate (15s per camera + buffer)
                     focus_start_time = asyncio.get_event_loop().time()
                     
                     for camera_id in available_cameras:
@@ -2186,28 +2203,39 @@ class ScanOrchestrator:
                             self.logger.warning(f"⏱️ Focus setup timeout reached, skipping remaining cameras")
                             break
                             
-                        self.logger.info(f"Performing autofocus on {camera_id}...")
+                        self.logger.info(f"Performing camera calibration (focus + exposure) on {camera_id}...")
                         
                         try:
-                            # Add per-camera timeout
-                            focus_value = await asyncio.wait_for(
-                                self.camera_manager.controller.auto_focus_and_get_value(camera_id),
-                                timeout=10.0  # 10 second timeout per camera to match controller timeout
+                            # Add per-camera timeout for full calibration
+                            calibration_result = await asyncio.wait_for(
+                                self.camera_manager.controller.auto_calibrate_camera(camera_id),
+                                timeout=15.0  # 15 second timeout for calibration (longer than just focus)
                             )
                             
-                            if focus_value is not None:
+                            if calibration_result and 'focus' in calibration_result:
+                                focus_value = calibration_result['focus']
                                 self._scan_focus_values[camera_id] = focus_value
-                                self.logger.info(f"✅ Autofocus completed for {camera_id}: {focus_value:.3f}")
+                                
+                                # Log calibration results
+                                exposure = calibration_result.get('exposure_time', 0)
+                                gain = calibration_result.get('analogue_gain', 1.0)
+                                brightness = calibration_result.get('brightness_score', 0.5)
+                                
+                                self.logger.info(f"✅ Camera calibration completed for {camera_id}:")
+                                self.logger.info(f"   Focus: {focus_value:.3f}")
+                                self.logger.info(f"   Exposure: {exposure/1000:.1f}ms")
+                                self.logger.info(f"   Gain: {gain:.2f}")
+                                self.logger.info(f"   Brightness: {brightness:.2f}")
                             else:
-                                self.logger.warning(f"⚠️ Autofocus returned no value for {camera_id}, using default")
+                                self.logger.warning(f"⚠️ Camera calibration returned no values for {camera_id}, using defaults")
                                 # Set a reasonable default focus value (middle range)
                                 self._scan_focus_values[camera_id] = 0.5
                                 
                         except asyncio.TimeoutError:
-                            self.logger.warning(f"⏱️ Autofocus timeout for {camera_id}, using default focus")
+                            self.logger.warning(f"⏱️ Camera calibration timeout for {camera_id}, using defaults")
                             self._scan_focus_values[camera_id] = 0.5  # Default focus
                         except Exception as e:
-                            self.logger.warning(f"❌ Autofocus error for {camera_id}: {e}, using default focus")
+                            self.logger.warning(f"❌ Camera calibration error for {camera_id}: {e}, using defaults")
                             self._scan_focus_values[camera_id] = 0.5  # Default focus
                     
                     # Ensure we have focus values for all cameras

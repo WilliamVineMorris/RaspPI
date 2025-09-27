@@ -894,6 +894,118 @@ class PiCameraController(CameraController):
             logger.info(f"🔍 EXIT: auto_focus_and_get_value({camera_id}) returning default 0.5 (exception)")
             return 0.5  # Return default instead of None to prevent scan failure
 
+    async def auto_calibrate_camera(self, camera_id: str) -> Dict[str, float]:
+        """Perform comprehensive auto-calibration: autofocus + auto-exposure optimization"""
+        logger.info(f"🔧 CALIBRATION: Starting auto-calibration for {camera_id}")
+        
+        try:
+            cam_id = int(camera_id.replace('camera', ''))
+            if cam_id not in self.cameras or not self.cameras[cam_id]:
+                logger.warning(f"📷 Camera {camera_id} not available for calibration")
+                return {'focus': 0.5, 'exposure_time': 33000, 'analogue_gain': 1.0}
+                
+            picamera2 = self.cameras[cam_id]
+            
+            # Step 1: Enable auto-exposure and auto-white-balance
+            logger.info(f"📷 Camera {camera_id} enabling auto-exposure controls...")
+            try:
+                from libcamera import controls
+                
+                # Set automatic exposure and AWB
+                picamera2.set_controls({
+                    "AeEnable": True,           # Enable auto-exposure
+                    "AwbEnable": True,          # Enable auto white balance
+                    "AeMeteringMode": controls.AeMeteringModeEnum.CentreWeighted,  # Focus on center
+                    "AeExposureMode": controls.AeExposureModeEnum.Normal,         # Normal exposure
+                })
+                
+                # Allow time for auto-exposure to settle
+                await asyncio.sleep(1.0)
+                
+            except ImportError:
+                # Fallback for older libcamera versions
+                picamera2.set_controls({
+                    "AeEnable": True,
+                    "AwbEnable": True,
+                })
+                await asyncio.sleep(1.0)
+            
+            # Step 2: Capture a few frames to let AE settle
+            logger.info(f"📷 Camera {camera_id} letting auto-exposure settle...")
+            for i in range(3):
+                metadata = picamera2.capture_metadata()
+                exposure = metadata.get('ExposureTime', 33000)
+                gain = metadata.get('AnalogueGain', 1.0)
+                logger.debug(f"📷 Camera {camera_id} AE settle frame {i+1}: exposure={exposure}, gain={gain:.2f}")
+                await asyncio.sleep(0.3)
+            
+            # Step 3: Perform autofocus (reuse existing method)
+            logger.info(f"📷 Camera {camera_id} performing autofocus...")
+            focus_value = await self.auto_focus_and_get_value(camera_id)
+            if focus_value is None:
+                focus_value = 0.5
+            
+            # Step 4: Capture final calibration metadata
+            logger.info(f"📷 Camera {camera_id} capturing final calibration values...")
+            final_metadata = picamera2.capture_metadata()
+            
+            # Extract optimized exposure settings
+            final_exposure = final_metadata.get('ExposureTime', 33000)  # microseconds
+            final_gain = final_metadata.get('AnalogueGain', 1.0)
+            final_lux = final_metadata.get('Lux', None)
+            
+            # Calculate brightness score (0-1) from current image
+            brightness_score = await self._calculate_brightness_score(picamera2)
+            
+            calibration_result = {
+                'focus': focus_value,
+                'exposure_time': final_exposure,
+                'analogue_gain': final_gain,
+                'brightness_score': brightness_score,
+                'lux': final_lux
+            }
+            
+            logger.info(f"✅ Camera {camera_id} calibration complete:")
+            logger.info(f"   Focus: {focus_value:.3f}")
+            logger.info(f"   Exposure: {final_exposure}μs ({final_exposure/1000:.1f}ms)")
+            logger.info(f"   Gain: {final_gain:.2f}")
+            logger.info(f"   Brightness: {brightness_score:.2f}")
+            if final_lux:
+                logger.info(f"   Lux: {final_lux:.1f}")
+            
+            return calibration_result
+            
+        except Exception as e:
+            logger.error(f"📷 Camera {camera_id} calibration failed: {e}")
+            return {'focus': 0.5, 'exposure_time': 33000, 'analogue_gain': 1.0, 'brightness_score': 0.5}
+
+    async def _calculate_brightness_score(self, picamera2) -> float:
+        """Calculate brightness score from current camera image (0=dark, 1=bright)"""
+        try:
+            # Capture a small array for analysis
+            array = picamera2.capture_array("lores")  # Use low-res for speed
+            
+            if array is not None and array.size > 0:
+                # Convert to grayscale if needed
+                if len(array.shape) == 3:
+                    # RGB to grayscale: 0.299*R + 0.587*G + 0.114*B
+                    gray = (array[:, :, 0] * 0.299 + 
+                           array[:, :, 1] * 0.587 + 
+                           array[:, :, 2] * 0.114).astype('uint8')
+                else:
+                    gray = array
+                
+                # Calculate mean brightness (0-255) and normalize to 0-1
+                mean_brightness = float(gray.mean())
+                brightness_score = min(1.0, max(0.0, mean_brightness / 255.0))
+                
+                return brightness_score
+            
+        except Exception as e:
+            logger.debug(f"Brightness calculation failed: {e}")
+            
+        return 0.5  # Default middle brightness if calculation fails
+
     async def capture_with_flash_sync(self, flash_controller, settings: Optional[Dict[str, CameraSettings]] = None) -> SyncCaptureResult:
         """Capture synchronized photos with flash lighting"""
         try:
