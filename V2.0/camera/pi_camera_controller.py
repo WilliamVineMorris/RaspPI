@@ -299,6 +299,10 @@ class PiCameraController(CameraController):
             # Convert camera_id string to int
             cam_id = int(camera_id.replace('camera', ''))
             
+            # CRITICAL: Restore calibrated exposure settings before capture
+            # This prevents live streaming from resetting the exposure
+            await self.restore_calibrated_settings(camera_id)
+            
             # Create temporary output path
             timestamp = int(time.time() * 1000)
             temp_path = Path(f"/tmp/capture_{cam_id}_{timestamp}.jpg")
@@ -957,12 +961,35 @@ class PiCameraController(CameraController):
             # Calculate brightness score (0-1) from current image
             brightness_score = await self._calculate_brightness_score(picamera2)
             
+            # CRITICAL: Lock exposure settings to prevent live streaming from resetting them
+            logger.info(f"📷 Camera {camera_id} locking exposure settings to prevent reset...")
+            try:
+                picamera2.set_controls({
+                    "AeEnable": False,  # Disable auto-exposure to lock current values
+                    "ExposureTime": int(final_exposure),  # Lock exposure time
+                    "AnalogueGain": float(final_gain),    # Lock analogue gain
+                })
+                logger.info(f"🔒 Camera {camera_id} exposure locked: {final_exposure}μs, gain: {final_gain:.2f}")
+                
+                # Store locked settings for this camera
+                if not hasattr(self, '_locked_exposure_settings'):
+                    self._locked_exposure_settings = {}
+                self._locked_exposure_settings[cam_id] = {
+                    'exposure_time': int(final_exposure),
+                    'analogue_gain': float(final_gain),
+                    'ae_enabled': False
+                }
+                
+            except Exception as lock_error:
+                logger.warning(f"⚠️ Camera {camera_id} failed to lock exposure: {lock_error}")
+            
             calibration_result = {
                 'focus': focus_value,
                 'exposure_time': final_exposure,
                 'analogue_gain': final_gain,
                 'brightness_score': brightness_score,
-                'lux': final_lux
+                'lux': final_lux,
+                'settings_locked': True
             }
             
             logger.info(f"✅ Camera {camera_id} calibration complete:")
@@ -1005,6 +1032,35 @@ class PiCameraController(CameraController):
             logger.debug(f"Brightness calculation failed: {e}")
             
         return 0.5  # Default middle brightness if calculation fails
+
+    async def restore_calibrated_settings(self, camera_id: str) -> bool:
+        """Restore locked exposure settings before photo capture (prevents live streaming reset)"""
+        try:
+            cam_id = int(camera_id.replace('camera', ''))
+            
+            # Check if we have locked settings for this camera
+            if (hasattr(self, '_locked_exposure_settings') and 
+                cam_id in self._locked_exposure_settings):
+                
+                locked_settings = self._locked_exposure_settings[cam_id]
+                picamera2 = self.cameras[cam_id]
+                
+                if picamera2:
+                    # Reapply locked exposure settings
+                    picamera2.set_controls({
+                        "AeEnable": False,  # Ensure auto-exposure stays disabled
+                        "ExposureTime": locked_settings['exposure_time'],
+                        "AnalogueGain": locked_settings['analogue_gain'],
+                    })
+                    
+                    logger.debug(f"🔄 Camera {camera_id} exposure settings restored: "
+                               f"{locked_settings['exposure_time']}μs, gain: {locked_settings['analogue_gain']:.2f}")
+                    return True
+                    
+        except Exception as e:
+            logger.warning(f"⚠️ Camera {camera_id} failed to restore calibrated settings: {e}")
+            
+        return False
 
     async def capture_with_flash_sync(self, flash_controller, settings: Optional[Dict[str, CameraSettings]] = None) -> SyncCaptureResult:
         """Capture synchronized photos with flash lighting"""
