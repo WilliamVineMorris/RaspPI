@@ -511,8 +511,8 @@ window.ScannerBase = {
      * Show alert message to user with improved placement options
      */
     showAlert(message, type = 'info', duration = 5000, useLogOnly = false) {
-        // For non-critical messages, just use the activity log to avoid UI displacement
-        if (useLogOnly || type === 'info') {
+        // Always show important notifications visually (success, error, warning)
+        if (useLogOnly && type === 'info') {
             this.addLogEntry(message, type);
             return;
         }
@@ -527,10 +527,20 @@ window.ScannerBase = {
         const alertId = `alert_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
         const alertElement = document.createElement('div');
         alertElement.id = alertId;
-        alertElement.className = `floating-alert ${type}`;
+        alertElement.className = `alert alert-${type} floating-alert`;
+        
+        // Add proper styling for different alert types
+        let iconClass = '';
+        if (type === 'success') iconClass = '✅';
+        else if (type === 'error') iconClass = '❌';
+        else if (type === 'warning') iconClass = '⚠️';
+        else if (type === 'info') iconClass = 'ℹ️';
         
         alertElement.innerHTML = `
-            <div class="alert-content">${message}</div>
+            <div class="alert-content">
+                <span class="alert-icon">${iconClass}</span>
+                <span class="alert-text">${message}</span>
+            </div>
             <button class="alert-close" onclick="ScannerBase.dismissAlert('${alertId}')" title="Close">×</button>
         `;
 

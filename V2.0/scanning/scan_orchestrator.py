@@ -2430,6 +2430,14 @@ class ScanOrchestrator:
             await self._home_system()
             self.logger.info("Homing completed")
             
+            # Add scan started notification after homing is complete
+            scan_name = self.current_scan.scan_parameters.get('scan_name', self.current_scan.scan_id)
+            self._add_notification(
+                f"🚀 Scan '{scan_name}' started successfully!", 
+                'success', 
+                5000
+            )
+            
             # Focus will be set up at the first scan point for object-based focusing
             self.logger.info("Focus will be configured at first scan point")
             

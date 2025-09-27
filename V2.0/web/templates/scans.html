@@ -1160,6 +1160,7 @@
             <p><strong>Do you want to proceed with homing?</strong></p>
         </div>
         <div class="modal-footer">
+            <button class="btn btn-danger" onclick="cancelScan()">Cancel Scan</button>
             <button class="btn btn-secondary" onclick="hideHomingConfirmationDialog(false)">Skip Homing</button>
             <button class="btn btn-primary" onclick="hideHomingConfirmationDialog(true)">Yes, Home System</button>
         </div>
@@ -1315,7 +1316,8 @@ async function startScanNow() {
         const result = await response.json();
         
         if (result.success) {
-            showAlert('Scan started successfully!', 'success');
+            // Don't show "scan started" immediately - wait for scan to actually begin
+            // The success notification will come from the backend after homing
             updateScanProgress(true);
         } else {
             showAlert('Failed to start scan: ' + result.error, 'error');
@@ -1701,6 +1703,36 @@ async function confirmHoming(shouldHome) {
     } catch (error) {
         console.error('Error sending homing confirmation:', error);
     }
+}
+
+// Cancel scan function
+function cancelScan() {
+    // Hide the homing confirmation dialog
+    const modal = document.getElementById('homingConfirmationModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+    
+    // Send cancel request to backend
+    fetch('/api/scan/stop', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ reason: 'cancelled_by_user' })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('Scan cancelled successfully', 'info', 3000);
+        } else {
+            showAlert('Failed to cancel scan: ' + (data.error || 'Unknown error'), 'error', 5000);
+        }
+    })
+    .catch(error => {
+        console.error('Error cancelling scan:', error);
+        showAlert('Error cancelling scan', 'error', 5000);
+    });
 }
 
 // Initialize preview on page load
