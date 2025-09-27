@@ -1644,29 +1644,15 @@ async function monitorScanProgress() {
     }
 }
 
-function showAlert(message, type = 'info') {
-    // Create alert element
-    const alert = document.createElement('div');
-    alert.className = `alert alert-${type}`;
-    alert.innerHTML = `
-        <div style="padding: 1rem; margin: 1rem 0; border-radius: 6px; 
-                    background: ${type === 'error' ? '#fee' : type === 'success' ? '#efe' : '#eef'};
-                    border: 1px solid ${type === 'error' ? '#fcc' : type === 'success' ? '#cfc' : '#ccf'};
-                    color: ${type === 'error' ? '#c00' : type === 'success' ? '#060' : '#006'};">
-            ${message}
-        </div>
-    `;
-    
-    // Add to page
-    const container = document.getElementById('alertContainer') || document.body;
-    container.appendChild(alert);
-    
-    // Auto-remove after 5 seconds
-    setTimeout(() => {
-        if (alert.parentNode) {
-            alert.parentNode.removeChild(alert);
-        }
-    }, 5000);
+function showAlert(message, type = 'info', duration = 5000) {
+    // Use the global ScannerBase.showAlert for consistent styling
+    if (typeof ScannerBase !== 'undefined' && ScannerBase.showAlert) {
+        ScannerBase.showAlert(message, type, duration);
+    } else {
+        // Fallback for when ScannerBase is not available
+        console.warn('ScannerBase not available, using fallback alert');
+        alert(message);
+    }
 }
 
 // Homing confirmation functions
