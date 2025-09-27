@@ -2002,49 +2002,64 @@ class ScanOrchestrator:
             scan_parameters=scan_parameters
         )
         
-        # 💾 CREATE STORAGE SESSION with complete metadata
+        # 💾 CREATE STORAGE SESSION with complete metadata (only if no session exists)
+        session_id = None
         try:
             # Generate all scan points for complete metadata
             scan_points = pattern.generate_points()
             
-            # Create comprehensive session metadata using SessionManager expected fields
-            session_metadata = {
-                'name': scan_parameters.get('scan_name', scan_id),  # SessionManager expects 'name' field
-                'description': f"{pattern.pattern_type.value} scan with {len(scan_points)} positions",
-                'operator': scan_parameters.get('operator', 'Scanner_System'),
-                'scan_parameters': {
-                    'scan_id': scan_id,
-                    'pattern_type': pattern.pattern_type.value,
-                    'pattern_id': pattern.pattern_id,
-                    'total_points': len(scan_points),
-                    'created_at': datetime.now().isoformat(),
-                    'pattern_parameters': self._extract_relevant_pattern_parameters(pattern.parameters.__dict__),
-                    'web_parameters': scan_parameters,
-                    'output_directory': str(output_directory),
-                    # Add complete scan positions array
-                    'scan_positions': [{
-                        'point_index': i,
-                        'position': {
-                            'x': point.position.x,
-                            'y': point.position.y,
-                            'z': point.position.z,
-                            'c': point.position.c
-                        },
-                        'capture_count': point.capture_count,
-                        'dwell_time': point.dwell_time
-                    } for i, point in enumerate(scan_points)],
-                    'hardware_config': {
-                        'motion_settings': self.motion_controller.get_current_settings() if hasattr(self.motion_controller, 'get_current_settings') else {},
-                        'camera_settings': self.camera_manager.get_current_settings() if hasattr(self.camera_manager, 'get_current_settings') else {}
+            # Check if scan_id corresponds to an existing session directory (from web interface)
+            existing_session_dir = None
+            if hasattr(self.storage_manager, 'base_storage_path'):
+                potential_session_path = self.storage_manager.base_storage_path / 'sessions' / scan_id
+                if potential_session_path.exists():
+                    existing_session_dir = potential_session_path
+                    session_id = scan_id
+                    self.logger.info(f"📁 Using existing storage session directory: {scan_id}")
+            
+            if not existing_session_dir:
+                # Create new session only if one doesn't exist
+                # Create comprehensive session metadata using SessionManager expected fields
+                session_metadata = {
+                    'name': scan_parameters.get('scan_name', scan_id),  # SessionManager expects 'name' field
+                    'description': f"{pattern.pattern_type.value} scan with {len(scan_points)} positions",
+                    'operator': scan_parameters.get('operator', 'Scanner_System'),
+                    'scan_parameters': {
+                        'scan_id': scan_id,
+                        'pattern_type': pattern.pattern_type.value,
+                        'pattern_id': pattern.pattern_id,
+                        'total_points': len(scan_points),
+                        'created_at': datetime.now().isoformat(),
+                        'pattern_parameters': self._extract_relevant_pattern_parameters(pattern.parameters.__dict__),
+                        'web_parameters': scan_parameters,
+                        'output_directory': str(output_directory),
+                        # Add complete scan positions array
+                        'scan_positions': [{
+                            'point_index': i,
+                            'position': {
+                                'x': point.position.x,
+                                'y': point.position.y,
+                                'z': point.position.z,
+                                'c': point.position.c
+                            },
+                            'capture_count': point.capture_count,
+                            'dwell_time': point.dwell_time
+                        } for i, point in enumerate(scan_points)],
+                        'hardware_config': {
+                            'motion_settings': self.motion_controller.get_current_settings() if hasattr(self.motion_controller, 'get_current_settings') else {},
+                            'camera_settings': self.camera_manager.get_current_settings() if hasattr(self.camera_manager, 'get_current_settings') else {}
+                        }
                     }
                 }
-            }
-            
-            session_id = await self.storage_manager.create_session(session_metadata)
-            self.logger.info(f"📁 Created comprehensive storage session: {session_id} with {len(scan_points)} positions")
+                
+                session_id = await self.storage_manager.create_session(session_metadata)
+                self.logger.info(f"📁 Created NEW storage session: {session_id} with {len(scan_points)} positions")
+            else:
+                self.logger.info(f"📁 Using EXISTING storage session: {session_id} for scan")
         except Exception as e:
-            self.logger.error(f"❌ Failed to create storage session: {e}")
+            self.logger.error(f"❌ Failed to create/access storage session: {e}")
             # Continue anyway - better to have scan without storage than no scan
+            session_id = scan_id  # Use the provided scan_id as fallback
         
         # 📋 GENERATE SCAN POSITIONS METADATA FILE and store in storage manager
         try:
