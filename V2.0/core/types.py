@@ -56,7 +56,7 @@ class CameraSettings:
     white_balance: Optional[str] = None    # White balance mode
     focus_distance: Optional[float] = None # Focus distance in mm
     capture_format: str = "JPEG"           # Image format
-    resolution: tuple[int, int] = (4624, 3472)  # Image resolution (width, height)
+    resolution: tuple[int, int] = (4608, 2592)  # Image resolution (ArduCam 64MP actual resolution)
     
     def __post_init__(self):
         """Validate camera settings"""

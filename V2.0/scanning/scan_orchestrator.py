@@ -2126,13 +2126,88 @@ class ScanOrchestrator:
         
         return relevant_params
     
+    async def _get_actual_camera_settings(self) -> dict:
+        """Get actual calibrated camera settings instead of template values"""
+        actual_settings = {
+            'exposure_time': '1/30s',  # Sensible default for ArduCam 64MP
+            'iso': 800,               # Sensible default for indoor scanning
+            'capture_format': 'JPEG',
+            'resolution': [4608, 2592],  # Actual ArduCam 64MP resolution
+            'quality': 95,            # High quality for scanning
+            'calibration_source': 'default_values'  # Track source of settings
+        }
+        
+        try:
+            # Try to get calibrated settings from camera controller
+            if (hasattr(self.camera_manager, 'controller') and 
+                hasattr(self.camera_manager.controller, '_calibrated_settings')):
+                
+                calibrated = self.camera_manager.controller._calibrated_settings
+                
+                # Use Camera 0 calibrated settings as reference (both cameras should be similar)
+                if calibrated and (0 in calibrated or 1 in calibrated):
+                    ref_cam = 0 if 0 in calibrated else 1
+                    ref_settings = calibrated[ref_cam]
+                    
+                    if isinstance(ref_settings, dict) and 'exposure_time' in ref_settings:
+                        # Convert microseconds to readable format
+                        exposure_us = ref_settings.get('exposure_time', 32746)
+                        
+                        # Convert common exposure times to readable fractions
+                        if exposure_us == 32746:
+                            actual_settings['exposure_time'] = '1/30s'
+                        elif exposure_us == 16373:
+                            actual_settings['exposure_time'] = '1/60s'
+                        elif exposure_us == 66666:
+                            actual_settings['exposure_time'] = '1/15s'
+                        elif exposure_us == 100000:
+                            actual_settings['exposure_time'] = '1/10s'
+                        else:
+                            # For other values, show as fractional seconds
+                            exposure_s = exposure_us / 1000000.0
+                            # Try to convert to common fractions
+                            if exposure_s > 0.001:  # Greater than 1ms
+                                fraction_denom = int(1.0 / exposure_s)
+                                actual_settings['exposure_time'] = f'1/{fraction_denom}s'
+                            else:
+                                actual_settings['exposure_time'] = f'{exposure_s:.6f}s'
+                        
+                        # Get analogue gain and convert to ISO equivalent
+                        analogue_gain = ref_settings.get('analogue_gain', 8.0)
+                        actual_settings['iso'] = int(analogue_gain * 100)  # Convert gain to ISO
+                        actual_settings['calibration_source'] = 'camera_calibrated'
+                        
+                        # Add focus information if available
+                        if 'focus_value' in ref_settings:
+                            actual_settings['focus_position'] = ref_settings['focus_value']
+                        
+                        self.logger.info(f"📋 Using calibrated camera settings: "
+                                       f"{actual_settings['exposure_time']}, ISO {actual_settings['iso']}")
+                    else:
+                        self.logger.warning("📋 Invalid calibrated settings format, using defaults")
+                else:
+                    self.logger.warning("📋 No calibrated settings available, using sensible defaults")
+                    actual_settings['calibration_source'] = 'no_calibration_available'
+            else:
+                self.logger.info("📋 Camera controller not available, using default settings")
+                actual_settings['calibration_source'] = 'controller_unavailable'
+                
+        except Exception as e:
+            self.logger.warning(f"📋 Failed to get calibrated settings: {e}, using defaults")
+            actual_settings['calibration_source'] = f'error_{type(e).__name__}'
+        
+        return actual_settings
+
     async def _generate_scan_positions_file(self, pattern: ScanPattern, output_directory: Path, scan_id: str) -> dict:
-        """Generate a detailed metadata file with all scan point positions"""
+        """Generate a detailed metadata file with all scan point positions using actual camera settings"""
         try:
             # Generate all scan points
             scan_points = pattern.generate_points()
             
-            # Create positions metadata
+            # Get actual calibrated camera settings
+            actual_camera_settings = await self._get_actual_camera_settings()
+            
+            # Create positions metadata with actual camera settings information
             positions_metadata = {
                 'scan_info': {
                     'scan_id': scan_id,
@@ -2140,7 +2215,12 @@ class ScanOrchestrator:
                     'pattern_id': pattern.pattern_id,
                     'total_points': len(scan_points),
                     'generated_at': datetime.now().isoformat(),
-                    'pattern_parameters': self._extract_relevant_pattern_parameters(pattern.parameters.__dict__)
+                    'pattern_parameters': self._extract_relevant_pattern_parameters(pattern.parameters.__dict__),
+                    'camera_settings_info': {
+                        'settings_source': actual_camera_settings.get('calibration_source', 'unknown'),
+                        'settings_generated_at': datetime.now().isoformat(),
+                        'note': 'Camera settings reflect actual calibrated values from scan execution, not template defaults'
+                    }
                 },
                 'scan_positions': []
             }
@@ -2161,14 +2241,8 @@ class ScanOrchestrator:
                     }
                 }
                 
-                # Add camera settings if available
-                if point.camera_settings:
-                    point_info['camera_settings'] = {
-                        'exposure_time': point.camera_settings.exposure_time,
-                        'iso': point.camera_settings.iso,
-                        'capture_format': point.camera_settings.capture_format,
-                        'resolution': point.camera_settings.resolution
-                    }
+                # Use actual calibrated camera settings instead of template values
+                point_info['camera_settings'] = actual_camera_settings.copy()
                 
                 # Add lighting settings if available
                 if point.lighting_settings:
@@ -2185,7 +2259,15 @@ class ScanOrchestrator:
                 import json
                 json.dump(positions_metadata, f, indent=2, default=str)
             
+            # Validate and log the camera settings used
+            first_point_settings = positions_metadata['scan_positions'][0]['camera_settings']
             self.logger.info(f"📋 Scan positions saved to: {positions_file}")
+            self.logger.info(f"📸 Camera settings in scan positions file: "
+                           f"Exposure: {first_point_settings['exposure_time']}, "
+                           f"ISO: {first_point_settings['iso']}, "
+                           f"Resolution: {first_point_settings['resolution']}, "
+                           f"Source: {first_point_settings['calibration_source']}")
+            
             return positions_metadata
             
         except Exception as e:

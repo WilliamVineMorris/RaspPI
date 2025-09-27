@@ -434,13 +434,13 @@ class CylindricalScanPattern(ScanPattern):
     
     def _get_camera_settings(self, position: Position4D) -> CameraSettings:
         """Get appropriate camera settings for position"""
-        # Adjust settings based on position
-        # Could implement distance-based exposure adjustment here
+        # NOTE: These are template values that will be replaced by actual calibrated settings
+        # in the scan positions file. The scan orchestrator now uses actual calibrated values.
         return CameraSettings(
-            exposure_time=0.1,
-            iso=200,
+            exposure_time=0.1,  # Template - will be replaced with calibrated value
+            iso=200,            # Template - will be replaced with calibrated value
             capture_format="JPEG",
-            resolution=(4624, 3472)
+            resolution=(4608, 2592)  # Correct ArduCam 64MP resolution
         )
     
     def estimate_duration(self) -> float:
