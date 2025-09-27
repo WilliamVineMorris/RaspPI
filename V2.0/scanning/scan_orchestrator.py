@@ -2176,7 +2176,7 @@ class ScanOrchestrator:
                     self.logger.info(f"🎯 Independent focus mode: Performing autofocus on each camera")
                     
                     # Add overall timeout to prevent scan from stalling
-                    focus_timeout = 10.0  # Maximum time for all cameras to autofocus
+                    focus_timeout = 25.0  # Maximum time for all cameras to autofocus (10s per camera + buffer)
                     focus_start_time = asyncio.get_event_loop().time()
                     
                     for camera_id in available_cameras:
@@ -2192,7 +2192,7 @@ class ScanOrchestrator:
                             # Add per-camera timeout
                             focus_value = await asyncio.wait_for(
                                 self.camera_manager.controller.auto_focus_and_get_value(camera_id),
-                                timeout=5.0  # 5 second timeout per camera
+                                timeout=10.0  # 10 second timeout per camera to match controller timeout
                             )
                             
                             if focus_value is not None:

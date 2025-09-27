@@ -804,33 +804,47 @@ class PiCameraController(CameraController):
             final_lens_position = None
             autofocus_success = False
             
-            # Method 1: Try async autofocus_cycle with immediate value capture
+            # Method 1: Try async autofocus_cycle with manual monitoring (avoid blocking wait)
             try:
-                if hasattr(picamera2, 'autofocus_cycle') and hasattr(picamera2, 'wait'):
-                    logger.debug(f"📷 Camera {camera_id} using async autofocus with value capture...")
+                if hasattr(picamera2, 'autofocus_cycle'):
+                    logger.info(f"📷 Camera {camera_id} starting autofocus_cycle(wait=False)...")
                     
+                    # Start autofocus asynchronously
                     job = picamera2.autofocus_cycle(wait=False)
+                    logger.info(f"📷 Camera {camera_id} autofocus job started, monitoring completion...")
                     
-                    def wait_and_get_position():
-                        success = picamera2.wait(job)
-                        if success:
-                            # Immediately capture lens position while it's fresh
+                    # Monitor completion manually instead of using blocking wait
+                    start_time = time.time()
+                    check_interval = 0.1
+                    timeout = 8.0  # 8 second timeout
+                    
+                    while (time.time() - start_time) < timeout:
+                        # Check if autofocus is still running by monitoring AF state
+                        try:
                             metadata = picamera2.capture_metadata()
-                            return success, metadata.get('LensPosition')
-                        return success, None
+                            af_state = metadata.get('AfState', 0)
+                            lens_pos = metadata.get('LensPosition')
+                            
+                            # AfState: 2=PassiveFocused, 4=FocusedLocked, 5=NotFocusedLocked
+                            if af_state in [2, 4, 5]:  # Focus completed
+                                final_lens_position = lens_pos
+                                autofocus_success = True
+                                logger.info(f"✅ Camera {camera_id} autofocus_cycle completed, state: {af_state}, lens: {lens_pos}")
+                                break
+                                
+                            logger.debug(f"📷 Camera {camera_id} AF state: {af_state}, lens: {lens_pos}")
+                            
+                        except Exception as metadata_error:
+                            logger.debug(f"📷 Camera {camera_id} metadata check error: {metadata_error}")
+                            
+                        await asyncio.sleep(check_interval)
                     
-                    result_task = asyncio.create_task(asyncio.to_thread(wait_and_get_position))
-                    success, lens_pos = await asyncio.wait_for(result_task, timeout=10.0)  # Increased to 10s
-                    
-                    if success and lens_pos is not None:
-                        final_lens_position = lens_pos
-                        autofocus_success = True
-                        logger.info(f"✅ Camera {camera_id} async autofocus successful, lens: {lens_pos}")
-                    else:
-                        logger.warning(f"📷 Camera {camera_id} async autofocus returned success={success}, lens_pos={lens_pos}")
+                    if not autofocus_success:
+                        elapsed = time.time() - start_time
+                        logger.warning(f"📷 Camera {camera_id} autofocus_cycle monitoring timed out after {elapsed:.1f}s")
                     
             except Exception as async_error:
-                logger.debug(f"📷 Camera {camera_id} async autofocus failed: {async_error}")
+                logger.warning(f"📷 Camera {camera_id} autofocus_cycle failed: {async_error}")
             
             # Method 2: Manual trigger with state monitoring and value capture
             if not autofocus_success:
