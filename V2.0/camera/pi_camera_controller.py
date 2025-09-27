@@ -503,70 +503,98 @@ class PiCameraController(CameraController):
             return False
     
     async def auto_focus(self, camera_id: str) -> bool:
-        """Trigger auto-focus on camera with robust error handling"""
+        """Trigger auto-focus on camera with enhanced ArduCam support"""
         try:
             cam_id = int(camera_id.replace('camera', ''))
             if cam_id not in self.cameras or not self.cameras[cam_id]:
-                logger.warning(f"Camera {camera_id} not available for autofocus")
+                logger.warning(f"📷 Camera {camera_id} not available for autofocus")
                 return False
             
             picamera2 = self.cameras[cam_id]
             
             # Check if camera supports autofocus
             if not self._supports_autofocus(cam_id):
-                logger.info(f"Camera {camera_id} has fixed focus, skipping autofocus")
+                logger.info(f"📷 Camera {camera_id} has fixed focus or autofocus not supported - using manual focus")
                 return True
             
-            logger.info(f"Starting autofocus for {camera_id}")
+            logger.info(f"📷 Starting autofocus for {camera_id}")
             
-            # Try to set autofocus mode with error handling
+            # ArduCam-specific autofocus approach
             try:
-                picamera2.set_controls({
-                    "AfMode": 2,  # Auto focus continuous
-                    "AfTrigger": 0  # Start autofocus
-                })
-                await asyncio.sleep(0.2)  # Longer delay for controls to take effect
-            except Exception as control_error:
-                logger.warning(f"Failed to set autofocus controls for {camera_id}: {control_error}")
-                # Continue anyway, camera might still work with default settings
-            
-            # Monitor autofocus state with shorter timeout to prevent stalling
-            max_wait_time = 2.0  # Reduced timeout to prevent scan stalling
-            start_time = time.time()
-            last_af_state = None
-            
-            while time.time() - start_time < max_wait_time:
-                try:
-                    metadata = picamera2.capture_metadata()
-                    af_state = metadata.get('AfState', 0)
-                    
-                    # Log state changes for debugging
-                    if af_state != last_af_state:
-                        logger.debug(f"Camera {camera_id} AF state changed: {last_af_state} → {af_state}")
-                        last_af_state = af_state
-                    
-                    # AfState values: 0=Inactive, 1=PassiveScan, 2=PassiveFocused, 3=ActiveScan, 4=FocusedLocked, 5=NotFocusedLocked
-                    if af_state in [2, 4]:  # PassiveFocused or FocusedLocked
-                        logger.info(f"✅ Autofocus completed successfully for {camera_id} (state={af_state})")
-                        return True
-                    elif af_state == 5:  # NotFocusedLocked
-                        logger.warning(f"⚠️ Autofocus failed to lock focus for {camera_id}, continuing anyway")
-                        return True  # Don't fail the scan for focus issues
+                # First try to read current state
+                initial_metadata = picamera2.capture_metadata()
+                initial_af_mode = initial_metadata.get('AfMode', 'unknown')
+                initial_lens_pos = initial_metadata.get('LensPosition', 'unknown')
+                logger.debug(f"📷 Camera {camera_id} initial state: AF={initial_af_mode}, lens={initial_lens_pos}")
+                
+                # Try different autofocus strategies - prioritize single-shot AF for scan point focus
+                autofocus_strategies = [
+                    # Strategy 1: Single-shot autofocus (preferred for scan points)
+                    {"AfMode": 1, "AfTrigger": 0},
+                    # Strategy 2: Continuous AF (fallback)
+                    {"AfMode": 2, "AfTrigger": 0},
+                    # Strategy 3: Manual mode with trigger (for ArduCam)
+                    {"AfMode": 0, "AfTrigger": 0}
+                ]
+                
+                focus_achieved = False
+                
+                for i, strategy in enumerate(autofocus_strategies, 1):
+                    if focus_achieved:
+                        break
                         
-                except Exception as metadata_error:
-                    logger.debug(f"Failed to read metadata from {camera_id}: {metadata_error}")
-                    # Continue trying, might be temporary issue
+                    logger.debug(f"📷 Camera {camera_id} trying autofocus strategy {i}: {strategy}")
                     
-                await asyncio.sleep(0.1)
-            
-            # Timeout reached - don't fail the scan
-            logger.warning(f"⏱️ Autofocus timed out for {camera_id} after {max_wait_time}s, continuing scan")
-            return True  # Return True to not block the scan
+                    try:
+                        # Apply the strategy
+                        picamera2.set_controls(strategy)
+                        await asyncio.sleep(0.3)  # Give time for controls to apply
+                        
+                        # Monitor autofocus progress with short timeout
+                        strategy_timeout = 1.5  # Shorter timeout per strategy
+                        start_time = time.time()
+                        
+                        while time.time() - start_time < strategy_timeout:
+                            try:
+                                metadata = picamera2.capture_metadata()
+                                af_state = metadata.get('AfState', 0)
+                                lens_position = metadata.get('LensPosition', None)
+                                
+                                # AfState: 0=Inactive, 1=PassiveScan, 2=PassiveFocused, 3=ActiveScan, 4=FocusedLocked, 5=NotFocusedLocked
+                                if af_state in [2, 4]:  # Successfully focused
+                                    logger.info(f"✅ Camera {camera_id} autofocus successful with strategy {i} (state={af_state}, lens={lens_position})")
+                                    focus_achieved = True
+                                    break
+                                elif af_state == 5:  # Failed to focus but locked
+                                    logger.warning(f"⚠️ Camera {camera_id} failed to achieve good focus with strategy {i}, trying next")
+                                    break  # Try next strategy
+                                    
+                            except Exception as metadata_error:
+                                logger.debug(f"📷 Camera {camera_id} metadata read failed: {metadata_error}")
+                                
+                            await asyncio.sleep(0.1)
+                            
+                    except Exception as strategy_error:
+                        logger.warning(f"📷 Camera {camera_id} strategy {i} failed: {strategy_error}")
+                        # ArduCam often gives "Could not set AF_TRIGGER" errors, continue to next strategy
+                        continue
+                
+                if focus_achieved:
+                    logger.info(f"✅ Camera {camera_id} autofocus completed successfully")
+                else:
+                    logger.warning(f"⚠️ Camera {camera_id} autofocus could not achieve optimal focus, using current setting")
+                    
+                return True  # Always return True to not block scanning
+                
+            except Exception as focus_error:
+                logger.warning(f"📷 Camera {camera_id} autofocus process failed: {focus_error}")
+                logger.info(f"📷 Camera {camera_id} continuing with current focus setting")
+                return True  # Don't block scan for autofocus issues
             
         except Exception as e:
             logger.error(f"❌ Auto-focus error for {camera_id}: {e}")
             logger.info(f"🔄 Continuing scan without autofocus for {camera_id}")
-            return True  # Don't fail the scan for autofocus issues
+            return True  # Never fail the scan for autofocus issues
 
     async def auto_exposure(self, camera_id: str) -> bool:
         """Trigger auto-exposure on camera"""
@@ -584,17 +612,53 @@ class PiCameraController(CameraController):
             return False
 
     def _supports_autofocus(self, cam_id: int) -> bool:
-        """Check if camera supports autofocus"""
+        """Check if camera supports autofocus with enhanced detection for ArduCam"""
         try:
             if cam_id not in self.cameras or not self.cameras[cam_id]:
+                logger.debug(f"Camera {cam_id} not available for autofocus check")
                 return False
             
             picamera2 = self.cameras[cam_id]
-            # Check if the camera has autofocus capabilities by checking available controls
-            controls = picamera2.camera_controls
-            return 'AfMode' in controls and 'LensPosition' in controls
+            
+            # First check if camera has the necessary controls
+            try:
+                controls = picamera2.camera_controls
+                has_af_controls = 'AfMode' in controls and 'LensPosition' in controls
+                
+                if not has_af_controls:
+                    logger.info(f"📷 Camera {cam_id}: No autofocus controls (AfMode/LensPosition missing)")
+                    return False
+                
+                # ArduCam 64MP often has controls but AF doesn't work properly
+                # Try a quick test to see if we can actually use autofocus
+                try:
+                    # Check current AF mode and lens position
+                    metadata = picamera2.capture_metadata()
+                    current_af_mode = metadata.get('AfMode', 'unknown')
+                    lens_position = metadata.get('LensPosition')
+                    
+                    logger.debug(f"📷 Camera {cam_id}: AF mode={current_af_mode}, lens_pos={lens_position}")
+                    
+                    # ArduCam 64MP typically has fixed focus (no motorized lens)
+                    if lens_position is None:
+                        logger.info(f"📷 Camera {cam_id}: Has AF controls but no lens position feedback (likely fixed focus)")
+                        return False
+                    
+                    # If lens position is available, assume AF is supported
+                    logger.info(f"📷 Camera {cam_id}: Autofocus supported (lens position: {lens_position})")
+                    return True
+                    
+                except Exception as test_error:
+                    logger.info(f"📷 Camera {cam_id}: AF controls present but functionality test failed: {test_error}")
+                    # Don't fail completely - some cameras might still work
+                    return False
+                    
+            except Exception as controls_error:
+                logger.warning(f"📷 Camera {cam_id}: Could not check camera controls: {controls_error}")
+                return False
+                
         except Exception as e:
-            logger.debug(f"Could not determine autofocus support for camera {cam_id}: {e}")
+            logger.warning(f"📷 Camera {cam_id}: Autofocus support check failed: {e}")
             return False
 
     async def get_focus_value(self, camera_id: str) -> Optional[float]:
@@ -821,7 +885,7 @@ class PiCameraController(CameraController):
         
         return dynamic_metadata
     
-    def create_complete_camera_metadata(self, camera_id: int, picamera2_metadata: Dict[str, Any] = None) -> Dict[str, Any]:
+    def create_complete_camera_metadata(self, camera_id: int, picamera2_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Create complete camera metadata combining calibrated specs and dynamic settings"""
         try:
             # Get calibrated hardware specifications
@@ -1063,28 +1127,79 @@ class PiCameraController(CameraController):
     
     # Internal methods
     async def _initialize_camera(self, camera_id: int):
-        """Initialize specific camera"""
+        """Initialize specific camera with ArduCam optimization"""
         try:
             if not PICAMERA2_AVAILABLE or Picamera2 is None:
                 raise CameraConfigurationError("picamera2 not available")
                 
+            logger.info(f"📷 Initializing camera {camera_id}")
             camera = Picamera2(camera_id)
             
-            # Configure camera for basic operation
-            config = camera.create_still_configuration()
+            # Get camera properties for ArduCam detection
+            props = camera.camera_properties
+            camera_model = props.get('Model', 'Unknown')
+            pixel_array_size = props.get('PixelArraySize', (0, 0))
+            
+            logger.info(f"📷 Camera {camera_id}: {camera_model}, sensor size: {pixel_array_size}")
+            
+            # Create high-quality configuration optimized for ArduCam 64MP
+            if 'imx519' in camera_model.lower() or pixel_array_size[0] >= 9000:
+                logger.info(f"📷 Camera {camera_id}: Detected ArduCam 64MP (IMX519), applying optimized config")
+                # ArduCam 64MP specific configuration
+                config = camera.create_still_configuration(
+                    main={"size": (4096, 3072)},  # High resolution but not full sensor to avoid slowness
+                    raw=None  # Disable raw for performance
+                )
+            else:
+                logger.info(f"📷 Camera {camera_id}: Standard Pi camera configuration")
+                # Standard Pi camera configuration  
+                config = camera.create_still_configuration(
+                    main={"size": (2592, 1944)},  # Standard Pi camera resolution
+                    raw=None
+                )
+            
+            # Apply configuration
             camera.configure(config)
+            
+            # Set high quality capture controls for both camera types
+            try:
+                camera.set_controls({
+                    # Image quality controls
+                    "AwbEnable": True,        # Auto white balance
+                    "AeEnable": True,         # Auto exposure
+                    "NoiseReductionMode": 2,  # High quality noise reduction
+                    "Sharpness": 1.2,         # Slight sharpening
+                    
+                    # Exposure controls for best quality
+                    "ExposureTime": 33000,    # 1/30s max exposure (33ms)
+                    "AnalogueGain": 1.0,      # Start with minimal gain
+                    
+                    # Focus controls (if supported)
+                    "AfMode": 0,              # Start in manual mode to avoid AF issues
+                })
+                logger.info(f"📷 Camera {camera_id}: High quality controls applied")
+            except Exception as control_error:
+                logger.warning(f"📷 Camera {camera_id}: Some controls not supported: {control_error}")
+                # Continue anyway, basic functionality should work
             
             # Store camera instance
             self.cameras[camera_id] = camera
             
             # Update camera info with actual capabilities
-            props = camera.camera_properties
-            self.camera_info[camera_id].native_resolution = props.get('PixelArraySize', (0, 0))
+            self.camera_info[camera_id].native_resolution = pixel_array_size
+            self.camera_info[camera_id].camera_type = camera_model
             
-            logger.info(f"Camera {camera_id} initialized successfully")
+            # Test camera functionality
+            try:
+                test_metadata = camera.capture_metadata()
+                logger.debug(f"📷 Camera {camera_id}: Test capture successful, controls working")
+            except Exception as test_error:
+                logger.warning(f"📷 Camera {camera_id}: Test capture failed: {test_error}")
+            
+            logger.info(f"✅ Camera {camera_id} initialized successfully ({camera_model})")
             
         except Exception as e:
-            logger.error(f"Failed to initialize camera {camera_id}: {e}")
+            logger.error(f"❌ Failed to initialize camera {camera_id}: {e}")
             raise CameraConfigurationError(f"Camera {camera_id} initialization failed: {e}")
     
     async def _close_camera(self, camera_id: int):
