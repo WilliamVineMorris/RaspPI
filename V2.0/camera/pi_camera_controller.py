@@ -541,60 +541,90 @@ class PiCameraController(CameraController):
                 # Use official autofocus_cycle() helper function (recommended approach)
                 logger.info(f"📷 Camera {camera_id} starting autofocus cycle...")
                 
-                # Run autofocus cycle asynchronously with timeout
+                # Try autofocus_cycle first, with fallback to manual implementation
+                success = False
                 try:
-                    # Create async wrapper for autofocus_cycle since it's synchronous
-                    def run_autofocus():
-                        logger.debug(f"📷 Camera {camera_id} executing autofocus_cycle() in thread...")
-                        start_time = time.time()
-                        result = picamera2.autofocus_cycle()
-                        duration = time.time() - start_time
-                        logger.debug(f"📷 Camera {camera_id} autofocus_cycle() completed in {duration:.2f}s, result: {result}")
-                        return result
-                    
-                    # Run with extended timeout for ArduCam cameras (they need more time)
-                    focus_task = asyncio.create_task(
-                        asyncio.to_thread(run_autofocus)
-                    )
-                    
-                    # ArduCam 64MP cameras need longer timeout
-                    timeout_duration = 5.0  # Increased from 2s to 5s
-                    
-                    logger.debug(f"📷 Camera {camera_id} waiting up to {timeout_duration}s for autofocus completion...")
-                    success = await asyncio.wait_for(focus_task, timeout=timeout_duration)
-                    
-                    if success:
-                        logger.info(f"✅ Camera {camera_id} autofocus cycle completed successfully")
+                    # Check if autofocus_cycle method exists and works
+                    if hasattr(picamera2, 'autofocus_cycle'):
+                        logger.debug(f"📷 Camera {camera_id} attempting autofocus_cycle() method...")
+                        
+                        # Create async wrapper for autofocus_cycle since it's synchronous
+                        def run_autofocus():
+                            logger.debug(f"📷 Camera {camera_id} executing autofocus_cycle() in thread...")
+                            start_time = time.time()
+                            result = picamera2.autofocus_cycle()
+                            duration = time.time() - start_time
+                            logger.debug(f"📷 Camera {camera_id} autofocus_cycle() completed in {duration:.2f}s, result: {result}")
+                            return result
+                        
+                        # Run with timeout
+                        focus_task = asyncio.create_task(asyncio.to_thread(run_autofocus))
+                        result = await asyncio.wait_for(focus_task, timeout=3.0)
+                        
+                        if result:
+                            logger.info(f"✅ Camera {camera_id} autofocus_cycle completed successfully")
+                            success = True
+                        else:
+                            logger.warning(f"⚠️ Camera {camera_id} autofocus_cycle returned False")
+                            
                     else:
-                        logger.warning(f"⚠️ Camera {camera_id} autofocus cycle completed but focus may not be optimal")
-                    
-                    return True  # Always return True to not block scanning
-                    
-                except asyncio.TimeoutError:
-                    logger.warning(f"⏱️ Camera {camera_id} autofocus cycle timed out after {timeout_duration}s, continuing")
-                    # Check if we can get current lens position for diagnostics
-                    try:
-                        metadata = picamera2.capture_metadata()
-                        lens_pos = metadata.get('LensPosition', 'unknown')
-                        af_state = metadata.get('AfState', 'unknown')
-                        logger.info(f"📷 Camera {camera_id} final state: lens_pos={lens_pos}, af_state={af_state}")
-                    except:
-                        pass
-                    return True  # Don't block scan for timeout
-                    
+                        logger.info(f"📷 Camera {camera_id} autofocus_cycle method not available")
+                        
                 except Exception as cycle_error:
                     logger.warning(f"📷 Camera {camera_id} autofocus_cycle failed: {cycle_error}")
+                
+                # Manual autofocus implementation if autofocus_cycle didn't work
+                if not success:
+                    logger.info(f"📷 Camera {camera_id} using manual autofocus implementation...")
                     
-                    # Fallback: Try manual AF trigger if autofocus_cycle doesn't work
-                    logger.debug(f"📷 Camera {camera_id} trying manual AF trigger fallback")
                     try:
-                        picamera2.set_controls({"AfTrigger": 0})  # Trigger autofocus
-                        await asyncio.sleep(1.0)  # Wait for AF to complete
-                        logger.info(f"📷 Camera {camera_id} manual AF trigger completed")
-                    except Exception as trigger_error:
-                        logger.warning(f"📷 Camera {camera_id} manual AF trigger also failed: {trigger_error}")
-                    
-                    return True  # Always continue scanning
+                        # Trigger autofocus manually and monitor state
+                        picamera2.set_controls({"AfTrigger": 0})
+                        logger.debug(f"📷 Camera {camera_id} manual AF trigger sent")
+                        
+                        # Monitor autofocus state for completion
+                        max_wait = 3.0
+                        start_time = time.time()
+                        last_state = None
+                        
+                        while (time.time() - start_time) < max_wait:
+                            try:
+                                metadata = picamera2.capture_metadata()
+                                af_state = metadata.get('AfState', 0)
+                                lens_pos = metadata.get('LensPosition', None)
+                                
+                                if af_state != last_state:
+                                    logger.debug(f"📷 Camera {camera_id} AF state: {af_state}, lens: {lens_pos}")
+                                    last_state = af_state
+                                
+                                # AfState: 0=Inactive, 1=PassiveScan, 2=PassiveFocused, 3=ActiveScan, 4=FocusedLocked, 5=NotFocusedLocked
+                                if af_state in [2, 4]:  # Focused successfully
+                                    logger.info(f"✅ Camera {camera_id} manual autofocus successful (state={af_state}, lens={lens_pos})")
+                                    success = True
+                                    break
+                                elif af_state == 5:  # Focus failed but locked
+                                    logger.warning(f"⚠️ Camera {camera_id} focus locked but may not be optimal (state={af_state})")
+                                    success = True  # Still consider this success
+                                    break
+                                    
+                            except Exception as meta_error:
+                                logger.debug(f"📷 Camera {camera_id} metadata read error: {meta_error}")
+                                
+                            await asyncio.sleep(0.1)
+                        
+                        if not success:
+                            logger.warning(f"⏱️ Camera {camera_id} manual autofocus timed out after {max_wait}s")
+                            
+                    except Exception as manual_error:
+                        logger.warning(f"📷 Camera {camera_id} manual autofocus failed: {manual_error}")
+                
+                # Always return True to continue scanning
+                if success:
+                    logger.info(f"📷 Camera {camera_id} autofocus process completed successfully")
+                else:
+                    logger.warning(f"📷 Camera {camera_id} autofocus process completed with issues, continuing scan")
+                
+                return True
                 
             except Exception as focus_error:
                 logger.warning(f"📷 Camera {camera_id} autofocus process failed: {focus_error}")
