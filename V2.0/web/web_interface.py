@@ -255,8 +255,23 @@ class CommandValidator:
         radius = float(data.get('radius', 25.0))
         
         # Height range (Y-axis) for multiple passes
-        y_range = (float(data.get('y_min', 40.0)), float(data.get('y_max', 120.0)))
-        y_step = float(data.get('y_step', 20.0))
+        if 'y_range' in data:
+            y_range = tuple(data['y_range'])  # Use explicit range from frontend
+        else:
+            y_range = (float(data.get('y_min', 40.0)), float(data.get('y_max', 120.0)))
+        
+        # 🎯 NEW: Use explicit Y positions if provided, otherwise calculate from y_step
+        if 'y_positions' in data and data['y_positions']:
+            y_positions = [float(y) for y in data['y_positions']]
+            # Calculate y_step as average spacing for compatibility
+            if len(y_positions) > 1:
+                y_step = (y_positions[-1] - y_positions[0]) / (len(y_positions) - 1)
+            else:
+                y_step = 1.0  # Single position, step doesn't matter
+        else:
+            # Fallback to old calculation
+            y_step = float(data.get('y_step', 20.0))
+            y_positions = None
         
         # Z-axis rotation parameters (cylinder rotation)
         if 'z_rotations' in data and data['z_rotations']:
@@ -302,7 +317,8 @@ class CommandValidator:
             'pattern_type': 'cylindrical',
             'radius': radius,
             'y_range': y_range,
-            'y_step': y_step, 
+            'y_step': y_step,
+            'y_positions': y_positions,    # 🎯 NEW: Explicit Y positions
             'z_rotations': z_rotations,    # Z-axis: cylinder rotation angles
             'c_angles': c_angles,          # C-axis: single fixed servo angle
             'rotation_step': data.get('rotation_step', 60.0),  # For reference
@@ -2060,6 +2076,7 @@ class ScannerWebInterface:
                     radius=pattern_data['radius'],
                     y_range=pattern_data['y_range'],
                     y_step=pattern_data['y_step'],
+                    y_positions=pattern_data.get('y_positions'),  # 🎯 NEW: Explicit Y positions
                     z_rotations=z_rotations,  # CYLINDER rotation angles
                     c_angles=c_angles         # SERVO angle (typically fixed)
                 )

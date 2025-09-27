@@ -2797,6 +2797,7 @@ class ScanOrchestrator:
                                  radius: float,
                                  y_range: tuple[float, float],
                                  y_step: float = 20.0,
+                                 y_positions: Optional[List[float]] = None,
                                  z_rotations: Optional[List[float]] = None,
                                  c_angles: Optional[List[float]] = None):
         """
@@ -2806,6 +2807,7 @@ class ScanOrchestrator:
             radius: Fixed camera radius (distance from object center) in mm
             y_range: Vertical camera movement range (start, end) in mm  
             y_step: Vertical step size in mm
+            y_positions: Explicit Y positions in mm (overrides y_range/y_step if provided)
             z_rotations: Turntable rotation angles in degrees (None for default)
             c_angles: Camera pivot angles in degrees (None for default)
         """
@@ -2831,6 +2833,7 @@ class ScanOrchestrator:
             y_end=y_range[1],
             x_step=1.0,          # Not used when x_start = x_end
             y_step=y_step,
+            y_positions=y_positions,  # 🎯 NEW: Explicit Y positions
             z_rotations=z_rotations,  # Z-axis: cylinder rotation angles
             c_angles=c_angles,        # C-axis: single servo angle
             safety_margin=0.5

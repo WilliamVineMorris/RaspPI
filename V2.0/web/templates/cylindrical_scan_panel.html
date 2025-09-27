@@ -176,9 +176,30 @@ function previewCylindricalScan() {
 function getCylindricalScanConfig() {
     const yMin = parseFloat(document.getElementById('y-min').value) || 40;
     const yMax = parseFloat(document.getElementById('y-max').value) || 120;
-    const yStep = parseFloat(document.getElementById('y-step').value) || 20;
+    const heightSteps = parseInt(document.getElementById('y-step').value) || 0;  // Now this is number of steps, not step size
     const rotationStep = parseFloat(document.getElementById('rotation-step').value) || 60;
     const radius = parseFloat(document.getElementById('radius').value) || 30;
+    
+    // 🎯 NEW HEIGHT STEP CALCULATION:
+    // 0 steps = 1 ring at min height
+    // 1 step = 2 rings at min and max height  
+    // 2+ steps = calculate intermediate heights
+    let yPositions = [];
+    if (heightSteps === 0) {
+        // Only one ring at minimum height
+        yPositions = [yMin];
+    } else if (heightSteps === 1) {
+        // Two rings: min and max height
+        yPositions = [yMin, yMax];
+    } else {
+        // Multiple rings: min, intermediate heights, max
+        yPositions = [yMin];
+        for (let i = 1; i < heightSteps; i++) {
+            const intermediate = yMin + (yMax - yMin) * (i / heightSteps);
+            yPositions.push(intermediate);
+        }
+        yPositions.push(yMax);
+    }
     
     // Use single camera angle for cylindrical scanning (C-axis fixed)
     const angleText = document.getElementById('camera-angles').value;
@@ -186,20 +207,26 @@ function getCylindricalScanConfig() {
     const servoAngle = parsedAngles.length > 0 ? parsedAngles[0] : 0.0;  // Use first angle only
     
     // Calculate statistics (Z-axis rotations × Y-axis heights, C-axis fixed)
-    const heightLevels = Math.floor((yMax - yMin) / yStep) + 1;
+    const heightLevels = yPositions.length;
     const rotationPositions = Math.floor(360 / rotationStep);
     const totalPoints = heightLevels * rotationPositions;  // No C-axis multiplication!
     const estimatedTime = Math.ceil(totalPoints * 2 / 60);
     
+    // Calculate Z rotations from rotation step
+    const zRotations = [];
+    for (let angle = 0; angle < 360; angle += rotationStep) {
+        zRotations.push(angle);
+    }
+    
     return {
         pattern_type: 'cylindrical',
         radius: radius,
-        y_min: yMin,
-        y_max: yMax,
-        y_step: yStep,
-        rotation_step: rotationStep,
-        servo_angle: servoAngle,        // Single fixed servo angle
-        c_angles: [servoAngle],         // Array with single angle for backend
+        y_range: [yMin, yMax],           // Send as range for backend
+        y_positions: yPositions,         // NEW: Explicit Y positions
+        height_steps: heightSteps,       // NEW: Number of steps for reference
+        z_rotations: zRotations,         // Explicit Z rotation angles
+        servo_angle: servoAngle,         // Single fixed servo angle
+        c_angles: [servoAngle],          // Array with single angle for backend
         estimated_points: totalPoints,
         estimated_time: estimatedTime
     };

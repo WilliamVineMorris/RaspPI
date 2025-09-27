@@ -285,6 +285,9 @@ class CylindricalPatternParameters(PatternParameters):
     y_end: float = 100.0    # End height (mm)
     y_step: float = 15.0    # Step size (mm)
     
+    # 🎯 NEW: Explicit Y positions support (overrides y_start/y_end/y_step if provided)
+    y_positions: Optional[List[float]] = None  # Explicit Y positions (mm)
+    
     # Turntable rotation (Z-axis)
     z_rotations: Optional[List[float]] = None  # Rotation angles (degrees)
     z_step: float = 45.0    # Default rotation step (degrees)
@@ -413,6 +416,14 @@ class CylindricalScanPattern(ScanPattern):
         """Generate Y positions (vertical heights)"""
         params = self.cylinder_params
         
+        # 🎯 Use explicit Y positions if provided, otherwise calculate from y_start/y_end/y_step
+        if params.y_positions is not None and len(params.y_positions) > 0:
+            # Sort positions to ensure proper order
+            positions = sorted(params.y_positions)
+            self.logger.info(f"Using explicit Y positions: {positions}")
+            return positions
+        
+        # Fallback to traditional calculation
         positions = []
         y = params.y_start
         while y <= params.y_end:
