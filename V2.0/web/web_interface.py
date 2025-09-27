@@ -2528,24 +2528,18 @@ class ScannerWebInterface:
             if not self.orchestrator or not hasattr(self.orchestrator, 'current_scan') or not self.orchestrator.current_scan:
                 raise ScannerSystemError("No active scan to stop")
             
-            # Stop the scan using background thread with separate event loop
-            def stop_scan_background():
-                try:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(self.orchestrator.stop_scan())
-                    loop.close()
-                except Exception as e:
-                    self.logger.error(f"Background scan stop failed: {e}")
+            # Use simple flag-based stopping to avoid asyncio loop conflicts
+            # The scan orchestrator will check this flag and clean up properly
+            self.orchestrator._stop_requested = True
             
-            thread = threading.Thread(target=stop_scan_background)
-            thread.daemon = True
-            thread.start()
+            # Mark the scan as cancelled directly
+            if self.orchestrator.current_scan:
+                self.orchestrator.current_scan.cancel()
             
             self.logger.info("Scan stop command executed")
             
             return {
-                'action': 'scan_stopped',
+                'action': 'scan_stopped', 
                 'timestamp': datetime.now().isoformat(),
                 'success': True
             }

@@ -3447,12 +3447,18 @@ class ScanOrchestrator:
         self.current_scan.cancel()
         self.logger.info("Scan stop requested and marked as cancelled")
         
-        # If there's a scan task running, wait briefly for it to finish
+        # If there's a scan task running, try to cancel it safely
         if self.scan_task and not self.scan_task.done():
             try:
-                await asyncio.wait_for(self.scan_task, timeout=2.0)
-            except asyncio.TimeoutError:
-                self.logger.warning("Scan task did not finish within timeout, forcing cleanup")
+                # Try to cancel the task instead of waiting for it
+                self.scan_task.cancel()
+                self.logger.info("Scan task cancelled")
+                
+                # Give a brief moment for cancellation to propagate
+                await asyncio.sleep(0.1)
+                
+            except Exception as e:
+                self.logger.warning(f"Could not cancel scan task: {e}, forcing cleanup")
         
         # Ensure state is cleared
         self.current_scan = None
