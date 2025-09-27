@@ -1989,8 +1989,16 @@ class ScanOrchestrator:
         Returns:
             ScanState object for tracking progress
         """
-        if self.current_scan and self.current_scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED]:
-            raise ScannerSystemError("Cannot start scan: another scan is active")
+        # Check for active scans and clean up completed ones
+        if self.current_scan:
+            if self.current_scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED, ScanStatus.INITIALIZING]:
+                raise ScannerSystemError("Cannot start scan: another scan is active")
+            else:
+                # Clear completed/failed/cancelled scans
+                self.logger.info(f"Clearing previous scan state: {self.current_scan.status}")
+                self.current_scan = None
+                self.current_pattern = None
+                self.scan_task = None
         
         # Generate scan ID if not provided
         if scan_id is None:
@@ -3329,8 +3337,13 @@ class ScanOrchestrator:
             self.logger.error(f"Cleanup failed: {e}")
         
         finally:
+            # Clear all scan state to allow new scans
             self.current_pattern = None
-            # Keep current_scan for status queries
+            self.current_scan = None
+            self.scan_task = None
+            self._stop_requested = False
+            self._emergency_stop = False
+            self.logger.info("Scan state fully cleared - ready for new scan")
     
     async def _generate_scan_report(self):
         """Generate final scan report"""
@@ -3415,11 +3428,39 @@ class ScanOrchestrator:
     
     async def stop_scan(self) -> bool:
         """Request scan stop"""
-        if not self.current_scan or self.current_scan.status not in [ScanStatus.RUNNING, ScanStatus.PAUSED]:
+        if not self.current_scan:
+            self.logger.info("No active scan to stop")
             return False
         
+        # Check if scan is in a state that can be stopped
+        if self.current_scan.status not in [ScanStatus.RUNNING, ScanStatus.PAUSED, ScanStatus.INITIALIZING]:
+            self.logger.info(f"Scan cannot be stopped from status: {self.current_scan.status}")
+            # If scan is in a final state but current_scan is still set, clear it
+            if self.current_scan.status in [ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED]:
+                self.current_scan = None
+                self.current_pattern = None
+                self._stop_requested = False
+            return False
+        
+        # Request stop and mark scan as cancelled
         self._stop_requested = True
-        self.logger.info("Scan stop requested")
+        self.current_scan.cancel()
+        self.logger.info("Scan stop requested and marked as cancelled")
+        
+        # If there's a scan task running, wait briefly for it to finish
+        if self.scan_task and not self.scan_task.done():
+            try:
+                await asyncio.wait_for(self.scan_task, timeout=2.0)
+            except asyncio.TimeoutError:
+                self.logger.warning("Scan task did not finish within timeout, forcing cleanup")
+        
+        # Ensure state is cleared
+        self.current_scan = None
+        self.current_pattern = None
+        self.scan_task = None
+        self._stop_requested = False
+        
+        self.logger.info("Scan stopped and state cleared")
         return True
     
     async def emergency_stop(self):
