@@ -1912,7 +1912,11 @@ class ScannerWebInterface:
         """Get scan history"""
         try:
             # This would typically read from a database or file system
-            # For now, return placeholder data
+            # For now, return placeholder data with proper storage path
+            base_path = Path(os.path.expanduser('~/scanner_data'))
+            if hasattr(self.orchestrator, 'storage_manager') and self.orchestrator.storage_manager:
+                base_path = self.orchestrator.storage_manager.base_storage_path
+            
             return [
                 {
                     'id': 'scan_001',
@@ -1921,7 +1925,7 @@ class ScannerWebInterface:
                     'points': 51,
                     'status': 'Complete',
                     'duration': '23:45',
-                    'output_dir': '/scans/scan_001'
+                    'output_dir': str(base_path / 'sessions' / 'scan_001')
                 }
             ]
         except Exception as e:
@@ -2302,8 +2306,37 @@ class ScannerWebInterface:
             clean_name = "".join(c for c in scan_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
             clean_name = clean_name.replace(' ', '_')
             scan_id = f"{clean_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            output_dir = Path.cwd() / "scans" / scan_id
+            
+            # Use storage manager to create proper scan directory
+            output_dir = None
+            if hasattr(self.orchestrator, 'storage_manager') and self.orchestrator.storage_manager:
+                try:
+                    # Create storage session and get directory path
+                    session = asyncio.run(self.orchestrator.storage_manager.start_session(
+                        scan_name=scan_name,
+                        description=f"{pattern_data['pattern_type'].title()} scan from web interface",
+                        operator="Web Interface User"
+                    ))
+                    # Use storage manager's session directory structure
+                    output_dir = self.orchestrator.storage_manager.base_storage_path / 'sessions' / session.session_id
+                    scan_id = session.session_id  # Use session ID as scan ID
+                    self.logger.info(f"📦 Created storage session with ID: {scan_id}")
+                except Exception as storage_error:
+                    self.logger.error(f"Failed to create storage session: {storage_error}")
+                    # Fallback to configured storage path
+                    base_path = Path(os.path.expanduser('~/scanner_data'))
+                    output_dir = base_path / 'sessions' / scan_id
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    self.logger.warning(f"Using fallback storage path: {output_dir}")
+            else:
+                # Fallback to configured storage path
+                base_path = Path(os.path.expanduser('~/scanner_data'))
+                output_dir = base_path / 'sessions' / scan_id
+                output_dir.mkdir(parents=True, exist_ok=True)
+                self.logger.warning(f"Storage manager not available, using fallback path: {output_dir}")
+            
             self.logger.info(f"🆔 Generated scan_id: '{scan_id}' from scan_name: '{scan_name}'")
+            self.logger.info(f"📂 Scan output directory: {output_dir}")
             
             self.logger.info(f"🎯 Starting scan with motion completion timing:")
             self.logger.info(f"   • Pattern: {pattern_data['pattern_type']} scan")
