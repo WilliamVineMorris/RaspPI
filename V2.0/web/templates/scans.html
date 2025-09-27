@@ -1147,6 +1147,80 @@
         </div>
     </div>
 </div>
+
+<!-- Homing Confirmation Modal -->
+<div id="homingConfirmationModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Homing Confirmation</h3>
+        </div>
+        <div class="modal-body">
+            <p>The system needs to perform homing before starting the scan.</p>
+            <p>This will move all axes to their home positions to ensure accurate positioning.</p>
+            <p><strong>Do you want to proceed with homing?</strong></p>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="hideHomingConfirmationDialog(false)">Skip Homing</button>
+            <button class="btn btn-primary" onclick="hideHomingConfirmationDialog(true)">Yes, Home System</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Styles -->
+<style>
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    max-width: 500px;
+    width: 90%;
+    max-height: 80vh;
+    overflow: auto;
+}
+
+.modal-header {
+    padding: 1.5rem 2rem 1rem;
+    border-bottom: 1px solid #eee;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: #333;
+}
+
+.modal-body {
+    padding: 1.5rem 2rem;
+}
+
+.modal-body p {
+    margin: 0 0 1rem;
+    color: #666;
+    line-height: 1.5;
+}
+
+.modal-footer {
+    padding: 1rem 2rem 1.5rem;
+    border-top: 1px solid #eee;
+    text-align: right;
+}
+
+.modal-footer button {
+    margin-left: 0.5rem;
+}
+</style>
 </div>
 
 <script>
@@ -1537,6 +1611,11 @@ async function monitorScanProgress() {
         const response = await fetch('/api/status');
         const result = await response.json();
         
+        // Check for homing confirmation request
+        if (result.success && result.data.homing_confirmation && result.data.homing_confirmation.requested) {
+            showHomingConfirmationDialog();
+        }
+        
         if (result.success && result.data.scan_active) {
             // Update progress display
             const nameEl = document.getElementById('currentScanName');
@@ -1586,6 +1665,42 @@ function showAlert(message, type = 'info') {
             alert.parentNode.removeChild(alert);
         }
     }, 5000);
+}
+
+// Homing confirmation functions
+function showHomingConfirmationDialog() {
+    const modal = document.getElementById('homingConfirmationModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+function hideHomingConfirmationDialog(confirmed) {
+    const modal = document.getElementById('homingConfirmationModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+    
+    // Send confirmation response to backend
+    confirmHoming(confirmed);
+}
+
+async function confirmHoming(shouldHome) {
+    try {
+        const response = await fetch('/api/homing-confirmation', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ should_home: shouldHome })
+        });
+        
+        if (!response.ok) {
+            console.error('Failed to send homing confirmation');
+        }
+    } catch (error) {
+        console.error('Error sending homing confirmation:', error);
+    }
 }
 
 // Initialize preview on page load
