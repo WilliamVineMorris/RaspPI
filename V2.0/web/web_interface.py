@@ -276,8 +276,13 @@ class CommandValidator:
         # Z-axis rotation parameters (cylinder rotation)
         if 'z_rotations' in data and data['z_rotations']:
             z_rotations = [float(r) for r in data['z_rotations']]
+        elif 'rotation_positions' in data:
+            # Calculate rotations from number of positions
+            rotation_positions = int(data['rotation_positions'])
+            rotation_step = 360.0 / rotation_positions
+            z_rotations = [float(i * rotation_step) for i in range(rotation_positions)]
         else:
-            # Calculate Z-axis rotations from rotation_step
+            # Fallback to rotation_step
             rotation_step = float(data.get('rotation_step', 60.0))
             z_rotations = [float(i) for i in range(0, 360, int(rotation_step))]
         

@@ -28,9 +28,9 @@
                 </div>
             </div>
             <div class="input-group">
-                <label for="y-step">Height Step (mm):</label>
-                <input type="number" id="y-step" min="5" max="50" value="20" step="5">
-                <small id="height-levels">Height levels: 5</small>
+                <label for="height-steps">Number of Height Steps:</label>
+                <input type="number" id="height-steps" min="0" max="20" value="4" step="1">
+                <small id="height-levels">Height levels: 5 (0=1 level, 1=2 levels, etc.)</small>
             </div>
         </div>
         
@@ -38,14 +38,15 @@
         <div class="config-group">
             <h4>🔄 Object Rotation</h4>
             <div class="input-group">
-                <label for="rotation-step">Rotation Step (degrees):</label>
-                <input type="number" id="rotation-step" min="15" max="90" value="60" step="15">
-                <small id="rotation-count">Rotation positions: 6</small>
+                <label for="rotation-positions">Number of Rotation Positions:</label>
+                <input type="number" id="rotation-positions" min="3" max="72" value="6" step="1">
+                <small id="rotation-details">Rotation angle: 60° between positions</small>
             </div>
             <div class="preset-buttons">
-                <button type="button" onclick="setRotationStep(45)">45° (8 pos)</button>
-                <button type="button" onclick="setRotationStep(60)">60° (6 pos)</button>
-                <button type="button" onclick="setRotationStep(90)">90° (4 pos)</button>
+                <button type="button" onclick="setRotationPositions(4)">4 positions (90°)</button>
+                <button type="button" onclick="setRotationPositions(6)">6 positions (60°)</button>
+                <button type="button" onclick="setRotationPositions(8)">8 positions (45°)</button>
+                <button type="button" onclick="setRotationPositions(12)">12 positions (30°)</button>
             </div>
         </div>
         
@@ -99,10 +100,10 @@
 
 let currentCameraAngles = [-10, 0, 10];
 
-function setRotationStep(degrees) {
-    document.getElementById('rotation-step').value = degrees;
-    updateRotationCount();
-    updateScanSummary();
+function setRotationPositions(positions) {
+    document.getElementById('rotation-positions').value = positions;
+    updateRotationDetails();
+    updateCylindricalScanSummary();
 }
 
 function setCameraAngles(angles) {
@@ -111,27 +112,27 @@ function setCameraAngles(angles) {
     updateScanSummary();
 }
 
-function updateRotationCount() {
-    const step = parseFloat(document.getElementById('rotation-step').value) || 60;
-    const count = Math.floor(360 / step);
-    document.getElementById('rotation-count').textContent = `Rotation positions: ${count}`;
+function updateRotationDetails() {
+    const positions = parseInt(document.getElementById('rotation-positions').value) || 6;
+    const angle = 360 / positions;
+    document.getElementById('rotation-details').textContent = `Rotation angle: ${angle.toFixed(1)}° between positions`;
 }
 
 function updateHeightLevels() {
     const yMin = parseFloat(document.getElementById('y-min').value) || 40;
     const yMax = parseFloat(document.getElementById('y-max').value) || 120;
-    const yStep = parseFloat(document.getElementById('y-step').value) || 20;
+    const heightSteps = parseInt(document.getElementById('height-steps').value) || 0;
     
-    const levels = Math.floor((yMax - yMin) / yStep) + 1;
-    document.getElementById('height-levels').textContent = `Height levels: ${levels}`;
+    const levels = heightSteps + 1;  // 0 steps = 1 level, 1 step = 2 levels, etc.
+    document.getElementById('height-levels').textContent = `Height levels: ${levels} (${heightSteps} steps)`;
 }
 
-function updateScanSummary() {
+function updateCylindricalScanSummary() {
     // Get current values
     const yMin = parseFloat(document.getElementById('y-min').value) || 40;
     const yMax = parseFloat(document.getElementById('y-max').value) || 120;
-    const yStep = parseFloat(document.getElementById('y-step').value) || 20;
-    const rotationStep = parseFloat(document.getElementById('rotation-step').value) || 60;
+    const heightSteps = parseInt(document.getElementById('height-steps').value) || 0;
+    const rotationPositions = parseInt(document.getElementById('rotation-positions').value) || 6;
     
     // Parse camera angles (use single angle for cylindrical scanning)
     const angleText = document.getElementById('camera-angles').value;
@@ -139,8 +140,7 @@ function updateScanSummary() {
     const servoAngle = angles.length > 0 ? angles[0] : 0.0;  // Single servo angle
     
     // Calculate totals (Z-axis rotations × Y-axis heights, C-axis fixed)
-    const heightLevels = Math.floor((yMax - yMin) / yStep) + 1;
-    const rotationPositions = Math.floor(360 / rotationStep);
+    const heightLevels = heightSteps + 1;  // 0 steps = 1 level, etc.
     const totalPoints = heightLevels * rotationPositions;  // No C-axis multiplication!
     
     // Estimate time (2 seconds per point)
@@ -176,8 +176,8 @@ function previewCylindricalScan() {
 function getCylindricalScanConfig() {
     const yMin = parseFloat(document.getElementById('y-min').value) || 40;
     const yMax = parseFloat(document.getElementById('y-max').value) || 120;
-    const heightSteps = parseInt(document.getElementById('y-step').value) || 0;  // Now this is number of steps, not step size
-    const rotationStep = parseFloat(document.getElementById('rotation-step').value) || 60;
+    const heightSteps = parseInt(document.getElementById('height-steps').value) || 0;  // Number of height steps
+    const rotationPositions = parseInt(document.getElementById('rotation-positions').value) || 6;
     const radius = parseFloat(document.getElementById('radius').value) || 30;
     
     // 🎯 NEW HEIGHT STEP CALCULATION:
@@ -208,14 +208,14 @@ function getCylindricalScanConfig() {
     
     // Calculate statistics (Z-axis rotations × Y-axis heights, C-axis fixed)
     const heightLevels = yPositions.length;
-    const rotationPositions = Math.floor(360 / rotationStep);
     const totalPoints = heightLevels * rotationPositions;  // No C-axis multiplication!
     const estimatedTime = Math.ceil(totalPoints * 2 / 60);
     
-    // Calculate Z rotations from rotation step
+    // Calculate Z rotations from number of positions
     const zRotations = [];
-    for (let angle = 0; angle < 360; angle += rotationStep) {
-        zRotations.push(angle);
+    const rotationStep = 360 / rotationPositions;
+    for (let i = 0; i < rotationPositions; i++) {
+        zRotations.push(i * rotationStep);
     }
     
     return {
@@ -224,6 +224,7 @@ function getCylindricalScanConfig() {
         y_range: [yMin, yMax],           // Send as range for backend
         y_positions: yPositions,         // NEW: Explicit Y positions
         height_steps: heightSteps,       // NEW: Number of steps for reference
+        rotation_positions: rotationPositions,  // NEW: Number of rotation positions
         z_rotations: zRotations,         // Explicit Z rotation angles
         servo_angle: servoAngle,         // Single fixed servo angle
         c_angles: [servoAngle],          // Array with single angle for backend
@@ -295,21 +296,21 @@ This will capture ${config.estimated_points * 2} photos total (2 cameras).
 // Auto-update calculations when values change
 document.addEventListener('DOMContentLoaded', function() {
     // Add event listeners for auto-update
-    ['y-min', 'y-max', 'y-step', 'rotation-step', 'camera-angles'].forEach(id => {
+    ['y-min', 'y-max', 'height-steps', 'rotation-positions', 'camera-angles'].forEach(id => {
         const element = document.getElementById(id);
         if (element) {
             element.addEventListener('input', function() {
                 updateHeightLevels();
-                updateRotationCount();
-                updateScanSummary();
+                updateRotationDetails();
+                updateCylindricalScanSummary();
             });
         }
     });
     
     // Initial calculations
     updateHeightLevels();
-    updateRotationCount();
-    updateScanSummary();
+    updateRotationDetails();
+    updateCylindricalScanSummary();
 });
 
 </script>
