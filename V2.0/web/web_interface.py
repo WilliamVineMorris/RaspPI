@@ -2118,11 +2118,21 @@ class ScannerWebInterface:
                     asyncio.set_event_loop(loop)
                     
                     async def run_complete_scan():
+                        # Prepare scan parameters with all metadata
+                        scan_params = {
+                            'scan_name': scan_name,
+                            'pattern_data': pattern_data,
+                            'web_request_time': datetime.now().isoformat(),
+                            'scan_type': 'web_interface',
+                            'operator': 'web_user'
+                        }
+                        
                         # Start the scan (this creates the background task)
                         scan_state = await self.orchestrator.start_scan(
                             pattern=pattern,
                             output_directory=output_dir,
-                            scan_id=scan_id
+                            scan_id=scan_id,
+                            scan_parameters=scan_params
                         )
                         
                         # Wait for the scan to complete

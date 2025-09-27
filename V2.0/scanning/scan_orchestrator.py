@@ -1833,24 +1833,79 @@ class ScanOrchestrator:
             scan_parameters=scan_parameters
         )
         
-        # 💾 CREATE STORAGE SESSION for saving images
+        # 💾 CREATE STORAGE SESSION with complete metadata
         try:
+            # Generate all scan points for complete metadata
+            scan_points = pattern.generate_points()
+            
+            # Create comprehensive session metadata using SessionManager expected fields
             session_metadata = {
-                'scan_id': scan_id,
-                'pattern_type': pattern.pattern_type.value,
-                'total_points': len(pattern.generate_points()),
-                'created_at': datetime.now().isoformat(),
-                'parameters': scan_parameters
+                'name': scan_parameters.get('scan_name', scan_id),  # SessionManager expects 'name' field
+                'description': f"{pattern.pattern_type.value} scan with {len(scan_points)} positions",
+                'operator': scan_parameters.get('operator', 'Scanner_System'),
+                'scan_parameters': {
+                    'scan_id': scan_id,
+                    'pattern_type': pattern.pattern_type.value,
+                    'pattern_id': pattern.pattern_id,
+                    'total_points': len(scan_points),
+                    'created_at': datetime.now().isoformat(),
+                    'pattern_parameters': pattern.parameters.__dict__,
+                    'web_parameters': scan_parameters,
+                    'output_directory': str(output_directory),
+                    # Add complete scan positions array
+                    'scan_positions': [{
+                        'point_index': i,
+                        'position': {
+                            'x': point.position.x,
+                            'y': point.position.y,
+                            'z': point.position.z,
+                            'c': point.position.c
+                        },
+                        'capture_count': point.capture_count,
+                        'dwell_time': point.dwell_time
+                    } for i, point in enumerate(scan_points)],
+                    'hardware_config': {
+                        'motion_settings': self.motion_controller.get_current_settings() if hasattr(self.motion_controller, 'get_current_settings') else {},
+                        'camera_settings': self.camera_manager.get_current_settings() if hasattr(self.camera_manager, 'get_current_settings') else {}
+                    }
+                }
             }
+            
             session_id = await self.storage_manager.create_session(session_metadata)
-            self.logger.info(f"📁 Created storage session: {session_id}")
+            self.logger.info(f"📁 Created comprehensive storage session: {session_id} with {len(scan_points)} positions")
         except Exception as e:
             self.logger.error(f"❌ Failed to create storage session: {e}")
             # Continue anyway - better to have scan without storage than no scan
         
-        # 📋 GENERATE SCAN POSITIONS METADATA FILE
+        # 📋 GENERATE SCAN POSITIONS METADATA FILE and store in storage manager
         try:
-            await self._generate_scan_positions_file(pattern, Path(output_directory), scan_id)
+            positions_metadata = await self._generate_scan_positions_file(pattern, Path(output_directory), scan_id)
+            
+            # Also save positions file to session directory if session exists
+            if 'session_id' in locals() and positions_metadata:
+                try:
+                    # Save positions metadata directly to session directory
+                    if hasattr(self.storage_manager, 'base_storage_path'):
+                        session_path = self.storage_manager.base_storage_path / 'sessions' / session_id / 'metadata'
+                    else:
+                        # Fallback for mock storage manager
+                        session_path = Path.cwd() / 'sessions' / session_id / 'metadata'
+                    
+                    if session_path.exists():
+                        positions_file = session_path / f"{scan_id}_scan_positions.json"
+                        
+                        # Save positions file content to session metadata directory
+                        import json
+                        with open(positions_file, 'w') as f:
+                            json.dump(positions_metadata, f, indent=2, default=str)
+                        
+                        self.logger.info(f"📋 Stored positions metadata in session directory: {positions_file}")
+                    else:
+                        self.logger.warning(f"⚠️ Session directory not found: {session_path}")
+                        
+                except Exception as storage_e:
+                    self.logger.warning(f"⚠️ Failed to store positions in session directory: {storage_e}")
+            
             self.logger.info(f"📋 Generated scan positions metadata file")
         except Exception as e:
             self.logger.error(f"❌ Failed to generate scan positions file: {e}")
@@ -1885,7 +1940,7 @@ class ScanOrchestrator:
         
         return self.current_scan
     
-    async def _generate_scan_positions_file(self, pattern: ScanPattern, output_directory: Path, scan_id: str):
+    async def _generate_scan_positions_file(self, pattern: ScanPattern, output_directory: Path, scan_id: str) -> dict:
         """Generate a detailed metadata file with all scan point positions"""
         try:
             # Generate all scan points
@@ -1945,6 +2000,7 @@ class ScanOrchestrator:
                 json.dump(positions_metadata, f, indent=2, default=str)
             
             self.logger.info(f"📋 Scan positions saved to: {positions_file}")
+            return positions_metadata
             
         except Exception as e:
             self.logger.error(f"❌ Failed to generate scan positions file: {e}")
