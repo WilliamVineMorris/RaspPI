@@ -503,54 +503,70 @@ class PiCameraController(CameraController):
             return False
     
     async def auto_focus(self, camera_id: str) -> bool:
-        """Trigger auto-focus on camera"""
+        """Trigger auto-focus on camera with robust error handling"""
         try:
             cam_id = int(camera_id.replace('camera', ''))
             if cam_id not in self.cameras or not self.cameras[cam_id]:
+                logger.warning(f"Camera {camera_id} not available for autofocus")
                 return False
             
             picamera2 = self.cameras[cam_id]
             
             # Check if camera supports autofocus
             if not self._supports_autofocus(cam_id):
-                logger.debug(f"Camera {camera_id} has fixed focus, skipping autofocus")
+                logger.info(f"Camera {camera_id} has fixed focus, skipping autofocus")
                 return True
             
             logger.info(f"Starting autofocus for {camera_id}")
             
-            # Set autofocus mode and trigger
-            picamera2.set_controls({
-                "AfMode": 2,  # Auto focus continuous
-                "AfTrigger": 0  # Start autofocus
-            })
+            # Try to set autofocus mode with error handling
+            try:
+                picamera2.set_controls({
+                    "AfMode": 2,  # Auto focus continuous
+                    "AfTrigger": 0  # Start autofocus
+                })
+                await asyncio.sleep(0.2)  # Longer delay for controls to take effect
+            except Exception as control_error:
+                logger.warning(f"Failed to set autofocus controls for {camera_id}: {control_error}")
+                # Continue anyway, camera might still work with default settings
             
-            # Wait for autofocus to complete
-            await asyncio.sleep(0.1)  # Brief delay for controls to take effect
-            
-            # Monitor autofocus state
-            max_wait_time = 3.0  # Maximum wait time in seconds
+            # Monitor autofocus state with shorter timeout to prevent stalling
+            max_wait_time = 2.0  # Reduced timeout to prevent scan stalling
             start_time = time.time()
+            last_af_state = None
             
             while time.time() - start_time < max_wait_time:
-                metadata = picamera2.capture_metadata()
-                af_state = metadata.get('AfState', 0)
-                
-                # AfState values: 0=Inactive, 1=PassiveScan, 2=PassiveFocused, 3=ActiveScan, 4=FocusedLocked, 5=NotFocusedLocked
-                if af_state in [2, 4]:  # PassiveFocused or FocusedLocked
-                    logger.info(f"Autofocus completed successfully for {camera_id} (state={af_state})")
-                    return True
-                elif af_state == 5:  # NotFocusedLocked
-                    logger.warning(f"Autofocus failed to lock focus for {camera_id}")
-                    return False
+                try:
+                    metadata = picamera2.capture_metadata()
+                    af_state = metadata.get('AfState', 0)
+                    
+                    # Log state changes for debugging
+                    if af_state != last_af_state:
+                        logger.debug(f"Camera {camera_id} AF state changed: {last_af_state} → {af_state}")
+                        last_af_state = af_state
+                    
+                    # AfState values: 0=Inactive, 1=PassiveScan, 2=PassiveFocused, 3=ActiveScan, 4=FocusedLocked, 5=NotFocusedLocked
+                    if af_state in [2, 4]:  # PassiveFocused or FocusedLocked
+                        logger.info(f"✅ Autofocus completed successfully for {camera_id} (state={af_state})")
+                        return True
+                    elif af_state == 5:  # NotFocusedLocked
+                        logger.warning(f"⚠️ Autofocus failed to lock focus for {camera_id}, continuing anyway")
+                        return True  # Don't fail the scan for focus issues
+                        
+                except Exception as metadata_error:
+                    logger.debug(f"Failed to read metadata from {camera_id}: {metadata_error}")
+                    # Continue trying, might be temporary issue
                     
                 await asyncio.sleep(0.1)
             
-            logger.warning(f"Autofocus timed out for {camera_id}")
-            return False
+            # Timeout reached - don't fail the scan
+            logger.warning(f"⏱️ Autofocus timed out for {camera_id} after {max_wait_time}s, continuing scan")
+            return True  # Return True to not block the scan
             
         except Exception as e:
-            logger.error(f"Auto-focus failed for {camera_id}: {e}")
-            return False
+            logger.error(f"❌ Auto-focus error for {camera_id}: {e}")
+            logger.info(f"🔄 Continuing scan without autofocus for {camera_id}")
+            return True  # Don't fail the scan for autofocus issues
 
     async def auto_exposure(self, camera_id: str) -> bool:
         """Trigger auto-exposure on camera"""

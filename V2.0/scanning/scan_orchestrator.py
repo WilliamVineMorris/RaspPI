@@ -2175,19 +2175,53 @@ class ScanOrchestrator:
                     # Independent focus mode: each camera gets its own autofocus
                     self.logger.info(f"🎯 Independent focus mode: Performing autofocus on each camera")
                     
-                    for camera_id in available_cameras:
-                        self.logger.info(f"Performing autofocus on {camera_id}...")
-                        focus_value = await self.camera_manager.controller.auto_focus_and_get_value(camera_id)
-                        
-                        if focus_value is not None:
-                            self._scan_focus_values[camera_id] = focus_value
-                            self.logger.info(f"✅ Autofocus completed for {camera_id}: {focus_value:.3f}")
-                        else:
-                            self.logger.warning(f"❌ Autofocus failed for {camera_id}")
+                    # Add overall timeout to prevent scan from stalling
+                    focus_timeout = 10.0  # Maximum time for all cameras to autofocus
+                    focus_start_time = asyncio.get_event_loop().time()
                     
-                    # Log summary of independent focus values
-                    focus_summary = ", ".join([f"{cam}: {val:.3f}" for cam, val in self._scan_focus_values.items()])
-                    self.logger.info(f"📊 Independent focus values: {focus_summary}")
+                    for camera_id in available_cameras:
+                        # Check if we're running out of time
+                        elapsed_time = asyncio.get_event_loop().time() - focus_start_time
+                        if elapsed_time > focus_timeout:
+                            self.logger.warning(f"⏱️ Focus setup timeout reached, skipping remaining cameras")
+                            break
+                            
+                        self.logger.info(f"Performing autofocus on {camera_id}...")
+                        
+                        try:
+                            # Add per-camera timeout
+                            focus_value = await asyncio.wait_for(
+                                self.camera_manager.controller.auto_focus_and_get_value(camera_id),
+                                timeout=5.0  # 5 second timeout per camera
+                            )
+                            
+                            if focus_value is not None:
+                                self._scan_focus_values[camera_id] = focus_value
+                                self.logger.info(f"✅ Autofocus completed for {camera_id}: {focus_value:.3f}")
+                            else:
+                                self.logger.warning(f"⚠️ Autofocus returned no value for {camera_id}, using default")
+                                # Set a reasonable default focus value (middle range)
+                                self._scan_focus_values[camera_id] = 0.5
+                                
+                        except asyncio.TimeoutError:
+                            self.logger.warning(f"⏱️ Autofocus timeout for {camera_id}, using default focus")
+                            self._scan_focus_values[camera_id] = 0.5  # Default focus
+                        except Exception as e:
+                            self.logger.warning(f"❌ Autofocus error for {camera_id}: {e}, using default focus")
+                            self._scan_focus_values[camera_id] = 0.5  # Default focus
+                    
+                    # Ensure we have focus values for all cameras
+                    for camera_id in available_cameras:
+                        if camera_id not in self._scan_focus_values:
+                            self.logger.info(f"🔧 Setting default focus for {camera_id}")
+                            self._scan_focus_values[camera_id] = 0.5
+                    
+                    # Log summary of focus values
+                    if self._scan_focus_values:
+                        focus_summary = ", ".join([f"{cam}: {val:.3f}" for cam, val in self._scan_focus_values.items()])
+                        self.logger.info(f"📊 Focus values set: {focus_summary}")
+                    else:
+                        self.logger.warning("⚠️ No focus values were set, scan will use camera defaults")
             
             # Log final focus setup summary
             if self._focus_sync_enabled and self._primary_focus_value is not None:
@@ -2198,7 +2232,10 @@ class ScanOrchestrator:
             
         except Exception as e:
             self.logger.error(f"Focus setup failed: {e}")
-            self.logger.info("Continuing scan without manual focus control...")
+            self.logger.info("🔄 Continuing scan with camera default focus settings...")
+            # Ensure we don't leave the focus system in a broken state
+            self._scan_focus_values = {}
+            self._primary_focus_value = None
     
     async def _execute_scan_points(self):
         """Execute all scan points"""
