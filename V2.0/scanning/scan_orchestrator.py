@@ -2554,7 +2554,13 @@ class ScanOrchestrator:
         
         # Check if homing was pre-confirmed via scan parameters
         should_home = True  # Default to homing for safety
+        
+        # DEBUG: Log what we have access to
+        self.logger.info(f"🔍 DEBUG: current_scan type: {type(self.current_scan)}")
+        self.logger.info(f"🔍 DEBUG: hasattr scan_parameters: {hasattr(self.current_scan, 'scan_parameters') if self.current_scan else 'No current_scan'}")
+        
         if hasattr(self.current_scan, 'scan_parameters') and self.current_scan.scan_parameters:
+            self.logger.info(f"🔍 DEBUG: scan_parameters keys: {list(self.current_scan.scan_parameters.keys())}")
             should_home = self.current_scan.scan_parameters.get('homing_confirmed', True)
             self.logger.info(f"🏠 Using pre-confirmed homing preference: {'proceed' if should_home else 'skip'}")
         else:
