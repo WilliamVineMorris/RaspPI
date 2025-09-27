@@ -980,15 +980,8 @@
                         
                         <div class="parameter-group">
                             <label for="cylindricalRotationPositions">🔄 Number of Rotation Positions</label>
-                            <select id="cylindricalRotationPositions" class="parameter-input">
-                                <option value="4">Quick Scan (4 positions - 90°)</option>
-                                <option value="6" selected>Standard (6 positions - 60°)</option>
-                                <option value="8">High Detail (8 positions - 45°)</option>
-                                <option value="12">Maximum Detail (12 positions - 30°)</option>
-                                <option value="18">Ultra Detail (18 positions - 20°)</option>
-                                <option value="24">Extreme Detail (24 positions - 15°)</option>
-                            </select>
-                            <small class="parameter-help">More positions = higher detail but longer scan time (max 72)</small>
+                            <input type="number" id="cylindricalRotationPositions" class="parameter-input" min="3" max="72" value="6" step="1">
+                            <small class="parameter-help">Enter number of positions (3-72). More positions = higher detail but longer scan time</small>
                         </div>
                     </div>
                 </div>
