@@ -1161,8 +1161,24 @@ class CameraManagerAdapter:
                         camera = self.controller.cameras[mapped_id]
                         
                         if camera and hasattr(camera, 'capture_array'):
+                            # Apply calibrated exposure settings if available (scan mode)
+                            calibrated_applied = False
+                            if (hasattr(self.controller, '_calibrated_settings') and 
+                                mapped_id in self.controller._calibrated_settings):
+                                
+                                calibrated = self.controller._calibrated_settings[mapped_id]
+                                calibrated_controls = {
+                                    'AeEnable': False,  # Disable auto-exposure
+                                    'ExposureTime': calibrated['exposure_time'],
+                                    'AnalogueGain': calibrated['analogue_gain']
+                                }
+                                camera.set_controls(calibrated_controls)
+                                self.logger.info(f"🎯 Camera {camera_id} scan settings applied: "
+                                               f"{calibrated['exposure_time']}μs, gain: {calibrated['analogue_gain']:.2f}")
+                                calibrated_applied = True
+                            
                             # Apply custom settings if provided (do this quickly)
-                            if settings:
+                            if settings and not calibrated_applied:
                                 controls = {}
                                 if hasattr(settings, 'exposure_time') and settings.exposure_time:
                                     controls['ExposureTime'] = int(settings.exposure_time * 1000000)

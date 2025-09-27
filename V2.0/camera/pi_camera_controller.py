@@ -1545,17 +1545,17 @@ class PiCameraController(CameraController):
             
             # Set high quality capture controls for both camera types
             try:
-                # Build control dictionary starting with image quality
+                # Build control dictionary starting with AUTO settings for proper livestream
                 control_dict = {
                     # Image quality controls
-                    "AwbEnable": True,        # Auto white balance
-                    "AeEnable": True,         # Auto exposure
+                    "AwbEnable": True,        # Auto white balance - ESSENTIAL for proper colors
+                    "AeEnable": True,         # Auto exposure - ESSENTIAL for proper brightness
                     "NoiseReductionMode": 2,  # High quality noise reduction
                     "Sharpness": 1.2,         # Slight sharpening
                     
-                    # Exposure controls for best quality
-                    "ExposureTime": 33000,    # 1/30s max exposure (33ms)
-                    "AnalogueGain": 1.0,      # Start with minimal gain
+                    # DO NOT set fixed ExposureTime/AnalogueGain on initialization
+                    # Let auto-exposure determine optimal settings for current lighting
+                    # Fixed values will be applied only during scan captures via calibration
                 }
                 
                 # Add AF controls if supported (per Picamera2 docs section 5.2)
