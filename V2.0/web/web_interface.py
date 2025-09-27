@@ -1146,6 +1146,30 @@ class ScannerWebInterface:
                 self.logger.error(f"Scan stop API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
+        @self.app.route('/api/scan/homing-confirmation', methods=['POST'])
+        def api_homing_confirmation():
+            """Handle homing confirmation from user before scan starts"""
+            try:
+                data = request.get_json() or {}
+                response = data.get('proceed', False)  # True = proceed with homing, False = skip
+                
+                # Store the homing response
+                self._homing_confirmation_response = response
+                self._homing_confirmation_requested = False
+                
+                action = "proceed" if response else "skip"
+                self.logger.info(f"🏠 User homing confirmation: {action}")
+                
+                return jsonify({
+                    'success': True,
+                    'action': action,
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Homing confirmation API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
         @self.app.route('/api/scan/pause', methods=['POST'])
         def api_scan_pause():
             """Pause/resume current scan"""
@@ -2473,13 +2497,39 @@ class ScannerWebInterface:
                         # Set notification callback
                         self.orchestrator.set_notification_callback(self._add_global_notification)
                         
-                        # Start the scan with homing confirmation callback
+                        # REQUEST HOMING CONFIRMATION FIRST (before scan starts)
+                        self.logger.info("🏠 Requesting homing confirmation before scan start...")
+                        self._homing_confirmation_requested = True
+                        self._homing_confirmation_response = None
+                        
+                        # Wait for homing confirmation with timeout
+                        homing_confirmed = False
+                        timeout_seconds = 30
+                        for i in range(timeout_seconds * 10):  # Check every 100ms
+                            if self._homing_confirmation_response is not None:
+                                homing_confirmed = self._homing_confirmation_response
+                                self.logger.info(f"🏠 Homing decision received: {'proceed' if homing_confirmed else 'skip'}")
+                                break
+                            await asyncio.sleep(0.1)
+                        
+                        if self._homing_confirmation_response is None:
+                            self.logger.warning("🏠 Homing confirmation timeout - defaulting to YES (safe)")
+                            homing_confirmed = True
+                        
+                        # Reset confirmation flags
+                        self._homing_confirmation_requested = False
+                        self._homing_confirmation_response = None
+                        
+                        # Store homing preference for the scan
+                        scan_params['homing_confirmed'] = homing_confirmed
+                        
+                        # NOW start the scan with the confirmed homing preference
                         scan_state = await self.orchestrator.start_scan(
                             pattern=pattern,
                             output_directory=output_dir,
                             scan_id=scan_id,
                             scan_parameters=scan_params,
-                            homing_confirmation_callback=homing_confirmation_callback
+                            homing_confirmation_callback=None  # No callback needed since already confirmed
                         )
                         
                         # Wait for the scan to complete

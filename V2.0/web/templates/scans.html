@@ -1301,10 +1301,45 @@ async function startScanNow() {
         // Show loading state
         const button = event.target;
         const originalText = button.innerHTML;
-        button.innerHTML = '<span class="btn-icon">⏳</span>Starting...';
+        button.innerHTML = '<span class="btn-icon">⏳</span>Preparing...';
         button.disabled = true;
         
-        // Start the scan
+        // STEP 1: Show homing confirmation modal FIRST
+        showHomingConfirmationModal();
+        
+        // Wait for homing confirmation
+        const homingDecision = await waitForHomingConfirmation();
+        
+        if (homingDecision === null) {
+            // User cancelled or closed modal
+            button.innerHTML = originalText;
+            button.disabled = false;
+            return;
+        }
+        
+        // Update button to show actual scan starting
+        button.innerHTML = '<span class="btn-icon">🚀</span>Starting Scan...';
+        
+        // STEP 2: Send homing confirmation to backend
+        try {
+            const homingResponse = await fetch('/api/scan/homing-confirmation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ proceed: homingDecision })
+            });
+            
+            if (!homingResponse.ok) {
+                throw new Error('Failed to send homing confirmation');
+            }
+        } catch (homingError) {
+            console.error('Homing confirmation error:', homingError);
+            showAlert('Error with homing confirmation: ' + homingError.message, 'error');
+            button.innerHTML = originalText;
+            button.disabled = false;
+            return;
+        }
+        
+        // STEP 3: Now start the actual scan
         const response = await fetch('/api/scan/start', {
             method: 'POST',
             headers: {
@@ -1316,9 +1351,9 @@ async function startScanNow() {
         const result = await response.json();
         
         if (result.success) {
-            // Don't show "scan started" immediately - wait for scan to actually begin
-            // The success notification will come from the backend after homing
+            // Scan started successfully with pre-confirmed homing
             updateScanProgress(true);
+            showAlert(`Scan "${scanData.scan_name || scanData.pattern_type}" started successfully!`, 'success');
         } else {
             showAlert('Failed to start scan: ' + result.error, 'error');
         }
@@ -1336,6 +1371,23 @@ async function startScanNow() {
         button.innerHTML = '<span class="btn-icon">▶️</span>Start Scan Now';
         button.disabled = false;
     }
+}
+
+// Helper function to wait for homing confirmation
+function waitForHomingConfirmation() {
+    return new Promise((resolve) => {
+        // Store resolve function globally so modal can access it
+        window.resolveHomingConfirmation = resolve;
+        
+        // Set timeout to auto-resolve after 30 seconds
+        setTimeout(() => {
+            if (window.resolveHomingConfirmation === resolve) {
+                console.log('Homing confirmation timeout - defaulting to proceed');
+                resolve(true); // Default to proceed for safety
+                window.resolveHomingConfirmation = null;
+            }
+        }, 30000);
+    });
 }
 
 async function stopCurrentScan() {
@@ -1663,14 +1715,22 @@ function showHomingConfirmationDialog() {
     }
 }
 
+// Alias for the new scan flow
+function showHomingConfirmationModal() {
+    showHomingConfirmationDialog();
+}
+
 function hideHomingConfirmationDialog(confirmed) {
     const modal = document.getElementById('homingConfirmationModal');
     if (modal) {
         modal.style.display = 'none';
     }
     
-    // Send confirmation response to backend
-    confirmHoming(confirmed);
+    // Resolve the promise with the user's decision
+    if (window.resolveHomingConfirmation) {
+        window.resolveHomingConfirmation(confirmed);
+        window.resolveHomingConfirmation = null;
+    }
 }
 
 async function confirmHoming(shouldHome) {
@@ -1697,6 +1757,14 @@ function cancelScan() {
     const modal = document.getElementById('homingConfirmationModal');
     if (modal) {
         modal.style.display = 'none';
+    }
+    
+    // If we're in the middle of homing confirmation, resolve with null (cancelled)
+    if (window.resolveHomingConfirmation) {
+        window.resolveHomingConfirmation(null);
+        window.resolveHomingConfirmation = null;
+        showAlert('🛑 Scan cancelled by user', 'warning', 3000);
+        return;
     }
     
     // Send cancel request to backend

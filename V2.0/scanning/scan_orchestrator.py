@@ -1971,7 +1971,7 @@ class ScanOrchestrator:
         else:
             self.logger.info(f"NOTIFICATION: {message}")
     
-    def is_system_busy(self) -> bool:
+    async def is_system_busy(self) -> bool:
         """Check if system is busy with active operations that should block new scans"""
         # Check for active scan
         if self.current_scan and self.current_scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED, ScanStatus.INITIALIZING]:
@@ -1992,7 +1992,12 @@ class ScanOrchestrator:
             if hasattr(self.motion_controller, method_name):
                 try:
                     method = getattr(self.motion_controller, method_name)
-                    status = method()
+                    # Check if method is a coroutine and await it properly
+                    if asyncio.iscoroutinefunction(method):
+                        status = await method()
+                    else:
+                        status = method()
+                    
                     if status and isinstance(status, str):
                         # FluidNC states that indicate system is busy
                         busy_states = ['home', 'jog', 'hold']
@@ -2028,7 +2033,7 @@ class ScanOrchestrator:
             ScanState object for tracking progress
         """
         # CRITICAL: Check if system is busy before allowing new scan
-        if self.is_system_busy():
+        if await self.is_system_busy():
             # Get detailed status for error message
             status_details = []
             if self.current_scan and self.current_scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED, ScanStatus.INITIALIZING]:
@@ -2540,28 +2545,27 @@ class ScanOrchestrator:
             await self._cleanup_scan()
     
     async def _home_system(self):
-        """Home the motion system with optional confirmation"""
+        """Home the motion system using pre-confirmed preference"""
         if self._check_stop_conditions():
             return
         
         if self.current_scan:
             self.current_scan.set_phase(ScanPhase.HOMING)
         
-        # Check for homing confirmation callback
-        if self._homing_confirmation_callback:
-            self.logger.info("⚠️  Requesting homing confirmation from user...")
-            try:
-                # Call the confirmation callback and await user response
-                should_home = await self._homing_confirmation_callback()
-                if not should_home:
-                    self.logger.info("🚫 User declined homing - proceeding without homing")
-                    self.logger.warning("⚠️  Scan proceeding without homing - positions may be inaccurate!")
-                    return
-                else:
-                    self.logger.info("✅ User confirmed homing - proceeding with homing sequence")
-            except Exception as e:
-                self.logger.error(f"❌ Error in homing confirmation callback: {e}")
-                self.logger.info("🔄 Proceeding with homing (default behavior)")
+        # Check if homing was pre-confirmed via scan parameters
+        should_home = True  # Default to homing for safety
+        if hasattr(self.current_scan, 'scan_parameters') and self.current_scan.scan_parameters:
+            should_home = self.current_scan.scan_parameters.get('homing_confirmed', True)
+            self.logger.info(f"🏠 Using pre-confirmed homing preference: {'proceed' if should_home else 'skip'}")
+        else:
+            self.logger.info("🏠 No homing preference found - defaulting to homing for safety")
+        
+        if not should_home:
+            self.logger.info("🚫 Skipping homing as requested - proceeding without homing")
+            self.logger.warning("⚠️  Scan proceeding without homing - positions may be inaccurate!")
+            return
+        else:
+            self.logger.info("✅ Proceeding with homing sequence")
         
         self.logger.info("🏠 Starting homing sequence for motion system")
         
