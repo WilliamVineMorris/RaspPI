@@ -973,20 +973,22 @@
                         </div>
                         
                         <div class="parameter-group">
-                            <label for="cylindricalYStep">📐 Height Step</label>
-                            <input type="number" id="cylindricalYStep" class="parameter-input" min="5" max="50" value="20" step="5">
-                            <small class="parameter-help">Vertical distance between scan levels (5-50mm)</small>
+                            <label for="cylindricalHeightSteps">📐 Number of Height Steps</label>
+                            <input type="number" id="cylindricalHeightSteps" class="parameter-input" min="0" max="20" value="4" step="1">
+                            <small class="parameter-help">Number of height levels (0=1 level, 1=2 levels, etc.)</small>
                         </div>
                         
                         <div class="parameter-group">
-                            <label for="cylindricalRotationStep">🔄 Rotation Detail</label>
-                            <select id="cylindricalRotationStep" class="parameter-input">
-                                <option value="30">Maximum Detail (30° - 12 positions)</option>
-                                <option value="45">High Detail (45° - 8 positions)</option>
-                                <option value="60" selected>Standard (60° - 6 positions)</option>
-                                <option value="90">Quick Scan (90° - 4 positions)</option>
+                            <label for="cylindricalRotationPositions">🔄 Number of Rotation Positions</label>
+                            <select id="cylindricalRotationPositions" class="parameter-input">
+                                <option value="4">Quick Scan (4 positions - 90°)</option>
+                                <option value="6" selected>Standard (6 positions - 60°)</option>
+                                <option value="8">High Detail (8 positions - 45°)</option>
+                                <option value="12">Maximum Detail (12 positions - 30°)</option>
+                                <option value="18">Ultra Detail (18 positions - 20°)</option>
+                                <option value="24">Extreme Detail (24 positions - 15°)</option>
                             </select>
-                            <small class="parameter-help">More positions = higher detail but longer scan time</small>
+                            <small class="parameter-help">More positions = higher detail but longer scan time (max 72)</small>
                         </div>
                     </div>
                 </div>
@@ -1388,13 +1390,31 @@ function collectScanParameters() {
             const radius = document.getElementById('cylindricalRadius')?.value || '30';
             const yMin = document.getElementById('cylindricalYMin')?.value || '40';
             const yMax = document.getElementById('cylindricalYMax')?.value || '120';
-            const yStep = document.getElementById('cylindricalYStep')?.value || '20';
-            const rotationStep = document.getElementById('cylindricalRotationStep')?.value || '60';
+            const heightSteps = parseInt(document.getElementById('cylindricalHeightSteps')?.value) || 4;
+            const rotationPositions = parseInt(document.getElementById('cylindricalRotationPositions')?.value) || 6;
             
-            // Calculate z_rotations based on rotation step
-            const rotationSteps = Math.ceil(360 / parseFloat(rotationStep));
-            const z_rotations = Array.from({length: rotationSteps}, (_, i) => 
-                i * parseFloat(rotationStep)
+            // 🎯 NEW HEIGHT STEP CALCULATION:
+            // 0 steps = 1 ring at min height
+            // 1 step = 2 rings at min and max height  
+            // 2+ steps = calculate intermediate heights
+            let yPositions = [];
+            if (heightSteps === 0) {
+                yPositions = [parseFloat(yMin)];
+            } else if (heightSteps === 1) {
+                yPositions = [parseFloat(yMin), parseFloat(yMax)];
+            } else {
+                yPositions = [parseFloat(yMin)];
+                for (let i = 1; i < heightSteps; i++) {
+                    const intermediate = parseFloat(yMin) + (parseFloat(yMax) - parseFloat(yMin)) * (i / heightSteps);
+                    yPositions.push(intermediate);
+                }
+                yPositions.push(parseFloat(yMax));
+            }
+            
+            // Calculate z_rotations based on number of positions
+            const rotationStep = 360 / rotationPositions;
+            const z_rotations = Array.from({length: rotationPositions}, (_, i) => 
+                i * rotationStep
             );
             
             // Return flattened structure expected by backend
@@ -1402,7 +1422,9 @@ function collectScanParameters() {
                 pattern_type: 'cylindrical',
                 radius: parseFloat(radius),
                 y_range: [parseFloat(yMin), parseFloat(yMax)],
-                y_step: parseFloat(yStep),
+                y_positions: yPositions,         // NEW: Explicit Y positions
+                height_steps: heightSteps,       // NEW: Number of steps for reference
+                rotation_positions: rotationPositions, // NEW: Number of rotation positions
                 z_rotations: z_rotations,
                 scan_name: scanName,
                 resolution: resolution,
