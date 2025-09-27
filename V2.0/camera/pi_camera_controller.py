@@ -1161,6 +1161,10 @@ class PiCameraController(CameraController):
             # Apply configuration
             camera.configure(config)
             
+            # Start camera to make it operational
+            camera.start()
+            logger.debug(f"📷 Camera {camera_id}: Camera started successfully")
+            
             # Set high quality capture controls for both camera types
             try:
                 camera.set_controls({
@@ -1189,12 +1193,8 @@ class PiCameraController(CameraController):
             self.camera_info[camera_id].native_resolution = pixel_array_size
             self.camera_info[camera_id].camera_type = camera_model
             
-            # Test camera functionality
-            try:
-                test_metadata = camera.capture_metadata()
-                logger.debug(f"📷 Camera {camera_id}: Test capture successful, controls working")
-            except Exception as test_error:
-                logger.warning(f"📷 Camera {camera_id}: Test capture failed: {test_error}")
+            # Give camera a moment to settle after configuration
+            await asyncio.sleep(0.1)
             
             logger.info(f"✅ Camera {camera_id} initialized successfully ({camera_model})")
             
