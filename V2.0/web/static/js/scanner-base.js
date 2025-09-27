@@ -148,6 +148,9 @@ window.ScannerBase = {
                     this.state.connected = systemConnected;
                     this.updateConnectionStatus(systemConnected);
                 }
+                
+                // Check for global notifications
+                this.checkGlobalNotifications();
             })
             .catch(error => {
                 this.log('Polling error:', error);
@@ -750,4 +753,63 @@ window.downloadLog = function() {
     URL.revokeObjectURL(url);
     
     ScannerBase.showAlert('Log downloaded', 'success', 2000);
+};
+
+// Add global notification methods to ScannerBase
+ScannerBase.checkGlobalNotifications = async function() {
+    try {
+        const response = await fetch('/api/notifications');
+        const result = await response.json();
+        
+        if (result.success && result.notifications && result.notifications.length > 0) {
+            // Show the first notification (they'll be processed one by one)
+            const notification = result.notifications[0];
+            this.showGlobalNotification(notification);
+        }
+    } catch (error) {
+        // Silently fail - don't spam logs for notification errors
+        // this.log('Failed to check notifications:', error);
+    }
+};
+
+ScannerBase.showGlobalNotification = function(notification) {
+    const modal = document.getElementById('globalNotificationModal');
+    const title = document.getElementById('globalNotificationTitle');
+    const message = document.getElementById('globalNotificationMessage');
+    
+    if (!modal || !title || !message) {
+        // Fallback to regular alert
+        this.showAlert(notification.message, notification.type, notification.duration);
+        return;
+    }
+    
+    // Set notification content
+    let titleText = 'System Notification';
+    if (notification.type === 'success') {
+        titleText = '✅ Success';
+    } else if (notification.type === 'error') {
+        titleText = '❌ Error';
+    } else if (notification.type === 'warning') {
+        titleText = '⚠️ Warning';
+    }
+    
+    title.textContent = titleText;
+    message.textContent = notification.message;
+    
+    // Show modal
+    modal.style.display = 'flex';
+    
+    // Auto-dismiss if duration specified
+    if (notification.duration && notification.duration > 0) {
+        setTimeout(() => {
+            this.dismissGlobalNotification();
+        }, notification.duration);
+    }
+};
+
+ScannerBase.dismissGlobalNotification = function() {
+    const modal = document.getElementById('globalNotificationModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
 };

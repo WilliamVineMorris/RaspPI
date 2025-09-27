@@ -1844,6 +1844,9 @@ class ScanOrchestrator:
         # Homing confirmation callback
         self._homing_confirmation_callback: Optional[Callable] = None
         
+        # Global notification callback
+        self._notification_callback: Optional[Callable] = None
+        
         # Focus control - Independent autofocus enabled by default for best results
         self._scan_focus_values: Dict[str, float] = {}  # Focus values for each camera
         self._primary_focus_value: Optional[float] = None  # Primary focus value for synced mode
@@ -1956,6 +1959,17 @@ class ScanOrchestrator:
         except Exception as e:
             self.logger.error(f"Health check failed: {e}")
             return False
+    
+    def set_notification_callback(self, callback):
+        """Set callback for global notifications"""
+        self._notification_callback = callback
+        
+    def _add_notification(self, message: str, type_: str = 'info', duration: int = 5000):
+        """Add a global notification"""
+        if self._notification_callback:
+            self._notification_callback(message, type_, duration)
+        else:
+            self.logger.info(f"NOTIFICATION: {message}")
     
     async def start_scan(self, 
                         pattern: ScanPattern,
@@ -2428,6 +2442,12 @@ class ScanOrchestrator:
             if not self._stop_requested and not self._emergency_stop:
                 self.current_scan.complete()
                 self.logger.info(f"Scan {self.current_scan.scan_id} completed successfully")
+                # Add completion notification
+                self._add_notification(
+                    f"✅ Scan '{self.current_scan.scan_name}' completed successfully!", 
+                    'success', 
+                    8000
+                )
             else:
                 self.current_scan.cancel()
                 self.logger.info(f"Scan {self.current_scan.scan_id} cancelled")
@@ -2491,6 +2511,14 @@ class ScanOrchestrator:
             
             if not success:
                 raise HardwareError("Failed to home motion system")
+            else:
+                self.logger.info("✅ Homing completed successfully - all axes homed")
+                # Add homing completion notification
+                self._add_notification(
+                    "🏠 System homing completed successfully!", 
+                    'success', 
+                    5000
+                )
         except Exception as e:
             self.logger.error(f"Homing error: {e}")
             raise HardwareError("Failed to home motion system")

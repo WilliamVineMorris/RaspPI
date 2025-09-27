@@ -362,6 +362,10 @@ class ScannerWebInterface:
         self._homing_confirmation_requested = False
         self._homing_confirmation_response = None
         
+        # Global notification system
+        self._global_notifications = []
+        self._notification_id_counter = 0
+        
         # Setup routes
         self._setup_routes()
         self._setup_orchestrator_integration()
@@ -370,6 +374,21 @@ class ScannerWebInterface:
         self._setup_feedrate_integration()
         
         self.logger.info("Scanner web interface initialized with enhanced feedrate management")
+    
+    def _add_global_notification(self, message: str, type_: str = 'info', duration: int = 5000):
+        """Add a global notification that will appear on all pages"""
+        import time
+        
+        self._notification_id_counter += 1
+        notification = {
+            'id': self._notification_id_counter,
+            'message': message,
+            'type': type_,
+            'duration': duration,
+            'timestamp': time.time()
+        }
+        self._global_notifications.append(notification)
+        self.logger.info(f"📢 Global notification added: {message}")
     
     def _setup_routes(self):
         """Setup Flask routes"""
@@ -529,6 +548,24 @@ class ScannerWebInterface:
                     'status': 'error',
                     'message': str(e)
                 })
+                
+        @self.app.route('/api/notifications', methods=['GET'])
+        def api_get_notifications():
+            """Get pending global notifications"""
+            try:
+                notifications = list(self._global_notifications)
+                # Clear notifications after sending
+                self._global_notifications.clear()
+                return jsonify({
+                    'success': True,
+                    'notifications': notifications
+                })
+            except Exception as e:
+                self.logger.error(f"❌ Notifications API error: {e}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                }), 500
         
         @self.app.route('/api/home', methods=['POST'])
         def api_home():
@@ -2432,6 +2469,9 @@ class ScannerWebInterface:
                             except Exception as e:
                                 self.logger.error(f"❌ Error in homing confirmation: {e}")
                                 return True  # Default to safe behavior
+                        
+                        # Set notification callback
+                        self.orchestrator.set_notification_callback(self._add_global_notification)
                         
                         # Start the scan with homing confirmation callback
                         scan_state = await self.orchestrator.start_scan(
