@@ -358,6 +358,10 @@ class ScannerWebInterface:
         self._camera_streams = {}
         self._running = False
         
+        # Homing confirmation system
+        self._homing_confirmation_requested = False
+        self._homing_confirmation_response = None
+        
         # Setup routes
         self._setup_routes()
         self._setup_orchestrator_integration()
@@ -498,6 +502,33 @@ class ScannerWebInterface:
             except Exception as e:
                 self.logger.error(f"Position API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/homing-confirmation', methods=['POST'])
+        def api_homing_confirmation():
+            """Handle homing confirmation response from user"""
+            try:
+                data = request.get_json() or {}
+                should_home = data.get('confirm', True)  # Default to true for safety
+                
+                if self._homing_confirmation_requested:
+                    self._homing_confirmation_response = should_home
+                    self.logger.info(f"🏠 Received homing confirmation: {'Yes' if should_home else 'No'}")
+                    return jsonify({
+                        'status': 'success',
+                        'message': f"Homing {'confirmed' if should_home else 'declined'}"
+                    })
+                else:
+                    return jsonify({
+                        'status': 'error',
+                        'message': 'No homing confirmation pending'
+                    })
+                    
+            except Exception as e:
+                self.logger.error(f"❌ Homing confirmation API error: {e}")
+                return jsonify({
+                    'status': 'error',
+                    'message': str(e)
+                })
         
         @self.app.route('/api/home', methods=['POST'])
         def api_home():
@@ -1895,6 +1926,12 @@ class ScannerWebInterface:
                 'cameras_active': status['cameras']['active']
             }
             
+            # Add homing confirmation status
+            status['homing_confirmation'] = {
+                'requested': getattr(self, '_homing_confirmation_requested', False),
+                'pending': getattr(self, '_homing_confirmation_requested', False)
+            }
+            
             return status
             
         except Exception as e:
@@ -2366,12 +2403,43 @@ class ScannerWebInterface:
                             'operator': 'web_user'
                         }
                         
-                        # Start the scan (this creates the background task)
+                        # Create homing confirmation callback for user interaction
+                        async def homing_confirmation_callback():
+                            """Handle homing confirmation request from scan orchestrator"""
+                            try:
+                                self.logger.info("🏠 Homing confirmation requested - notifying user")
+                                # Set confirmation request flag
+                                self._homing_confirmation_requested = True
+                                self._homing_confirmation_response = None
+                                
+                                # Wait for user response (with 30 second timeout)
+                                timeout_seconds = 30
+                                for i in range(timeout_seconds * 10):  # Check every 100ms
+                                    if self._homing_confirmation_response is not None:
+                                        response = self._homing_confirmation_response
+                                        # Reset flags
+                                        self._homing_confirmation_requested = False
+                                        self._homing_confirmation_response = None
+                                        self.logger.info(f"🏠 User homing decision: {'Yes' if response else 'No'}")
+                                        return response
+                                    await asyncio.sleep(0.1)
+                                
+                                # Timeout - default to yes (safe behavior)
+                                self.logger.warning("🏠 Homing confirmation timeout - defaulting to YES (safe)")
+                                self._homing_confirmation_requested = False
+                                return True
+                                
+                            except Exception as e:
+                                self.logger.error(f"❌ Error in homing confirmation: {e}")
+                                return True  # Default to safe behavior
+                        
+                        # Start the scan with homing confirmation callback
                         scan_state = await self.orchestrator.start_scan(
                             pattern=pattern,
                             output_directory=output_dir,
                             scan_id=scan_id,
-                            scan_parameters=scan_params
+                            scan_parameters=scan_params,
+                            homing_confirmation_callback=homing_confirmation_callback
                         )
                         
                         # Wait for the scan to complete

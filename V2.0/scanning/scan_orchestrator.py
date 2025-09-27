@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Union, Protocol, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, Union, Protocol, TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     import numpy as np
@@ -1841,6 +1841,9 @@ class ScanOrchestrator:
         self._pause_requested = False
         self._emergency_stop = False
         
+        # Homing confirmation callback
+        self._homing_confirmation_callback: Optional[Callable] = None
+        
         # Focus control - Independent autofocus enabled by default for best results
         self._scan_focus_values: Dict[str, float] = {}  # Focus values for each camera
         self._primary_focus_value: Optional[float] = None  # Primary focus value for synced mode
@@ -1958,7 +1961,8 @@ class ScanOrchestrator:
                         pattern: ScanPattern,
                         output_directory: Union[str, Path],
                         scan_id: Optional[str] = None,
-                        scan_parameters: Optional[Dict[str, Any]] = None) -> ScanState:
+                        scan_parameters: Optional[Dict[str, Any]] = None,
+                        homing_confirmation_callback: Optional[Callable] = None) -> ScanState:
         """
         Start a new scanning operation
         
@@ -1985,6 +1989,9 @@ class ScanOrchestrator:
             output_directory=Path(output_directory)
         )
         self.current_pattern = pattern
+        
+        # Store homing confirmation callback for this scan
+        self._homing_confirmation_callback = homing_confirmation_callback
         
         # Initialize scan parameters
         scan_parameters = scan_parameters or {}
@@ -2440,13 +2447,30 @@ class ScanOrchestrator:
             await self._cleanup_scan()
     
     async def _home_system(self):
-        """Home the motion system"""
+        """Home the motion system with optional confirmation"""
         if self._check_stop_conditions():
             return
         
         if self.current_scan:
             self.current_scan.set_phase(ScanPhase.HOMING)
-        self.logger.info("Homing motion system")
+        
+        # Check for homing confirmation callback
+        if self._homing_confirmation_callback:
+            self.logger.info("⚠️  Requesting homing confirmation from user...")
+            try:
+                # Call the confirmation callback and await user response
+                should_home = await self._homing_confirmation_callback()
+                if not should_home:
+                    self.logger.info("🚫 User declined homing - proceeding without homing")
+                    self.logger.warning("⚠️  Scan proceeding without homing - positions may be inaccurate!")
+                    return
+                else:
+                    self.logger.info("✅ User confirmed homing - proceeding with homing sequence")
+            except Exception as e:
+                self.logger.error(f"❌ Error in homing confirmation callback: {e}")
+                self.logger.info("🔄 Proceeding with homing (default behavior)")
+        
+        self.logger.info("🏠 Starting homing sequence for motion system")
         
         # Use the working synchronous homing method that the web UI uses
         # Run it in a thread pool to make it async-compatible
