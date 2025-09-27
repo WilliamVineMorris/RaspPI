@@ -508,7 +508,7 @@ class ScannerWebInterface:
             """Handle homing confirmation response from user"""
             try:
                 data = request.get_json() or {}
-                should_home = data.get('confirm', True)  # Default to true for safety
+                should_home = data.get('should_home', True)  # Default to true for safety
                 
                 if self._homing_confirmation_requested:
                     self._homing_confirmation_response = should_home
