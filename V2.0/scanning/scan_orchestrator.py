@@ -2246,6 +2246,9 @@ class ScanOrchestrator:
                         'c': point.position.c
                     }
                     
+                    # 📷 Get comprehensive camera metadata (same as web interface)
+                    comprehensive_camera_metadata = self._get_scan_camera_metadata(camera_id, camera_metadata, 80)  # 80% flash intensity for scan
+                    
                     # Create comprehensive metadata (same structure as web interface)
                     storage_metadata = StorageMetadata(
                         file_id=str(uuid.uuid4()),
@@ -2267,7 +2270,9 @@ class ScanOrchestrator:
                             'actual_resolution': '4608x2592',
                             'sensor_type': 'Arducam 64MP',
                             'capture_timestamp': time.time(),
-                            'embedded_exif': camera_metadata
+                            'embedded_exif': comprehensive_camera_metadata,
+                            'picamera2_metadata': camera_metadata,  # Raw Picamera2 metadata
+                            'comprehensive_metadata': comprehensive_camera_metadata  # Processed metadata
                         },
                         lighting_settings={
                             'flash_used': hasattr(self, 'lighting_controller') and self.lighting_controller is not None,
@@ -2301,10 +2306,11 @@ class ScanOrchestrator:
     
     def _embed_scan_metadata_in_jpeg(self, image_data, camera_id: int, point: ScanPoint, 
                                    point_index: int, capture_metadata=None) -> bytes:
-        """Embed scan metadata into JPEG using same method as web interface"""
+        """Embed scan metadata into JPEG using SAME METHOD as web interface"""
         try:
             from PIL import Image
             import io
+            import time
             
             # Create PIL Image from numpy array with proper color handling
             if len(image_data.shape) == 3:
@@ -2333,9 +2339,67 @@ class ScanOrchestrator:
                 exif_dict["0th"][piexif.ImageIFD.Software] = "4DOF Scanner V2.0"
                 exif_dict["Exif"][piexif.ExifIFD.LensModel] = "Fixed 2.8mm f/1.8"
                 
+                # Date and time (same as web interface)
+                timestamp = time.strftime("%Y:%m:%d %H:%M:%S")
+                exif_dict["0th"][piexif.ImageIFD.DateTime] = timestamp
+                exif_dict["Exif"][piexif.ExifIFD.DateTimeOriginal] = timestamp
+                exif_dict["Exif"][piexif.ExifIFD.DateTimeDigitized] = timestamp
+                
                 # Add scan-specific metadata
-                exif_dict["0th"][piexif.ImageIFD.ImageDescription] = f"Scan Point {point_index:03d}"
+                exif_dict["0th"][piexif.ImageIFD.ImageDescription] = f"Scan Point {point_index:03d} at X:{point.position.x:.1f} Y:{point.position.y:.1f} Z:{point.position.z:.1f}° C:{point.position.c:.1f}°"
                 exif_dict["0th"][piexif.ImageIFD.Artist] = "Automated 4DOF Scanner"
+                
+                # 📷 Extract REAL camera metadata from capture_metadata (same as web interface)
+                if capture_metadata and isinstance(capture_metadata, dict):
+                    self.logger.info(f"📷 Using actual Picamera2 metadata: {list(capture_metadata.keys())}")
+                    
+                    # Extract real values from Picamera2 metadata (same as web interface)
+                    if 'ExposureTime' in capture_metadata:
+                        exposure_us = capture_metadata['ExposureTime']
+                        if exposure_us > 0:
+                            exposure_sec = exposure_us / 1000000.0
+                            if exposure_sec >= 1:
+                                exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = (int(exposure_sec), 1)
+                            else:
+                                # Convert to fraction like 1/60
+                                denominator = int(1 / exposure_sec)
+                                exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = (1, denominator)
+                    
+                    if 'AnalogueGain' in capture_metadata:
+                        # Convert analogue gain to ISO equivalent
+                        gain = capture_metadata['AnalogueGain']
+                        iso_equivalent = int(gain * 100)  # Same conversion as web interface
+                        exif_dict["Exif"][piexif.ExifIFD.ISOSpeedRatings] = iso_equivalent
+                    
+                    if 'FocusFoM' in capture_metadata:
+                        # Use fixed focal length specs
+                        exif_dict["Exif"][piexif.ExifIFD.FocalLength] = (27, 10)  # 2.7mm
+                    
+                    if 'Lux' in capture_metadata:
+                        # Light level can inform metering mode
+                        exif_dict["Exif"][piexif.ExifIFD.MeteringMode] = 5  # Pattern
+                
+                # Fallback to reasonable defaults if no metadata available (same as web interface)
+                if piexif.ExifIFD.ExposureTime not in exif_dict["Exif"]:
+                    exif_dict["Exif"][piexif.ExifIFD.ExposureTime] = (1, 60)  # 1/60 second
+                if piexif.ExifIFD.ISOSpeedRatings not in exif_dict["Exif"]:
+                    exif_dict["Exif"][piexif.ExifIFD.ISOSpeedRatings] = 100
+                if piexif.ExifIFD.FocalLength not in exif_dict["Exif"]:
+                    exif_dict["Exif"][piexif.ExifIFD.FocalLength] = (27, 10)  # 2.7mm
+                
+                # Aperture (same as web interface)
+                exif_dict["Exif"][piexif.ExifIFD.FNumber] = (18, 10)  # f/1.8
+                # Calculate APEX aperture value: APEX = 2 * log2(f_number)
+                import math
+                f_number = 1.8
+                apex_value = 2 * math.log2(f_number)
+                exif_dict["Exif"][piexif.ExifIFD.ApertureValue] = (int(apex_value * 100), 100)
+                
+                # Flash information (scan always uses flash)
+                exif_dict["Exif"][piexif.ExifIFD.Flash] = 0x0001  # Flash fired
+                
+                # Standard values (same as web interface)
+                exif_dict["Exif"][piexif.ExifIFD.MeteringMode] = 5  # Pattern
                 
                 # Position data in GPS fields (creative use)
                 exif_dict["GPS"][piexif.GPSIFD.GPSLatitude] = self._float_to_rational(point.position.x)
@@ -2380,6 +2444,97 @@ class ScanOrchestrator:
         seconds = int((minutes_float - minutes) * 60 * 1000)  # milliseconds precision
         
         return ((degrees, 1), (minutes, 1), (seconds, 1000))
+    
+    def _get_scan_camera_metadata(self, camera_id: int, capture_metadata: dict, flash_intensity: int) -> dict:
+        """Get comprehensive camera metadata for scan (same as web interface)"""
+        try:
+            # Use camera controller to get complete metadata (same approach as web interface)
+            if hasattr(self, 'camera_manager') and self.camera_manager:
+                if hasattr(self.camera_manager, 'controller') and self.camera_manager.controller:
+                    controller = self.camera_manager.controller
+                    
+                    # Get complete metadata from camera controller
+                    if hasattr(controller, 'create_complete_camera_metadata'):
+                        complete_metadata = controller.create_complete_camera_metadata(camera_id, capture_metadata)
+                        
+                        # Extract for storage format (same as web interface)
+                        specs = complete_metadata.get('camera_specifications', {})
+                        dynamic = complete_metadata.get('capture_settings', {})
+                        
+                        return {
+                            'make': specs.get('make', 'Arducam'),
+                            'model': specs.get('model', f'64MP Camera {camera_id}'),
+                            'sensor_model': specs.get('sensor_model', 'Sony IMX519'),
+                            'focal_length': f"{specs.get('focal_length_mm', 2.74)}mm",
+                            'focal_length_35mm_equiv': f"{specs.get('focal_length_35mm_equiv', 20.2):.1f}mm",
+                            'aperture': specs.get('aperture_string', 'f/1.8'),
+                            'exposure_time': dynamic.get('exposure_time', self._extract_exposure_from_metadata(capture_metadata)),
+                            'iso': dynamic.get('iso_equivalent', self._extract_iso_from_metadata(capture_metadata)),
+                            'metering_mode': 'pattern',
+                            'flash_fired': flash_intensity > 0,
+                            'lens_position': dynamic.get('focus_position', capture_metadata.get('LensPosition', 'auto') if capture_metadata else 'auto'),
+                            'focus_fom': dynamic.get('focus_measure', capture_metadata.get('FocusFoM', 0) if capture_metadata else 0),
+                            'color_temperature': f"{dynamic.get('color_temperature_k', capture_metadata.get('ColourTemperature', 'auto') if capture_metadata else 'auto')}K",
+                            'lux_level': dynamic.get('light_level_lux', capture_metadata.get('Lux', 0) if capture_metadata else 0),
+                            'calibration_source': specs.get('calibration_source', 'estimated')
+                        }
+            
+            # Fallback if camera controller not available (same as web interface)
+            self.logger.warning("📷 Camera controller not available, using fallback metadata")
+            return {
+                'make': 'Arducam',
+                'model': f'64MP Camera {camera_id}',
+                'sensor_model': 'Sony IMX519',
+                'focal_length': '2.74mm (estimated)',
+                'aperture': 'f/1.8 (estimated)',
+                'exposure_time': self._extract_exposure_from_metadata(capture_metadata),
+                'iso': self._extract_iso_from_metadata(capture_metadata),
+                'metering_mode': 'pattern',
+                'flash_fired': flash_intensity > 0,
+                'lens_position': capture_metadata.get('LensPosition', 'auto') if capture_metadata else 'auto',
+                'focus_fom': capture_metadata.get('FocusFoM', 0) if capture_metadata else 0,
+                'color_temperature': f"{capture_metadata.get('ColourTemperature', 'auto')}K" if capture_metadata else 'auto',
+                'lux_level': capture_metadata.get('Lux', 0) if capture_metadata else 0,
+                'calibration_source': 'fallback'
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get camera metadata: {e}")
+            return {
+                'make': 'Arducam',
+                'model': f'64MP Camera {camera_id}',
+                'focal_length': 'unknown',
+                'aperture': 'unknown',
+                'exposure_time': 'unknown',
+                'iso': 100,
+                'flash_fired': flash_intensity > 0
+            }
+    
+    def _extract_exposure_from_metadata(self, capture_metadata: dict) -> str:
+        """Extract exposure time from Picamera2 metadata (same as web interface)"""
+        if not capture_metadata:
+            return '1/60s'
+        
+        if 'ExposureTime' in capture_metadata:
+            exposure_us = capture_metadata['ExposureTime']
+            exposure_sec = exposure_us / 1000000.0
+            if exposure_sec >= 1:
+                return f"{exposure_sec:.2f}s"
+            else:
+                return f"1/{int(1/exposure_sec)}s"
+        
+        return '1/60s'  # fallback
+    
+    def _extract_iso_from_metadata(self, capture_metadata: dict) -> int:
+        """Extract ISO equivalent from Picamera2 metadata (same as web interface)"""
+        if not capture_metadata:
+            return 100
+        
+        if 'AnalogueGain' in capture_metadata:
+            gain = capture_metadata['AnalogueGain']
+            return int(gain * 100)  # Same conversion as web interface
+        
+        return 100  # fallback
     
     async def _handle_pause(self):
         """Handle pause requests"""
