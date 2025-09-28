@@ -1706,7 +1706,7 @@
                                 <div class="parameter-group mb-3">
                                     <label class="form-label">
                                         Settling Delay: <span id="settlingDisplay">2.0</span>s
-                                        <small class="text-muted d-block">Wait time after movement</small>
+                                        <small class="text-muted d-block">Wait time after movement before capture</small>
                                     </label>
                                     <input type="range" class="form-range" id="customSettlingDelay" 
                                            min="0.5" max="5.0" step="0.5" value="2.0"
@@ -1715,39 +1715,6 @@
                                         <small class="text-muted fw-500">Quick</small>
                                         <small class="text-muted fw-500">Patient</small>
                                     </div>
-                                </div>
-                                
-                                <div class="parameter-group mb-3">
-                                    <label class="form-label">Motion Precision</label>
-                                    <select class="form-select" id="customMotionPrecision">
-                                        <option value="high">High (Slowest, Most Accurate)</option>
-                                        <option value="normal" selected>Normal</option>
-                                        <option value="fast">Fast (Less Accurate)</option>
-                                    </select>
-                                </div>
-                                
-                                <div class="parameter-group mb-3">
-                                    <label class="form-label">
-                                        Acceleration: <span id="accelDisplay">1.0</span>x
-                                        <small class="text-muted d-block">Smoothness vs Speed trade-off</small>
-                                    </label>
-                                    <input type="range" class="form-range" id="customAccelerationFactor" 
-                                           min="0.5" max="1.5" step="0.1" value="1.0"
-                                           oninput="updateAccelDisplay(this.value)">
-                                    <div class="d-flex justify-content-between">
-                                        <small class="text-muted">Smooth</small>
-                                        <small class="text-muted">Aggressive</small>
-                                    </div>
-                                </div>
-                                
-                                <div class="parameter-group mb-3">
-                                    <label class="form-label">
-                                        Capture Delay: <span id="captureDelayDisplay">0.2</span>s
-                                        <small class="text-muted d-block">After movement complete</small>
-                                    </label>
-                                    <input type="range" class="form-range" id="customCaptureDelay" 
-                                           min="0.0" max="2.0" step="0.1" value="0.2"
-                                           oninput="updateCaptureDelayDisplay(this.value)">
                                 </div>
                                 
                                 <div class="parameter-group mb-3">
