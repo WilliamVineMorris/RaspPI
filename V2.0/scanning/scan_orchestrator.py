@@ -1733,28 +1733,108 @@ class CameraManagerAdapter:
         try:
             self.logger.info(f"CAMERA: Updating camera configurations for custom resolution: {custom_resolution}")
             
+            # Validate and potentially adjust resolution for Pi hardware compatibility
+            width, height = custom_resolution
+            total_pixels = width * height
+            validated_resolution = custom_resolution
+            
+            # Pi hardware limits - 64MP may be too demanding
+            if total_pixels > 50_000_000:  # ~50MP threshold
+                self.logger.warning(f"CAMERA: Very large resolution detected ({total_pixels:,} pixels)")
+                
+                # Try stepping down to more manageable resolution
+                if width == 9152 and height == 6944:  # Full 64MP
+                    validated_resolution = (6016, 4512)  # 27MP - more manageable
+                    self.logger.warning(f"CAMERA: Stepped down from 64MP to ~27MP for stability: {validated_resolution}")
+                elif total_pixels > 35_000_000:  # Still quite large
+                    validated_resolution = (4608, 2592)  # 12MP - proven stable
+                    self.logger.warning(f"CAMERA: Stepped down to stable 12MP resolution: {validated_resolution}")
+            
+            custom_resolution = validated_resolution
+            
+            # Check if resolution is moderately demanding 
+            if total_pixels > 25_000_000:  # ~25MP threshold
+                self.logger.info(f"CAMERA: Moderately large resolution ({total_pixels:,} pixels). Using safety buffers.")
+            
             # Update capture configurations for both cameras
             for camera_id in [0, 1]:
                 if hasattr(self.controller, 'cameras') and camera_id in self.controller.cameras:
                     camera = self.controller.cameras[camera_id]
                     
                     if camera:
-                        # Create new capture configuration with custom resolution
-                        new_capture_config = camera.create_still_configuration(
-                            main={"size": custom_resolution, "format": "RGB888"},  # Custom resolution
-                            lores={"size": (1920, 1080), "format": "YUV420"},  # Keep preview same
-                            display="lores"
-                        )
-                        
-                        # Update stored configuration
-                        if hasattr(self, '_capture_configs'):
-                            self._capture_configs[camera_id] = new_capture_config
-                            self.logger.info(f"CAMERA: Updated camera {camera_id} capture config to {custom_resolution}")
+                        try:
+                            # Create new capture configuration with custom resolution and safety measures
+                            new_capture_config = camera.create_still_configuration(
+                                main={"size": custom_resolution, "format": "RGB888"},  # Custom resolution
+                                lores={"size": (1920, 1080), "format": "YUV420"},  # Keep preview same
+                                display="lores",
+                                # Add buffer configuration for large captures
+                                buffer_count=3 if total_pixels > 30_000_000 else 4  # Fewer buffers for large captures
+                            )
+                            
+                            # Update stored configuration
+                            if hasattr(self, '_capture_configs'):
+                                self._capture_configs[camera_id] = new_capture_config
+                                self.logger.info(f"CAMERA: Updated camera {camera_id} capture config to {custom_resolution}")
+                                
+                        except Exception as config_error:
+                            self.logger.error(f"CAMERA: Failed to create capture config for camera {camera_id}: {config_error}")
+                            # Fallback to a safer resolution
+                            fallback_resolution = (4608, 2592)  # 12MP fallback
+                            self.logger.warning(f"CAMERA: Falling back to safer resolution: {fallback_resolution}")
+                            
+                            fallback_config = camera.create_still_configuration(
+                                main={"size": fallback_resolution, "format": "RGB888"},
+                                lores={"size": (1920, 1080), "format": "YUV420"},
+                                display="lores"
+                            )
+                            
+                            if hasattr(self, '_capture_configs'):
+                                self._capture_configs[camera_id] = fallback_config
+                                
+                            # Update stored quality settings to reflect fallback
+                            if hasattr(self, '_quality_settings') and self._quality_settings:
+                                self._quality_settings['resolution'] = list(fallback_resolution)
+                                self.logger.info(f"CAMERA: Updated stored resolution to fallback: {fallback_resolution}")
             
-            self.logger.info(f"CAMERA: Successfully updated camera configurations for {custom_resolution}")
+            self.logger.info(f"CAMERA: Camera configuration update completed")
             
         except Exception as e:
             self.logger.error(f"CAMERA: Failed to update camera configurations: {e}")
+            # Final fallback - ensure we have working configurations
+            await self._ensure_working_camera_configs()
+    
+    async def _ensure_working_camera_configs(self):
+        """Ensure cameras have working configurations as final fallback"""
+        try:
+            self.logger.info("CAMERA: Applying fallback configurations for camera stability")
+            safe_resolution = (4608, 2592)  # Safe 12MP resolution
+            
+            for camera_id in [0, 1]:
+                if hasattr(self.controller, 'cameras') and camera_id in self.controller.cameras:
+                    camera = self.controller.cameras[camera_id]
+                    
+                    if camera:
+                        # Create safe configuration
+                        safe_config = camera.create_still_configuration(
+                            main={"size": safe_resolution, "format": "RGB888"},
+                            lores={"size": (1920, 1080), "format": "YUV420"},
+                            display="lores"
+                        )
+                        
+                        if hasattr(self, '_capture_configs'):
+                            self._capture_configs[camera_id] = safe_config
+                            
+            # Update stored settings to safe values
+            if hasattr(self, '_quality_settings') and self._quality_settings:
+                self._quality_settings['resolution'] = list(safe_resolution)
+                
+            self.logger.info(f"CAMERA: Fallback configurations applied - resolution: {safe_resolution}")
+            
+        except Exception as e:
+            self.logger.error(f"CAMERA: Even fallback configuration failed: {e}")
+    
+
     
     def _apply_quality_to_settings(self, settings):
         """Apply stored quality settings to CameraSettings object"""
@@ -2468,9 +2548,11 @@ class ScanOrchestrator:
             custom_settings = self.camera_manager._quality_settings
             self.logger.info(f"📋 Applying custom camera settings: {custom_settings}")
             
-            # Apply custom resolution if specified
+            # Apply custom resolution if specified, with safety validation
             if 'resolution' in custom_settings:
-                actual_settings['resolution'] = custom_settings['resolution']
+                requested_resolution = custom_settings['resolution']
+                # Apply resolution directly (validation happens in CameraManagerAdapter)
+                actual_settings['resolution'] = requested_resolution
                 
             # Apply custom JPEG quality
             if 'jpeg_quality' in custom_settings:
