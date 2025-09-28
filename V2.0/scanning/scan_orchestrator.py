@@ -767,10 +767,11 @@ class CameraManagerAdapter:
                             display="lores"  # Use low-res for display efficiency
                         )
                         
-                        # TRUE SINGLE-STREAM: Use preview config to prevent automatic RAW stream addition
-                        capture_config = camera.create_preview_configuration(
+                        # OPTIMIZED SINGLE-STREAM: Minimal buffer allocation for still capture
+                        capture_config = camera.create_still_configuration(
                             main={"size": (9152, 6944), "format": "RGB888"},  # Single stream for 64MP capture
-                            raw=None  # Explicitly disable RAW to prevent ISP buffer queue errors
+                            raw=None,  # Explicitly disable RAW to prevent ISP buffer queue errors
+                            buffer_count=1  # Minimal buffer allocation for still photos
                         )
                         
                         # Store configurations per camera
@@ -886,10 +887,11 @@ class CameraManagerAdapter:
                                     if hasattr(self, '_capture_configs') and camera_id in self._capture_configs:
                                         camera.configure(self._capture_configs[camera_id])
                                     else:
-                                        # TRUE single-stream fallback configuration
-                                        config = camera.create_preview_configuration(
+                                        # Optimized single-stream fallback with minimal memory
+                                        config = camera.create_still_configuration(
                                             main={"size": (9152, 6944), "format": "RGB888"},
-                                            raw=None  # Prevent automatic RAW stream addition
+                                            raw=None,  # Prevent automatic RAW stream addition
+                                            buffer_count=1  # Minimal buffer allocation
                                         )
                                         camera.configure(config)
                                     
@@ -1869,10 +1871,11 @@ class CameraManagerAdapter:
                     if camera:
                         try:
                             # Create new capture configuration with resolution-appropriate buffers
-                            # TRUE SINGLE-STREAM: Custom resolution capture with RAW disabled
-                            new_capture_config = camera.create_preview_configuration(
+                            # OPTIMIZED SINGLE-STREAM: Custom resolution with minimal memory
+                            new_capture_config = camera.create_still_configuration(
                                 main={"size": custom_resolution, "format": "RGB888"},
-                                raw=None  # Explicitly prevent automatic RAW stream addition
+                                raw=None,  # Explicitly prevent automatic RAW stream addition
+                                buffer_count=1  # Minimal buffer allocation for still capture
                             )
                             
                             # Update stored configuration
@@ -1891,9 +1894,10 @@ class CameraManagerAdapter:
                             fallback_resolution = (9152, 6944)  # 64MP fallback maintains capability
                             self.logger.warning(f"CAMERA: Falling back to max supported resolution: {fallback_resolution}")
                             
-                            fallback_config = camera.create_preview_configuration(
+                            fallback_config = camera.create_still_configuration(
                                 main={"size": fallback_resolution, "format": "RGB888"},
-                                raw=None  # Prevent automatic RAW stream addition
+                                raw=None,  # Prevent automatic RAW stream addition
+                                buffer_count=1  # Minimal buffer allocation
                             )
                             
                             if hasattr(self, '_capture_configs'):
@@ -1922,10 +1926,11 @@ class CameraManagerAdapter:
                     camera = self.controller.cameras[camera_id]
                     
                     if camera:
-                        # TRUE SINGLE-STREAM: Safe configuration with RAW explicitly disabled
-                        safe_config = camera.create_preview_configuration(
+                        # OPTIMIZED SINGLE-STREAM: Safe configuration with minimal memory allocation
+                        safe_config = camera.create_still_configuration(
                             main={"size": safe_resolution, "format": "RGB888"},
-                            raw=None  # Prevent automatic RAW stream - eliminates V4L2 buffer errors
+                            raw=None,  # Prevent automatic RAW stream - eliminates V4L2 buffer errors
+                            buffer_count=1  # Minimal buffer allocation for still photos
                         )
                         
                         if hasattr(self, '_capture_configs'):

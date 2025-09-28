@@ -1821,19 +1821,32 @@ class PiCameraController(CameraController):
                             if was_running:
                                 camera.stop()
                                 
-                            # Create TRUE single-stream high-resolution configuration using preview config
-                            # create_still_configuration() automatically adds RAW stream, so use preview_configuration
-                            single_stream_config = camera.create_preview_configuration(
+                            # Create optimized single-stream configuration for still capture
+                            # Use minimal buffer allocation and proper sensor format
+                            single_stream_config = camera.create_still_configuration(
                                 main={"size": (9152, 6944), "format": "RGB888"},
-                                raw=None  # Explicitly disable RAW stream to prevent ISP buffer issues
+                                raw=None,  # Explicitly disable RAW stream
+                                buffer_count=1  # Minimal buffer for still capture - reduces memory pressure
                             )
                             
                             # Apply configuration and restart if needed
                             camera.configure(single_stream_config)
+                            
+                            # Set sensor controls for optimal RGB output (reduces conversion overhead)
+                            if hasattr(camera, 'set_controls'):
+                                try:
+                                    # Optimize for RGB output to match stream format
+                                    camera.set_controls({
+                                        "NoiseReductionMode": 0,  # Minimal processing for speed
+                                        "Sharpness": 0.0,         # Disable sharpening to reduce processing
+                                    })
+                                except Exception as control_error:
+                                    logger.debug(f"Camera {camera_id} control optimization failed: {control_error}")
+                            
                             if was_running:
                                 camera.start()
                                 
-                            logger.info(f"📷 Camera {camera_id}: Single-stream configuration applied for ISP buffer management")
+                            logger.info(f"📷 Camera {camera_id}: Optimized single-stream configuration applied (minimal buffers, reduced processing)")
                             
                     except Exception as config_error:
                         logger.warning(f"Camera {camera_id} reconfiguration for ISP failed: {config_error}")
