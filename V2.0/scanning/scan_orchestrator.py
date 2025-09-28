@@ -767,10 +767,10 @@ class CameraManagerAdapter:
                             display="lores"  # Use low-res for display efficiency
                         )
                         
-                        # SINGLE-STREAM: High-resolution capture only - eliminates ISP buffer pressure
-                        capture_config = camera.create_still_configuration(
-                            main={"size": (9152, 6944), "format": "RGB888"}  # Single stream for 64MP capture
-                            # NO lores, raw, or display streams to prevent ISP buffer queue errors
+                        # TRUE SINGLE-STREAM: Use preview config to prevent automatic RAW stream addition
+                        capture_config = camera.create_preview_configuration(
+                            main={"size": (9152, 6944), "format": "RGB888"},  # Single stream for 64MP capture
+                            raw=None  # Explicitly disable RAW to prevent ISP buffer queue errors
                         )
                         
                         # Store configurations per camera
@@ -886,10 +886,10 @@ class CameraManagerAdapter:
                                     if hasattr(self, '_capture_configs') and camera_id in self._capture_configs:
                                         camera.configure(self._capture_configs[camera_id])
                                     else:
-                                        # Single-stream fallback configuration
-                                        config = camera.create_still_configuration(
-                                            main={"size": (9152, 6944), "format": "RGB888"}
-                                            # Single stream only to prevent ISP buffer issues
+                                        # TRUE single-stream fallback configuration
+                                        config = camera.create_preview_configuration(
+                                            main={"size": (9152, 6944), "format": "RGB888"},
+                                            raw=None  # Prevent automatic RAW stream addition
                                         )
                                         camera.configure(config)
                                     
@@ -1869,10 +1869,10 @@ class CameraManagerAdapter:
                     if camera:
                         try:
                             # Create new capture configuration with resolution-appropriate buffers
-                            # SINGLE-STREAM: Custom resolution capture only
-                            new_capture_config = camera.create_still_configuration(
-                                main={"size": custom_resolution, "format": "RGB888"}  # Single stream only
-                                # NO additional streams to prevent ISP buffer queue errors
+                            # TRUE SINGLE-STREAM: Custom resolution capture with RAW disabled
+                            new_capture_config = camera.create_preview_configuration(
+                                main={"size": custom_resolution, "format": "RGB888"},
+                                raw=None  # Explicitly prevent automatic RAW stream addition
                             )
                             
                             # Update stored configuration
@@ -1891,9 +1891,9 @@ class CameraManagerAdapter:
                             fallback_resolution = (9152, 6944)  # 64MP fallback maintains capability
                             self.logger.warning(f"CAMERA: Falling back to max supported resolution: {fallback_resolution}")
                             
-                            fallback_config = camera.create_still_configuration(
-                                main={"size": fallback_resolution, "format": "RGB888"}
-                                # Single stream only to prevent ISP buffer errors
+                            fallback_config = camera.create_preview_configuration(
+                                main={"size": fallback_resolution, "format": "RGB888"},
+                                raw=None  # Prevent automatic RAW stream addition
                             )
                             
                             if hasattr(self, '_capture_configs'):
@@ -1922,10 +1922,10 @@ class CameraManagerAdapter:
                     camera = self.controller.cameras[camera_id]
                     
                     if camera:
-                        # SINGLE-STREAM: Safe configuration eliminates ISP buffer issues
-                        safe_config = camera.create_still_configuration(
-                            main={"size": safe_resolution, "format": "RGB888"}
-                            # Single stream only - proven to eliminate V4L2 buffer errors
+                        # TRUE SINGLE-STREAM: Safe configuration with RAW explicitly disabled
+                        safe_config = camera.create_preview_configuration(
+                            main={"size": safe_resolution, "format": "RGB888"},
+                            raw=None  # Prevent automatic RAW stream - eliminates V4L2 buffer errors
                         )
                         
                         if hasattr(self, '_capture_configs'):

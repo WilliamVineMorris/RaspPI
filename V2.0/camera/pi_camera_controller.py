@@ -1821,10 +1821,11 @@ class PiCameraController(CameraController):
                             if was_running:
                                 camera.stop()
                                 
-                            # Create single-stream high-resolution configuration
-                            single_stream_config = camera.create_still_configuration(
-                                main={"size": (9152, 6944), "format": "RGB888"}
-                                # NO additional streams to prevent ISP buffer issues
+                            # Create TRUE single-stream high-resolution configuration using preview config
+                            # create_still_configuration() automatically adds RAW stream, so use preview_configuration
+                            single_stream_config = camera.create_preview_configuration(
+                                main={"size": (9152, 6944), "format": "RGB888"},
+                                raw=None  # Explicitly disable RAW stream to prevent ISP buffer issues
                             )
                             
                             # Apply configuration and restart if needed
