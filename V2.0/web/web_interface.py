@@ -1468,6 +1468,8 @@ class ScannerWebInterface:
                 display_name = data.get('display_name') or data.get('description')  # Support both display_name and description
                 settings = data.get('settings', {})
                 
+                self.logger.info(f"🔧 Profile details: type={profile_type}, name={name}, display_name={display_name}, settings={settings}")
+                
                 # Support both formats: new (name, description/display_name, settings) and old (base_profile, custom_name, modifications)
                 if not name and data.get('custom_name'):
                     name = data.get('custom_name')
@@ -1494,10 +1496,14 @@ class ScannerWebInterface:
                         
                         self.logger.info(f"🔧 Creating quality profile '{name}' from base '{base_profile}' with settings: {settings}")
                         
+                        # Add description to the modifications
+                        modifications = settings.copy()
+                        modifications['description'] = display_name
+                        
                         # The create method uses custom_name as the profile key and name
                         profile = self.orchestrator.profile_manager.create_custom_quality_profile(
                             base_profile=base_profile,
-                            modifications=settings,
+                            modifications=modifications,
                             custom_name=name  # Use the full name (e.g., "custom_test")
                         )
                     elif profile_type == 'speed':
@@ -1509,10 +1515,14 @@ class ScannerWebInterface:
                         
                         self.logger.info(f"🔧 Creating speed profile '{name}' from base '{base_profile}' with settings: {settings}")
                         
+                        # Add description to the modifications
+                        modifications = settings.copy()
+                        modifications['description'] = display_name
+                        
                         # The create method uses custom_name as the profile key and name
                         profile = self.orchestrator.profile_manager.create_custom_speed_profile(
                             base_profile=base_profile,
-                            modifications=settings,
+                            modifications=modifications,
                             custom_name=name  # Use the full name (e.g., "custom_test")
                         )
                     else:

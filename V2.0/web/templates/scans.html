@@ -1142,8 +1142,8 @@
                 <div class="parameter-group">
                     <label for="quality">🎯 Quality Profile</label>
                     <select id="quality" class="parameter-input" onchange="onQualityProfileChange()">
-                        <option value="draft" data-is-preset="true">📋 Draft Quality (Fast)</option>
-                        <option value="standard" selected data-is-preset="true">📋 Standard Quality</option>
+                        <option value="low" data-is-preset="true">📋 Draft Quality (Fast)</option>
+                        <option value="medium" selected data-is-preset="true">📋 Standard Quality</option>
                         <option value="high" data-is-preset="true">📋 High Quality (Detailed)</option>
                         <option value="ultra" data-is-preset="true">📋 Ultra Quality (Slow)</option>
                         <!-- Custom profiles will be added here by JavaScript -->
@@ -1152,11 +1152,9 @@
                 <div class="parameter-group">
                     <label for="speed">⚡ Speed Profile</label>
                     <select id="speed" class="parameter-input" onchange="onSpeedProfileChange()">
-                        <option value="ultra_fast" data-is-preset="true">🚀 Ultra Fast</option>
-                        <option value="fast" data-is-preset="true">🚀 Fast</option>
-                        <option value="normal" selected data-is-preset="true">🚀 Normal</option>
-                        <option value="precise" data-is-preset="true">🚀 Precise</option>
-                        <option value="ultra_precise" data-is-preset="true">🚀 Ultra Precise</option>
+                        <option value="fast" data-is-preset="true">🚀 Quick Scan (Fastest)</option>
+                        <option value="medium" selected data-is-preset="true">🚀 Balanced</option>
+                        <option value="slow" data-is-preset="true">🚀 Precision (Slowest)</option>
                         <!-- Custom profiles will be added here by JavaScript -->
                     </select>
                 </div>
@@ -2321,12 +2319,12 @@ function updateProfileDropdowns(qualityProfiles, speedProfiles) {
     const speedSelect = document.getElementById('speed');
     
     // Clear existing custom options (keep presets)
-    ['draft', 'standard', 'high'].forEach(preset => {
+    ['low', 'medium', 'high', 'ultra'].forEach(preset => {
         const option = qualitySelect.querySelector(`option[value="${preset}"]`);
         if (option) option.setAttribute('data-is-preset', 'true');
     });
     
-    ['ultra_fast', 'fast', 'normal', 'precise', 'ultra_precise'].forEach(preset => {
+    ['fast', 'medium', 'slow'].forEach(preset => {
         const option = speedSelect.querySelector(`option[value="${preset}"]`);
         if (option) option.setAttribute('data-is-preset', 'true');
     });
@@ -2335,20 +2333,28 @@ function updateProfileDropdowns(qualityProfiles, speedProfiles) {
     qualitySelect.querySelectorAll('option:not([data-is-preset])').forEach(opt => opt.remove());
     speedSelect.querySelectorAll('option:not([data-is-preset])').forEach(opt => opt.remove());
     
-    // Add custom quality profiles
-    qualityProfiles.filter(p => p.name.startsWith('custom_')).forEach(profile => {
-        const option = document.createElement('option');
-        option.value = profile.name;
-        option.textContent = `🔧 ${profile.description || profile.name}`;
-        qualitySelect.appendChild(option);
+    // Add custom quality profiles (exclude built-in profiles)
+    const builtInQuality = ['low', 'medium', 'high', 'ultra'];
+    qualityProfiles.filter(p => p.name.startsWith('custom_') || !builtInQuality.includes(p.name)).forEach(profile => {
+        // Skip if this profile is already in HTML as a preset
+        if (!builtInQuality.includes(profile.name)) {
+            const option = document.createElement('option');
+            option.value = profile.name;
+            option.textContent = `🔧 ${profile.description || profile.name}`;
+            qualitySelect.appendChild(option);
+        }
     });
     
-    // Add custom speed profiles
-    speedProfiles.filter(p => p.name.startsWith('custom_')).forEach(profile => {
-        const option = document.createElement('option');
-        option.value = profile.name;
-        option.textContent = `🔧 ${profile.description || profile.name}`;
-        speedSelect.appendChild(option);
+    // Add custom speed profiles (exclude built-in profiles)
+    const builtInSpeed = ['fast', 'medium', 'slow'];
+    speedProfiles.filter(p => p.name.startsWith('custom_') || !builtInSpeed.includes(p.name)).forEach(profile => {
+        // Skip if this profile is already in HTML as a preset
+        if (!builtInSpeed.includes(profile.name)) {
+            const option = document.createElement('option');
+            option.value = profile.name;
+            option.textContent = `🔧 ${profile.description || profile.name}`;
+            speedSelect.appendChild(option);
+        }
     });
 }
 
