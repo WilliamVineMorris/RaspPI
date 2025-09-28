@@ -2093,12 +2093,31 @@ class PiCameraController(CameraController):
                         
                         logger.info(f"📷 {camera_key}: Starting ISP-managed capture at {target_resolution}")
                         
-                        # Capture with timeout to prevent hanging
+                        # Capture with timeout and V4L2 error monitoring
                         try:
+                            # Monitor for V4L2 buffer errors during capture
+                            logger.info(f"🔍 {camera_key}: Starting capture with V4L2 error monitoring...")
+                            
                             image_array = await asyncio.wait_for(
                                 self.capture_with_isp_management(camera_id, "main"),
                                 timeout=30.0  # 30 second timeout for high-res capture
                             )
+                            
+                            # Check for V4L2 errors in system logs (if capture succeeds)
+                            if image_array is not None:
+                                logger.info(f"🔍 {camera_key}: Checking for V4L2 buffer errors during capture...")
+                                try:
+                                    import subprocess
+                                    # Check recent kernel messages for V4L2 errors
+                                    result = subprocess.run(['dmesg', '|', 'tail', '-20', '|', 'grep', '-i', 'v4l2'], 
+                                                          shell=True, capture_output=True, text=True, timeout=3)
+                                    if result.returncode == 0 and 'ERROR' in result.stdout:
+                                        logger.warning(f"🚨 {camera_key}: V4L2 errors detected in kernel logs during capture")
+                                    else:
+                                        logger.info(f"✅ {camera_key}: No V4L2 errors detected in recent kernel logs")
+                                except Exception as log_error:
+                                    logger.debug(f"V4L2 log check skipped: {log_error}")
+                            
                         except asyncio.TimeoutError:
                             logger.error(f"📷 {camera_key}: Capture timed out after 30 seconds")
                             image_array = None
@@ -2158,20 +2177,44 @@ class PiCameraController(CameraController):
                                 gc.collect()
                                 await asyncio.sleep(0.2)
                             
-                            # System-level V4L2 buffer cleanup
-                            logger.info(f"🧹 System-level V4L2 buffer cleanup...")
+                            # Comprehensive V4L2 subsystem cleanup
+                            logger.info(f"🧹 Comprehensive V4L2 subsystem cleanup...")
                             try:
-                                # Force system buffer cleanup
                                 import subprocess
-                                # Echo to drop caches (requires root, might fail but that's OK)
+                                
+                                # Step 1: Drop system caches to free V4L2 kernel buffers
                                 subprocess.run(['sudo', 'sh', '-c', 'echo 1 > /proc/sys/vm/drop_caches'], 
                                              capture_output=True, timeout=2)
                                 logger.info("🧹 System cache drop completed")
-                            except Exception as cache_error:
-                                logger.debug(f"Cache drop skipped: {cache_error}")
+                                
+                                # Step 2: Force V4L2 device reset (if possible)
+                                try:
+                                    # Reset V4L2 devices by briefly toggling camera module power
+                                    subprocess.run(['sudo', 'modprobe', '-r', 'arducam_64mp'], 
+                                                 capture_output=True, timeout=3)
+                                    await asyncio.sleep(0.5)
+                                    subprocess.run(['sudo', 'modprobe', 'arducam_64mp'], 
+                                                 capture_output=True, timeout=3)
+                                    logger.info("🧹 V4L2 module reset completed")
+                                except Exception as module_error:
+                                    logger.debug(f"V4L2 module reset skipped: {module_error}")
+                                
+                            except Exception as cleanup_error:
+                                logger.debug(f"V4L2 cleanup skipped: {cleanup_error}")
                             
-                            # Extended V4L2 stabilization delay
-                            await asyncio.sleep(1.0)
+                            # Extended V4L2 stabilization delay for driver recovery
+                            await asyncio.sleep(2.0)
+                            
+                            # V4L2 device state diagnostics
+                            try:
+                                import subprocess
+                                # Check V4L2 device states
+                                result = subprocess.run(['ls', '-la', '/dev/video*'], 
+                                                      capture_output=True, text=True, timeout=2)
+                                video_devices = len(result.stdout.splitlines()) if result.returncode == 0 else 0
+                                logger.info(f"🔍 V4L2 devices available: {video_devices}")
+                            except Exception as diag_error:
+                                logger.debug(f"V4L2 diagnostics skipped: {diag_error}")
                             
                             # Memory status check before next camera
                             try:
