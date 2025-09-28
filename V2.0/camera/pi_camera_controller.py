@@ -1857,35 +1857,6 @@ class PiCameraController(CameraController):
                     
                     # Set flag for sequential mode
                     self._high_res_sequential_mode = True
-                                    raw=None,  # No RAW stream
-                                    buffer_count=1  # Minimal buffer allocation
-                                )
-                                
-                                camera.configure(high_res_config)
-                                
-                                # Optimize controls for high-resolution capture
-                                if hasattr(camera, 'set_controls'):
-                                    try:
-                                        camera.set_controls({
-                                            "NoiseReductionMode": 0,
-                                            "Sharpness": 0.0,
-                                        })
-                                    except Exception as control_error:
-                                        logger.debug(f"Camera {camera_id} control optimization failed: {control_error}")
-                                
-                                # Start camera and verify
-                                camera.start()
-                                await asyncio.sleep(0.2)  # Let camera stabilize
-                                
-                                logger.info(f"📷 Camera {camera_id}: High-resolution reconfiguration successful")
-                                
-                            except Exception as config_error:
-                                logger.error(f"Camera {camera_id} high-resolution reconfiguration failed: {config_error}")
-                                return False  # Fail fast for high-res mode
-                            
-                            # Memory cleanup after each camera configuration
-                            gc.collect()
-                            await asyncio.sleep(0.2)
                             
                 else:
                     # STANDARD MODE: Simultaneous preparation for lower resolutions
@@ -1978,7 +1949,7 @@ class PiCameraController(CameraController):
                             except Exception:
                                 pass
             
-            is_high_resolution = target_resolution[0] >= 8000  # 8000+ pixels width = high-res
+            is_high_resolution = target_resolution and target_resolution[0] >= 8000  # 8000+ pixels width = high-res
             
             logger.info(f"📷 Resolution-aware capture: {target_resolution}, Strategy: {'Sequential' if is_high_resolution else 'Simultaneous'}")
             
@@ -2035,25 +2006,7 @@ class PiCameraController(CameraController):
                             except Exception as verify_error:
                                 logger.warning(f"📷 {camera_key}: Could not verify configuration: {verify_error}")
                             
-                            # Continue with capture without re-checking resolution
-                                    logger.info(f"📷 Camera {camera_id}: Resolution mismatch, reconfiguring from {current_size} to {target_resolution}")
-                                    
-                                    # Stop and reconfigure for correct resolution
-                                    if camera.started:
-                                        camera.stop()
-                                    
-                                    # Configure for exact target resolution
-                                    new_config = camera.create_still_configuration(
-                                        main={"size": target_resolution, "format": "RGB888"},
-                                        raw=None,
-                                        buffer_count=1
-                                    )
-                                    camera.configure(new_config)
-                                    camera.start()
-                                    await asyncio.sleep(0.2)  # Let camera settle
-                            
-                            except Exception as reconfig_error:
-                                logger.warning(f"Camera {camera_id} reconfiguration skipped: {reconfig_error}")
+                            # Continue with capture
                         
                         # Capture with ISP management
                         gc.collect()
