@@ -2235,6 +2235,8 @@ async function startScanNow() {
         
         // STEP 2: Include homing confirmation directly in scan data
         scanData.homing_confirmed = homingDecision;
+        console.log('🏠 Setting homing_confirmed in scanData:', homingDecision);
+        console.log('🏠 Complete scanData being sent to backend:', JSON.stringify(scanData, null, 2));
         console.log('Starting scan with pre-confirmed homing:', homingDecision ? 'YES' : 'SKIP');
         
         // STEP 3: Now start the actual scan with homing preference included
@@ -2398,9 +2400,11 @@ function collectScanParameters() {
         
         // Get basic parameters
         const scanName = document.getElementById('scanName')?.value || 'Untitled Scan';
-        const resolution = document.getElementById('scanResolution')?.value || 'medium';
-        const speed = document.getElementById('scanSpeed')?.value || 'medium';
+        const resolution = document.getElementById('quality')?.value || 'medium';  // Fixed: use 'quality' ID
+        const speed = document.getElementById('speed')?.value || 'medium';        // Fixed: use 'speed' ID
         const cameraCount = document.getElementById('cameraCount')?.value || '2';
+        
+        console.log('📊 Collecting scan parameters:', { scanName, resolution, speed, cameraCount });
         
         let scanPattern;
         
