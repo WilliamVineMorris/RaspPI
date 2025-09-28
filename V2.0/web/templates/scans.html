@@ -1282,6 +1282,20 @@
         align-items: center;
     }
     
+    /* Advanced Settings Section Styling */
+    .advanced-settings-section {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 1rem 1.5rem;
+        margin-bottom: 0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+    
+    .advanced-settings-section .btn {
+        font-weight: 500;
+    }
+    
     /* Remove Bootstrap container constraints */
     .container-fluid {
         padding-left: 0 !important;
@@ -1540,22 +1554,25 @@
                     </div>
             </div>
             
-                    <!-- Advanced Toggle and Quick Actions -->
-                    <div class="col-12 mt-3">
-                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                            <div class="d-flex gap-2 align-items-center">
-                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="toggleProfileCustomization()">
-                                    <i class="bi bi-sliders" id="advancedIcon"></i>
-                                    <span id="profileToggleText">Advanced Settings</span>
-                                </button>
-
+                <!-- Advanced Toggle and Quick Actions -->
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="advanced-settings-section">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <div class="d-flex gap-2 align-items-center">
+                                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="toggleProfileCustomization()">
+                                        <i class="bi bi-sliders" id="advancedIcon"></i>
+                                        <span id="profileToggleText">Advanced Settings</span>
+                                    </button>
+                                </div>
+                                <small class="text-muted" id="profileHint">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    Click Advanced Settings to customize profile parameters
+                                </small>
                             </div>
-                            <small class="text-muted" id="profileHint">
-                                <i class="bi bi-info-circle me-1"></i>
-                                Click Advanced Settings to customize profile parameters
-                            </small>
                         </div>
                     </div>
+                </div>
                 </div>
             </div>
             
