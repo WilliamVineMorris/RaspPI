@@ -54,10 +54,15 @@ async def test_capture_step_by_step():
         # Step 2: Initialize camera controller
         logger.info("📷 Step 2: Initializing camera controller...")
         camera_controller = PiCameraController(config)
-        logger.info(f"✅ Camera controller initialized")
+        logger.info(f"✅ Camera controller created")
         
-        # Step 3: Check camera availability
-        logger.info("🔍 Step 3: Checking camera availability...")
+        # Step 3: Initialize cameras (CRITICAL - this actually sets up self.cameras)
+        logger.info("🔄 Step 3: Initializing cameras...")
+        init_success = await camera_controller.initialize()
+        logger.info(f"✅ Camera initialization result: {init_success}")
+        
+        # Step 4: Check camera availability
+        logger.info("🔍 Step 4: Checking camera availability...")
         available_cameras = list(camera_controller.cameras.keys())
         logger.info(f"✅ Available cameras: {available_cameras}")
         
@@ -65,9 +70,9 @@ async def test_capture_step_by_step():
             logger.error("❌ No cameras available for testing!")
             return False
         
-        # Step 4: Test individual camera capture
+        # Step 5: Test individual camera capture
         for camera_id in available_cameras:
-            logger.info(f"📸 Step 4.{camera_id}: Testing camera {camera_id} individual capture...")
+            logger.info(f"📸 Step 5.{camera_id}: Testing camera {camera_id} individual capture...")
             
             try:
                 # Check if camera is initialized
@@ -117,8 +122,8 @@ async def test_capture_step_by_step():
                 logger.error(f"❌ Camera {camera_id} testing failed: {camera_error}")
                 logger.error(f"   Traceback: {traceback.format_exc()}")
         
-        # Step 5: Test sequential dual capture
-        logger.info("🔄 Step 5: Testing sequential dual capture...")
+        # Step 6: Test sequential dual capture
+        logger.info("🔄 Step 6: Testing sequential dual capture...")
         try:
             result = await camera_controller.capture_dual_sequential_isp()
             if result:
@@ -134,8 +139,8 @@ async def test_capture_step_by_step():
             logger.error(f"❌ Sequential dual capture failed: {dual_error}")
             logger.error(f"   Traceback: {traceback.format_exc()}")
         
-        # Step 6: Test high-resolution capture
-        logger.info("📸 Step 6: Testing high-resolution capture...")
+        # Step 7: Test high-resolution capture
+        logger.info("📸 Step 7: Testing high-resolution capture...")
         try:
             result = await camera_controller.capture_dual_resolution_aware((9152, 6944))
             if result:
