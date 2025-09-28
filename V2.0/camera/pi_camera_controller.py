@@ -2110,13 +2110,21 @@ class PiCameraController(CameraController):
                             results[camera_key] = None
                             logger.error(f"❌ High-res capture failed: {camera_key}")
                         
-                        # CRITICAL: Complete camera shutdown and resource release
+                    except Exception as camera_error:
+                        logger.error(f"High-res capture error for {camera_key}: {camera_error}")
+                        results[camera_key] = None
+                        
+                    finally:
+                        # CRITICAL: Always close camera after each capture to free V4L2 buffers
                         if camera:
                             logger.info(f"📷 {camera_key}: Complete shutdown to free all V4L2/ISP resources...")
                             
                             # Step 1: Force stop camera
-                            if camera.started:
-                                camera.stop()
+                            try:
+                                if hasattr(camera, 'started') and camera.started:
+                                    camera.stop()
+                            except Exception as stop_error:
+                                logger.warning(f"📷 {camera_key}: Camera stop warning: {stop_error}")
                             
                             # Step 2: Close camera completely to free V4L2 buffers
                             try:
@@ -2167,12 +2175,7 @@ class PiCameraController(CameraController):
                                 logger.info(f"📊 Pre-camera memory: {mem.percent}% used, {mem.available / 1024**3:.1f}GB available")
                             except ImportError:
                                 pass
-                        
-                    except Exception as camera_error:
-                        logger.error(f"High-res capture error for {camera_key}: {camera_error}")
-                        results[camera_key] = None
-                        gc.collect()
-                        await asyncio.sleep(0.2)
+
                 
             else:
                 # LOWER-RESOLUTION: Simultaneous capture for better sync
