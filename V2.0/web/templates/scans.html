@@ -2203,9 +2203,11 @@ async function startScanNow() {
             const statusResult = await statusResponse.json();
             
             if (statusResult.success && statusResult.data) {
-                const systemStatus = statusResult.data.status;
-                const isHomed = statusResult.data.homed;
+                // Fix: Access correct fields from motion status
+                const systemStatus = statusResult.data.motion.status;
+                const isHomed = statusResult.data.motion.homed;
                 console.log('🏠 System status:', systemStatus, 'Homed:', isHomed);
+                console.log('🏠 Full motion data:', statusResult.data.motion);
                 
                 // Update modal content based on system status
                 updateHomingModalContent(systemStatus, isHomed);
