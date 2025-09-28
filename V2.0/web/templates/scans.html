@@ -2558,15 +2558,32 @@ function collectCustomSpeedSettings() {
 // Load settings from existing profile into customization panel
 async function loadProfileSettings(profileType, profileName) {
     try {
+        console.log(`🔄 Loading ${profileType} profile: ${profileName}`);
         const response = await fetch(`/api/profiles/get/${profileType}/${profileName}`);
         const data = await response.json();
         
+        console.log(`📋 Profile data received:`, data);
+        
         if (data.success) {
-            if (profileType === 'quality') {
-                populateQualitySettings(data.profile.settings);
-            } else if (profileType === 'speed') {
-                populateSpeedSettings(data.profile.settings);
+            // Ensure customization panel is visible
+            const panel = document.getElementById('profileCustomizationPanel');
+            if (panel && panel.style.display === 'none') {
+                toggleProfileCustomization();
             }
+            
+            if (profileType === 'quality') {
+                // Activate quality tab
+                const qualityTab = document.querySelector('a[href="#qualityProfileCustom"]');
+                if (qualityTab) qualityTab.click();
+                populateQualitySettings(data.profile.settings || data.profile);
+            } else if (profileType === 'speed') {
+                // Activate speed tab
+                const speedTab = document.querySelector('a[href="#speedProfileCustom"]');
+                if (speedTab) speedTab.click();
+                populateSpeedSettings(data.profile.settings || data.profile);
+            }
+        } else {
+            console.error(`❌ Failed to load ${profileType} profile:`, data.error);
         }
     } catch (error) {
         console.error('Error loading profile settings:', error);
@@ -2575,39 +2592,55 @@ async function loadProfileSettings(profileType, profileName) {
 
 // Populate quality customization panel with profile settings
 function populateQualitySettings(settings) {
-    document.getElementById('customResolution').value = JSON.stringify(settings.resolution);
-    document.getElementById('customJpegQuality').value = settings.jpeg_quality;
-    document.getElementById('customCaptureTimeout').value = settings.capture_timeout;
-    document.getElementById('customIsoPreference').value = settings.iso_preference;
-    document.getElementById('customExposureMode').value = settings.exposure_mode;
-    document.getElementById('customExposureTime').value = settings.exposure_time;
-    document.getElementById('customAnalogueGain').value = settings.analogue_gain;
-    document.getElementById('customDenoiseLevel').value = settings.denoise_level;
-    document.getElementById('customSharpeningLevel').value = settings.sharpening_level;
-    
-    // Update displays
-    updateQualityDisplay(settings.jpeg_quality);
-    updateTimeoutDisplay(settings.capture_timeout);
-    updateDenoiseDisplay(settings.denoise_level);
-    updateSharpeningDisplay(settings.sharpening_level);
-    toggleManualExposureSettings();
+    try {
+        console.log('📋 Populating quality settings:', settings);
+        
+        if (settings.resolution) document.getElementById('customResolution').value = JSON.stringify(settings.resolution);
+        if (settings.jpeg_quality !== undefined) document.getElementById('customJpegQuality').value = settings.jpeg_quality;
+        if (settings.capture_timeout !== undefined) document.getElementById('customCaptureTimeout').value = settings.capture_timeout;
+        if (settings.iso_preference) document.getElementById('customIsoPreference').value = settings.iso_preference;
+        if (settings.exposure_mode) document.getElementById('customExposureMode').value = settings.exposure_mode;
+        if (settings.exposure_time !== undefined && settings.exposure_time !== null) document.getElementById('customExposureTime').value = settings.exposure_time;
+        if (settings.analogue_gain !== undefined && settings.analogue_gain !== null) document.getElementById('customAnalogueGain').value = settings.analogue_gain;
+        if (settings.denoise_level !== undefined) document.getElementById('customDenoiseLevel').value = settings.denoise_level;
+        if (settings.sharpening_level !== undefined) document.getElementById('customSharpeningLevel').value = settings.sharpening_level;
+        
+        // Update displays
+        if (settings.jpeg_quality !== undefined) updateQualityDisplay(settings.jpeg_quality);
+        if (settings.capture_timeout !== undefined) updateTimeoutDisplay(settings.capture_timeout);
+        if (settings.denoise_level !== undefined) updateDenoiseDisplay(settings.denoise_level);
+        if (settings.sharpening_level !== undefined) updateSharpeningDisplay(settings.sharpening_level);
+        
+        // Update visibility for manual exposure controls
+        toggleManualExposureSettings();
+        
+    } catch (error) {
+        console.error('❌ Error populating quality settings:', error);
+    }
 }
 
 // Populate speed customization panel with profile settings
 function populateSpeedSettings(settings) {
-    document.getElementById('customFeedrateMultiplier').value = settings.feedrate_multiplier;
-    document.getElementById('customSettlingDelay').value = settings.settling_delay;
-    document.getElementById('customMotionPrecision').value = settings.motion_precision;
-    document.getElementById('customAccelerationFactor').value = settings.acceleration_factor;
-    document.getElementById('customCaptureDelay').value = settings.capture_delay;
-    document.getElementById('customParallelProcessing').checked = settings.parallel_processing;
-    document.getElementById('customSkipConfirmations').checked = settings.skip_confirmations;
-    
-    // Update displays
-    updateFeedrateDisplay(settings.feedrate_multiplier);
-    updateSettlingDisplay(settings.settling_delay);
-    updateAccelDisplay(settings.acceleration_factor);
-    updateCaptureDelayDisplay(settings.capture_delay);
+    try {
+        console.log('🏃 Populating speed settings:', settings);
+        
+        if (settings.feedrate_multiplier !== undefined) document.getElementById('customFeedrateMultiplier').value = settings.feedrate_multiplier;
+        if (settings.settling_delay !== undefined) document.getElementById('customSettlingDelay').value = settings.settling_delay;
+        if (settings.motion_precision) document.getElementById('customMotionPrecision').value = settings.motion_precision;
+        if (settings.acceleration_factor !== undefined) document.getElementById('customAccelerationFactor').value = settings.acceleration_factor;
+        if (settings.capture_delay !== undefined) document.getElementById('customCaptureDelay').value = settings.capture_delay;
+        if (settings.parallel_processing !== undefined) document.getElementById('customParallelProcessing').checked = settings.parallel_processing;
+        if (settings.skip_confirmations !== undefined) document.getElementById('customSkipConfirmations').checked = settings.skip_confirmations;
+        
+        // Update displays
+        if (settings.feedrate_multiplier !== undefined) updateFeedrateDisplay(settings.feedrate_multiplier);
+        if (settings.settling_delay !== undefined) updateSettlingDisplay(settings.settling_delay);
+        if (settings.acceleration_factor !== undefined) updateAccelDisplay(settings.acceleration_factor);
+        if (settings.capture_delay !== undefined) updateCaptureDelayDisplay(settings.capture_delay);
+        
+    } catch (error) {
+        console.error('❌ Error populating speed settings:', error);
+    }
 }
 
 // Enhanced profile change handlers for main dropdowns
@@ -2615,7 +2648,8 @@ function onQualityProfileChange() {
     const qualitySelect = document.getElementById('quality');
     const selectedProfile = qualitySelect.value;
     
-    if (selectedProfile && selectedProfile.startsWith('custom_')) {
+    if (selectedProfile) {
+        console.log(`🔄 Quality profile changed to: ${selectedProfile}`);
         loadProfileSettings('quality', selectedProfile);
     }
 }
@@ -2624,7 +2658,8 @@ function onSpeedProfileChange() {
     const speedSelect = document.getElementById('speed');
     const selectedProfile = speedSelect.value;
     
-    if (selectedProfile && selectedProfile.startsWith('custom_')) {
+    if (selectedProfile) {
+        console.log(`🔄 Speed profile changed to: ${selectedProfile}`);
         loadProfileSettings('speed', selectedProfile);
     }
 }
