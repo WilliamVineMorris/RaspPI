@@ -2419,12 +2419,17 @@ class ScanOrchestrator:
     
     async def _get_actual_camera_settings(self, prefer_calibrated: bool = True) -> dict:
         """Get actual calibrated camera settings instead of template values"""
+        # Get custom quality if available
+        jpeg_quality = 95  # Default
+        if hasattr(self.camera_manager, '_quality_settings') and self.camera_manager._quality_settings:
+            jpeg_quality = self.camera_manager._quality_settings.get('jpeg_quality', 95)
+        
         actual_settings = {
             'exposure_time': '1/30s',  # Sensible default for ArduCam 64MP
             'iso': 800,               # Sensible default for indoor scanning
             'capture_format': 'JPEG',
             'resolution': [4608, 2592],  # Actual ArduCam 64MP resolution
-            'quality': 95,            # High quality for scanning
+            'quality': int(jpeg_quality),  # Use custom quality or default
             'calibration_source': 'default_values'  # Track source of settings
         }
         
@@ -3268,6 +3273,11 @@ class ScanOrchestrator:
                     # 📷 Get comprehensive camera metadata (same as web interface)
                     comprehensive_camera_metadata = self._get_scan_camera_metadata(camera_id, camera_metadata, 80)  # 80% flash intensity for scan
                     
+                    # Get custom quality for metadata
+                    metadata_quality = 95  # Default
+                    if hasattr(self.camera_manager, '_quality_settings') and self.camera_manager._quality_settings:
+                        metadata_quality = self.camera_manager._quality_settings.get('jpeg_quality', 95)
+                    
                     # Create comprehensive metadata (same structure as web interface)
                     storage_metadata = StorageMetadata(
                         file_id=str(uuid.uuid4()),
@@ -3285,7 +3295,7 @@ class ScanOrchestrator:
                             'resolution': 'high',
                             'capture_mode': 'scan_sequence', 
                             'image_format': 'JPEG',
-                            'quality': 95,
+                            'quality': int(metadata_quality),
                             'actual_resolution': '4608x2592',
                             'sensor_type': 'Arducam 64MP',
                             'capture_timestamp': time.time(),

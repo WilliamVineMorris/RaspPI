@@ -3407,6 +3407,11 @@ class ScannerWebInterface:
             self.logger.info(f"📍 Creating position_data for storage: {position_dict}")
             self.logger.info(f"📍 current_position object: {current_position}")
             
+            # Get custom quality from orchestrator if available
+            jpeg_quality = 95  # Default
+            if hasattr(self, 'orchestrator') and hasattr(self.orchestrator.camera_manager, '_quality_settings'):
+                jpeg_quality = self.orchestrator.camera_manager._quality_settings.get('jpeg_quality', 95)
+                
             # Create comprehensive metadata
             metadata = StorageMetadata(
                 file_id=str(uuid.uuid4()),
@@ -3424,7 +3429,7 @@ class ScannerWebInterface:
                     'resolution': 'high',
                     'capture_mode': 'synchronized_flash', 
                     'image_format': 'JPEG',
-                    'quality': 95,
+                    'quality': int(jpeg_quality),
                     'actual_resolution': '4608x2592',  # Based on your logs
                     'sensor_type': 'Arducam 64MP',
                     'capture_timestamp': time.time(),
