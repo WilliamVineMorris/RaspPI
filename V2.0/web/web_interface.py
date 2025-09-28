@@ -241,6 +241,7 @@ class CommandValidator:
             'spacing': spacing,
             'z_height': z_height,  # Cylinder rotation angle for grid scan
             'scan_name': data.get('scan_name', 'Untitled_Scan'),  # Preserve scan name
+            'homing_confirmed': data.get('homing_confirmed', False),  # Preserve homing decision
             'validated': True
         }
     
@@ -330,6 +331,7 @@ class CommandValidator:
             'rotation_step': data.get('rotation_step', 60.0),  # For reference
             'servo_angle': servo_angle,    # Single servo angle value
             'scan_name': data.get('scan_name', 'Untitled_Scan'),  # Preserve scan name
+            'homing_confirmed': data.get('homing_confirmed', False),  # Preserve homing decision
             'validated': True
         }
 
@@ -2741,6 +2743,7 @@ class ScannerWebInterface:
                     async def run_complete_scan():
                         # Extract homing confirmation from pattern_data (frontend already handled this)
                         homing_confirmed = pattern_data.get('homing_confirmed', False)  # Default to False (skip) for safety
+                        self.logger.info(f"🏠 DEBUG: Received homing_confirmed from frontend: {homing_confirmed}")
                         self.logger.info(f"🏠 Using pre-confirmed homing decision from frontend: {'proceed' if homing_confirmed else 'skip'}")
                         
                         # Apply scan profiles based on quality and speed settings from pattern_data
