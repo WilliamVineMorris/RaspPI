@@ -1400,9 +1400,6 @@ class ScannerWebInterface:
                             'parameters': {
                                 'feedrate_multiplier': p.feedrate_multiplier,
                                 'settling_delay': p.settling_delay,
-                                'acceleration_factor': p.acceleration_factor,
-                                'motion_precision': p.motion_precision,
-                                'capture_delay': p.capture_delay,
                                 'parallel_processing': p.parallel_processing,
                                 'skip_confirmations': p.skip_confirmations
                             }

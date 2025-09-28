@@ -2848,13 +2848,7 @@ function updateSettlingDisplay(value) {
     document.getElementById('settlingDisplay').textContent = value;
 }
 
-function updateAccelDisplay(value) {
-    document.getElementById('accelDisplay').textContent = value;
-}
 
-function updateCaptureDelayDisplay(value) {
-    document.getElementById('captureDelayDisplay').textContent = value;
-}
 
 // Toggle manual exposure settings visibility
 function toggleManualExposureSettings() {
@@ -2970,9 +2964,7 @@ function resetToDefaults() {
     // Speed settings defaults
     document.getElementById('customFeedrateMultiplier').value = '1.0';
     document.getElementById('customSettlingDelay').value = '2.0';
-    document.getElementById('customMotionPrecision').value = 'normal';
-    document.getElementById('customAccelerationFactor').value = '1.0';
-    document.getElementById('customCaptureDelay').value = '0.2';
+
     document.getElementById('customParallelProcessing').checked = true;
     document.getElementById('customSkipConfirmations').checked = false;
     
@@ -2983,8 +2975,7 @@ function resetToDefaults() {
     updateSharpeningDisplay('2');
     updateFeedrateDisplay('1.0');
     updateSettlingDisplay('2.0');
-    updateAccelDisplay('1.0');
-    updateCaptureDelayDisplay('0.2');
+
     
     // Hide manual exposure settings
     toggleManualExposureSettings();
@@ -3012,9 +3003,7 @@ function collectCustomSpeedSettings() {
     return {
         feedrate_multiplier: parseFloat(document.getElementById('customFeedrateMultiplier').value),
         settling_delay: parseFloat(document.getElementById('customSettlingDelay').value),
-        motion_precision: document.getElementById('customMotionPrecision').value,
-        acceleration_factor: parseFloat(document.getElementById('customAccelerationFactor').value),
-        capture_delay: parseFloat(document.getElementById('customCaptureDelay').value),
+
         parallel_processing: document.getElementById('customParallelProcessing').checked,
         skip_confirmations: document.getElementById('customSkipConfirmations').checked
     };
@@ -3116,17 +3105,14 @@ function populateSpeedSettings(settings) {
         
         if (settings.feedrate_multiplier !== undefined) document.getElementById('customFeedrateMultiplier').value = settings.feedrate_multiplier;
         if (settings.settling_delay !== undefined) document.getElementById('customSettlingDelay').value = settings.settling_delay;
-        if (settings.motion_precision) document.getElementById('customMotionPrecision').value = settings.motion_precision;
-        if (settings.acceleration_factor !== undefined) document.getElementById('customAccelerationFactor').value = settings.acceleration_factor;
-        if (settings.capture_delay !== undefined) document.getElementById('customCaptureDelay').value = settings.capture_delay;
+
         if (settings.parallel_processing !== undefined) document.getElementById('customParallelProcessing').checked = settings.parallel_processing;
         if (settings.skip_confirmations !== undefined) document.getElementById('customSkipConfirmations').checked = settings.skip_confirmations;
         
         // Update displays
         if (settings.feedrate_multiplier !== undefined) updateFeedrateDisplay(settings.feedrate_multiplier);
         if (settings.settling_delay !== undefined) updateSettlingDisplay(settings.settling_delay);
-        if (settings.acceleration_factor !== undefined) updateAccelDisplay(settings.acceleration_factor);
-        if (settings.capture_delay !== undefined) updateCaptureDelayDisplay(settings.capture_delay);
+
         
     } catch (error) {
         console.error('❌ Error populating speed settings:', error);

@@ -44,10 +44,7 @@ class SpeedProfile:
     name: str
     description: str
     feedrate_multiplier: float  # 0.1 to 2.0
-    settling_delay: float  # seconds to wait after movement
-    acceleration_factor: float  # 0.5 to 1.5 (affects jerk/smoothness)
-    motion_precision: str  # 'high', 'normal', 'fast'
-    capture_delay: float  # delay between move complete and capture
+    settling_delay: float  # seconds to wait after movement (includes capture preparation)
     parallel_processing: bool  # enable parallel image processing
     skip_confirmations: bool  # skip non-critical confirmations
     is_custom: bool = False
@@ -116,10 +113,7 @@ class ScanProfileManager:
             name='slow',
             description='Precision (Slowest)',
             feedrate_multiplier=0.6,
-            settling_delay=3.0,
-            acceleration_factor=0.8,
-            motion_precision='high',
-            capture_delay=0.5,
+            settling_delay=3.5,  # Combined settling + capture delay
             parallel_processing=False,
             skip_confirmations=False,
             is_editable=False
@@ -128,10 +122,7 @@ class ScanProfileManager:
             name='medium',
             description='Balanced',
             feedrate_multiplier=1.0,
-            settling_delay=2.0,
-            acceleration_factor=1.0,
-            motion_precision='normal',
-            capture_delay=0.2,
+            settling_delay=2.2,  # Combined settling + capture delay
             parallel_processing=True,
             skip_confirmations=False,
             is_editable=False
@@ -140,10 +131,7 @@ class ScanProfileManager:
             name='fast',
             description='Quick Scan (Fastest)',
             feedrate_multiplier=1.4,
-            settling_delay=1.5,
-            acceleration_factor=1.2,
-            motion_precision='fast',
-            capture_delay=0.1,
+            settling_delay=1.6,  # Combined settling + capture delay
             parallel_processing=True,
             skip_confirmations=True,
             is_editable=False
