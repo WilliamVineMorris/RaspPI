@@ -20,8 +20,20 @@ from pathlib import Path
 import json
 
 try:
+    # Try pigpio first for precise PWM control (as specified in scanner config)
+    import pigpio
+    PIGPIO_AVAILABLE = True
+    GPIO_LIBRARY = 'pigpio'
+except ImportError:
+    PIGPIO_AVAILABLE = False
+    GPIO_LIBRARY = None
+    pigpio = None
+
+try:
     import RPi.GPIO as GPIO
     GPIO_AVAILABLE = True
+    if not PIGPIO_AVAILABLE:
+        GPIO_LIBRARY = 'rpi_gpio'
     
     # Monkey patch to suppress PWM cleanup errors
     # This prevents the "TypeError: unsupported operand type(s) for &: 'NoneType' and 'int'"
@@ -120,6 +132,17 @@ except ImportError:
             self._stopped = True
             self.duty_cycle = 0.0
     
+    class MockPigpio:
+        def __init__(self):
+            self.connected = True
+        def set_mode(self, pin, mode): pass
+        def write(self, pin, level): pass
+        def set_PWM_dutycycle(self, pin, duty): pass
+        def stop(self): pass
+        
+    def pi():
+        return MockPigpio()
+    
     GPIO = MockGPIO()
 
 from .base import (
@@ -150,10 +173,19 @@ class GPIOLEDController(LightingController):
         
         # GPIO Configuration
         self.pwm_frequency = config.get('pwm_frequency', 1000)  # Hz
-        self.gpio_mode = GPIO.BCM
+        self.gpio_library = config.get('gpio_library', 'pigpio')  # Default to pigpio for precision
+        self.gpio_mode = GPIO.BCM if GPIO_AVAILABLE else None
         self.pwm_controllers: Dict[str, List[Any]] = {}  # Zone -> [PWM objects]
         self.zone_states: Dict[str, Dict[str, Any]] = {}
         self._active_pwm_objects = []  # Track all PWM objects for cleanup
+        
+        # Pigpio connection (if available)
+        self.pi = None
+        
+        # Determine which GPIO library to use
+        self._use_pigpio = (self.gpio_library == 'pigpio' and PIGPIO_AVAILABLE)
+        
+        logger.info(f"GPIO LED Controller: Using {GPIO_LIBRARY} library (pigpio available: {PIGPIO_AVAILABLE})")
         
         # Safety Configuration
         self._max_duty_cycle = 0.89  # 89% safety limit
@@ -195,13 +227,33 @@ class GPIOLEDController(LightingController):
     async def initialize(self) -> bool:
         """Initialize GPIO and PWM for all zones"""
         try:
-            if not GPIO_AVAILABLE:
-                logger.warning("GPIO not available - using mock implementation")
+            if not GPIO_AVAILABLE and not PIGPIO_AVAILABLE:
+                logger.warning("No GPIO library available - using mock implementation")
             
             self.status = LightingStatus.INITIALIZING
             
-            # Setup GPIO mode
-            GPIO.setmode(GPIO.BCM)
+            # Initialize GPIO library
+            if self._use_pigpio:
+                # Initialize pigpio connection
+                self.pi = pigpio.pi()
+                if not self.pi.connected:
+                    logger.error("Failed to connect to pigpio daemon")
+                    self._use_pigpio = False
+                    # Fall back to RPi.GPIO
+                    if GPIO_AVAILABLE:
+                        GPIO.setmode(GPIO.BCM)
+                        logger.info("Fallback to RPi.GPIO")
+                    else:
+                        raise LEDError("No GPIO library available")
+                else:
+                    logger.info("Connected to pigpio daemon for precise PWM control")
+            else:
+                # Use RPi.GPIO
+                if GPIO_AVAILABLE:
+                    GPIO.setmode(GPIO.BCM)
+                    logger.info("Using RPi.GPIO for PWM control")
+                else:
+                    raise LEDError("No GPIO library available")
             
             # Initialize each zone
             for zone_id, zone in self.zone_configs.items():
@@ -233,19 +285,30 @@ class GPIOLEDController(LightingController):
             pwm_objects = []
             
             for pin in zone.gpio_pins:
-                # Setup GPIO pin
-                GPIO.setup(pin, GPIO.OUT)
-                GPIO.output(pin, GPIO.LOW)
-                
-                # Create PWM controller
-                pwm = GPIO.PWM(pin, self.pwm_frequency)
-                pwm.start(0)  # Start with 0% duty cycle
-                pwm_objects.append(pwm)
-                
-                # Track PWM object for proper cleanup
-                self._active_pwm_objects.append(pwm)
-                
-                logger.debug(f"Initialized GPIO pin {pin} for zone '{zone.zone_id}'")
+                if self._use_pigpio and self.pi:
+                    # Using pigpio for precise PWM control
+                    self.pi.set_mode(pin, pigpio.OUTPUT)
+                    self.pi.write(pin, 0)  # Start with pin LOW
+                    
+                    # Pigpio PWM is managed differently - store pin number
+                    pwm_objects.append({'type': 'pigpio', 'pin': pin, 'pi': self.pi})
+                    
+                    logger.debug(f"Initialized pigpio PWM on pin {pin} for zone '{zone.zone_id}'")
+                    
+                else:
+                    # Using RPi.GPIO
+                    GPIO.setup(pin, GPIO.OUT)
+                    GPIO.output(pin, GPIO.LOW)
+                    
+                    # Create PWM controller
+                    pwm = GPIO.PWM(pin, self.pwm_frequency)
+                    pwm.start(0)  # Start with 0% duty cycle
+                    pwm_objects.append({'type': 'rpi_gpio', 'pwm': pwm})
+                    
+                    # Track PWM object for proper cleanup
+                    self._active_pwm_objects.append(pwm)
+                    
+                    logger.debug(f"Initialized RPi.GPIO PWM on pin {pin} for zone '{zone.zone_id}'")
             
             self.pwm_controllers[zone.zone_id] = pwm_objects
             self.zone_states[zone.zone_id] = {
@@ -275,9 +338,17 @@ class GPIOLEDController(LightingController):
             
             # Stop all PWM controllers
             for zone_id, pwm_list in self.pwm_controllers.items():
-                for i, pwm in enumerate(pwm_list):
+                for i, pwm_obj in enumerate(pwm_list):
                     try:
-                        pwm.stop()
+                        if pwm_obj['type'] == 'pigpio':
+                            # Pigpio cleanup - set pin to 0
+                            pi = pwm_obj['pi']
+                            pin = pwm_obj['pin']
+                            pi.set_PWM_dutycycle(pin, 0)
+                            logger.debug(f"Stopped pigpio PWM on pin {pin}")
+                        else:
+                            # RPi.GPIO cleanup
+                            pwm_obj['pwm'].stop()
                         logger.debug(f"Stopped PWM {i} for zone '{zone_id}'")
                     except Exception as e:
                         logger.debug(f"PWM {i} stop error (safe to ignore): {e}")
@@ -543,8 +614,17 @@ class GPIOLEDController(LightingController):
             duty_cycle = min(duty_cycle, self._max_duty_cycle * 100.0)
             
             # Apply to all PWM controllers in zone
-            for pwm in self.pwm_controllers[zone_id]:
-                pwm.ChangeDutyCycle(duty_cycle)
+            for pwm_obj in self.pwm_controllers[zone_id]:
+                if pwm_obj['type'] == 'pigpio':
+                    # Use pigpio PWM
+                    pi = pwm_obj['pi']
+                    pin = pwm_obj['pin']
+                    # Convert duty cycle percentage to pigpio duty cycle (0-255)
+                    pigpio_duty = int((duty_cycle / 100.0) * 255)
+                    pi.set_PWM_dutycycle(pin, pigpio_duty)
+                else:
+                    # Use RPi.GPIO PWM
+                    pwm_obj['pwm'].ChangeDutyCycle(duty_cycle)
             
             # Update state
             self.zone_states[zone_id].update({
