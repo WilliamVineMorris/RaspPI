@@ -2772,6 +2772,16 @@ class ScannerWebInterface:
                         custom_quality_settings = pattern_data.get('quality_settings')
                         custom_speed_settings = pattern_data.get('speed_settings')
                         
+                        # Debug logging for custom settings detection
+                        self.logger.info(f"🔍 DEBUG: Checking for custom settings in pattern_data...")
+                        self.logger.info(f"🔍 DEBUG: Pattern data keys: {list(pattern_data.keys())}")
+                        self.logger.info(f"🔍 DEBUG: Has quality_settings: {custom_quality_settings is not None}")
+                        self.logger.info(f"🔍 DEBUG: Has speed_settings: {custom_speed_settings is not None}")
+                        if custom_quality_settings:
+                            self.logger.info(f"🔍 DEBUG: Quality settings: {custom_quality_settings}")
+                        if custom_speed_settings:
+                            self.logger.info(f"🔍 DEBUG: Speed settings: {custom_speed_settings}")
+                        
                         try:
                             if custom_quality_settings or custom_speed_settings:
                                 # Apply custom settings directly

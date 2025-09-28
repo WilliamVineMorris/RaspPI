@@ -2432,6 +2432,8 @@ function collectScanParameters() {
                 quality_settings: qualitySettings,
                 speed_settings: speedSettings
             });
+        } else {
+            console.log('📊 Using standard profiles - Quality:', resolution, 'Speed:', speed);
         }
         
         let scanPattern;
@@ -2488,9 +2490,11 @@ function collectScanParameters() {
             // Add custom settings if active
             if (qualitySettings) {
                 scanData.quality_settings = qualitySettings;
+                console.log('✅ Added quality_settings to CYLINDRICAL scan data:', qualitySettings);
             }
             if (speedSettings) {
                 scanData.speed_settings = speedSettings;
+                console.log('✅ Added speed_settings to CYLINDRICAL scan data:', speedSettings);
             }
             
             return scanData;
@@ -2521,9 +2525,11 @@ function collectScanParameters() {
             // Add custom settings if active
             if (qualitySettings) {
                 scanData.quality_settings = qualitySettings;
+                console.log('✅ Added quality_settings to GRID scan data:', qualitySettings);
             }
             if (speedSettings) {
                 scanData.speed_settings = speedSettings;
+                console.log('✅ Added speed_settings to GRID scan data:', speedSettings);
             }
             
             return scanData;
