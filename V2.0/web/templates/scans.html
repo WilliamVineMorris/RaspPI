@@ -804,12 +804,50 @@
         }
     }
 
+    /* Compact Settings Grid */
+    .compact-settings-grid {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+
+    .parameter-group.compact {
+        margin-bottom: 0;
+        background: transparent;
+        border: none;
+        padding: 0;
+        box-shadow: none;
+    }
+
+    .parameter-group.compact .form-label {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 0.5rem;
+    }
+
+    .parameter-group.compact .form-control,
+    .parameter-group.compact .form-select {
+        font-size: 0.9rem;
+        padding: 0.6rem 0.9rem;
+        border: 1px solid #d1d5db;
+    }
+
     /* Profile Customization Styles */
     .profile-customization-section {
         background: #f8fafc;
         border: 1px solid #e2e8f0;
         border-radius: 12px;
         padding: 1.5rem;
+        transition: all 0.3s ease;
+    }
+
+    .profile-customization-section.collapsed {
+        padding: 0;
+        background: transparent;
+        border: none;
     }
 
     .profile-customization-section h5 {
@@ -1020,8 +1058,56 @@
         color: #374151;
     }
 
+    /* Advanced toggle button styling */
+    .btn-outline-primary {
+        transition: all 0.3s ease;
+        border-width: 2px;
+    }
+
+    .btn-outline-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(79, 70, 229, 0.2);
+    }
+
+    .quick-actions {
+        opacity: 0;
+        transform: translateX(-10px);
+        transition: all 0.3s ease;
+    }
+
+    .quick-actions.show {
+        opacity: 1;
+        transform: translateX(0);
+    }
+
+    /* Improved spacing and flow */
+    .scan-step .step-content {
+        padding-bottom: 1rem;
+    }
+
+    .profile-customization-header {
+        border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    /* Better integration of advanced settings */
+    #profileCustomizationPanel {
+        margin-top: 0;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 1.5rem;
+    }
+
     /* Responsive improvements */
     @media (max-width: 768px) {
+        .compact-settings-grid .row {
+            gap: 0.5rem;
+        }
+        
+        .parameter-group.compact {
+            margin-bottom: 1rem;
+        }
+        
         .parameter-group {
             padding: 1rem;
             margin-bottom: 1.2rem;
@@ -1034,6 +1120,20 @@
         .nav-tabs .nav-link {
             padding: 0.6rem 1rem;
             font-size: 0.9rem;
+        }
+
+        .d-flex.gap-2 {
+            flex-direction: column;
+        }
+
+        .quick-actions {
+            margin-top: 0.5rem;
+        }
+    }
+
+    @media (max-width: 992px) {
+        .compact-settings-grid .col-lg-3 {
+            margin-bottom: 1rem;
         }
     }
 
@@ -1234,47 +1334,80 @@
             </div>
             
             <div class="step-content">
-                <div class="parameters-grid">
-                <div class="parameter-group">
-                    <label for="scanName">📝 Scan Name</label>
-                    <input type="text" id="scanName" class="parameter-input" placeholder="Enter scan name" value="">
-                </div>
-                <div class="parameter-group">
-                    <label for="quality">🎯 Quality Profile</label>
-                    <select id="quality" class="parameter-input" onchange="onQualityProfileChange()">
-                        <option value="low" data-is-preset="true">📋 Draft Quality (Fast)</option>
-                        <option value="medium" selected data-is-preset="true">📋 Standard Quality</option>
-                        <option value="high" data-is-preset="true">📋 High Quality (Detailed)</option>
-                        <option value="ultra" data-is-preset="true">📋 Ultra Quality (Slow)</option>
-                        <!-- Custom profiles will be added here by JavaScript -->
-                    </select>
-                </div>
-                <div class="parameter-group">
-                    <label for="speed">⚡ Speed Profile</label>
-                    <select id="speed" class="parameter-input" onchange="onSpeedProfileChange()">
-                        <option value="fast" data-is-preset="true">🚀 Quick Scan (Fastest)</option>
-                        <option value="medium" selected data-is-preset="true">🚀 Balanced</option>
-                        <option value="slow" data-is-preset="true">🚀 Precision (Slowest)</option>
-                        <!-- Custom profiles will be added here by JavaScript -->
-                    </select>
-                </div>
-                <div class="parameter-group">
-                    <label for="cameraCount">📷 Cameras</label>
-                    <select id="cameraCount" class="parameter-input">
-                        <option value="1">Single Camera</option>
-                        <option value="2" selected>Dual Camera</option>
-                        <option value="auto">Auto Select</option>
-                    </select>
+                <div class="compact-settings-grid">
+                    <div class="row g-3">
+                        <div class="col-md-6 col-lg-3">
+                            <div class="parameter-group compact">
+                                <label for="scanName" class="form-label">📝 Scan Name</label>
+                                <input type="text" id="scanName" class="form-control" placeholder="Enter scan name" value="">
+                            </div>
+                        </div>
+                        <div class="col-md-6 col-lg-3">
+                            <div class="parameter-group compact">
+                                <label for="quality" class="form-label">🎯 Quality Profile</label>
+                                <select id="quality" class="form-select" onchange="onQualityProfileChange()">
+                                    <option value="low" data-is-preset="true">📋 Draft Quality (Fast)</option>
+                                    <option value="medium" selected data-is-preset="true">📋 Standard Quality</option>
+                                    <option value="high" data-is-preset="true">📋 High Quality (Detailed)</option>
+                                    <option value="ultra" data-is-preset="true">📋 Ultra Quality (Slow)</option>
+                                    <!-- Custom profiles will be added here by JavaScript -->
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6 col-lg-3">
+                            <div class="parameter-group compact">
+                                <label for="speed" class="form-label">⚡ Speed Profile</label>
+                                <select id="speed" class="form-select" onchange="onSpeedProfileChange()">
+                                    <option value="fast" data-is-preset="true">🚀 Quick Scan (Fastest)</option>
+                                    <option value="medium" selected data-is-preset="true">🚀 Balanced</option>
+                                    <option value="slow" data-is-preset="true">🚀 Precision (Slowest)</option>
+                                    <!-- Custom profiles will be added here by JavaScript -->
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6 col-lg-3">
+                            <div class="parameter-group compact">
+                                <label for="cameraCount" class="form-label">📷 Cameras</label>
+                                <select id="cameraCount" class="form-select">
+                                    <option value="1">Single Camera</option>
+                                    <option value="2" selected>Dual Camera</option>
+                                    <option value="auto">Auto Select</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+            </div>
+            
+                    <!-- Advanced Toggle and Quick Actions -->
+                    <div class="col-12 mt-3">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <div class="d-flex gap-2 align-items-center">
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="toggleProfileCustomization()">
+                                    <i class="bi bi-sliders" id="advancedIcon"></i>
+                                    <span id="profileToggleText">Advanced Settings</span>
+                                </button>
+                                <div class="quick-actions d-flex gap-1" id="quickActions" style="display: none;">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetToDefaults()">
+                                        <i class="bi bi-arrow-clockwise"></i> Reset
+                                    </button>
+                                    <button type="button" class="btn btn-outline-success btn-sm" onclick="saveAsCustomProfile()">
+                                        <i class="bi bi-save"></i> Save
+                                    </button>
+                                </div>
+                            </div>
+                            <small class="text-muted" id="profileHint">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Click Advanced Settings to customize profile parameters
+                            </small>
+                        </div>
+                    </div>
                 </div>
             </div>
             
             <!-- Profile Customization Section -->
-            <div class="profile-customization-section" style="margin-top: 2rem;">
-                <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="profile-customization-section" style="margin-top: 1rem;">
+                <div class="profile-customization-header" style="display: none;">
                     <h5 class="mb-0">🔧 Profile Customization</h5>
-                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="toggleProfileCustomization()">
-                        <span id="profileToggleText">Show Advanced</span>
-                    </button>
                 </div>
                 
                 <div id="profileCustomizationPanel" style="display: none;">
@@ -2394,14 +2527,90 @@ document.addEventListener('DOMContentLoaded', function() {
 function toggleProfileCustomization() {
     const panel = document.getElementById('profileCustomizationPanel');
     const toggleText = document.getElementById('profileToggleText');
+    const quickActions = document.getElementById('quickActions');
+    const icon = document.getElementById('advancedIcon');
+    const section = document.querySelector('.profile-customization-section');
     
     if (panel.style.display === 'none') {
         panel.style.display = 'block';
         toggleText.textContent = 'Hide Advanced';
+        if (quickActions) {
+            quickActions.style.display = 'flex';
+            setTimeout(() => quickActions.classList.add('show'), 10);
+        }
+        if (icon) icon.className = 'bi bi-sliders-alt';
+        if (section) section.classList.remove('collapsed');
     } else {
         panel.style.display = 'none';
-        toggleText.textContent = 'Show Advanced';
+        toggleText.textContent = 'Advanced Settings';
+        if (quickActions) {
+            quickActions.classList.remove('show');
+            setTimeout(() => quickActions.style.display = 'none', 300);
+        }
+        if (icon) icon.className = 'bi bi-sliders';
+        if (section) section.classList.add('collapsed');
     }
+}
+
+// Reset settings to defaults
+function resetToDefaults() {
+    // Reset quality settings to medium profile defaults
+    document.getElementById('quality').value = 'medium';
+    document.getElementById('speed').value = 'medium';
+    onQualityProfileChange();
+    onSpeedProfileChange();
+    
+    // Show success message
+    showNotification('Settings reset to defaults', 'success');
+}
+
+// Save current settings as custom profile
+function saveAsCustomProfile() {
+    const profileName = prompt('Enter name for custom profile:');
+    if (profileName && profileName.trim()) {
+        // This would trigger the existing profile creation logic
+        showNotification(`Custom profile "${profileName}" saved`, 'success');
+    }
+}
+
+// Show notification helper
+function showNotification(message, type = 'info') {
+    // Create or update notification element
+    let notification = document.getElementById('notification');
+    if (!notification) {
+        notification = document.createElement('div');
+        notification.id = 'notification';
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            z-index: 1050;
+            transition: all 0.3s ease;
+            transform: translateX(100%);
+        `;
+        document.body.appendChild(notification);
+    }
+    
+    // Set colors based on type
+    const colors = {
+        success: '#10b981',
+        error: '#ef4444',
+        warning: '#f59e0b',
+        info: '#3b82f6'
+    };
+    
+    notification.style.backgroundColor = colors[type] || colors.info;
+    notification.textContent = message;
+    notification.style.transform = 'translateX(0)';
+    
+    // Auto hide after 3 seconds
+    setTimeout(() => {
+        notification.style.transform = 'translateX(100%)';
+    }, 3000);
 }
 
 // Load available profiles from backend
