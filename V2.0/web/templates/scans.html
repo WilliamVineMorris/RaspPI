@@ -1557,12 +1557,12 @@
         </div>
         
         <!-- Profile Customization Section (Full Width) -->
-        <div class="profile-customization-section full-width" style="margin-top: 1rem;">
+        <div class="profile-customization-section full-width" id="profileCustomizationSection" style="display: none; margin-top: 2rem;">
             <div class="profile-customization-header" style="display: none;">
                 <h5 class="mb-0">🔧 Profile Customization</h5>
             </div>
             
-            <div id="profileCustomizationPanel" style="display: none;">
+            <div id="profileCustomizationPanel">
                 <!-- Two Column Layout for Quality and Speed Settings -->
                 <div class="row g-4">
                         <!-- Quality Settings Column -->
@@ -2661,17 +2661,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Toggle profile customization panel visibility
 function toggleProfileCustomization() {
+    const section = document.getElementById('profileCustomizationSection');
     const panel = document.getElementById('profileCustomizationPanel');
     const toggleText = document.getElementById('profileToggleText');
     const icon = document.getElementById('advancedIcon');
     const hint = document.getElementById('profileHint');
     
-    if (panel.style.display === 'none' || panel.style.display === '') {
+    if (section.style.display === 'none' || section.style.display === '') {
+        section.style.display = 'block';
         panel.style.display = 'block';
         toggleText.textContent = 'Hide Advanced';
         if (icon) icon.className = 'bi bi-x-circle';
         if (hint) hint.style.display = 'none';
     } else {
+        section.style.display = 'none';
         panel.style.display = 'none';
         toggleText.textContent = 'Advanced Settings';
         if (icon) icon.className = 'bi bi-sliders';
@@ -2683,11 +2686,15 @@ function toggleProfileCustomization() {
 (function() {
     // Set initial state immediately when script loads
     setTimeout(function() {
+        const section = document.getElementById('profileCustomizationSection');
         const panel = document.getElementById('profileCustomizationPanel');
         const toggleText = document.getElementById('profileToggleText');
         const icon = document.getElementById('advancedIcon');
         const hint = document.getElementById('profileHint');
         
+        if (section && section.style.display !== 'none') {
+            section.style.display = 'none';
+        }
         if (panel && panel.style.display !== 'none') {
             panel.style.display = 'none';
         }
