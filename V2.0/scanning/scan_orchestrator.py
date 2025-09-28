@@ -237,7 +237,7 @@ class MockLightingController:
     def __init__(self, config_manager: ConfigManager):
         self.config_manager = config_manager
         self._initialized = False
-        self._zones = ['top_ring', 'side_ring', 'flash_zone']  # Mock zones
+        self._zones = ['inner', 'outer']  # Mock zones matching GPIO config
         
     async def initialize(self) -> bool:
         await asyncio.sleep(0.1)
@@ -1930,6 +1930,21 @@ class ScanOrchestrator:
             if not await self.lighting_controller.initialize():
                 self.logger.warning("Failed to initialize lighting controller - continuing without lighting")
                 # Don't fail initialization if lighting fails - scans can work without lighting
+            else:
+                # Verify lighting zones are loaded correctly
+                if hasattr(self.lighting_controller, 'controller'):
+                    # Using adapter - check underlying controller
+                    actual_controller = self.lighting_controller.controller
+                    if hasattr(actual_controller, 'list_zones'):
+                        zones = await actual_controller.list_zones()
+                        self.logger.info(f"✅ Lighting controller initialized with zones: {zones}")
+                        for zone in zones:
+                            if hasattr(actual_controller, 'get_zone_info'):
+                                zone_info = await actual_controller.get_zone_info(zone)
+                                self.logger.info(f"   🔸 Zone '{zone}': GPIO pins {zone_info.get('gpio_pins', 'unknown')}, "
+                                               f"max brightness {zone_info.get('max_brightness', 'unknown')}")
+                else:
+                    self.logger.info("✅ Lighting controller initialized (mock mode)")
             
             # Perform system health check
             if not await self._health_check():
@@ -2953,7 +2968,7 @@ class ScanOrchestrator:
                     )
                     
                     # Get zones to activate
-                    zones = point.lighting_settings.get('zones', ['top_ring', 'side_ring'])
+                    zones = point.lighting_settings.get('zones', ['inner', 'outer'])
                     
                     # Flash lighting for capture
                     flash_result = await self.lighting_controller.flash(zones, settings)
@@ -2973,14 +2988,21 @@ class ScanOrchestrator:
             flash_result = None
             try:
                 if hasattr(self, 'lighting_controller') and self.lighting_controller:
-                    flash_settings = {
-                        'brightness': 0.8,  # 80% intensity for scanning
-                        'duration': 100,
-                        'pulse_count': 1
-                    }
+                    from lighting.base import LightingSettings
                     
-                    flash_result = await self.lighting_controller.flash(['all'], flash_settings)
-                    self.logger.info("⚡ Flash triggered for scan capture")
+                    flash_settings = LightingSettings(
+                        brightness=0.8,      # 80% intensity for scanning
+                        duration_ms=100      # 100ms flash duration
+                    )
+                    
+                    # Use both inner and outer zones for maximum illumination
+                    zones_to_flash = ['inner', 'outer']
+                    flash_result = await self.lighting_controller.flash(zones_to_flash, flash_settings)
+                    
+                    if flash_result and hasattr(flash_result, 'success') and flash_result.success:
+                        self.logger.info(f"⚡ Flash triggered for scan capture - zones: {flash_result.zones_activated}")
+                    else:
+                        self.logger.warning(f"⚡ Flash partially failed - continuing with capture")
                     
                     # Small delay for flash synchronization
                     await asyncio.sleep(0.02)
@@ -3943,6 +3965,90 @@ class ScanOrchestrator:
         # Return only the relevant parameters
         return {k: v for k, v in pattern_params_dict.items() 
                 if k not in base_params_to_exclude}
+    
+    async def test_lighting_zones(self) -> Dict[str, Any]:
+        """Test both inner and outer LED flash zones"""
+        self.logger.info("🔸 Testing lighting zones...")
+        
+        results = {
+            'inner': {'success': False, 'error': None},
+            'outer': {'success': False, 'error': None},
+            'zones_available': []
+        }
+        
+        try:
+            if not self.lighting_controller or not self.lighting_controller.is_available():
+                results['error'] = "Lighting controller not available"
+                return results
+            
+            # Get available zones
+            if hasattr(self.lighting_controller, 'controller'):
+                actual_controller = self.lighting_controller.controller
+                if hasattr(actual_controller, 'list_zones'):
+                    results['zones_available'] = await actual_controller.list_zones()
+                    self.logger.info(f"🔸 Available zones: {results['zones_available']}")
+            
+            # Test inner zone
+            try:
+                if 'inner' in results['zones_available']:
+                    from lighting.base import LightingSettings
+                    settings = LightingSettings(
+                        brightness=0.5,  # 50% for testing
+                        duration_ms=200  # 200ms flash
+                    )
+                    
+                    flash_result = await self.lighting_controller.flash(['inner'], settings)
+                    results['inner']['success'] = flash_result.success if hasattr(flash_result, 'success') else bool(flash_result)
+                    self.logger.info(f"✅ Inner zone test: {'SUCCESS' if results['inner']['success'] else 'FAILED'}")
+                    
+                    # Small delay between tests
+                    await asyncio.sleep(0.5)
+                else:
+                    results['inner']['error'] = "Inner zone not found in configuration"
+            except Exception as e:
+                results['inner']['error'] = str(e)
+                self.logger.error(f"❌ Inner zone test failed: {e}")
+            
+            # Test outer zone
+            try:
+                if 'outer' in results['zones_available']:
+                    from lighting.base import LightingSettings
+                    settings = LightingSettings(
+                        brightness=0.5,  # 50% for testing  
+                        duration_ms=200  # 200ms flash
+                    )
+                    
+                    flash_result = await self.lighting_controller.flash(['outer'], settings)
+                    results['outer']['success'] = flash_result.success if hasattr(flash_result, 'success') else bool(flash_result)
+                    self.logger.info(f"✅ Outer zone test: {'SUCCESS' if results['outer']['success'] else 'FAILED'}")
+                else:
+                    results['outer']['error'] = "Outer zone not found in configuration"
+            except Exception as e:
+                results['outer']['error'] = str(e)
+                self.logger.error(f"❌ Outer zone test failed: {e}")
+            
+            # Test both zones simultaneously
+            try:
+                if 'inner' in results['zones_available'] and 'outer' in results['zones_available']:
+                    from lighting.base import LightingSettings
+                    settings = LightingSettings(
+                        brightness=0.3,  # 30% for combined test
+                        duration_ms=300  # 300ms flash
+                    )
+                    
+                    flash_result = await self.lighting_controller.flash(['inner', 'outer'], settings)
+                    combined_success = flash_result.success if hasattr(flash_result, 'success') else bool(flash_result)
+                    results['combined'] = {'success': combined_success}
+                    self.logger.info(f"✅ Combined zones test: {'SUCCESS' if combined_success else 'FAILED'}")
+            except Exception as e:
+                results['combined'] = {'success': False, 'error': str(e)}
+                self.logger.error(f"❌ Combined zones test failed: {e}")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Lighting zone test error: {e}")
+            results['error'] = str(e)
+        
+        return results
     
     async def shutdown(self):
         """Shutdown the orchestrator"""

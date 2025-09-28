@@ -164,18 +164,33 @@ cameras:
     
 # LED Flash Configuration  
 lighting:
-  system_type: "dual_zone_pwm"
+  controller_type: "gpio"
+  pwm_frequency: 1000  # Hz
   
-  led_zones:
-    zone_1:
-      gpio_pin: 12        # PWM-capable pin (avoiding I2S pins 17,21,22)
-      name: "Primary LED Array"
-      max_intensity: 90.0  # Never exceed 90% for safety
+  zones:
+    inner:
+      gpio_pins: [12]      # Inner flash ring - PWM-capable pin (avoiding I2S pins 17,21,22)
+      led_type: "cool_white"
+      max_current_ma: 800
+      position: [0.0, 0.0, 80.0]    # X, Y, Z position in mm
+      direction: [0.0, 0.0, -1.0]   # Pointing down
+      beam_angle: 30.0
+      max_brightness: 0.9           # 90% safety limit
       
-    zone_2:
-      gpio_pin: 13        # PWM-capable pin (avoiding I2S pins and FluidNC limit pins)
-      name: "Secondary LED Array"
-      max_intensity: 90.0  # Never exceed 90% for safety
+    outer:
+      gpio_pins: [13]      # Outer flash ring - PWM-capable pin (avoiding FluidNC limit pins)
+      led_type: "cool_white" 
+      max_current_ma: 1000
+      position: [0.0, 0.0, 80.0]    # X, Y, Z position in mm
+      direction: [0.0, 0.0, -1.0]   # Pointing down
+      beam_angle: 60.0
+      max_brightness: 0.9           # 90% safety limit
+  
+  # Safety Configuration
+  safety:
+    max_duty_cycle: 0.89          # 89% maximum to prevent hardware damage
+    thermal_protection: true
+    flash_timeout_seconds: 5.0
       
   # Hardware Notes:
   # - Avoid GPIO 17,21,22 (I2S stepper control)

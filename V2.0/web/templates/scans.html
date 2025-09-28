@@ -2540,7 +2540,7 @@ function collectCustomSpeedSettings() {
         motion_precision: document.getElementById('customMotionPrecision').value,
         acceleration_factor: parseFloat(document.getElementById('customAccelerationFactor').value),
         capture_delay: parseFloat(document.getElementById('customCaptureDelay').value),
-        enable_parallel_processing: document.getElementById('customParallelProcessing').checked,
+        parallel_processing: document.getElementById('customParallelProcessing').checked,
         skip_confirmations: document.getElementById('customSkipConfirmations').checked
     };
 }
@@ -2590,7 +2590,7 @@ function populateSpeedSettings(settings) {
     document.getElementById('customMotionPrecision').value = settings.motion_precision;
     document.getElementById('customAccelerationFactor').value = settings.acceleration_factor;
     document.getElementById('customCaptureDelay').value = settings.capture_delay;
-    document.getElementById('customParallelProcessing').checked = settings.enable_parallel_processing;
+    document.getElementById('customParallelProcessing').checked = settings.parallel_processing;
     document.getElementById('customSkipConfirmations').checked = settings.skip_confirmations;
     
     // Update displays

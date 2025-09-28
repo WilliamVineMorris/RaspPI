@@ -3029,8 +3029,8 @@ class ScannerWebInterface:
             
             # Manual coordination: Flash + Capture timing
             async def flash_capture_coordination():
-                # Trigger flash with timing coordination
-                flash_result = await self.orchestrator.lighting_controller.flash(['all'], flash_settings)
+                # Trigger flash with timing coordination using inner and outer zones
+                flash_result = await self.orchestrator.lighting_controller.flash(['inner', 'outer'], flash_settings)
                 
                 # Small delay to let flash reach peak intensity
                 await asyncio.sleep(0.02)  # 20ms delay
@@ -3125,7 +3125,7 @@ class ScannerWebInterface:
                     
                     import asyncio
                     async def trigger_flash():
-                        return await self.orchestrator.lighting_controller.flash(['all'], flash_settings)
+                        return await self.orchestrator.lighting_controller.flash(['inner', 'outer'], flash_settings)
                     
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
@@ -4008,12 +4008,23 @@ class ScannerWebInterface:
             flash_settings = LightingSettings(brightness=brightness, duration_ms=duration)
             # Execute flash using synchronous wrapper
             try:
-                if zone == 'all':
-                    # Flash all zones
-                    result = self.orchestrator.lighting_controller.flash_sync(['all'], flash_settings)
-                else:
-                    # Flash specific zone
-                    result = self.orchestrator.lighting_controller.flash_sync([zone], flash_settings)
+                import asyncio
+                
+                async def execute_flash():
+                    if zone == 'all':
+                        # Flash both inner and outer zones
+                        return await self.orchestrator.lighting_controller.flash(['inner', 'outer'], flash_settings)
+                    else:
+                        # Flash specific zone (inner or outer)
+                        return await self.orchestrator.lighting_controller.flash([zone], flash_settings)
+                
+                # Execute flash in async context
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(execute_flash())
+                finally:
+                    loop.close()
                     
                 self.logger.info(f"Lighting flash executed: Zone {zone}, Brightness {brightness}")
             except Exception as e:
