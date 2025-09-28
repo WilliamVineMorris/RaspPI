@@ -771,7 +771,7 @@ class CameraManagerAdapter:
                         capture_config = camera.create_still_configuration(
                             main={"size": (4608, 2592), "format": "RGB888"},  # Native optimal still capture
                             lores={"size": (1920, 1080), "format": "YUV420"},  # Preview
-                            display="lores"
+                            display="lores"  # Let picamera2 manage buffers automatically
                         )
                         
                         # Store configurations per camera
@@ -876,8 +876,8 @@ class CameraManagerAdapter:
                                     camera.stop()
                                     self.logger.debug(f"CAMERA: Stopped camera {camera_id} before reconfiguration")
                                     
-                                    # Small delay to ensure camera is fully stopped
-                                    await asyncio.sleep(0.1)
+                                    # Extended delay to ensure complete buffer release and prevent memory conflicts
+                                    await asyncio.sleep(0.3)
                                     
                                     # Configure for capture
                                     if hasattr(self, '_capture_configs') and camera_id in self._capture_configs:
@@ -1765,27 +1765,22 @@ class CameraManagerAdapter:
                     if camera:
                         try:
                             # Create new capture configuration with resolution-appropriate buffers
-                            # Scale buffer count based on resolution for optimal performance
-                            if total_pixels > 60_000_000:  # 64MP range
-                                buffer_count = 5  # More buffers for very high res
-                            elif total_pixels > 40_000_000:  # 40MP+ range
-                                buffer_count = 4
-                            elif total_pixels > 20_000_000:  # 20MP+ range
-                                buffer_count = 3
-                            else:
-                                buffer_count = 2  # Lower res can use fewer buffers
-                            
+                            # Create camera configuration with automatic buffer management
                             new_capture_config = camera.create_still_configuration(
                                 main={"size": custom_resolution, "format": "RGB888"},  # Custom resolution
                                 lores={"size": (1920, 1080), "format": "YUV420"},  # Keep preview same
-                                display="lores",
-                                buffer_count=buffer_count  # Dynamic buffer allocation
+                                display="lores"  # Let picamera2 handle buffer management automatically
                             )
                             
                             # Update stored configuration
                             if hasattr(self, '_capture_configs'):
                                 self._capture_configs[camera_id] = new_capture_config
                                 self.logger.info(f"CAMERA: Updated camera {camera_id} capture config to {custom_resolution}")
+                                
+                                # Add delay between camera configurations to prevent simultaneous memory allocation
+                                if camera_id == 0:  # After first camera, wait before configuring second
+                                    await asyncio.sleep(0.5)
+                                    self.logger.debug(f"CAMERA: Delay added between camera configurations for memory management")
                                 
                         except Exception as config_error:
                             self.logger.error(f"CAMERA: Failed to create capture config for camera {camera_id}: {config_error}")
@@ -1796,7 +1791,7 @@ class CameraManagerAdapter:
                             fallback_config = camera.create_still_configuration(
                                 main={"size": fallback_resolution, "format": "RGB888"},
                                 lores={"size": (1920, 1080), "format": "YUV420"},
-                                display="lores"
+                                display="lores"  # Use default buffer management
                             )
                             
                             if hasattr(self, '_capture_configs'):
@@ -1825,12 +1820,11 @@ class CameraManagerAdapter:
                     camera = self.controller.cameras[camera_id]
                     
                     if camera:
-                        # Create safe configuration with enhanced buffer count for high res
+                        # Create safe configuration using default buffer management
                         safe_config = camera.create_still_configuration(
                             main={"size": safe_resolution, "format": "RGB888"},
                             lores={"size": (1920, 1080), "format": "YUV420"},
-                            display="lores",
-                            buffer_count=5  # Enhanced buffer for 64MP
+                            display="lores"  # Use picamera2 default buffer allocation
                         )
                         
                         if hasattr(self, '_capture_configs'):
