@@ -280,11 +280,17 @@ class ConfigManager:
                     f"Invalid GPIO pin {gpio_pin} in {zone_name}. Must be 0-40"
                 )
             
-            # Validate max intensity
-            max_intensity = zone.get('max_intensity', 100)
-            if max_intensity > 90:
+            # Validate max brightness (safety limit)
+            max_brightness = zone.get('max_brightness', 0.9)
+            # Convert to percentage if needed
+            if max_brightness <= 1.0:
+                brightness_percent = max_brightness * 100
+            else:
+                brightness_percent = max_brightness
+                
+            if brightness_percent > 90:
                 raise ConfigurationValidationError(
-                    f"Safety violation: max_intensity in {zone_name} exceeds 90%"
+                    f"Safety violation: max_brightness in {zone_name} exceeds 90% ({brightness_percent}%)"
                 )
     
     def _validate_web_config(self):
