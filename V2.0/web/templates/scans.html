@@ -833,6 +833,19 @@
         }
     }
 
+    /* Utility classes */
+    .fw-500 {
+        font-weight: 500 !important;
+    }
+
+    .fw-600 {
+        font-weight: 600 !important;
+    }
+
+    .fw-700 {
+        font-weight: 700 !important;
+    }
+
     .nav-tabs {
         border-bottom: 2px solid #e2e8f0;
         margin-bottom: 1.5rem;
@@ -870,31 +883,55 @@
     }
 
     .parameter-group {
-        margin-bottom: 1.5rem;
+        margin-bottom: 1.8rem;
+        background: white;
+        border: 1px solid #f1f5f9;
+        border-radius: 10px;
+        padding: 1.2rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        transition: all 0.3s ease;
+    }
+
+    .parameter-group:hover {
+        border-color: #e2e8f0;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     }
 
     .parameter-group .form-label {
         font-weight: 600;
-        color: #374151;
-        margin-bottom: 0.5rem;
+        color: #1e293b;
+        margin-bottom: 0.75rem;
         display: block;
+        font-size: 0.95rem;
     }
 
     .parameter-group .form-label small {
         font-weight: 400;
-        color: #6b7280;
+        color: #64748b;
         font-size: 0.8rem;
+        line-height: 1.4;
+    }
+
+    .parameter-group .form-label span {
+        color: #4f46e5;
+        font-weight: 700;
     }
 
     .form-range {
         width: 100%;
-        height: 6px;
-        background: #e5e7eb;
-        border-radius: 3px;
+        height: 8px;
+        background: linear-gradient(to right, #e5e7eb 0%, #e5e7eb 100%);
+        border-radius: 4px;
         outline: none;
         -webkit-appearance: none;
         appearance: none;
         transition: all 0.3s ease;
+        margin: 0.8rem 0;
+        cursor: pointer;
+    }
+
+    .form-range:hover {
+        background: linear-gradient(to right, #d1d5db 0%, #d1d5db 100%);
     }
 
     .form-range::-webkit-slider-thumb {
@@ -931,11 +968,19 @@
 
     .form-select,
     .form-control {
-        border: 2px solid #e5e7eb;
+        border: 1px solid #d1d5db;
         border-radius: 8px;
-        padding: 0.6rem 1rem;
+        padding: 0.75rem 1rem;
         font-size: 0.9rem;
         transition: all 0.3s ease;
+        background: #fafbfc;
+        width: 100%;
+        font-weight: 500;
+    }
+
+    .form-select:hover,
+    .form-control:hover {
+        border-color: #9ca3af;
         background: white;
     }
 
@@ -944,18 +989,73 @@
         border-color: #4f46e5;
         box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
         outline: none;
+        background: white;
+    }
+
+    .form-select option {
+        padding: 0.5rem;
     }
 
     .form-check {
         padding: 0.75rem;
-        background: #f9fafb;
-        border: 1px solid #e5e7eb;
+        background: #f8fafc;
         border-radius: 8px;
+        border: 1px solid #e2e8f0;
         transition: all 0.3s ease;
+        margin-bottom: 0.5rem;
     }
 
     .form-check:hover {
-        background: #f3f4f6;
+        background: #f1f5f9;
+        border-color: #cbd5e1;
+    }
+
+    .form-check-input:checked {
+        background-color: #4f46e5;
+        border-color: #4f46e5;
+    }
+
+    .form-check-label {
+        font-weight: 500;
+        color: #374151;
+    }
+
+    /* Responsive improvements */
+    @media (max-width: 768px) {
+        .parameter-group {
+            padding: 1rem;
+            margin-bottom: 1.2rem;
+        }
+        
+        .form-label {
+            font-size: 0.9rem;
+        }
+        
+        .nav-tabs .nav-link {
+            padding: 0.6rem 1rem;
+            font-size: 0.9rem;
+        }
+    }
+
+    /* Loading state improvements */
+    .parameter-group.loading {
+        opacity: 0.6;
+        pointer-events: none;
+    }
+
+    .parameter-group.loading::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.8);
+        border-radius: 10px;
+    }
+
+    .form-check:hover {
+        background: #f1f5f9;
         border-color: #d1d5db;
     }
 
@@ -1196,6 +1296,9 @@
                     <div class="tab-content">
                         <!-- Quality Profile Customization -->
                         <div class="tab-pane fade show active" id="qualityProfileCustom">
+                            <div class="mb-4">
+                                <h6 class="text-muted mb-3 text-uppercase fw-bold" style="font-size: 0.8rem; letter-spacing: 1px; color: #64748b !important;">📸 Image Quality Settings</h6>
+                            </div>
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="parameter-group mb-3">
@@ -1213,9 +1316,9 @@
                                         <input type="range" class="form-range" id="customJpegQuality" 
                                                min="50" max="100" value="85" 
                                                oninput="updateQualityDisplay(this.value)">
-                                        <div class="d-flex justify-content-between">
-                                            <small class="text-muted">Fast</small>
-                                            <small class="text-muted">Best</small>
+                                        <div class="d-flex justify-content-between mt-1">
+                                            <small class="text-muted fw-500">Fast</small>
+                                            <small class="text-muted fw-500">Best</small>
                                         </div>
                                     </div>
                                     
@@ -1224,9 +1327,9 @@
                                         <input type="range" class="form-range" id="customCaptureTimeout" 
                                                min="0.5" max="10" step="0.5" value="2.0"
                                                oninput="updateTimeoutDisplay(this.value)">
-                                        <div class="d-flex justify-content-between">
-                                            <small class="text-muted">Quick</small>
-                                            <small class="text-muted">Patient</small>
+                                        <div class="d-flex justify-content-between mt-1">
+                                            <small class="text-muted fw-500">Quick</small>
+                                            <small class="text-muted fw-500">Patient</small>
                                         </div>
                                     </div>
                                 </div>
@@ -1265,6 +1368,9 @@
                                 </div>
                             </div>
                             
+                            <div class="mb-4 mt-4">
+                                <h6 class="text-muted mb-3 text-uppercase fw-bold" style="font-size: 0.8rem; letter-spacing: 1px; color: #64748b !important;">✨ Post-Processing</h6>
+                            </div>
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="parameter-group mb-3">
@@ -1287,6 +1393,9 @@
                         
                         <!-- Speed Profile Customization -->
                         <div class="tab-pane fade" id="speedProfileCustom">
+                            <div class="mb-4">
+                                <h6 class="text-muted mb-3 text-uppercase fw-bold" style="font-size: 0.8rem; letter-spacing: 1px; color: #64748b !important;">🏃 Motion Control Settings</h6>
+                            </div>
                             <div class="row">
                                 <div class="col-md-6">
                                     <div class="parameter-group mb-3">
@@ -1297,9 +1406,9 @@
                                         <input type="range" class="form-range" id="customFeedrateMultiplier" 
                                                min="0.1" max="2.0" step="0.1" value="1.0"
                                                oninput="updateFeedrateDisplay(this.value)">
-                                        <div class="d-flex justify-content-between">
-                                            <small class="text-muted">Very Slow</small>
-                                            <small class="text-muted">Very Fast</small>
+                                        <div class="d-flex justify-content-between mt-1">
+                                            <small class="text-muted fw-500">Very Slow</small>
+                                            <small class="text-muted fw-500">Very Fast</small>
                                         </div>
                                     </div>
                                     
@@ -1311,9 +1420,9 @@
                                         <input type="range" class="form-range" id="customSettlingDelay" 
                                                min="0.5" max="5.0" step="0.5" value="2.0"
                                                oninput="updateSettlingDisplay(this.value)">
-                                        <div class="d-flex justify-content-between">
-                                            <small class="text-muted">Quick</small>
-                                            <small class="text-muted">Patient</small>
+                                        <div class="d-flex justify-content-between mt-1">
+                                            <small class="text-muted fw-500">Quick</small>
+                                            <small class="text-muted fw-500">Patient</small>
                                         </div>
                                     </div>
                                     
@@ -2570,6 +2679,17 @@ async function loadProfileSettings(profileType, profileName) {
             if (panel && panel.style.display === 'none') {
                 toggleProfileCustomization();
             }
+            
+            // Add loading state to parameter groups
+            document.querySelectorAll('.parameter-group').forEach(group => {
+                group.classList.add('loading');
+            });
+            
+            setTimeout(() => {
+                document.querySelectorAll('.parameter-group').forEach(group => {
+                    group.classList.remove('loading');
+                });
+            }, 300);
             
             if (profileType === 'quality') {
                 // Activate quality tab
