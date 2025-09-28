@@ -1682,70 +1682,6 @@ class PiCameraController(CameraController):
         
         logger.debug("Camera worker thread stopped")
 
-
-# Utility functions for Pi camera operations
-def create_pi_camera_controller(config_manager: ConfigManager) -> PiCameraController:
-    """Create Pi camera controller from configuration"""
-    camera_config = config_manager.get('camera', {})
-    controller_config = camera_config.get('controller', {})
-    
-    return PiCameraController(controller_config)
-
-
-def detect_pi_cameras() -> List[Dict[str, Any]]:
-    """Detect available Pi cameras"""
-    cameras = []
-    
-    if not PICAMERA2_AVAILABLE:
-        logger.warning("picamera2 not available for camera detection")
-        return cameras
-    
-    for camera_id in range(4):  # Check up to 4 cameras
-        try:
-            if not PICAMERA2_AVAILABLE or Picamera2 is None:
-                continue
-                
-            test_camera = Picamera2(camera_id)
-            props = test_camera.camera_properties
-            test_camera.close()
-            
-            cameras.append({
-                "camera_id": camera_id,
-                "model": props.get('Model', 'Unknown'),
-                "location": props.get('Location', 'Unknown'),
-                "pixel_array_size": props.get('PixelArraySize', (0, 0))
-            })
-            
-        except Exception:
-            # Camera not available
-            continue
-    
-    return cameras
-
-
-def get_optimal_pi_camera_settings(resolution: Tuple[int, int], 
-                                  lighting_conditions: str = "normal") -> CameraSettings:
-    """Get optimal camera settings for given conditions"""
-    
-    # Base settings
-    settings = CameraSettings(
-        resolution=resolution,
-        format=ImageFormat.JPEG
-    )
-    
-    # Adjust for lighting conditions
-    if lighting_conditions == "low_light":
-        settings.exposure_time = 0.05  # 50ms
-        settings.iso = 800
-    elif lighting_conditions == "bright":
-        settings.exposure_time = 0.001  # 1ms
-        settings.iso = 100
-    else:  # normal
-        settings.exposure_time = 0.01  # 10ms
-        settings.iso = 200
-    
-    return settings
-
     # ISP Buffer Management Methods for High-Resolution Dual Camera Operations
     
     async def capture_with_isp_management(self, camera_id: int, stream_name: str = "main") -> Optional[Any]:
@@ -1951,3 +1887,67 @@ def get_optimal_pi_camera_settings(resolution: Tuple[int, int],
             
         logger.info(f"High-res sequential capture complete: {len([r for r in results.values() if r is not None])}/{len(results)} successful")
         return results
+
+
+# Utility functions for Pi camera operations
+def create_pi_camera_controller(config_manager: ConfigManager) -> PiCameraController:
+    """Create Pi camera controller from configuration"""
+    camera_config = config_manager.get('camera', {})
+    controller_config = camera_config.get('controller', {})
+    
+    return PiCameraController(controller_config)
+
+
+def detect_pi_cameras() -> List[Dict[str, Any]]:
+    """Detect available Pi cameras"""
+    cameras = []
+    
+    if not PICAMERA2_AVAILABLE:
+        logger.warning("picamera2 not available for camera detection")
+        return cameras
+    
+    for camera_id in range(4):  # Check up to 4 cameras
+        try:
+            if not PICAMERA2_AVAILABLE or Picamera2 is None:
+                continue
+                
+            test_camera = Picamera2(camera_id)
+            props = test_camera.camera_properties
+            test_camera.close()
+            
+            cameras.append({
+                "camera_id": camera_id,
+                "model": props.get('Model', 'Unknown'),
+                "location": props.get('Location', 'Unknown'),
+                "pixel_array_size": props.get('PixelArraySize', (0, 0))
+            })
+            
+        except Exception:
+            # Camera not available
+            continue
+    
+    return cameras
+
+
+def get_optimal_pi_camera_settings(resolution: Tuple[int, int], 
+                                  lighting_conditions: str = "normal") -> CameraSettings:
+    """Get optimal camera settings for given conditions"""
+    
+    # Base settings
+    settings = CameraSettings(
+        resolution=resolution,
+        format=ImageFormat.JPEG
+    )
+    
+    # Adjust for lighting conditions
+    if lighting_conditions == "low_light":
+        settings.exposure_time = 0.05  # 50ms
+        settings.iso = 800
+    elif lighting_conditions == "bright":
+        settings.exposure_time = 0.001  # 1ms
+        settings.iso = 100
+    else:  # normal
+        settings.exposure_time = 0.01  # 10ms
+        settings.iso = 200
+    
+    return settings
