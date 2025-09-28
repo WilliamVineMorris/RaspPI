@@ -527,6 +527,71 @@ class PiCameraAdapter(StandardCameraAdapter):
             # Return default settings on error
             return CameraSettings(resolution=(1920, 1080), format=ImageFormat.JPEG)
 
+    # ISP Buffer Management Methods (delegated to PiCameraController)
+    
+    async def capture_with_isp_management(self, camera_id: int, stream_name: str = "main") -> Optional[Any]:
+        """
+        Delegate ISP-managed capture to underlying Pi camera controller.
+        
+        Args:
+            camera_id: Camera ID (0 or 1)
+            stream_name: Stream to capture from
+            
+        Returns:
+            Captured image array or None if failed
+        """
+        if hasattr(self.pi_camera, 'capture_with_isp_management'):
+            return await self.pi_camera.capture_with_isp_management(camera_id, stream_name)
+        else:
+            self.logger.warning("ISP management method not available in Pi camera controller")
+            return None
+    
+    async def capture_dual_sequential_isp(self, stream_name: str = "main", delay_ms: int = 200) -> Dict[str, Any]:
+        """
+        Delegate dual sequential ISP capture to underlying Pi camera controller.
+        
+        Args:
+            stream_name: Stream to capture from both cameras
+            delay_ms: Delay between captures in milliseconds
+            
+        Returns:
+            Dict with results: {'camera_0': image_array, 'camera_1': image_array}
+        """
+        if hasattr(self.pi_camera, 'capture_dual_sequential_isp'):
+            return await self.pi_camera.capture_dual_sequential_isp(stream_name, delay_ms)
+        else:
+            self.logger.warning("Dual sequential ISP method not available in Pi camera controller")
+            return {}
+    
+    async def prepare_cameras_for_capture(self) -> bool:
+        """
+        Delegate camera preparation to underlying Pi camera controller.
+        
+        Returns:
+            True if preparation successful, False otherwise
+        """
+        if hasattr(self.pi_camera, 'prepare_cameras_for_capture'):
+            return await self.pi_camera.prepare_cameras_for_capture()
+        else:
+            self.logger.warning("Camera preparation method not available in Pi camera controller")
+            return False
+    
+    async def capture_dual_high_res_sequential(self, delay_ms: int = 500) -> Dict[str, Any]:
+        """
+        Delegate high-resolution sequential capture to underlying Pi camera controller.
+        
+        Args:
+            delay_ms: Extended delay between captures for high-res operations
+            
+        Returns:
+            Dict with results: {'camera_0': image_array, 'camera_1': image_array}
+        """
+        if hasattr(self.pi_camera, 'capture_dual_high_res_sequential'):
+            return await self.pi_camera.capture_dual_high_res_sequential(delay_ms)
+        else:
+            self.logger.warning("High-res sequential method not available in Pi camera controller")
+            return {}
+
 
 # Factory function for creating camera adapters
 def create_camera_adapter(controller: CameraController, config: Dict[str, Any]) -> StandardCameraAdapter:

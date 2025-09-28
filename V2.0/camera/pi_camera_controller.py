@@ -1881,3 +1881,73 @@ def get_optimal_pi_camera_settings(resolution: Tuple[int, int],
         except Exception as e:
             logger.error(f"Camera preparation failed: {e}")
             return False
+    
+    async def capture_dual_high_res_sequential(self, delay_ms: int = 500) -> Dict[str, Any]:
+        """
+        High-resolution sequential capture mode optimized for 64MP cameras.
+        Uses aggressive ISP buffer management and extended delays for memory-intensive captures.
+        
+        Args:
+            delay_ms: Extended delay between captures for high-res operations
+            
+        Returns:
+            Dict with results: {'camera_0': image_array, 'camera_1': image_array}
+        """
+        results = {}
+        
+        try:
+            available_cameras = [0, 1] if len(self.cameras) >= 2 else list(self.cameras.keys())
+            logger.info(f"Starting high-res sequential capture for {len(available_cameras)} cameras")
+            
+            # Pre-capture preparation with aggressive buffer cleanup
+            import gc
+            
+            # Multiple garbage collection cycles for high-res mode
+            for _ in range(3):
+                gc.collect()
+                await asyncio.sleep(0.1)
+            
+            for camera_id in available_cameras:
+                camera_key = f"camera_{camera_id}"
+                
+                try:
+                    logger.info(f"High-res capture starting for {camera_key}")
+                    
+                    # Additional pre-capture buffer cleanup for high-res
+                    gc.collect()
+                    await asyncio.sleep(0.1)
+                    
+                    # Capture with extended error handling for high-res mode
+                    image_array = await self.capture_with_isp_management(camera_id, "main")
+                    
+                    if image_array is not None:
+                        results[camera_key] = image_array
+                        logger.info(f"High-res sequential capture successful: {camera_key} -> {image_array.shape}")
+                        
+                        # Immediate post-capture cleanup for high-res
+                        gc.collect()
+                    else:
+                        results[camera_key] = None
+                        logger.error(f"High-res sequential capture failed: {camera_key}")
+                    
+                    # Extended delay between high-res captures to ensure ISP recovery
+                    if len(available_cameras) > 1 and camera_id != available_cameras[-1]:
+                        logger.info(f"High-res mode: waiting {delay_ms}ms before next camera")
+                        await asyncio.sleep(delay_ms / 1000.0)
+                        
+                        # Additional buffer cleanup during delay
+                        gc.collect()
+                        
+                except Exception as camera_error:
+                    logger.error(f"High-res capture error for {camera_key}: {camera_error}")
+                    results[camera_key] = None
+                    
+                    # Recovery cleanup on error
+                    gc.collect()
+                    await asyncio.sleep(0.3)
+                    
+        except Exception as e:
+            logger.error(f"High-res dual sequential capture failed: {e}")
+            
+        logger.info(f"High-res sequential capture complete: {len([r for r in results.values() if r is not None])}/{len(results)} successful")
+        return results

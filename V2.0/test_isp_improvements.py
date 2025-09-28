@@ -23,17 +23,16 @@ async def test_isp_capture():
         from camera.pi_camera_controller import PiCameraController
         print("✅ PiCameraController import successful!")
         
-        # Test method availability
-        controller = PiCameraController()
-        
+        # Test method availability by checking class definition (no instantiation needed)
         required_methods = [
             'capture_with_isp_management',
             'capture_dual_sequential_isp', 
-            'prepare_cameras_for_capture'
+            'prepare_cameras_for_capture',
+            'capture_dual_high_res_sequential'
         ]
         
         for method_name in required_methods:
-            if hasattr(controller, method_name):
+            if hasattr(PiCameraController, method_name):
                 print(f"✅ Method available: {method_name}")
             else:
                 print(f"❌ Method missing: {method_name}")
@@ -42,8 +41,10 @@ async def test_isp_capture():
         print("  📸 Sequential capture instead of simultaneous")
         print("  🧹 Garbage collection for ISP buffer cleanup") 
         print("  ⚠️  ISP error detection and recovery")
-        print("  ⏱️  Configurable delays between captures")
+        print("  ⏱️  Configurable delays between captures (200ms standard, 500ms high-res)")
         print("  🔒 Proper camera controller separation of concerns")
+        print("  📷 High-resolution mode for 64MP cameras with extended delays")
+        print("  🔄 Automatic fallback from high-res to standard ISP modes")
         
         print("\n✅ All ISP improvements successfully integrated!")
         return True

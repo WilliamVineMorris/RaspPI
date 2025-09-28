@@ -1496,8 +1496,12 @@ class CameraManagerAdapter:
             if hasattr(self.controller, 'prepare_cameras_for_capture'):
                 await self.controller.prepare_cameras_for_capture()
             
-            # Use camera controller's ISP buffer management
-            if hasattr(self.controller, 'capture_dual_sequential_isp'):
+            # Use high-resolution sequential capture for 64MP cameras
+            if hasattr(self.controller, 'capture_dual_high_res_sequential'):
+                self.logger.info("CAMERA: Using high-resolution sequential capture mode (64MP optimized)")
+                capture_results = await self.controller.capture_dual_high_res_sequential(delay_ms=500)
+            elif hasattr(self.controller, 'capture_dual_sequential_isp'):
+                self.logger.info("CAMERA: Using standard ISP sequential capture mode")
                 capture_results = await self.controller.capture_dual_sequential_isp("main", delay_ms=200)
                 
                 # Convert results to expected format
