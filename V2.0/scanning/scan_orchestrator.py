@@ -1533,9 +1533,49 @@ class CameraManagerAdapter:
                     target_resolution=target_resolution,
                     delay_ms=500 if target_resolution[0] >= 8000 else 200
                 )
+                
+                # Convert resolution-aware results to expected format
+                camera_results = []
+                for camera_id in ['camera_0', 'camera_1']:
+                    if camera_id in capture_results and capture_results[camera_id] is not None:
+                        image_array = capture_results[camera_id]
+                        
+                        # Convert RGB to BGR format for consistency
+                        import cv2
+                        if len(image_array.shape) == 3 and image_array.shape[2] == 3:
+                            image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                        else:
+                            image_bgr = image_array.copy()
+                        
+                        camera_results.append({'image': image_bgr, 'metadata': {}})
+                        self.logger.info(f"CAMERA: Resolution-aware capture successful for {camera_id}: {image_bgr.shape}")
+                    else:
+                        camera_results.append(None)
+                        self.logger.error(f"CAMERA: Resolution-aware capture failed for {camera_id}")
+                        
             elif hasattr(self.controller, 'capture_dual_high_res_sequential'):
                 self.logger.info("CAMERA: Using legacy high-resolution sequential capture")
                 capture_results = await self.controller.capture_dual_high_res_sequential(delay_ms=500)
+                
+                # Convert legacy results to expected format
+                camera_results = []
+                for camera_id in ['camera_0', 'camera_1']:
+                    if camera_id in capture_results and capture_results[camera_id] is not None:
+                        image_array = capture_results[camera_id]
+                        
+                        # Convert RGB to BGR format
+                        import cv2
+                        if len(image_array.shape) == 3 and image_array.shape[2] == 3:
+                            image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                        else:
+                            image_bgr = image_array.copy()
+                        
+                        camera_results.append({'image': image_bgr, 'metadata': {}})
+                        self.logger.info(f"CAMERA: Legacy capture successful for {camera_id}: {image_bgr.shape}")
+                    else:
+                        camera_results.append(None)
+                        self.logger.error(f"CAMERA: Legacy capture failed for {camera_id}")
+                        
             elif hasattr(self.controller, 'capture_dual_sequential_isp'):
                 self.logger.info("CAMERA: Using standard ISP sequential capture mode")
                 capture_results = await self.controller.capture_dual_sequential_isp("main", delay_ms=200)
