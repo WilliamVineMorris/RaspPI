@@ -2303,8 +2303,12 @@ async function loadAvailableProfiles() {
         const response = await fetch('/api/profiles/list');
         const data = await response.json();
         
+        console.log('📋 Loaded profiles:', data);
+        
         if (data.success) {
             updateProfileDropdowns(data.quality_profiles, data.speed_profiles);
+        } else {
+            console.error('❌ Profile loading failed:', data.error);
         }
     } catch (error) {
         console.error('Error loading profiles:', error);
@@ -2335,7 +2339,7 @@ function updateProfileDropdowns(qualityProfiles, speedProfiles) {
     qualityProfiles.filter(p => p.name.startsWith('custom_')).forEach(profile => {
         const option = document.createElement('option');
         option.value = profile.name;
-        option.textContent = `🔧 ${profile.display_name}`;
+        option.textContent = `🔧 ${profile.description || profile.name}`;
         qualitySelect.appendChild(option);
     });
     
@@ -2343,7 +2347,7 @@ function updateProfileDropdowns(qualityProfiles, speedProfiles) {
     speedProfiles.filter(p => p.name.startsWith('custom_')).forEach(profile => {
         const option = document.createElement('option');
         option.value = profile.name;
-        option.textContent = `🔧 ${profile.display_name}`;
+        option.textContent = `🔧 ${profile.description || profile.name}`;
         speedSelect.appendChild(option);
     });
 }
@@ -2445,7 +2449,7 @@ async function saveAsCustomProfile() {
             body: JSON.stringify({
                 profile_type: 'quality',
                 name: `custom_${profileName.toLowerCase().replace(/\s+/g, '_')}`,
-                display_name: profileName,
+                description: profileName,
                 settings: customQuality
             })
         });
@@ -2459,7 +2463,7 @@ async function saveAsCustomProfile() {
             body: JSON.stringify({
                 profile_type: 'speed',
                 name: `custom_${profileName.toLowerCase().replace(/\s+/g, '_')}`,
-                display_name: profileName,
+                description: profileName,
                 settings: customSpeed
             })
         });

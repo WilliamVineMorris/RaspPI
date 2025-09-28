@@ -1465,10 +1465,10 @@ class ScannerWebInterface:
                 
                 profile_type = data.get('profile_type')  # 'quality' or 'speed'
                 name = data.get('name')
-                display_name = data.get('display_name')
+                display_name = data.get('display_name') or data.get('description')  # Support both display_name and description
                 settings = data.get('settings', {})
                 
-                # Support both formats: new (name, display_name, settings) and old (base_profile, custom_name, modifications)
+                # Support both formats: new (name, description/display_name, settings) and old (base_profile, custom_name, modifications)
                 if not name and data.get('custom_name'):
                     name = data.get('custom_name')
                 if not display_name and data.get('custom_name'):
@@ -1480,7 +1480,7 @@ class ScannerWebInterface:
                     missing = []
                     if not profile_type: missing.append('profile_type')
                     if not name: missing.append('name')
-                    if not display_name: missing.append('display_name')
+                    if not display_name: missing.append('display_name or description')
                     return jsonify({'success': False, 'error': f'Missing required parameters: {", ".join(missing)}'}), 400
                 
                 # Create the profile using the profile manager's create methods
