@@ -1791,8 +1791,9 @@ class PiCameraController(CameraController):
     
     async def prepare_cameras_for_capture(self) -> bool:
         """
-        Prepare both cameras for capture by clearing ISP buffers and stabilizing pipeline.
-        Ensures single-stream configuration to prevent ISP buffer queue errors.
+        Prepare cameras for capture with resolution-aware memory management.
+        - High-res (64MP): Sequential single-camera preparation to avoid memory pressure
+        - Lower-res: Standard simultaneous preparation
         
         Returns:
             True if preparation successful, False otherwise
@@ -1803,77 +1804,133 @@ class PiCameraController(CameraController):
             # Global buffer cleanup
             gc.collect()
             
-            # Ensure cameras are configured for single-stream high-resolution capture
-            for camera_id in self.cameras:
-                camera = self.cameras[camera_id]
-                if camera:
-                    try:
-                        # Check if camera needs single-stream reconfiguration
-                        props = camera.camera_properties
-                        pixel_array_size = props.get('PixelArraySize', (0, 0))
-                        
-                        # For high-resolution cameras, ensure single-stream configuration
-                        if pixel_array_size[0] >= 9000:  # 64MP cameras
-                            logger.info(f"📷 Camera {camera_id}: Ensuring single-stream 64MP configuration for ISP stability")
+            # Check if we need high-resolution mode by examining current quality settings
+            needs_high_res = False
+            target_resolution = (4608, 2592)  # Default moderate resolution
+            
+            # Try to determine target resolution from current configuration
+            try:
+                # Check if we have access to quality settings to determine target resolution
+                if hasattr(self, '_current_capture_resolution'):
+                    target_resolution = self._current_capture_resolution
+                    needs_high_res = target_resolution[0] >= 9000  # 64MP threshold
+                else:
+                    # Default to checking camera properties for max capabilities
+                    for camera_id in self.cameras:
+                        camera = self.cameras[camera_id]
+                        if camera:
+                            props = camera.camera_properties
+                            pixel_array_size = props.get('PixelArraySize', (0, 0))
+                            if pixel_array_size[0] >= 9000:
+                                # Assume moderate resolution to avoid memory issues
+                                target_resolution = (4608, 2592)  # 12MP - good quality, manageable memory
+                                break
+            except Exception as resolution_check_error:
+                logger.debug(f"Resolution check failed, using safe default: {resolution_check_error}")
+            
+            logger.info(f"📷 Camera preparation: Target resolution {target_resolution}, High-res mode: {needs_high_res}")
+            
+            if needs_high_res:
+                # HIGH-RESOLUTION MODE: Sequential single-camera preparation
+                logger.info("📷 HIGH-RES MODE: Sequential single-camera preparation to prevent memory allocation failures")
+                
+                for camera_id in self.cameras:
+                    camera = self.cameras[camera_id]
+                    if camera:
+                        try:
+                            logger.info(f"📷 Camera {camera_id}: Configuring for high-resolution sequential capture")
                             
-                            # Stop camera to reconfigure
-                            was_running = camera.started
-                            if was_running:
+                            # Stop camera completely before reconfiguration
+                            if camera.started:
                                 camera.stop()
-                                
-                            # Create optimized single-stream configuration for still capture
-                            # Use minimal buffer allocation and proper sensor format
-                            single_stream_config = camera.create_still_configuration(
-                                main={"size": (9152, 6944), "format": "RGB888"},
-                                raw=None,  # Explicitly disable RAW stream
-                                buffer_count=1  # Minimal buffer for still capture - reduces memory pressure
+                            
+                            # Force memory cleanup between cameras
+                            gc.collect()
+                            await asyncio.sleep(0.3)  # Extended delay for memory recovery
+                            
+                            # Create high-resolution single-stream configuration
+                            high_res_config = camera.create_still_configuration(
+                                main={"size": target_resolution, "format": "RGB888"},
+                                raw=None,  # No RAW stream
+                                buffer_count=1  # Minimal buffer allocation
                             )
                             
-                            # Apply configuration and restart if needed
-                            camera.configure(single_stream_config)
+                            camera.configure(high_res_config)
                             
-                            # Set sensor controls for optimal RGB output (reduces conversion overhead)
+                            # Optimize controls for high-resolution capture
                             if hasattr(camera, 'set_controls'):
                                 try:
-                                    # Optimize for RGB output to match stream format
                                     camera.set_controls({
-                                        "NoiseReductionMode": 0,  # Minimal processing for speed
-                                        "Sharpness": 0.0,         # Disable sharpening to reduce processing
+                                        "NoiseReductionMode": 0,
+                                        "Sharpness": 0.0,
                                     })
                                 except Exception as control_error:
                                     logger.debug(f"Camera {camera_id} control optimization failed: {control_error}")
                             
-                            if was_running:
-                                camera.start()
-                                
-                            logger.info(f"📷 Camera {camera_id}: Optimized single-stream configuration applied (minimal buffers, reduced processing)")
+                            # Start camera and verify
+                            camera.start()
+                            await asyncio.sleep(0.2)  # Let camera stabilize
                             
-                    except Exception as config_error:
-                        logger.warning(f"Camera {camera_id} reconfiguration for ISP failed: {config_error}")
+                            logger.info(f"📷 Camera {camera_id}: High-resolution configuration successful")
+                            
+                        except Exception as config_error:
+                            logger.error(f"Camera {camera_id} high-resolution configuration failed: {config_error}")
+                            return False  # Fail fast for high-res mode
+                        
+                        # Memory cleanup after each camera configuration
+                        gc.collect()
+                        await asyncio.sleep(0.2)
+                        
+            else:
+                # STANDARD MODE: Simultaneous preparation for lower resolutions
+                logger.info("📷 STANDARD MODE: Simultaneous camera preparation for moderate resolution")
+                
+                for camera_id in self.cameras:
+                    camera = self.cameras[camera_id]
+                    if camera:
+                        try:
+                            # For lower resolutions, standard configuration works fine
+                            if camera.started:
+                                camera.stop()
+                                
+                            # Use moderate resolution configuration that works reliably
+                            standard_config = camera.create_still_configuration(
+                                main={"size": target_resolution, "format": "RGB888"},
+                                raw=None,
+                                buffer_count=1
+                            )
+                            
+                            camera.configure(standard_config)
+                            camera.start()
+                            
+                            logger.info(f"📷 Camera {camera_id}: Standard resolution configuration applied")
+                            
+                        except Exception as config_error:
+                            logger.warning(f"Camera {camera_id} standard configuration failed: {config_error}")
             
-            # Allow ISP pipeline to reset across all cameras after configuration
-            await asyncio.sleep(0.2)
-            
-            # Verify cameras are ready
+            # Final verification
             ready_count = 0
             for camera_id in self.cameras:
                 if self.cameras[camera_id] and hasattr(self.cameras[camera_id], 'capture_array'):
                     ready_count += 1
             
-            logger.info(f"Camera preparation complete: {ready_count} cameras ready for single-stream ISP-managed capture")
+            mode_description = "high-resolution sequential" if needs_high_res else "standard resolution simultaneous"
+            logger.info(f"Camera preparation complete: {ready_count} cameras ready for {mode_description} capture")
             return ready_count > 0
             
         except Exception as e:
             logger.error(f"Camera preparation failed: {e}")
             return False
     
-    async def capture_dual_high_res_sequential(self, delay_ms: int = 500) -> Dict[str, Any]:
+    async def capture_dual_resolution_aware(self, target_resolution: Tuple[int, int] = None, delay_ms: int = 500) -> Dict[str, Any]:
         """
-        High-resolution sequential capture mode optimized for 64MP cameras.
-        Uses single-stream configuration and aggressive ISP buffer management to prevent V4L2 buffer errors.
+        Resolution-aware dual camera capture with automatic strategy selection.
+        - High-res (64MP): Sequential single-camera capture to prevent memory allocation failures
+        - Lower-res: Simultaneous capture for better sync
         
         Args:
-            delay_ms: Extended delay between captures for high-res operations
+            target_resolution: Target resolution tuple (width, height). If None, uses current camera configuration
+            delay_ms: Delay between captures in sequential mode
             
         Returns:
             Dict with results: {'camera_0': image_array, 'camera_1': image_array}
@@ -1882,61 +1939,125 @@ class PiCameraController(CameraController):
         
         try:
             available_cameras = [0, 1] if len(self.cameras) >= 2 else list(self.cameras.keys())
-            logger.info(f"Starting single-stream high-res sequential capture for {len(available_cameras)} cameras")
-            logger.info("🔧 ISP Buffer Management: Using single-stream configuration to eliminate V4L2 buffer queue errors")
             
-            # Pre-capture preparation with aggressive buffer cleanup
-            import gc
+            # Determine capture strategy based on resolution
+            if target_resolution is None:
+                # Try to detect current resolution from camera configuration
+                target_resolution = (4608, 2592)  # Safe default
+                for camera_id in available_cameras:
+                    if camera_id in self.cameras:
+                        camera = self.cameras[camera_id]
+                        if camera and hasattr(camera, 'camera_configuration'):
+                            try:
+                                config = camera.camera_configuration
+                                if 'main' in config and 'size' in config['main']:
+                                    target_resolution = config['main']['size']
+                                    break
+                            except Exception:
+                                pass
             
-            # Multiple garbage collection cycles for high-res mode
-            for _ in range(3):
-                gc.collect()
-                await asyncio.sleep(0.1)
+            is_high_resolution = target_resolution[0] >= 8000  # 8000+ pixels width = high-res
             
-            for camera_id in available_cameras:
-                camera_key = f"camera_{camera_id}"
+            logger.info(f"📷 Resolution-aware capture: {target_resolution}, Strategy: {'Sequential' if is_high_resolution else 'Simultaneous'}")
+            
+            if is_high_resolution:
+                # HIGH-RESOLUTION: Sequential capture to prevent memory allocation failures
+                logger.info(f"🔧 HIGH-RES SEQUENTIAL: Capturing {len(available_cameras)} cameras one at a time to manage memory")
                 
-                try:
-                    logger.info(f"High-res capture starting for {camera_key}")
-                    
-                    # Additional pre-capture buffer cleanup for high-res
+                import gc
+                
+                # Pre-capture memory cleanup for high-res
+                for _ in range(2):
                     gc.collect()
                     await asyncio.sleep(0.1)
+                
+                for camera_id in available_cameras:
+                    camera_key = f"camera_{camera_id}"
                     
-                    # Capture with extended error handling for high-res mode
-                    image_array = await self.capture_with_isp_management(camera_id, "main")
-                    
-                    if image_array is not None:
-                        results[camera_key] = image_array
-                        logger.info(f"High-res sequential capture successful: {camera_key} -> {image_array.shape}")
+                    try:
+                        logger.info(f"📷 High-res capture starting for {camera_key} at {target_resolution}")
                         
-                        # Immediate post-capture cleanup for high-res
+                        # Ensure this camera is configured correctly before capture
+                        camera = self.cameras[camera_id]
+                        if camera:
+                            # Quick verification that camera is configured for target resolution
+                            try:
+                                current_config = camera.camera_configuration
+                                current_size = current_config.get('main', {}).get('size', (0, 0))
+                                if current_size != target_resolution:
+                                    logger.info(f"📷 Camera {camera_id}: Resolution mismatch, reconfiguring from {current_size} to {target_resolution}")
+                                    
+                                    # Stop and reconfigure for correct resolution
+                                    if camera.started:
+                                        camera.stop()
+                                    
+                                    # Configure for exact target resolution
+                                    new_config = camera.create_still_configuration(
+                                        main={"size": target_resolution, "format": "RGB888"},
+                                        raw=None,
+                                        buffer_count=1
+                                    )
+                                    camera.configure(new_config)
+                                    camera.start()
+                                    await asyncio.sleep(0.2)  # Let camera settle
+                            
+                            except Exception as reconfig_error:
+                                logger.warning(f"Camera {camera_id} reconfiguration skipped: {reconfig_error}")
+                        
+                        # Capture with ISP management
                         gc.collect()
-                    else:
+                        await asyncio.sleep(0.05)
+                        
+                        image_array = await self.capture_with_isp_management(camera_id, "main")
+                        
+                        if image_array is not None:
+                            results[camera_key] = image_array
+                            logger.info(f"✅ High-res capture successful: {camera_key} -> {image_array.shape}")
+                        else:
+                            results[camera_key] = None
+                            logger.error(f"❌ High-res capture failed: {camera_key}")
+                        
+                        # Memory cleanup between cameras
+                        gc.collect()
+                        
+                        # Delay before next camera for memory recovery
+                        if len(available_cameras) > 1 and camera_id != available_cameras[-1]:
+                            logger.info(f"⏱️ High-res delay: {delay_ms}ms before next camera")
+                            await asyncio.sleep(delay_ms / 1000.0)
+                            gc.collect()
+                        
+                    except Exception as camera_error:
+                        logger.error(f"High-res capture error for {camera_key}: {camera_error}")
                         results[camera_key] = None
-                        logger.error(f"High-res sequential capture failed: {camera_key}")
-                    
-                    # Extended delay between high-res captures to ensure ISP recovery
-                    if len(available_cameras) > 1 and camera_id != available_cameras[-1]:
-                        logger.info(f"High-res mode: waiting {delay_ms}ms before next camera")
-                        await asyncio.sleep(delay_ms / 1000.0)
-                        
-                        # Additional buffer cleanup during delay
                         gc.collect()
-                        
-                except Exception as camera_error:
-                    logger.error(f"High-res capture error for {camera_key}: {camera_error}")
-                    results[camera_key] = None
-                    
-                    # Recovery cleanup on error
-                    gc.collect()
-                    await asyncio.sleep(0.3)
-                    
-        except Exception as e:
-            logger.error(f"High-res dual sequential capture failed: {e}")
+                        await asyncio.sleep(0.2)
+                
+            else:
+                # LOWER-RESOLUTION: Simultaneous capture for better sync
+                logger.info(f"🔧 STANDARD SIMULTANEOUS: Capturing {len(available_cameras)} cameras simultaneously at {target_resolution}")
+                
+                # Use standard dual sequential with shorter delays for lower-res
+                results = await self.capture_dual_sequential_isp("main", delay_ms=100)
+                
+            logger.info(f"📊 Resolution-aware capture complete: {len([r for r in results.values() if r is not None])}/{len(results)} successful")
+            return results
             
-        logger.info(f"High-res sequential capture complete: {len([r for r in results.values() if r is not None])}/{len(results)} successful")
-        return results
+        except Exception as e:
+            logger.error(f"Resolution-aware dual capture failed: {e}")
+            return {}
+
+    async def capture_dual_high_res_sequential(self, delay_ms: int = 500) -> Dict[str, Any]:
+        """
+        Legacy high-resolution sequential capture - now redirects to resolution-aware capture.
+        
+        Args:
+            delay_ms: Extended delay between captures for high-res operations
+            
+        Returns:
+            Dict with results: {'camera_0': image_array, 'camera_1': image_array}
+        """
+        logger.info("🔄 Redirecting to resolution-aware capture system")
+        return await self.capture_dual_resolution_aware(target_resolution=(9152, 6944), delay_ms=delay_ms)
 
 
 # Utility functions for Pi camera operations

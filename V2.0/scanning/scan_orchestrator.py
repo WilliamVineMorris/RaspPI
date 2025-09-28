@@ -1491,16 +1491,50 @@ class CameraManagerAdapter:
                     self.logger.error(f"CAMERA: Capture failed for {camera_id}: {e}")
                     return None
             
-            # Use camera controller's ISP-aware sequential capture
-            self.logger.info("CAMERA: Using ISP-managed sequential dual camera capture...")
+            # Use camera controller's resolution-aware ISP capture system
+            self.logger.info("CAMERA: Using resolution-aware ISP-managed dual camera capture...")
             
-            # Prepare cameras for ISP-safe capture
+            # Determine target resolution from adapter configuration
+            target_resolution = None
+            try:
+                # Try to get resolution from quality settings
+                if hasattr(self, '_quality_settings') and self._quality_settings:
+                    if 'resolution' in self._quality_settings:
+                        target_resolution = tuple(self._quality_settings['resolution'])
+                        self.logger.info(f"CAMERA: Detected configured resolution: {target_resolution}")
+                
+                # Fallback: check capture configs for resolution
+                if target_resolution is None and hasattr(self, '_capture_configs'):
+                    if self._capture_configs:
+                        for camera_id, config in self._capture_configs.items():
+                            try:
+                                if hasattr(config, 'main') and 'size' in config.main:
+                                    target_resolution = config.main['size']
+                                    self.logger.info(f"CAMERA: Using capture config resolution: {target_resolution}")
+                                    break
+                            except Exception:
+                                continue
+            except Exception as resolution_error:
+                self.logger.debug(f"Resolution detection failed: {resolution_error}")
+            
+            # Default to safe moderate resolution if not detected
+            if target_resolution is None:
+                target_resolution = (4608, 2592)  # 12MP - good quality, manageable memory
+                self.logger.info(f"CAMERA: Using default moderate resolution: {target_resolution}")
+            
+            # Prepare cameras with resolution awareness
             if hasattr(self.controller, 'prepare_cameras_for_capture'):
                 await self.controller.prepare_cameras_for_capture()
             
-            # Use high-resolution sequential capture for 64MP cameras
-            if hasattr(self.controller, 'capture_dual_high_res_sequential'):
-                self.logger.info("CAMERA: Using high-resolution sequential capture mode (64MP optimized)")
+            # Use resolution-aware capture system
+            if hasattr(self.controller, 'capture_dual_resolution_aware'):
+                self.logger.info(f"CAMERA: Using resolution-aware capture for {target_resolution}")
+                capture_results = await self.controller.capture_dual_resolution_aware(
+                    target_resolution=target_resolution,
+                    delay_ms=500 if target_resolution[0] >= 8000 else 200
+                )
+            elif hasattr(self.controller, 'capture_dual_high_res_sequential'):
+                self.logger.info("CAMERA: Using legacy high-resolution sequential capture")
                 capture_results = await self.controller.capture_dual_high_res_sequential(delay_ms=500)
             elif hasattr(self.controller, 'capture_dual_sequential_isp'):
                 self.logger.info("CAMERA: Using standard ISP sequential capture mode")
