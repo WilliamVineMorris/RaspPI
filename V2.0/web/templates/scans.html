@@ -2895,6 +2895,10 @@ function resetToDefaults() {
     // Reset quality settings to medium profile defaults
     document.getElementById('quality').value = 'medium';
     document.getElementById('speed').value = 'medium';
+    
+    // Remove any custom_active options
+    removeCustomActiveOptions();
+    
     onQualityProfileChange();
     onSpeedProfileChange();
     
@@ -3075,15 +3079,56 @@ async function applyCustomSettings() {
         if (data.success) {
             showAlert('Custom settings applied successfully', 'success', 3000);
             
+            // Ensure custom_active options exist in dropdowns
+            ensureCustomActiveOptions();
+            
             // Update main dropdowns to show custom settings are active
             document.getElementById('quality').value = 'custom_active';
             document.getElementById('speed').value = 'custom_active';
+            
+            console.log('🎯 Set dropdowns to custom_active mode');
+            console.log('Quality dropdown value:', document.getElementById('quality').value);
+            console.log('Speed dropdown value:', document.getElementById('speed').value);
         } else {
             showAlert('Failed to apply settings: ' + (data.error || 'Unknown error'), 'error');
         }
     } catch (error) {
         console.error('Error applying custom settings:', error);
         showAlert('Error applying custom settings', 'error');
+    }
+}
+
+// Ensure custom_active options exist in dropdowns
+function ensureCustomActiveOptions() {
+    const qualitySelect = document.getElementById('quality');
+    const speedSelect = document.getElementById('speed');
+    
+    console.log('🔧 Ensuring custom_active options exist in dropdowns...');
+    
+    // Add custom_active option to quality dropdown if it doesn't exist
+    if (!qualitySelect.querySelector('option[value="custom_active"]')) {
+        const customQualityOption = document.createElement('option');
+        customQualityOption.value = 'custom_active';
+        customQualityOption.textContent = '🎯 Custom Settings Active';
+        customQualityOption.style.color = '#059669';
+        customQualityOption.style.fontWeight = 'bold';
+        qualitySelect.appendChild(customQualityOption);
+        console.log('✅ Added custom_active option to quality dropdown');
+    } else {
+        console.log('ℹ️  Quality dropdown already has custom_active option');
+    }
+    
+    // Add custom_active option to speed dropdown if it doesn't exist
+    if (!speedSelect.querySelector('option[value="custom_active"]')) {
+        const customSpeedOption = document.createElement('option');
+        customSpeedOption.value = 'custom_active';
+        customSpeedOption.textContent = '⚡ Custom Settings Active';
+        customSpeedOption.style.color = '#059669';
+        customSpeedOption.style.fontWeight = 'bold';
+        speedSelect.appendChild(customSpeedOption);
+        console.log('✅ Added custom_active option to speed dropdown');
+    } else {
+        console.log('ℹ️  Speed dropdown already has custom_active option');
     }
 }
 
@@ -3315,6 +3360,11 @@ function onQualityProfileChange() {
     const qualitySelect = document.getElementById('quality');
     const selectedProfile = qualitySelect.value;
     
+    // If user switched away from custom_active, remove the custom option from speed dropdown too
+    if (selectedProfile !== 'custom_active') {
+        removeCustomActiveOptions();
+    }
+    
     if (selectedProfile) {
         console.log(`🔄 Quality profile changed to: ${selectedProfile}`);
         loadProfileSettings('quality', selectedProfile);
@@ -3325,9 +3375,32 @@ function onSpeedProfileChange() {
     const speedSelect = document.getElementById('speed');
     const selectedProfile = speedSelect.value;
     
+    // If user switched away from custom_active, remove the custom option from quality dropdown too
+    if (selectedProfile !== 'custom_active') {
+        removeCustomActiveOptions();
+    }
+    
     if (selectedProfile) {
         console.log(`🔄 Speed profile changed to: ${selectedProfile}`);
         loadProfileSettings('speed', selectedProfile);
+    }
+}
+
+// Remove custom_active options from both dropdowns
+function removeCustomActiveOptions() {
+    const qualitySelect = document.getElementById('quality');
+    const speedSelect = document.getElementById('speed');
+    
+    // Remove custom_active option from quality dropdown
+    const customQualityOption = qualitySelect.querySelector('option[value="custom_active"]');
+    if (customQualityOption) {
+        customQualityOption.remove();
+    }
+    
+    // Remove custom_active option from speed dropdown  
+    const customSpeedOption = speedSelect.querySelector('option[value="custom_active"]');
+    if (customSpeedOption) {
+        customSpeedOption.remove();
     }
 }
 
