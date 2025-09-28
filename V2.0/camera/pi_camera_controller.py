@@ -1789,11 +1789,14 @@ class PiCameraController(CameraController):
             
         return results
     
-    async def prepare_cameras_for_capture(self) -> bool:
+    async def prepare_cameras_for_capture(self, target_resolution=None) -> bool:
         """
         Prepare cameras for capture with resolution-aware memory management.
         - High-res (64MP): Sequential single-camera preparation to avoid memory pressure
         - Lower-res: Standard simultaneous preparation
+        
+        Args:
+            target_resolution: Optional tuple specifying desired resolution (width, height)
         
         Returns:
             True if preparation successful, False otherwise
@@ -1806,38 +1809,40 @@ class PiCameraController(CameraController):
             
             # Detect current resolution and determine if reconfiguration is needed
             needs_high_res = False
-            target_resolution = None
             needs_reconfiguration = False
             
-            # Try to detect current camera resolution
-            try:
-                for camera_id in self.cameras:
-                    camera = self.cameras[camera_id]
-                    if camera and hasattr(camera, 'camera_configuration'):
-                        try:
-                            config = camera.camera_configuration
-                            if config and 'main' in config:
-                                current_size = config['main'].get('size')
-                                if current_size:
-                                    target_resolution = current_size
-                                    logger.info(f"📷 Camera {camera_id}: Current resolution detected: {target_resolution}")
-                                    break
-                        except Exception:
-                            continue
-                
-                # If no current resolution detected, use safe default
-                if target_resolution is None:
-                    target_resolution = (4608, 2592)  # Safe 12MP default
-                    needs_reconfiguration = True  # Will need to configure cameras
-                    logger.info(f"📷 No current resolution detected, will configure to default: {target_resolution}")
-                
-                # Determine if this is high-resolution mode
-                needs_high_res = target_resolution[0] >= 8000  # 8000+ pixels width = high-res
-                
-            except Exception as resolution_check_error:
-                logger.debug(f"Resolution detection failed: {resolution_check_error}")
-                target_resolution = (4608, 2592)  # Safe fallback
-                needs_reconfiguration = True
+            # Use provided target resolution first, otherwise try to detect current
+            if target_resolution is not None:
+                logger.info(f"📷 Using provided target resolution: {target_resolution}")
+            else:
+                # Try to detect current camera resolution
+                try:
+                    for camera_id in self.cameras:
+                        camera = self.cameras[camera_id]
+                        if camera and hasattr(camera, 'camera_configuration'):
+                            try:
+                                config = camera.camera_configuration
+                                if config and 'main' in config:
+                                    current_size = config['main'].get('size')
+                                    if current_size:
+                                        target_resolution = current_size
+                                        logger.info(f"📷 Camera {camera_id}: Current resolution detected: {target_resolution}")
+                                        break
+                            except Exception:
+                                continue
+                    
+                    # If no current resolution detected, use safe default
+                    if target_resolution is None:
+                        target_resolution = (4608, 2592)  # Safe 12MP default
+                        logger.info(f"📷 No current resolution detected, will configure to default: {target_resolution}")
+                    
+                except Exception as resolution_check_error:
+                    logger.debug(f"Resolution detection failed: {resolution_check_error}")
+                    target_resolution = (4608, 2592)  # Safe fallback
+            
+            # Determine if this is high-resolution mode and if reconfiguration is needed
+            needs_high_res = target_resolution[0] >= 8000  # 8000+ pixels width = high-res
+            needs_reconfiguration = True  # Will need to configure cameras
             
             logger.info(f"📷 Camera preparation: Target resolution {target_resolution}, High-res mode: {needs_high_res}, Reconfiguration needed: {needs_reconfiguration}")
             
@@ -1950,7 +1955,7 @@ class PiCameraController(CameraController):
             logger.error(f"Camera preparation failed: {e}")
             return False
     
-    async def capture_dual_resolution_aware(self, target_resolution: Tuple[int, int] = None, delay_ms: int = 500) -> Dict[str, Any]:
+    async def capture_dual_resolution_aware(self, target_resolution: Optional[Tuple[int, int]] = None, delay_ms: int = 500) -> Dict[str, Any]:
         """
         Resolution-aware dual camera capture with automatic strategy selection.
         - High-res (64MP): Sequential single-camera capture to prevent memory allocation failures

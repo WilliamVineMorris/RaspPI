@@ -1578,7 +1578,7 @@ class CameraManagerAdapter:
             
             # Prepare cameras with resolution awareness
             if hasattr(self.controller, 'prepare_cameras_for_capture'):
-                await self.controller.prepare_cameras_for_capture()
+                await self.controller.prepare_cameras_for_capture(target_resolution=target_resolution)
             
             # Use resolution-aware capture system
             if hasattr(self.controller, 'capture_dual_resolution_aware'):
