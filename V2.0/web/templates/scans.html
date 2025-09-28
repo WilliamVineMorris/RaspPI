@@ -1217,15 +1217,36 @@
     }
     
     #profileCustomizationPanel .col-md-6 {
-        flex: 1 1 0% !important;
+        flex: 1 !important;
         max-width: none !important;
-        width: 50% !important;
+        width: auto !important;
+        min-width: 0;
         padding: 0 0.75rem;
     }
     
     /* Ensure full width utilization */
     #profileCustomizationPanel {
         width: 100%;
+    }
+    
+    /* Force full width on parent containers */
+    .profile-customization-section,
+    .step-content,
+    .scan-step {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    
+    /* Remove Bootstrap container constraints */
+    .container-fluid {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+    
+    /* Ensure row takes full width */
+    #profileCustomizationPanel .row {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
     }
 
     /* Enhanced visual feedback for column highlights */
@@ -2619,21 +2640,29 @@ function toggleProfileCustomization() {
     }
 }
 
-// Ensure proper initialization on page load
-document.addEventListener('DOMContentLoaded', function() {
-    const panel = document.getElementById('profileCustomizationPanel');
-    const toggleText = document.getElementById('profileToggleText');
-    const icon = document.getElementById('advancedIcon');
-    const hint = document.getElementById('profileHint');
-    
-    // Ensure panel starts hidden with correct button text
-    if (panel) {
-        panel.style.display = 'none';
-        if (toggleText) toggleText.textContent = 'Advanced Settings';
-        if (icon) icon.className = 'bi bi-sliders';
-        if (hint) hint.style.display = 'inline';
-    }
-});
+// Initialize proper state immediately
+(function() {
+    // Set initial state immediately when script loads
+    setTimeout(function() {
+        const panel = document.getElementById('profileCustomizationPanel');
+        const toggleText = document.getElementById('profileToggleText');
+        const icon = document.getElementById('advancedIcon');
+        const hint = document.getElementById('profileHint');
+        
+        if (panel && panel.style.display !== 'none') {
+            panel.style.display = 'none';
+        }
+        if (toggleText && toggleText.textContent !== 'Advanced Settings') {
+            toggleText.textContent = 'Advanced Settings';
+        }
+        if (icon && !icon.classList.contains('bi-sliders')) {
+            icon.className = 'bi bi-sliders';
+        }
+        if (hint) {
+            hint.style.display = 'inline';
+        }
+    }, 100);
+})();
 
 // Reset settings to defaults
 function resetToDefaults() {
