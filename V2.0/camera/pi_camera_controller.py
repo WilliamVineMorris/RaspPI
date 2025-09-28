@@ -2000,8 +2000,23 @@ class PiCameraController(CameraController):
                     try:
                         logger.info(f"📷 High-res sequential capture starting for {camera_key} at {target_resolution}")
                         
-                        # Configure camera on-demand for high-res to avoid simultaneous memory allocation
+                        # Get camera and check if it needs reinitialization (after previous camera closure)
                         camera = self.cameras[camera_id]
+                        
+                        # If camera was closed by previous capture, reinitialize it
+                        if camera and not hasattr(camera, '_camera') or not camera.camera_manager:
+                            logger.info(f"📷 {camera_key}: Camera needs reinitialization after resource cleanup")
+                            try:
+                                # Reinitialize camera after previous closure
+                                from picamera2 import Picamera2
+                                new_camera = Picamera2(camera_num=camera_id)
+                                self.cameras[camera_id] = new_camera
+                                camera = new_camera
+                                logger.info(f"📷 {camera_key}: Camera reinitialized successfully")
+                            except Exception as reinit_error:
+                                logger.error(f"📷 {camera_key}: Camera reinitialization failed: {reinit_error}")
+                                results[camera_key] = None
+                                continue
                         if camera:
                             # Stop camera and clean memory before reconfiguration
                             if camera.started:
@@ -2095,18 +2110,25 @@ class PiCameraController(CameraController):
                             results[camera_key] = None
                             logger.error(f"❌ High-res capture failed: {camera_key}")
                         
-                        # CRITICAL: Complete camera shutdown after capture to free all memory
+                        # CRITICAL: Complete camera shutdown and resource release
                         if camera:
-                            logger.info(f"📷 {camera_key}: Shutting down camera to free ISP resources...")
+                            logger.info(f"📷 {camera_key}: Complete shutdown to free all V4L2/ISP resources...")
                             
-                            # Force stop to release ISP buffers
+                            # Step 1: Force stop camera
                             if camera.started:
                                 camera.stop()
                             
-                            # Brief delay to allow ISP cleanup
-                            await asyncio.sleep(0.2)
+                            # Step 2: Close camera completely to free V4L2 buffers
+                            try:
+                                camera.close()
+                                logger.info(f"📷 {camera_key}: Camera closed to free V4L2 buffers")
+                            except Exception as close_error:
+                                logger.warning(f"📷 {camera_key}: Camera close warning: {close_error}")
                             
-                            logger.info(f"📷 {camera_key}: Camera stopped and ISP buffers released")
+                            # Step 3: Extended delay for complete resource cleanup
+                            await asyncio.sleep(0.5)
+                            
+                            logger.info(f"📷 {camera_key}: All camera resources released")
                         
                         # Aggressive memory cleanup between cameras
                         for cleanup_round in range(3):
@@ -2122,6 +2144,21 @@ class PiCameraController(CameraController):
                             for final_cleanup in range(2):
                                 gc.collect()
                                 await asyncio.sleep(0.2)
+                            
+                            # System-level V4L2 buffer cleanup
+                            logger.info(f"🧹 System-level V4L2 buffer cleanup...")
+                            try:
+                                # Force system buffer cleanup
+                                import subprocess
+                                # Echo to drop caches (requires root, might fail but that's OK)
+                                subprocess.run(['sudo', 'sh', '-c', 'echo 1 > /proc/sys/vm/drop_caches'], 
+                                             capture_output=True, timeout=2)
+                                logger.info("🧹 System cache drop completed")
+                            except Exception as cache_error:
+                                logger.debug(f"Cache drop skipped: {cache_error}")
+                            
+                            # Extended V4L2 stabilization delay
+                            await asyncio.sleep(1.0)
                             
                             # Memory status check before next camera
                             try:
