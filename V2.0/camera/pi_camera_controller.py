@@ -1959,10 +1959,18 @@ class PiCameraController(CameraController):
                 
                 import gc
                 
-                # Pre-capture memory cleanup for high-res
-                for _ in range(2):
+                # Pre-capture memory cleanup and diagnostics for high-res
+                for _ in range(3):
                     gc.collect()
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.2)
+                
+                # Memory diagnostics
+                try:
+                    import psutil
+                    mem = psutil.virtual_memory()
+                    logger.info(f"📊 System memory: {mem.percent}% used, {mem.available / 1024**3:.1f}GB available")
+                except ImportError:
+                    logger.debug("psutil not available for memory diagnostics")
                 
                 for camera_id in available_cameras:
                     camera_key = f"camera_{camera_id}"
@@ -1990,13 +1998,40 @@ class PiCameraController(CameraController):
                                 buffer_count=1  # Minimal buffer allocation
                             )
                             
-                            camera.configure(high_res_config)
-                            camera.start()
-                            
-                            # Brief settling time
-                            await asyncio.sleep(0.2)
-                            
-                            logger.info(f"📷 {camera_key}: Successfully configured and started for high-res capture")
+                            try:
+                                camera.configure(high_res_config)
+                                camera.start()
+                                
+                                # Brief settling time
+                                await asyncio.sleep(0.2)
+                                
+                                logger.info(f"📷 {camera_key}: Successfully configured and started for high-res capture")
+                                
+                            except Exception as config_start_error:
+                                if "Cannot allocate memory" in str(config_start_error):
+                                    logger.error(f"📷 {camera_key}: Memory allocation failed during configuration - trying fallback resolution")
+                                    # Try with slightly reduced resolution as fallback
+                                    try:
+                                        fallback_resolution = (8000, 6000)  # Reduced from 9152x6944
+                                        logger.info(f"📷 {camera_key}: Attempting fallback resolution {fallback_resolution}")
+                                        
+                                        fallback_config = camera.create_still_configuration(
+                                            main={"size": fallback_resolution, "format": "RGB888"},
+                                            raw=None,
+                                            buffer_count=1
+                                        )
+                                        camera.configure(fallback_config)
+                                        camera.start()
+                                        await asyncio.sleep(0.2)
+                                        
+                                        logger.info(f"📷 {camera_key}: Fallback resolution successful")
+                                        target_resolution = fallback_resolution  # Update for this capture
+                                        
+                                    except Exception as fallback_error:
+                                        logger.error(f"📷 {camera_key}: Fallback resolution also failed: {fallback_error}")
+                                        raise config_start_error  # Re-raise original error
+                                else:
+                                    raise config_start_error
                             
                             # Quick verification that camera is configured correctly
                             try:
@@ -2021,14 +2056,33 @@ class PiCameraController(CameraController):
                             results[camera_key] = None
                             logger.error(f"❌ High-res capture failed: {camera_key}")
                         
-                        # Memory cleanup between cameras
-                        gc.collect()
+                        # CRITICAL: Complete camera shutdown after capture to free all memory
+                        if camera:
+                            camera.stop()
+                            logger.info(f"📷 {camera_key}: Camera stopped to free ISP buffers")
                         
-                        # Delay before next camera for memory recovery
-                        if len(available_cameras) > 1 and camera_id != available_cameras[-1]:
-                            logger.info(f"⏱️ High-res delay: {delay_ms}ms before next camera")
-                            await asyncio.sleep(delay_ms / 1000.0)
+                        # Aggressive memory cleanup between cameras
+                        for cleanup_round in range(3):
                             gc.collect()
+                            await asyncio.sleep(0.3)  # Extended cleanup cycles
+                        
+                        # Extended delay before next camera for complete memory recovery
+                        if len(available_cameras) > 1 and camera_id != available_cameras[-1]:
+                            logger.info(f"⏱️ High-res memory recovery: {delay_ms}ms before next camera")
+                            await asyncio.sleep(delay_ms / 1000.0)
+                            
+                            # Additional memory cleanup before next camera
+                            for final_cleanup in range(2):
+                                gc.collect()
+                                await asyncio.sleep(0.2)
+                            
+                            # Memory status check before next camera
+                            try:
+                                import psutil
+                                mem = psutil.virtual_memory()
+                                logger.info(f"📊 Pre-camera memory: {mem.percent}% used, {mem.available / 1024**3:.1f}GB available")
+                            except ImportError:
+                                pass
                         
                     except Exception as camera_error:
                         logger.error(f"High-res capture error for {camera_key}: {camera_error}")
