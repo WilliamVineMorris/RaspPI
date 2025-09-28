@@ -1764,35 +1764,10 @@ class PiCameraController(CameraController):
                     
                     # Progressive backoff
                     await asyncio.sleep(retry_delay * (attempt + 1))
-                
-                logger.info(f"ISP-managed capture successful for camera {camera_id}")
-                return image_array
-                
-            except Exception as capture_error:
-                error_msg = str(capture_error).lower()
-                
-                # Check for ISP buffer-specific errors
-                if any(keyword in error_msg for keyword in ['buffer', 'isp', 'queue', 'v4l2', 'invalid argument']):
-                    logger.warning(f"ISP buffer error detected for camera {camera_id}: {capture_error}")
-                    
-                    # Attempt recovery with aggressive buffer cleanup
-                    gc.collect()
-                    await asyncio.sleep(0.2)  # Longer delay for ISP recovery
-                    
-                    try:
-                        # Retry capture after buffer cleanup
-                        image_array = camera.capture_array(stream_name)
-                        gc.collect()
-                        
-                        logger.info(f"ISP buffer recovery successful for camera {camera_id}")
-                        return image_array
-                        
-                    except Exception as retry_error:
-                        logger.error(f"ISP buffer recovery failed for camera {camera_id}: {retry_error}")
-                        return None
-                else:
-                    # Re-raise non-ISP errors
-                    raise capture_error
+            
+            # If we reach here, the retry loop completed successfully
+            logger.info(f"ISP-managed capture successful for camera {camera_id}")
+            return image_array
                     
         except Exception as e:
             logger.error(f"ISP-managed capture failed for camera {camera_id}: {e}")
