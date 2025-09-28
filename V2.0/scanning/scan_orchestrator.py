@@ -1240,9 +1240,9 @@ class CameraManagerAdapter:
             await self._switch_camera_mode("capture")
             self.logger.info("CAMERA: Both cameras prepared for simultaneous capture")
             
-            # Define capture function for individual camera (without locks for true simultaneity)
+            # Define capture function for individual camera (sequential with ISP buffer management)
             async def capture_camera_direct(camera_id: str, mapped_id: int):
-                """Direct camera capture optimized for true simultaneous operation"""
+                """Direct camera capture optimized for ISP buffer management"""
                 try:
                     if hasattr(self.controller, 'cameras') and mapped_id in self.controller.cameras:
                         camera = self.controller.cameras[mapped_id]
@@ -1378,58 +1378,60 @@ class CameraManagerAdapter:
                     image_array = camera_obj.capture_array("main")
                     
                     # Immediately clear any internal buffers after capture
-                    gc.collect()                                    # Then try to get metadata immediately after capture
-                                    metadata = {}
-                                    
-                                    # Try different ways to get metadata from Picamera2
-                                    if hasattr(camera_obj, 'capture_metadata'):
-                                        try:
-                                            if callable(camera_obj.capture_metadata):
-                                                metadata.update(camera_obj.capture_metadata())
-                                            else:
-                                                metadata.update(camera_obj.capture_metadata)
-                                        except:
-                                            pass
-                                    
-                                    # Try to get current controls as metadata
-                                    if hasattr(camera_obj, 'controls') and hasattr(camera_obj.controls, 'keys'):
-                                        try:
-                                            metadata.update({'controls': dict(camera_obj.controls)})
-                                        except:
-                                            pass
-                                    
-                                    return image_array, metadata
-                                    
-                                except Exception as e:
-                                    self.logger.error(f"Capture with metadata failed: {e}")
-                                    return None, {}
-                            
-                            loop = asyncio.get_event_loop()
-                            with concurrent.futures.ThreadPoolExecutor() as executor:
-                                # Run capture with metadata collection in thread pool
-                                image_array, capture_metadata = await loop.run_in_executor(executor, capture_with_metadata, camera)
-                            
-                            if image_array is not None and image_array.size > 0:
-                                # Convert RGB to BGR format (Picamera2 returns RGB, system expects BGR)
-                                import cv2
-                                if len(image_array.shape) == 3 and image_array.shape[2] == 3:
-                                    # Convert RGB to BGR for consistency with OpenCV
-                                    image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
-                                    self.logger.info(f"CAMERA: Converted RGB to BGR for {camera_id}")
-                                else:
-                                    image_bgr = image_array.copy()
-                                
-                                # Log captured metadata
-                                if capture_metadata and isinstance(capture_metadata, dict):
-                                    self.logger.info(f"CAMERA: Captured metadata for {camera_id}: {list(capture_metadata.keys())}")
-                                else:
-                                    self.logger.info(f"CAMERA: No metadata captured for {camera_id}")
-                                    capture_metadata = {}
-                                
-                                self.logger.info(f"CAMERA: Simultaneous capture successful for {camera_id}: {image_bgr.shape}")
-                                return {'image': image_bgr, 'metadata': capture_metadata}
+                    gc.collect()
+                    
+                    # Then try to get metadata immediately after capture
+                    metadata = {}
+                    
+                    # Try different ways to get metadata from Picamera2
+                    if hasattr(camera_obj, 'capture_metadata'):
+                        try:
+                            if callable(camera_obj.capture_metadata):
+                                metadata.update(camera_obj.capture_metadata())
                             else:
-                                self.logger.error(f"CAMERA: Simultaneous capture returned empty array for {camera_id}")
+                                metadata.update(camera_obj.capture_metadata)
+                        except:
+                            pass
+                    
+                    # Try to get current controls as metadata
+                    if hasattr(camera_obj, 'controls') and hasattr(camera_obj.controls, 'keys'):
+                        try:
+                            metadata.update({'controls': dict(camera_obj.controls)})
+                        except:
+                            pass
+                    
+                    return image_array, metadata
+                    
+                except Exception as e:
+                    self.logger.error(f"Capture with metadata failed: {e}")
+                    return None, {}
+                            
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                # Run capture with metadata collection in thread pool
+                image_array, capture_metadata = await loop.run_in_executor(executor, capture_with_metadata, camera)
+            
+            if image_array is not None and image_array.size > 0:
+                # Convert RGB to BGR format (Picamera2 returns RGB, system expects BGR)
+                import cv2
+                if len(image_array.shape) == 3 and image_array.shape[2] == 3:
+                    # Convert RGB to BGR for consistency with OpenCV
+                    image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                    self.logger.info(f"CAMERA: Converted RGB to BGR for {camera_id}")
+                else:
+                    image_bgr = image_array.copy()
+                
+                # Log captured metadata
+                if capture_metadata and isinstance(capture_metadata, dict):
+                    self.logger.info(f"CAMERA: Captured metadata for {camera_id}: {list(capture_metadata.keys())}")
+                else:
+                    self.logger.info(f"CAMERA: No metadata captured for {camera_id}")
+                    capture_metadata = {}
+                
+                self.logger.info(f"CAMERA: Simultaneous capture successful for {camera_id}: {image_bgr.shape}")
+                return {'image': image_bgr, 'metadata': capture_metadata}
+            else:
+                self.logger.error(f"CAMERA: Simultaneous capture returned empty array for {camera_id}")
                                 
                     return None
                     
@@ -1467,6 +1469,10 @@ class CameraManagerAdapter:
                     else:
                         self.logger.error(f"CAMERA: General capture error for {camera_id}: {e}")
                     
+                    return None
+                
+                except Exception as e:
+                    self.logger.error(f"CAMERA: Capture failed for {camera_id}: {e}")
                     return None
             
             # Use sequential capture to prevent ISP buffer queue errors
