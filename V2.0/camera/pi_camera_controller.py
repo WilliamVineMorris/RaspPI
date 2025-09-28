@@ -1792,6 +1792,7 @@ class PiCameraController(CameraController):
     async def prepare_cameras_for_capture(self) -> bool:
         """
         Prepare both cameras for capture by clearing ISP buffers and stabilizing pipeline.
+        Ensures single-stream configuration to prevent ISP buffer queue errors.
         
         Returns:
             True if preparation successful, False otherwise
@@ -1802,8 +1803,42 @@ class PiCameraController(CameraController):
             # Global buffer cleanup
             gc.collect()
             
-            # Allow ISP pipeline to reset across all cameras
-            await asyncio.sleep(0.1)
+            # Ensure cameras are configured for single-stream high-resolution capture
+            for camera_id in self.cameras:
+                camera = self.cameras[camera_id]
+                if camera:
+                    try:
+                        # Check if camera needs single-stream reconfiguration
+                        props = camera.camera_properties
+                        pixel_array_size = props.get('PixelArraySize', (0, 0))
+                        
+                        # For high-resolution cameras, ensure single-stream configuration
+                        if pixel_array_size[0] >= 9000:  # 64MP cameras
+                            logger.info(f"📷 Camera {camera_id}: Ensuring single-stream 64MP configuration for ISP stability")
+                            
+                            # Stop camera to reconfigure
+                            was_running = camera.started
+                            if was_running:
+                                camera.stop()
+                                
+                            # Create single-stream high-resolution configuration
+                            single_stream_config = camera.create_still_configuration(
+                                main={"size": (9152, 6944), "format": "RGB888"}
+                                # NO additional streams to prevent ISP buffer issues
+                            )
+                            
+                            # Apply configuration and restart if needed
+                            camera.configure(single_stream_config)
+                            if was_running:
+                                camera.start()
+                                
+                            logger.info(f"📷 Camera {camera_id}: Single-stream configuration applied for ISP buffer management")
+                            
+                    except Exception as config_error:
+                        logger.warning(f"Camera {camera_id} reconfiguration for ISP failed: {config_error}")
+            
+            # Allow ISP pipeline to reset across all cameras after configuration
+            await asyncio.sleep(0.2)
             
             # Verify cameras are ready
             ready_count = 0
@@ -1811,7 +1846,7 @@ class PiCameraController(CameraController):
                 if self.cameras[camera_id] and hasattr(self.cameras[camera_id], 'capture_array'):
                     ready_count += 1
             
-            logger.info(f"Camera preparation complete: {ready_count} cameras ready for ISP-managed capture")
+            logger.info(f"Camera preparation complete: {ready_count} cameras ready for single-stream ISP-managed capture")
             return ready_count > 0
             
         except Exception as e:
@@ -1821,7 +1856,7 @@ class PiCameraController(CameraController):
     async def capture_dual_high_res_sequential(self, delay_ms: int = 500) -> Dict[str, Any]:
         """
         High-resolution sequential capture mode optimized for 64MP cameras.
-        Uses aggressive ISP buffer management and extended delays for memory-intensive captures.
+        Uses single-stream configuration and aggressive ISP buffer management to prevent V4L2 buffer errors.
         
         Args:
             delay_ms: Extended delay between captures for high-res operations
@@ -1833,7 +1868,8 @@ class PiCameraController(CameraController):
         
         try:
             available_cameras = [0, 1] if len(self.cameras) >= 2 else list(self.cameras.keys())
-            logger.info(f"Starting high-res sequential capture for {len(available_cameras)} cameras")
+            logger.info(f"Starting single-stream high-res sequential capture for {len(available_cameras)} cameras")
+            logger.info("🔧 ISP Buffer Management: Using single-stream configuration to eliminate V4L2 buffer queue errors")
             
             # Pre-capture preparation with aggressive buffer cleanup
             import gc

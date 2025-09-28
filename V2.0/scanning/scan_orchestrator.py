@@ -767,11 +767,10 @@ class CameraManagerAdapter:
                             display="lores"  # Use low-res for display efficiency
                         )
                         
-                        # OPTIMAL: RGB888 format for high-res capture
+                        # SINGLE-STREAM: High-resolution capture only - eliminates ISP buffer pressure
                         capture_config = camera.create_still_configuration(
-                            main={"size": (4608, 2592), "format": "RGB888"},  # Native optimal still capture
-                            lores={"size": (1920, 1080), "format": "YUV420"},  # Preview
-                            display="lores"  # Let picamera2 manage buffers automatically
+                            main={"size": (9152, 6944), "format": "RGB888"}  # Single stream for 64MP capture
+                            # NO lores, raw, or display streams to prevent ISP buffer queue errors
                         )
                         
                         # Store configurations per camera
@@ -887,9 +886,10 @@ class CameraManagerAdapter:
                                     if hasattr(self, '_capture_configs') and camera_id in self._capture_configs:
                                         camera.configure(self._capture_configs[camera_id])
                                     else:
-                                        # Fallback configuration
+                                        # Single-stream fallback configuration
                                         config = camera.create_still_configuration(
-                                            main={"size": (4608, 2592), "format": "RGB888"}
+                                            main={"size": (9152, 6944), "format": "RGB888"}
+                                            # Single stream only to prevent ISP buffer issues
                                         )
                                         camera.configure(config)
                                     
@@ -1869,11 +1869,10 @@ class CameraManagerAdapter:
                     if camera:
                         try:
                             # Create new capture configuration with resolution-appropriate buffers
-                            # Create camera configuration with automatic buffer management
+                            # SINGLE-STREAM: Custom resolution capture only
                             new_capture_config = camera.create_still_configuration(
-                                main={"size": custom_resolution, "format": "RGB888"},  # Custom resolution
-                                lores={"size": (1920, 1080), "format": "YUV420"},  # Keep preview same
-                                display="lores"  # Let picamera2 handle buffer management automatically
+                                main={"size": custom_resolution, "format": "RGB888"}  # Single stream only
+                                # NO additional streams to prevent ISP buffer queue errors
                             )
                             
                             # Update stored configuration
@@ -1893,9 +1892,8 @@ class CameraManagerAdapter:
                             self.logger.warning(f"CAMERA: Falling back to max supported resolution: {fallback_resolution}")
                             
                             fallback_config = camera.create_still_configuration(
-                                main={"size": fallback_resolution, "format": "RGB888"},
-                                lores={"size": (1920, 1080), "format": "YUV420"},
-                                display="lores"  # Use default buffer management
+                                main={"size": fallback_resolution, "format": "RGB888"}
+                                # Single stream only to prevent ISP buffer errors
                             )
                             
                             if hasattr(self, '_capture_configs'):
@@ -1924,11 +1922,10 @@ class CameraManagerAdapter:
                     camera = self.controller.cameras[camera_id]
                     
                     if camera:
-                        # Create safe configuration using default buffer management
+                        # SINGLE-STREAM: Safe configuration eliminates ISP buffer issues
                         safe_config = camera.create_still_configuration(
-                            main={"size": safe_resolution, "format": "RGB888"},
-                            lores={"size": (1920, 1080), "format": "YUV420"},
-                            display="lores"  # Use picamera2 default buffer allocation
+                            main={"size": safe_resolution, "format": "RGB888"}
+                            # Single stream only - proven to eliminate V4L2 buffer errors
                         )
                         
                         if hasattr(self, '_capture_configs'):
