@@ -2013,6 +2013,26 @@ class PiCameraController(CameraController):
                                 self.cameras[camera_id] = new_camera
                                 camera = new_camera
                                 logger.info(f"📷 {camera_key}: Camera reinitialized successfully")
+                                
+                                # CRITICAL: Restore calibrated settings after reinitialization
+                                if hasattr(self, '_stored_camera_settings') and camera_id in self._stored_camera_settings:
+                                    stored_settings = self._stored_camera_settings[camera_id]
+                                    logger.info(f"📷 {camera_key}: Restoring calibrated settings after reinitialization...")
+                                    
+                                    # Apply stored focus and exposure settings
+                                    try:
+                                        if 'focus' in stored_settings and hasattr(camera, 'set_controls'):
+                                            camera.set_controls({
+                                                "LensPosition": stored_settings['focus'],
+                                                "ExposureTime": stored_settings.get('exposure_time', 32752),
+                                                "AnalogueGain": stored_settings.get('gain', 8.0),
+                                            })
+                                            logger.info(f"📷 {camera_key}: Calibrated settings restored - Focus: {stored_settings['focus']:.3f}, Exposure: {stored_settings.get('exposure_time', 32752)}μs")
+                                    except Exception as restore_error:
+                                        logger.warning(f"📷 {camera_key}: Settings restore failed: {restore_error}")
+                                else:
+                                    logger.warning(f"📷 {camera_key}: No stored calibrated settings found for restoration")
+                                    
                             except Exception as reinit_error:
                                 logger.error(f"📷 {camera_key}: Camera reinitialization failed: {reinit_error}")
                                 results[camera_key] = None
@@ -2137,6 +2157,37 @@ class PiCameraController(CameraController):
                         # CRITICAL: Complete camera cleanup for V4L2 buffer release
                         if camera:
                             logger.info(f"📷 {camera_key}: Complete camera cleanup for V4L2 buffer release...")
+                            
+                            # Step 0: Store calibrated settings before closing camera
+                            try:
+                                if not hasattr(self, '_stored_camera_settings'):
+                                    self._stored_camera_settings = {}
+                                
+                                # Try to extract current calibrated settings before closure
+                                current_controls = {}
+                                if hasattr(camera, 'capture_metadata'):
+                                    try:
+                                        metadata = camera.capture_metadata()
+                                        current_controls = {
+                                            'focus': metadata.get('LensPosition', 0.0),
+                                            'exposure_time': metadata.get('ExposureTime', 32752),
+                                            'gain': metadata.get('AnalogueGain', 8.0),
+                                        }
+                                        self._stored_camera_settings[camera_id] = current_controls
+                                        logger.info(f"📷 {camera_key}: Stored calibrated settings - Focus: {current_controls['focus']:.3f}, Exposure: {current_controls['exposure_time']}μs")
+                                    except Exception as metadata_error:
+                                        logger.debug(f"Metadata capture failed: {metadata_error}")
+                                        # Fallback to default calibrated values if available
+                                        if hasattr(self, '_camera_calibration') and camera_id in self._camera_calibration:
+                                            calib = self._camera_calibration[camera_id]
+                                            self._stored_camera_settings[camera_id] = {
+                                                'focus': calib.get('focus', 0.6),
+                                                'exposure_time': calib.get('exposure_time', 32752),
+                                                'gain': calib.get('gain', 8.0),
+                                            }
+                                            logger.info(f"📷 {camera_key}: Using fallback calibrated settings from calibration data")
+                            except Exception as store_error:
+                                logger.warning(f"📷 {camera_key}: Settings storage failed: {store_error}")
                             
                             # Step 1: Stop camera
                             try:
