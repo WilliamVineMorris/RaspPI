@@ -194,9 +194,16 @@ class GPIOLEDController(LightingController):
         self._shutdown_complete = False  # Track shutdown state
         
         # Zone Configuration from config
-        self.zone_configs = self._parse_zone_configs(config.get('zones', {}))
+        # Zones are nested under lighting.zones in the YAML structure
+        lighting_config = config.get('lighting', {})
+        zones_config = lighting_config.get('zones', {})
+        self.zone_configs = self._parse_zone_configs(zones_config)
         
         logger.info(f"Initialized GPIO LED controller with {len(self.zone_configs)} zones")
+        if self.zone_configs:
+            logger.info(f"Available zones: {list(self.zone_configs.keys())}")
+        else:
+            logger.warning("No LED zones configured - flash functionality will be disabled")
     
     def _parse_zone_configs(self, zones_config: Dict[str, Any]) -> Dict[str, LEDZone]:
         """Parse zone configurations from config"""

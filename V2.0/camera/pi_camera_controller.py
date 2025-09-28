@@ -1714,6 +1714,7 @@ class PiCameraController(CameraController):
             # Enhanced capture with ISP buffer retry logic
             max_retries = 3
             retry_delay = 0.5
+            image_array = None  # Initialize to prevent UnboundLocalError
             
             for attempt in range(max_retries):
                 try:
@@ -1734,7 +1735,7 @@ class PiCameraController(CameraController):
                     gc.collect()
                     
                     logger.info(f"ISP-managed capture successful for camera {camera_id}")
-                    break
+                    return image_array  # Return immediately on success
                     
                 except Exception as capture_error:
                     error_msg = str(capture_error)
@@ -1758,16 +1759,17 @@ class PiCameraController(CameraController):
                         except Exception as recovery_error:
                             logger.error(f"ISP recovery failed for camera {camera_id}: {recovery_error}")
                     
-                    # If this was the last attempt, re-raise
+                    # If this was the last attempt, log final failure
                     if attempt == max_retries - 1:
-                        raise capture_error
+                        logger.error(f"All {max_retries} capture attempts failed for camera {camera_id}")
+                        return None
                     
                     # Progressive backoff
                     await asyncio.sleep(retry_delay * (attempt + 1))
             
-            # If we reach here, the retry loop completed successfully
-            logger.info(f"ISP-managed capture successful for camera {camera_id}")
-            return image_array
+            # This should never be reached due to explicit returns above, but safety fallback
+            logger.error(f"Unexpected end of retry loop for camera {camera_id}")
+            return None
                     
         except Exception as e:
             logger.error(f"ISP-managed capture failed for camera {camera_id}: {e}")
@@ -2092,7 +2094,8 @@ class PiCameraController(CameraController):
                             
                             # Quick verification that camera is configured correctly
                             try:
-                                current_config = camera.camera_configuration
+                                # camera_configuration is a method, not a property
+                                current_config = camera.camera_configuration()
                                 current_size = current_config.get('main', {}).get('size', (0, 0))
                                 logger.info(f"📷 {camera_key}: Verified resolution {current_size}")
                             except Exception as verify_error:
