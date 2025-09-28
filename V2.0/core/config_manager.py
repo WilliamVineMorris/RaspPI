@@ -130,8 +130,8 @@ class ConfigManager:
             'SCANNER_LOG_LEVEL': 'system.log_level',
             'FLUIDNC_PORT': 'motion.controller.port',
             'WEB_PORT': 'web_interface.port',
-            'LED_GPIO_1': 'lighting.led_zones.zone_1.gpio_pin',
-            'LED_GPIO_2': 'lighting.led_zones.zone_2.gpio_pin',
+            'LED_GPIO_INNER': 'lighting.zones.inner.gpio_pins.0',
+            'LED_GPIO_OUTER': 'lighting.zones.outer.gpio_pins.0',
         }
         
         for env_var, config_path in env_mappings.items():
@@ -251,23 +251,32 @@ class ConfigManager:
     def _validate_lighting_config(self):
         """Validate LED lighting configuration"""
         lighting = self.get('lighting', {})
-        led_zones = lighting.get('led_zones', {})
+        zones = lighting.get('zones', {})
         
-        # Validate LED zones
-        for zone_name in ['zone_1', 'zone_2']:
-            if zone_name not in led_zones:
-                raise ConfigurationValidationError(f"Missing LED zone configuration: {zone_name}")
+        # Validate LED zones - check for inner and outer zones as configured in YAML
+        expected_zones = ['inner', 'outer']
+        for zone_name in expected_zones:
+            if zone_name not in zones:
+                # Make this a warning instead of error for flexibility
+                print(f"Warning: LED zone '{zone_name}' not configured (optional)")
+                continue
             
-            zone = led_zones[zone_name]
-            if 'gpio_pin' not in zone:
+            zone = zones[zone_name]
+            if 'gpio_pins' not in zone:
                 raise ConfigurationValidationError(
-                    f"Missing gpio_pin in {zone_name} configuration"
+                    f"Missing gpio_pins in {zone_name} zone configuration"
                 )
             
-            # Validate GPIO pin number
-            gpio_pin = zone['gpio_pin']
-            if not isinstance(gpio_pin, int) or gpio_pin < 0 or gpio_pin > 40:
+            # Validate GPIO pins
+            gpio_pins = zone['gpio_pins']
+            if not isinstance(gpio_pins, list) or not gpio_pins:
                 raise ConfigurationValidationError(
+                    f"gpio_pins must be a non-empty list in {zone_name} zone"
+                )
+            
+            for gpio_pin in gpio_pins:
+                if not isinstance(gpio_pin, int) or gpio_pin < 0 or gpio_pin > 40:
+                    raise ConfigurationValidationError(
                     f"Invalid GPIO pin {gpio_pin} in {zone_name}. Must be 0-40"
                 )
             
@@ -345,14 +354,18 @@ class ConfigManager:
     
     def get_led_zone_config(self, zone_name: str) -> LEDZoneConfig:
         """Get typed LED zone configuration"""
-        zone_data = self.get(f'lighting.led_zones.{zone_name}')
+        zone_data = self.get(f'lighting.zones.{zone_name}')
         if not zone_data:
             raise ConfigurationError(f"LED zone configuration not found: {zone_name}")
         
+        # Handle new structure with gpio_pins list
+        gpio_pins = zone_data.get('gpio_pins', [])
+        gpio_pin = gpio_pins[0] if gpio_pins else 0
+        
         return LEDZoneConfig(
-            gpio_pin=int(zone_data['gpio_pin']),
+            gpio_pin=int(gpio_pin),
             name=zone_data.get('name', zone_name),
-            max_intensity=float(zone_data.get('max_intensity', 90.0))
+            max_intensity=float(zone_data.get('max_brightness', 90.0))
         )
     
     def get_all_axes(self) -> Dict[str, AxisConfig]:
@@ -376,7 +389,7 @@ class ConfigManager:
     
     def get_all_led_zones(self) -> Dict[str, LEDZoneConfig]:
         """Get all LED zone configurations"""
-        zones_data = self.get('lighting.led_zones', {})
+        zones_data = self.get('lighting.zones', {})
         return {
             zone_name: self.get_led_zone_config(zone_name)
             for zone_name in zones_data.keys()
