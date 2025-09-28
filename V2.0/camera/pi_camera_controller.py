@@ -1851,23 +1851,12 @@ class PiCameraController(CameraController):
                     # HIGH-RESOLUTION MODE: Sequential single-camera preparation
                     logger.info("📷 HIGH-RES MODE: Sequential reconfiguration to prevent memory allocation failures")
                     
-                    for camera_id in self.cameras:
-                        camera = self.cameras[camera_id]
-                        if camera:
-                            try:
-                                logger.info(f"📷 Camera {camera_id}: Reconfiguring for high-resolution sequential capture")
-                                
-                                # Stop camera completely before reconfiguration
-                                if camera.started:
-                                    camera.stop()
-                                
-                                # Force memory cleanup between cameras
-                                gc.collect()
-                                await asyncio.sleep(0.3)  # Extended delay for memory recovery
-                                
-                                # Create high-resolution single-stream configuration
-                                high_res_config = camera.create_still_configuration(
-                                    main={"size": target_resolution, "format": "RGB888"},
+                    # CRITICAL: Only configure cameras during capture, not during preparation for high-res mode
+                    # This prevents memory allocation failures from attempting to configure both cameras simultaneously
+                    logger.info("📷 HIGH-RES: Skipping simultaneous configuration - cameras will be configured individually during capture")
+                    
+                    # Set flag for sequential mode
+                    self._high_res_sequential_mode = True
                                     raw=None,  # No RAW stream
                                     buffer_count=1  # Minimal buffer allocation
                                 )
@@ -2008,16 +1997,45 @@ class PiCameraController(CameraController):
                     camera_key = f"camera_{camera_id}"
                     
                     try:
-                        logger.info(f"📷 High-res capture starting for {camera_key} at {target_resolution}")
+                        logger.info(f"📷 High-res sequential capture starting for {camera_key} at {target_resolution}")
                         
-                        # Ensure this camera is configured correctly before capture
+                        # Configure camera on-demand for high-res to avoid simultaneous memory allocation
                         camera = self.cameras[camera_id]
                         if camera:
-                            # Quick verification that camera is configured for target resolution
+                            # Stop camera and clean memory before reconfiguration
+                            if camera.started:
+                                camera.stop()
+                                logger.info(f"📷 {camera_key}: Stopped camera for sequential reconfiguration")
+                            
+                            # Aggressive memory cleanup
+                            gc.collect()
+                            await asyncio.sleep(0.5)  # Extended delay for memory recovery
+                            
+                            # Configure for high-resolution capture
+                            logger.info(f"📷 {camera_key}: Configuring for {target_resolution} capture")
+                            high_res_config = camera.create_still_configuration(
+                                main={"size": target_resolution, "format": "RGB888"},
+                                raw=None,  # Disable RAW to prevent ISP buffer issues
+                                buffer_count=1  # Minimal buffer allocation
+                            )
+                            
+                            camera.configure(high_res_config)
+                            camera.start()
+                            
+                            # Brief settling time
+                            await asyncio.sleep(0.2)
+                            
+                            logger.info(f"📷 {camera_key}: Successfully configured and started for high-res capture")
+                            
+                            # Quick verification that camera is configured correctly
                             try:
                                 current_config = camera.camera_configuration
                                 current_size = current_config.get('main', {}).get('size', (0, 0))
-                                if current_size != target_resolution:
+                                logger.info(f"📷 {camera_key}: Verified resolution {current_size}")
+                            except Exception as verify_error:
+                                logger.warning(f"📷 {camera_key}: Could not verify configuration: {verify_error}")
+                            
+                            # Continue with capture without re-checking resolution
                                     logger.info(f"📷 Camera {camera_id}: Resolution mismatch, reconfiguring from {current_size} to {target_resolution}")
                                     
                                     # Stop and reconfigure for correct resolution
