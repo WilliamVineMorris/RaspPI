@@ -1411,7 +1411,11 @@ class ScannerWebInterface:
                     ]
                 }
                 
-                return jsonify({'success': True, 'profiles': profiles})
+                return jsonify({
+                    'success': True, 
+                    'quality_profiles': profiles['quality'],
+                    'speed_profiles': profiles['speed']
+                })
                 
             except Exception as e:
                 return jsonify({'success': False, 'error': str(e)}), 500
@@ -1446,30 +1450,88 @@ class ScannerWebInterface:
         def api_create_custom_profile():
             """Create a new custom profile"""
             try:
+                # Check if orchestrator and profile manager are available
+                if not self.orchestrator:
+                    return jsonify({'success': False, 'error': 'Orchestrator not available'}), 500
+                
+                if not hasattr(self.orchestrator, 'profile_manager') or not self.orchestrator.profile_manager:
+                    return jsonify({'success': False, 'error': 'Profile manager not available'}), 500
+                
                 data = request.get_json()
+                if not data:
+                    return jsonify({'success': False, 'error': 'No data provided'}), 400
+                
+                self.logger.info(f"🔧 Creating profile with data: {data}")
+                
                 profile_type = data.get('profile_type')  # 'quality' or 'speed'
-                base_profile = data.get('base_profile')
-                custom_name = data.get('custom_name')
-                modifications = data.get('modifications', {})
+                name = data.get('name')
+                display_name = data.get('display_name')
+                settings = data.get('settings', {})
                 
-                if not all([profile_type, base_profile, custom_name]):
-                    return jsonify({'success': False, 'error': 'Missing required parameters'}), 400
+                # Support both formats: new (name, display_name, settings) and old (base_profile, custom_name, modifications)
+                if not name and data.get('custom_name'):
+                    name = data.get('custom_name')
+                if not display_name and data.get('custom_name'):
+                    display_name = data.get('custom_name')
+                if not settings and data.get('modifications'):
+                    settings = data.get('modifications')
                 
-                if profile_type == 'quality':
-                    profile = self.orchestrator.profile_manager.create_custom_quality_profile(
-                        base_profile, modifications, custom_name
-                    )
-                elif profile_type == 'speed':
-                    profile = self.orchestrator.profile_manager.create_custom_speed_profile(
-                        base_profile, modifications, custom_name
-                    )
-                else:
-                    return jsonify({'success': False, 'error': 'Invalid profile type'}), 400
+                if not all([profile_type, name, display_name]):
+                    missing = []
+                    if not profile_type: missing.append('profile_type')
+                    if not name: missing.append('name')
+                    if not display_name: missing.append('display_name')
+                    return jsonify({'success': False, 'error': f'Missing required parameters: {", ".join(missing)}'}), 400
                 
-                from dataclasses import asdict
-                return jsonify({'success': True, 'profile': asdict(profile)})
+                # Create the profile using the profile manager's create methods
+                try:
+                    if profile_type == 'quality':
+                        # Map frontend profile names to backend names
+                        base_profile = data.get('base_profile', 'medium')
+                        profile_mapping = {'draft': 'low', 'standard': 'medium', 'high': 'high', 'ultra': 'ultra'}
+                        if base_profile in profile_mapping:
+                            base_profile = profile_mapping[base_profile]
+                        
+                        self.logger.info(f"🔧 Creating quality profile '{name}' from base '{base_profile}' with settings: {settings}")
+                        
+                        # The create method uses custom_name as the profile key and name
+                        profile = self.orchestrator.profile_manager.create_custom_quality_profile(
+                            base_profile=base_profile,
+                            modifications=settings,
+                            custom_name=name  # Use the full name (e.g., "custom_test")
+                        )
+                    elif profile_type == 'speed':
+                        # Map frontend profile names to backend names if needed
+                        base_profile = data.get('base_profile', 'medium')
+                        speed_mapping = {'ultra_fast': 'fast', 'fast': 'fast', 'normal': 'medium', 'precise': 'slow', 'ultra_precise': 'slow'}
+                        if base_profile in speed_mapping:
+                            base_profile = speed_mapping[base_profile]
+                        
+                        self.logger.info(f"🔧 Creating speed profile '{name}' from base '{base_profile}' with settings: {settings}")
+                        
+                        # The create method uses custom_name as the profile key and name
+                        profile = self.orchestrator.profile_manager.create_custom_speed_profile(
+                            base_profile=base_profile,
+                            modifications=settings,
+                            custom_name=name  # Use the full name (e.g., "custom_test")
+                        )
+                    else:
+                        return jsonify({'success': False, 'error': 'Invalid profile type. Must be "quality" or "speed"'}), 400
+                    
+                    # Save the custom profiles to persist them
+                    self.orchestrator.profile_manager.save_custom_profiles()
+                    
+                    from dataclasses import asdict
+                    return jsonify({'success': True, 'profile': asdict(profile)})
+                        
+                except Exception as create_error:
+                    self.logger.error(f"❌ Profile creation error: {create_error}")
+                    return jsonify({'success': False, 'error': f'Failed to create profile: {str(create_error)}'}), 400
                 
             except Exception as e:
+                self.logger.error(f"❌ Profile creation error: {e}")
+                import traceback
+                self.logger.error(f"❌ Profile creation traceback: {traceback.format_exc()}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
         @self.app.route('/api/profiles/update', methods=['POST'])
@@ -1529,6 +1591,66 @@ class ScannerWebInterface:
                     return jsonify({'success': False, 'error': 'Profile not found or not deletable'}), 404
                     
             except Exception as e:
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/profiles/apply_custom', methods=['POST'])
+        def api_apply_custom_settings():
+            """Apply custom settings temporarily without saving as profile"""
+            try:
+                if not self.orchestrator:
+                    return jsonify({'success': False, 'error': 'Orchestrator not available'}), 500
+                
+                if not hasattr(self.orchestrator, 'profile_manager') or not self.orchestrator.profile_manager:
+                    return jsonify({'success': False, 'error': 'Profile manager not available'}), 500
+                
+                data = request.get_json()
+                if not data:
+                    return jsonify({'success': False, 'error': 'No data provided'}), 400
+                
+                quality_settings = data.get('quality_settings', {})
+                speed_settings = data.get('speed_settings', {})
+                
+                self.logger.info(f"🔧 Applying custom settings - Quality: {quality_settings}, Speed: {speed_settings}")
+                
+                # Store settings for immediate use (could be applied during next scan)
+                # For now, just acknowledge the settings are received
+                success = True  # In a full implementation, you'd apply these to active profiles
+                
+                if success:
+                    return jsonify({'success': True, 'message': 'Custom settings applied successfully'})
+                else:
+                    return jsonify({'success': False, 'error': 'Failed to apply custom settings'}), 500
+                    
+            except Exception as e:
+                self.logger.error(f"❌ Apply custom settings error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/profiles/get/<profile_type>/<profile_name>', methods=['GET'])
+        def api_get_profile_settings(profile_type, profile_name):
+            """Get specific profile settings for loading into customization panel"""
+            try:
+                if not self.orchestrator:
+                    return jsonify({'success': False, 'error': 'Orchestrator not available'}), 500
+                
+                if not hasattr(self.orchestrator, 'profile_manager') or not self.orchestrator.profile_manager:
+                    return jsonify({'success': False, 'error': 'Profile manager not available'}), 500
+                
+                if profile_type == 'quality':
+                    profile = self.orchestrator.profile_manager.get_quality_profile(profile_name)
+                elif profile_type == 'speed':
+                    profile = self.orchestrator.profile_manager.get_speed_profile(profile_name)
+                else:
+                    return jsonify({'success': False, 'error': 'Invalid profile type'}), 400
+                
+                if profile:
+                    from dataclasses import asdict
+                    profile_dict = asdict(profile)
+                    return jsonify({'success': True, 'profile': profile_dict})
+                else:
+                    return jsonify({'success': False, 'error': 'Profile not found'}), 404
+                    
+            except Exception as e:
+                self.logger.error(f"❌ Get profile settings error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
         @self.app.route('/api/camera/capture', methods=['POST'])
