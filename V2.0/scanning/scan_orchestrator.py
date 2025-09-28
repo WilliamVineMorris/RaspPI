@@ -1240,10 +1240,25 @@ class CameraManagerAdapter:
             await self._switch_camera_mode("capture")
             self.logger.info("CAMERA: Both cameras prepared for simultaneous capture")
             
-            # Define capture function for individual camera (sequential with ISP buffer management)
+            # Simplified fallback capture function (ISP methods are preferred)
             async def capture_camera_direct(camera_id: str, mapped_id: int):
-                """Direct camera capture optimized for ISP buffer management"""
+                """Simplified fallback camera capture"""
                 try:
+                    # Use camera controller's ISP-aware capture if available
+                    if hasattr(self.controller, 'capture_with_isp_management'):
+                        image_array = await self.controller.capture_with_isp_management(mapped_id, "main")
+                        
+                        if image_array is not None:
+                            import cv2
+                            if len(image_array.shape) == 3 and image_array.shape[2] == 3:
+                                image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                            else:
+                                image_bgr = image_array.copy()
+                            
+                            self.logger.info(f"CAMERA: Fallback ISP capture successful for {camera_id}: {image_bgr.shape}")
+                            return {'image': image_bgr, 'metadata': {}}
+                    
+                    # Original direct access fallback
                     if hasattr(self.controller, 'cameras') and mapped_id in self.controller.cameras:
                         camera = self.controller.cameras[mapped_id]
                         
@@ -1474,22 +1489,47 @@ class CameraManagerAdapter:
                     self.logger.error(f"CAMERA: Capture failed for {camera_id}: {e}")
                     return None
             
-            # Use sequential capture to prevent ISP buffer queue errors
-            self.logger.info("CAMERA: Starting sequential dual camera capture to avoid ISP buffer conflicts...")
+            # Use camera controller's ISP-aware sequential capture
+            self.logger.info("CAMERA: Using ISP-managed sequential dual camera capture...")
             
-            # Capture cameras sequentially with minimal delay to reduce ISP pipeline pressure
-            camera_results = []
-            for camera_id, mapped_id in [('camera_0', 0), ('camera_1', 1)]:
-                try:
-                    result = await capture_camera_direct(camera_id, mapped_id)
-                    camera_results.append(result)
-                    
-                    # Small delay between captures to allow ISP buffers to clear
-                    await asyncio.sleep(0.1)
-                    
-                except Exception as e:
-                    self.logger.error(f"CAMERA: Sequential capture failed for {camera_id}: {e}")
-                    camera_results.append(e)
+            # Prepare cameras for ISP-safe capture
+            if hasattr(self.controller, 'prepare_cameras_for_capture'):
+                await self.controller.prepare_cameras_for_capture()
+            
+            # Use camera controller's ISP buffer management
+            if hasattr(self.controller, 'capture_dual_sequential_isp'):
+                capture_results = await self.controller.capture_dual_sequential_isp("main", delay_ms=200)
+                
+                # Convert results to expected format
+                camera_results = []
+                for camera_id in ['camera_0', 'camera_1']:
+                    if camera_id in capture_results and capture_results[camera_id] is not None:
+                        image_array = capture_results[camera_id]
+                        
+                        # Convert RGB to BGR format
+                        import cv2
+                        if len(image_array.shape) == 3 and image_array.shape[2] == 3:
+                            image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                        else:
+                            image_bgr = image_array.copy()
+                        
+                        camera_results.append({'image': image_bgr, 'metadata': {}})
+                        self.logger.info(f"CAMERA: ISP-managed capture successful for {camera_id}: {image_bgr.shape}")
+                    else:
+                        camera_results.append(None)
+                        self.logger.error(f"CAMERA: ISP-managed capture failed for {camera_id}")
+            else:
+                # Fallback to original method if ISP methods not available
+                self.logger.warning("CAMERA: ISP methods not available, using fallback capture")
+                camera_results = []
+                for camera_id, mapped_id in [('camera_0', 0), ('camera_1', 1)]:
+                    try:
+                        result = await capture_camera_direct(camera_id, mapped_id)
+                        camera_results.append(result)
+                        await asyncio.sleep(0.2)  # Increased delay for fallback
+                    except Exception as e:
+                        self.logger.error(f"CAMERA: Fallback capture failed for {camera_id}: {e}")
+                        camera_results.append(None)
             
             # Process results
             for i, (camera_id, result) in enumerate(zip(['camera_0', 'camera_1'], camera_results)):

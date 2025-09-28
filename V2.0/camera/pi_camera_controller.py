@@ -1745,3 +1745,139 @@ def get_optimal_pi_camera_settings(resolution: Tuple[int, int],
         settings.iso = 200
     
     return settings
+
+    # ISP Buffer Management Methods for High-Resolution Dual Camera Operations
+    
+    async def capture_with_isp_management(self, camera_id: int, stream_name: str = "main") -> Optional[Any]:
+        """
+        Capture from camera with ISP buffer management to prevent buffer queue errors.
+        
+        Args:
+            camera_id: Camera ID (0 or 1)
+            stream_name: Stream to capture from ("main", "lores", etc.)
+            
+        Returns:
+            Captured image array or None if failed
+        """
+        try:
+            if camera_id not in self.cameras or not self.cameras[camera_id]:
+                raise CameraError(f"Camera {camera_id} not available")
+            
+            camera = self.cameras[camera_id]
+            
+            # ISP Buffer Management: Clear buffers before capture
+            import gc
+            import time
+            
+            # Force garbage collection to free ISP buffers
+            gc.collect()
+            
+            # Allow ISP pipeline to stabilize
+            await asyncio.sleep(0.05)
+            
+            # Capture with error handling for ISP buffer issues
+            try:
+                image_array = camera.capture_array(stream_name)
+                
+                # Clear buffers immediately after capture
+                gc.collect()
+                
+                logger.info(f"ISP-managed capture successful for camera {camera_id}")
+                return image_array
+                
+            except Exception as capture_error:
+                error_msg = str(capture_error).lower()
+                
+                # Check for ISP buffer-specific errors
+                if any(keyword in error_msg for keyword in ['buffer', 'isp', 'queue', 'v4l2', 'invalid argument']):
+                    logger.warning(f"ISP buffer error detected for camera {camera_id}: {capture_error}")
+                    
+                    # Attempt recovery with aggressive buffer cleanup
+                    gc.collect()
+                    await asyncio.sleep(0.2)  # Longer delay for ISP recovery
+                    
+                    try:
+                        # Retry capture after buffer cleanup
+                        image_array = camera.capture_array(stream_name)
+                        gc.collect()
+                        
+                        logger.info(f"ISP buffer recovery successful for camera {camera_id}")
+                        return image_array
+                        
+                    except Exception as retry_error:
+                        logger.error(f"ISP buffer recovery failed for camera {camera_id}: {retry_error}")
+                        return None
+                else:
+                    # Re-raise non-ISP errors
+                    raise capture_error
+                    
+        except Exception as e:
+            logger.error(f"ISP-managed capture failed for camera {camera_id}: {e}")
+            return None
+    
+    async def capture_dual_sequential_isp(self, stream_name: str = "main", delay_ms: int = 100) -> Dict[str, Any]:
+        """
+        Capture from both cameras sequentially with ISP buffer management.
+        
+        Args:
+            stream_name: Stream to capture from both cameras
+            delay_ms: Delay between captures in milliseconds
+            
+        Returns:
+            Dict with results: {'camera_0': image_array, 'camera_1': image_array}
+        """
+        results = {}
+        
+        try:
+            available_cameras = [0, 1] if len(self.cameras) >= 2 else list(self.cameras.keys())
+            
+            for camera_id in available_cameras:
+                camera_key = f"camera_{camera_id}"
+                
+                # Capture with ISP management
+                image_array = await self.capture_with_isp_management(camera_id, stream_name)
+                
+                if image_array is not None:
+                    results[camera_key] = image_array
+                    logger.info(f"Sequential ISP capture successful: {camera_key} -> {image_array.shape}")
+                else:
+                    results[camera_key] = None
+                    logger.error(f"Sequential ISP capture failed: {camera_key}")
+                
+                # Delay between captures to allow ISP buffers to clear
+                if len(available_cameras) > 1 and camera_id != available_cameras[-1]:
+                    await asyncio.sleep(delay_ms / 1000.0)
+                    
+        except Exception as e:
+            logger.error(f"Dual sequential ISP capture failed: {e}")
+            
+        return results
+    
+    async def prepare_cameras_for_capture(self) -> bool:
+        """
+        Prepare both cameras for capture by clearing ISP buffers and stabilizing pipeline.
+        
+        Returns:
+            True if preparation successful, False otherwise
+        """
+        try:
+            import gc
+            
+            # Global buffer cleanup
+            gc.collect()
+            
+            # Allow ISP pipeline to reset across all cameras
+            await asyncio.sleep(0.1)
+            
+            # Verify cameras are ready
+            ready_count = 0
+            for camera_id in self.cameras:
+                if self.cameras[camera_id] and hasattr(self.cameras[camera_id], 'capture_array'):
+                    ready_count += 1
+            
+            logger.info(f"Camera preparation complete: {ready_count} cameras ready for ISP-managed capture")
+            return ready_count > 0
+            
+        except Exception as e:
+            logger.error(f"Camera preparation failed: {e}")
+            return False
