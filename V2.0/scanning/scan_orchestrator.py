@@ -28,6 +28,7 @@ from core.exceptions import ScannerSystemError, HardwareError, ConfigurationErro
 
 from .scan_patterns import ScanPattern, ScanPoint, GridScanPattern
 from .scan_state import ScanState, ScanStatus, ScanPhase
+from .scan_profiles import ScanProfileManager
 
 logger = logging.getLogger(__name__)
 
@@ -1862,6 +1863,11 @@ class ScanOrchestrator:
         
         # Subscribe to events
         self._setup_event_handlers()
+        
+        # Initialize profile manager
+        profiles_dir = Path.home() / '.scanner_profiles'
+        self.profile_manager = ScanProfileManager(profiles_dir)
+        self.logger.info(f"Profile manager initialized with {len(self.profile_manager.quality_profiles)} quality and {len(self.profile_manager.speed_profiles)} speed profiles")
     
     def _setup_event_handlers(self):
         """Setup event handlers for system events"""
@@ -1970,6 +1976,50 @@ class ScanOrchestrator:
             self._notification_callback(message, type_, duration)
         else:
             self.logger.info(f"NOTIFICATION: {message}")
+    
+    async def apply_scan_profiles(self, quality_name: str = 'medium', speed_name: str = 'medium') -> Dict[str, Any]:
+        """Apply quality and speed profiles to current scan
+        
+        Args:
+            quality_name: Name of quality profile to use
+            speed_name: Name of speed profile to use
+            
+        Returns:
+            Dictionary with applied settings
+        """
+        try:
+            settings = self.profile_manager.get_scan_settings(quality_name, speed_name)
+            
+            # Apply camera settings from quality profile
+            quality_settings = settings['camera_settings']
+            if hasattr(self.camera_manager, 'apply_quality_settings'):
+                await self.camera_manager.apply_quality_settings({
+                    'resolution': quality_settings['resolution'],
+                    'jpeg_quality': quality_settings['jpeg_quality'],
+                    'capture_timeout': quality_settings['capture_timeout'],
+                    'iso_preference': quality_settings['iso_preference'],
+                    'exposure_mode': quality_settings['exposure_mode']
+                })
+            
+            # Apply motion settings from speed profile
+            motion_settings = settings['motion_settings']
+            if hasattr(self.motion_controller, 'apply_speed_settings'):
+                await self.motion_controller.apply_speed_settings({
+                    'feedrate_multiplier': motion_settings['feedrate_multiplier'],
+                    'settling_delay': motion_settings['settling_delay'],
+                    'acceleration_factor': motion_settings['acceleration_factor'],
+                    'motion_precision': motion_settings['motion_precision']
+                })
+            
+            self.logger.info(f"Applied scan profiles - Quality: {quality_name}, Speed: {speed_name}")
+            self.logger.debug(f"Quality settings: {quality_settings}")
+            self.logger.debug(f"Motion settings: {motion_settings}")
+            
+            return settings
+            
+        except Exception as e:
+            self.logger.error(f"Failed to apply scan profiles: {e}")
+            return {}
     
     async def is_system_busy(self) -> bool:
         """Check if system is busy with active operations that should block new scans"""

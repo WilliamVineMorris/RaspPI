@@ -803,6 +803,281 @@
             grid-template-columns: 1fr;
         }
     }
+
+    /* Profile Customization Styles */
+    .profile-customization-section {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1.5rem;
+    }
+
+    .profile-customization-section h5 {
+        color: #1e293b;
+        font-weight: 700;
+        margin: 0;
+    }
+
+    #profileCustomizationPanel {
+        animation: slideDown 0.3s ease-out;
+    }
+
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .nav-tabs {
+        border-bottom: 2px solid #e2e8f0;
+        margin-bottom: 1.5rem;
+    }
+
+    .nav-tabs .nav-link {
+        border: none;
+        color: #64748b;
+        font-weight: 600;
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px 8px 0 0;
+        transition: all 0.3s ease;
+        position: relative;
+    }
+
+    .nav-tabs .nav-link:hover {
+        background: #f1f5f9;
+        color: #475569;
+    }
+
+    .nav-tabs .nav-link.active {
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        color: white;
+        border-bottom: 2px solid transparent;
+    }
+
+    .nav-tabs .nav-link.active::after {
+        content: '';
+        position: absolute;
+        bottom: -2px;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+    }
+
+    .parameter-group {
+        margin-bottom: 1.5rem;
+    }
+
+    .parameter-group .form-label {
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+
+    .parameter-group .form-label small {
+        font-weight: 400;
+        color: #6b7280;
+        font-size: 0.8rem;
+    }
+
+    .form-range {
+        width: 100%;
+        height: 6px;
+        background: #e5e7eb;
+        border-radius: 3px;
+        outline: none;
+        -webkit-appearance: none;
+        appearance: none;
+        transition: all 0.3s ease;
+    }
+
+    .form-range::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 20px;
+        height: 20px;
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        border-radius: 50%;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
+        transition: all 0.3s ease;
+    }
+
+    .form-range::-webkit-slider-thumb:hover {
+        transform: scale(1.2);
+        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+    }
+
+    .form-range::-moz-range-thumb {
+        width: 20px;
+        height: 20px;
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
+        box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
+        transition: all 0.3s ease;
+    }
+
+    .form-range:focus {
+        box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    }
+
+    .form-select,
+    .form-control {
+        border: 2px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 0.6rem 1rem;
+        font-size: 0.9rem;
+        transition: all 0.3s ease;
+        background: white;
+    }
+
+    .form-select:focus,
+    .form-control:focus {
+        border-color: #4f46e5;
+        box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        outline: none;
+    }
+
+    .form-check {
+        padding: 0.75rem;
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+
+    .form-check:hover {
+        background: #f3f4f6;
+        border-color: #d1d5db;
+    }
+
+    .form-check-input {
+        width: 1.2rem;
+        height: 1.2rem;
+        margin-top: 0;
+        margin-right: 0.75rem;
+    }
+
+    .form-check-input:checked {
+        background-color: #4f46e5;
+        border-color: #4f46e5;
+    }
+
+    .form-check-label {
+        font-weight: 500;
+        color: #374151;
+        cursor: pointer;
+        line-height: 1.4;
+    }
+
+    .form-check-label small {
+        font-weight: 400;
+        color: #6b7280;
+        margin-top: 0.25rem;
+    }
+
+    .tab-content {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .d-flex.gap-2 {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        border: none;
+        color: white;
+        font-weight: 600;
+    }
+
+    .btn-primary:hover {
+        background: linear-gradient(135deg, #4338ca 0%, #6d28d9 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+    }
+
+    .btn-success {
+        background: linear-gradient(135deg, #059669 0%, #047857 100%);
+        border: none;
+        color: white;
+        font-weight: 600;
+    }
+
+    .btn-success:hover {
+        background: linear-gradient(135deg, #047857 0%, #065f46 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
+    }
+
+    .btn-secondary {
+        background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+        border: none;
+        color: white;
+        font-weight: 600;
+    }
+
+    .btn-secondary:hover {
+        background: linear-gradient(135deg, #4b5563 0%, #374151 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(107, 114, 128, 0.3);
+    }
+
+    .btn-outline-primary {
+        background: white;
+        border: 2px solid #4f46e5;
+        color: #4f46e5;
+        font-weight: 600;
+    }
+
+    .btn-outline-primary:hover {
+        background: #4f46e5;
+        color: white;
+        transform: translateY(-1px);
+    }
+
+    /* Custom profile indicator in dropdowns */
+    option[value^="custom_"] {
+        background: linear-gradient(90deg, #f3f4f6 0%, #e5e7eb 100%);
+        font-weight: 600;
+    }
+
+    /* Profile customization responsiveness */
+    @media (max-width: 768px) {
+        .profile-customization-section {
+            padding: 1rem;
+        }
+
+        .tab-content {
+            padding: 1rem;
+        }
+
+        .nav-tabs .nav-link {
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+        }
+
+        .d-flex.gap-2 {
+            flex-direction: column;
+        }
+
+        .d-flex.gap-2 .btn {
+            width: 100%;
+        }
+    }
 </style>
 
 <div class="scan-page">
@@ -865,20 +1140,24 @@
                     <input type="text" id="scanName" class="parameter-input" placeholder="Enter scan name" value="">
                 </div>
                 <div class="parameter-group">
-                    <label for="scanResolution">🎯 Quality</label>
-                    <select id="scanResolution" class="parameter-input">
-                        <option value="low">Draft Quality (Fast)</option>
-                        <option value="medium" selected>Standard Quality</option>
-                        <option value="high">High Quality (Detailed)</option>
-                        <option value="ultra">Maximum Quality (Slow)</option>
+                    <label for="quality">🎯 Quality Profile</label>
+                    <select id="quality" class="parameter-input" onchange="onQualityProfileChange()">
+                        <option value="draft" data-is-preset="true">📋 Draft Quality (Fast)</option>
+                        <option value="standard" selected data-is-preset="true">📋 Standard Quality</option>
+                        <option value="high" data-is-preset="true">📋 High Quality (Detailed)</option>
+                        <option value="ultra" data-is-preset="true">📋 Ultra Quality (Slow)</option>
+                        <!-- Custom profiles will be added here by JavaScript -->
                     </select>
                 </div>
                 <div class="parameter-group">
-                    <label for="scanSpeed">⚡ Speed</label>
-                    <select id="scanSpeed" class="parameter-input">
-                        <option value="slow">Precision (Slowest)</option>
-                        <option value="medium" selected>Balanced</option>
-                        <option value="fast">Quick Scan (Fastest)</option>
+                    <label for="speed">⚡ Speed Profile</label>
+                    <select id="speed" class="parameter-input" onchange="onSpeedProfileChange()">
+                        <option value="ultra_fast" data-is-preset="true">🚀 Ultra Fast</option>
+                        <option value="fast" data-is-preset="true">🚀 Fast</option>
+                        <option value="normal" selected data-is-preset="true">🚀 Normal</option>
+                        <option value="precise" data-is-preset="true">🚀 Precise</option>
+                        <option value="ultra_precise" data-is-preset="true">🚀 Ultra Precise</option>
+                        <!-- Custom profiles will be added here by JavaScript -->
                     </select>
                 </div>
                 <div class="parameter-group">
@@ -888,6 +1167,225 @@
                         <option value="2" selected>Dual Camera</option>
                         <option value="auto">Auto Select</option>
                     </select>
+                </div>
+            </div>
+            
+            <!-- Profile Customization Section -->
+            <div class="profile-customization-section" style="margin-top: 2rem;">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">🔧 Profile Customization</h5>
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="toggleProfileCustomization()">
+                        <span id="profileToggleText">Show Advanced</span>
+                    </button>
+                </div>
+                
+                <div id="profileCustomizationPanel" style="display: none;">
+                    <!-- Profile Tabs -->
+                    <ul class="nav nav-tabs mb-3">
+                        <li class="nav-item">
+                            <a class="nav-link active" data-bs-toggle="tab" href="#qualityProfileCustom">
+                                <i class="bi bi-image"></i> Quality Settings
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#speedProfileCustom">
+                                <i class="bi bi-speedometer2"></i> Speed Settings
+                            </a>
+                        </li>
+                    </ul>
+                    
+                    <!-- Tab Content -->
+                    <div class="tab-content">
+                        <!-- Quality Profile Customization -->
+                        <div class="tab-pane fade show active" id="qualityProfileCustom">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="parameter-group mb-3">
+                                        <label class="form-label">Resolution</label>
+                                        <select class="form-select" id="customResolution">
+                                            <option value="[1920,1080]">1920x1080 (Full HD)</option>
+                                            <option value="[2592,1944]">2592x1944 (5MP)</option>
+                                            <option value="[3840,2160]" selected>3840x2160 (4K)</option>
+                                            <option value="[4608,2592]">4608x2592 (12MP Max)</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="parameter-group mb-3">
+                                        <label class="form-label">JPEG Quality: <span id="jpegQualityDisplay">85</span>%</label>
+                                        <input type="range" class="form-range" id="customJpegQuality" 
+                                               min="50" max="100" value="85" 
+                                               oninput="updateQualityDisplay(this.value)">
+                                        <div class="d-flex justify-content-between">
+                                            <small class="text-muted">Fast</small>
+                                            <small class="text-muted">Best</small>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="parameter-group mb-3">
+                                        <label class="form-label">Capture Timeout: <span id="captureTimeoutDisplay">2.0</span>s</label>
+                                        <input type="range" class="form-range" id="customCaptureTimeout" 
+                                               min="0.5" max="10" step="0.5" value="2.0"
+                                               oninput="updateTimeoutDisplay(this.value)">
+                                        <div class="d-flex justify-content-between">
+                                            <small class="text-muted">Quick</small>
+                                            <small class="text-muted">Patient</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="parameter-group mb-3">
+                                        <label class="form-label">ISO Preference</label>
+                                        <select class="form-select" id="customIsoPreference">
+                                            <option value="auto">Auto</option>
+                                            <option value="low_noise" selected>Low Noise Priority</option>
+                                            <option value="high_speed">High Speed Priority</option>
+                                            <option value="lowest_iso">Lowest ISO (Best Quality)</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="parameter-group mb-3">
+                                        <label class="form-label">Exposure Mode</label>
+                                        <select class="form-select" id="customExposureMode" onchange="toggleManualExposureSettings()">
+                                            <option value="auto" selected>Auto</option>
+                                            <option value="calibrated">Calibrated</option>
+                                            <option value="manual">Manual</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div id="manualExposureSettings" style="display: none;">
+                                        <div class="parameter-group mb-2">
+                                            <label class="form-label">Exposure Time (ms)</label>
+                                            <input type="number" class="form-control" id="customExposureTime" 
+                                                   min="1" max="1000" value="32">
+                                        </div>
+                                        <div class="parameter-group mb-3">
+                                            <label class="form-label">Analogue Gain</label>
+                                            <input type="number" class="form-control" id="customAnalogueGain" 
+                                                   min="1.0" max="16.0" step="0.1" value="1.0">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="parameter-group mb-3">
+                                        <label class="form-label">Denoise Level: <span id="denoiseDisplay">2</span></label>
+                                        <input type="range" class="form-range" id="customDenoiseLevel" 
+                                               min="0" max="10" value="2"
+                                               oninput="updateDenoiseDisplay(this.value)">
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="parameter-group mb-3">
+                                        <label class="form-label">Sharpening: <span id="sharpeningDisplay">2</span></label>
+                                        <input type="range" class="form-range" id="customSharpeningLevel" 
+                                               min="0" max="10" value="2"
+                                               oninput="updateSharpeningDisplay(this.value)">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Speed Profile Customization -->
+                        <div class="tab-pane fade" id="speedProfileCustom">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="parameter-group mb-3">
+                                        <label class="form-label">
+                                            Motion Speed: <span id="feedrateDisplay">1.0</span>x
+                                            <small class="text-muted d-block">Multiplier for motion feedrates</small>
+                                        </label>
+                                        <input type="range" class="form-range" id="customFeedrateMultiplier" 
+                                               min="0.1" max="2.0" step="0.1" value="1.0"
+                                               oninput="updateFeedrateDisplay(this.value)">
+                                        <div class="d-flex justify-content-between">
+                                            <small class="text-muted">Very Slow</small>
+                                            <small class="text-muted">Very Fast</small>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="parameter-group mb-3">
+                                        <label class="form-label">
+                                            Settling Delay: <span id="settlingDisplay">2.0</span>s
+                                            <small class="text-muted d-block">Wait time after movement</small>
+                                        </label>
+                                        <input type="range" class="form-range" id="customSettlingDelay" 
+                                               min="0.5" max="5.0" step="0.5" value="2.0"
+                                               oninput="updateSettlingDisplay(this.value)">
+                                        <div class="d-flex justify-content-between">
+                                            <small class="text-muted">Quick</small>
+                                            <small class="text-muted">Patient</small>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="parameter-group mb-3">
+                                        <label class="form-label">Motion Precision</label>
+                                        <select class="form-select" id="customMotionPrecision">
+                                            <option value="high">High (Slowest, Most Accurate)</option>
+                                            <option value="normal" selected>Normal</option>
+                                            <option value="fast">Fast (Less Accurate)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="parameter-group mb-3">
+                                        <label class="form-label">
+                                            Acceleration: <span id="accelDisplay">1.0</span>x
+                                            <small class="text-muted d-block">Smoothness vs Speed trade-off</small>
+                                        </label>
+                                        <input type="range" class="form-range" id="customAccelerationFactor" 
+                                               min="0.5" max="1.5" step="0.1" value="1.0"
+                                               oninput="updateAccelDisplay(this.value)">
+                                        <div class="d-flex justify-content-between">
+                                            <small class="text-muted">Smooth</small>
+                                            <small class="text-muted">Aggressive</small>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="parameter-group mb-3">
+                                        <label class="form-label">
+                                            Capture Delay: <span id="captureDelayDisplay">0.2</span>s
+                                            <small class="text-muted d-block">After movement complete</small>
+                                        </label>
+                                        <input type="range" class="form-range" id="customCaptureDelay" 
+                                               min="0.0" max="2.0" step="0.1" value="0.2"
+                                               oninput="updateCaptureDelayDisplay(this.value)">
+                                    </div>
+                                    
+                                    <div class="parameter-group mb-3">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" type="checkbox" id="customParallelProcessing" checked>
+                                            <label class="form-check-label" for="customParallelProcessing">
+                                                Enable Parallel Processing
+                                                <small class="text-muted d-block">Process images while moving</small>
+                                            </label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="customSkipConfirmations">
+                                            <label class="form-check-label" for="customSkipConfirmations">
+                                                Skip Non-Critical Confirmations
+                                                <small class="text-muted d-block">Faster operation, less safety checks</small>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Profile Actions -->
+                    <div class="d-flex gap-2 mt-3">
+                        <button type="button" class="btn btn-primary" onclick="applyCustomSettings()">
+                            <i class="bi bi-check-circle"></i> Apply Settings
+                        </button>
+                        <button type="button" class="btn btn-success" onclick="saveAsCustomProfile()">
+                            <i class="bi bi-save"></i> Save as Custom Profile
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="resetToDefaults()">
+                            <i class="bi bi-arrow-clockwise"></i> Reset to Defaults
+                        </button>
+                    </div>
                 </div>
             </div>
             </div>
@@ -1779,7 +2277,360 @@ document.addEventListener('DOMContentLoaded', function() {
     // Set default values and update preview
     setTimeout(() => {
         previewScan();
+        loadAvailableProfiles(); // Load profile options on page load
     }, 500);
+});
+
+// Profile Management Functions
+
+// Toggle profile customization panel visibility
+function toggleProfileCustomization() {
+    const panel = document.getElementById('profileCustomizationPanel');
+    const toggleText = document.getElementById('profileToggleText');
+    
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggleText.textContent = 'Hide Advanced';
+    } else {
+        panel.style.display = 'none';
+        toggleText.textContent = 'Show Advanced';
+    }
+}
+
+// Load available profiles from backend
+async function loadAvailableProfiles() {
+    try {
+        const response = await fetch('/api/profiles/list');
+        const data = await response.json();
+        
+        if (data.success) {
+            updateProfileDropdowns(data.quality_profiles, data.speed_profiles);
+        }
+    } catch (error) {
+        console.error('Error loading profiles:', error);
+    }
+}
+
+// Update quality and speed dropdowns with available profiles
+function updateProfileDropdowns(qualityProfiles, speedProfiles) {
+    const qualitySelect = document.getElementById('quality');
+    const speedSelect = document.getElementById('speed');
+    
+    // Clear existing custom options (keep presets)
+    ['draft', 'standard', 'high'].forEach(preset => {
+        const option = qualitySelect.querySelector(`option[value="${preset}"]`);
+        if (option) option.setAttribute('data-is-preset', 'true');
+    });
+    
+    ['ultra_fast', 'fast', 'normal', 'precise', 'ultra_precise'].forEach(preset => {
+        const option = speedSelect.querySelector(`option[value="${preset}"]`);
+        if (option) option.setAttribute('data-is-preset', 'true');
+    });
+    
+    // Remove old custom options
+    qualitySelect.querySelectorAll('option:not([data-is-preset])').forEach(opt => opt.remove());
+    speedSelect.querySelectorAll('option:not([data-is-preset])').forEach(opt => opt.remove());
+    
+    // Add custom quality profiles
+    qualityProfiles.filter(p => p.name.startsWith('custom_')).forEach(profile => {
+        const option = document.createElement('option');
+        option.value = profile.name;
+        option.textContent = `🔧 ${profile.display_name}`;
+        qualitySelect.appendChild(option);
+    });
+    
+    // Add custom speed profiles
+    speedProfiles.filter(p => p.name.startsWith('custom_')).forEach(profile => {
+        const option = document.createElement('option');
+        option.value = profile.name;
+        option.textContent = `🔧 ${profile.display_name}`;
+        speedSelect.appendChild(option);
+    });
+}
+
+// Update display values for sliders
+function updateQualityDisplay(value) {
+    document.getElementById('jpegQualityDisplay').textContent = value;
+}
+
+function updateTimeoutDisplay(value) {
+    document.getElementById('captureTimeoutDisplay').textContent = value;
+}
+
+function updateDenoiseDisplay(value) {
+    document.getElementById('denoiseDisplay').textContent = value;
+}
+
+function updateSharpeningDisplay(value) {
+    document.getElementById('sharpeningDisplay').textContent = value;
+}
+
+function updateFeedrateDisplay(value) {
+    document.getElementById('feedrateDisplay').textContent = value;
+}
+
+function updateSettlingDisplay(value) {
+    document.getElementById('settlingDisplay').textContent = value;
+}
+
+function updateAccelDisplay(value) {
+    document.getElementById('accelDisplay').textContent = value;
+}
+
+function updateCaptureDelayDisplay(value) {
+    document.getElementById('captureDelayDisplay').textContent = value;
+}
+
+// Toggle manual exposure settings visibility
+function toggleManualExposureSettings() {
+    const exposureMode = document.getElementById('customExposureMode').value;
+    const manualSettings = document.getElementById('manualExposureSettings');
+    
+    if (exposureMode === 'manual') {
+        manualSettings.style.display = 'block';
+    } else {
+        manualSettings.style.display = 'none';
+    }
+}
+
+// Apply current custom settings to active profiles
+async function applyCustomSettings() {
+    const customQuality = collectCustomQualitySettings();
+    const customSpeed = collectCustomSpeedSettings();
+    
+    try {
+        // Update the backend with current custom settings
+        const response = await fetch('/api/profiles/apply_custom', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                quality_settings: customQuality,
+                speed_settings: customSpeed
+            })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            showAlert('Custom settings applied successfully', 'success', 3000);
+            
+            // Update main dropdowns to show custom settings are active
+            document.getElementById('quality').value = 'custom_active';
+            document.getElementById('speed').value = 'custom_active';
+        } else {
+            showAlert('Failed to apply settings: ' + (data.error || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        console.error('Error applying custom settings:', error);
+        showAlert('Error applying custom settings', 'error');
+    }
+}
+
+// Save current custom settings as a new profile
+async function saveAsCustomProfile() {
+    const profileName = prompt('Enter a name for this custom profile:');
+    if (!profileName) return;
+    
+    const customQuality = collectCustomQualitySettings();
+    const customSpeed = collectCustomSpeedSettings();
+    
+    try {
+        // Create quality profile
+        const qualityResponse = await fetch('/api/profiles/create', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                profile_type: 'quality',
+                name: `custom_${profileName.toLowerCase().replace(/\s+/g, '_')}`,
+                display_name: profileName,
+                settings: customQuality
+            })
+        });
+        
+        // Create speed profile
+        const speedResponse = await fetch('/api/profiles/create', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                profile_type: 'speed',
+                name: `custom_${profileName.toLowerCase().replace(/\s+/g, '_')}`,
+                display_name: profileName,
+                settings: customSpeed
+            })
+        });
+        
+        const qualityData = await qualityResponse.json();
+        const speedData = await speedResponse.json();
+        
+        if (qualityData.success && speedData.success) {
+            showAlert(`Custom profile "${profileName}" saved successfully`, 'success', 3000);
+            loadAvailableProfiles(); // Refresh dropdowns
+        } else {
+            showAlert('Failed to save custom profile', 'error');
+        }
+    } catch (error) {
+        console.error('Error saving custom profile:', error);
+        showAlert('Error saving custom profile', 'error');
+    }
+}
+
+// Reset all custom settings to defaults
+function resetToDefaults() {
+    // Quality settings defaults
+    document.getElementById('customResolution').value = '[3840,2160]';
+    document.getElementById('customJpegQuality').value = '85';
+    document.getElementById('customCaptureTimeout').value = '2.0';
+    document.getElementById('customIsoPreference').value = 'low_noise';
+    document.getElementById('customExposureMode').value = 'auto';
+    document.getElementById('customExposureTime').value = '32';
+    document.getElementById('customAnalogueGain').value = '1.0';
+    document.getElementById('customDenoiseLevel').value = '2';
+    document.getElementById('customSharpeningLevel').value = '2';
+    
+    // Speed settings defaults
+    document.getElementById('customFeedrateMultiplier').value = '1.0';
+    document.getElementById('customSettlingDelay').value = '2.0';
+    document.getElementById('customMotionPrecision').value = 'normal';
+    document.getElementById('customAccelerationFactor').value = '1.0';
+    document.getElementById('customCaptureDelay').value = '0.2';
+    document.getElementById('customParallelProcessing').checked = true;
+    document.getElementById('customSkipConfirmations').checked = false;
+    
+    // Update all display values
+    updateQualityDisplay('85');
+    updateTimeoutDisplay('2.0');
+    updateDenoiseDisplay('2');
+    updateSharpeningDisplay('2');
+    updateFeedrateDisplay('1.0');
+    updateSettlingDisplay('2.0');
+    updateAccelDisplay('1.0');
+    updateCaptureDelayDisplay('0.2');
+    
+    // Hide manual exposure settings
+    toggleManualExposureSettings();
+    
+    showAlert('Settings reset to defaults', 'info', 2000);
+}
+
+// Collect current custom quality settings
+function collectCustomQualitySettings() {
+    return {
+        resolution: JSON.parse(document.getElementById('customResolution').value),
+        jpeg_quality: parseInt(document.getElementById('customJpegQuality').value),
+        capture_timeout: parseFloat(document.getElementById('customCaptureTimeout').value),
+        iso_preference: document.getElementById('customIsoPreference').value,
+        exposure_mode: document.getElementById('customExposureMode').value,
+        exposure_time: parseInt(document.getElementById('customExposureTime').value),
+        analogue_gain: parseFloat(document.getElementById('customAnalogueGain').value),
+        denoise_level: parseInt(document.getElementById('customDenoiseLevel').value),
+        sharpening_level: parseInt(document.getElementById('customSharpeningLevel').value)
+    };
+}
+
+// Collect current custom speed settings
+function collectCustomSpeedSettings() {
+    return {
+        feedrate_multiplier: parseFloat(document.getElementById('customFeedrateMultiplier').value),
+        settling_delay: parseFloat(document.getElementById('customSettlingDelay').value),
+        motion_precision: document.getElementById('customMotionPrecision').value,
+        acceleration_factor: parseFloat(document.getElementById('customAccelerationFactor').value),
+        capture_delay: parseFloat(document.getElementById('customCaptureDelay').value),
+        enable_parallel_processing: document.getElementById('customParallelProcessing').checked,
+        skip_confirmations: document.getElementById('customSkipConfirmations').checked
+    };
+}
+
+// Load settings from existing profile into customization panel
+async function loadProfileSettings(profileType, profileName) {
+    try {
+        const response = await fetch(`/api/profiles/get/${profileType}/${profileName}`);
+        const data = await response.json();
+        
+        if (data.success) {
+            if (profileType === 'quality') {
+                populateQualitySettings(data.profile.settings);
+            } else if (profileType === 'speed') {
+                populateSpeedSettings(data.profile.settings);
+            }
+        }
+    } catch (error) {
+        console.error('Error loading profile settings:', error);
+    }
+}
+
+// Populate quality customization panel with profile settings
+function populateQualitySettings(settings) {
+    document.getElementById('customResolution').value = JSON.stringify(settings.resolution);
+    document.getElementById('customJpegQuality').value = settings.jpeg_quality;
+    document.getElementById('customCaptureTimeout').value = settings.capture_timeout;
+    document.getElementById('customIsoPreference').value = settings.iso_preference;
+    document.getElementById('customExposureMode').value = settings.exposure_mode;
+    document.getElementById('customExposureTime').value = settings.exposure_time;
+    document.getElementById('customAnalogueGain').value = settings.analogue_gain;
+    document.getElementById('customDenoiseLevel').value = settings.denoise_level;
+    document.getElementById('customSharpeningLevel').value = settings.sharpening_level;
+    
+    // Update displays
+    updateQualityDisplay(settings.jpeg_quality);
+    updateTimeoutDisplay(settings.capture_timeout);
+    updateDenoiseDisplay(settings.denoise_level);
+    updateSharpeningDisplay(settings.sharpening_level);
+    toggleManualExposureSettings();
+}
+
+// Populate speed customization panel with profile settings
+function populateSpeedSettings(settings) {
+    document.getElementById('customFeedrateMultiplier').value = settings.feedrate_multiplier;
+    document.getElementById('customSettlingDelay').value = settings.settling_delay;
+    document.getElementById('customMotionPrecision').value = settings.motion_precision;
+    document.getElementById('customAccelerationFactor').value = settings.acceleration_factor;
+    document.getElementById('customCaptureDelay').value = settings.capture_delay;
+    document.getElementById('customParallelProcessing').checked = settings.enable_parallel_processing;
+    document.getElementById('customSkipConfirmations').checked = settings.skip_confirmations;
+    
+    // Update displays
+    updateFeedrateDisplay(settings.feedrate_multiplier);
+    updateSettlingDisplay(settings.settling_delay);
+    updateAccelDisplay(settings.acceleration_factor);
+    updateCaptureDelayDisplay(settings.capture_delay);
+}
+
+// Enhanced profile change handlers for main dropdowns
+function onQualityProfileChange() {
+    const qualitySelect = document.getElementById('quality');
+    const selectedProfile = qualitySelect.value;
+    
+    if (selectedProfile && selectedProfile.startsWith('custom_')) {
+        loadProfileSettings('quality', selectedProfile);
+    }
+}
+
+function onSpeedProfileChange() {
+    const speedSelect = document.getElementById('speed');
+    const selectedProfile = speedSelect.value;
+    
+    if (selectedProfile && selectedProfile.startsWith('custom_')) {
+        loadProfileSettings('speed', selectedProfile);
+    }
+}
+
+// Add event listeners for profile dropdowns
+document.addEventListener('DOMContentLoaded', function() {
+    const qualitySelect = document.getElementById('quality');
+    const speedSelect = document.getElementById('speed');
+    
+    if (qualitySelect) {
+        qualitySelect.addEventListener('change', onQualityProfileChange);
+    }
+    
+    if (speedSelect) {
+        speedSelect.addEventListener('change', onSpeedProfileChange);
+    }
 });
 </script>
 

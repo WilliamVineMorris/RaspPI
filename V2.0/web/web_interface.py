@@ -1362,6 +1362,175 @@ class ScannerWebInterface:
                 self.logger.error(f"Individual focus API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
+        # Profile Management API Endpoints
+        @self.app.route('/api/profiles/list', methods=['GET'])
+        def api_list_profiles():
+            """List all available profiles"""
+            try:
+                if not hasattr(self.orchestrator, 'profile_manager'):
+                    # Initialize profile manager if not exists
+                    from scanning.scan_profiles import ScanProfileManager
+                    self.orchestrator.profile_manager = ScanProfileManager()
+                
+                profiles = {
+                    'quality': [
+                        {
+                            'name': p.name,
+                            'description': p.description,
+                            'is_custom': p.is_custom,
+                            'is_editable': p.is_editable,
+                            'parameters': {
+                                'resolution': p.resolution,
+                                'jpeg_quality': p.jpeg_quality,
+                                'capture_timeout': p.capture_timeout,
+                                'iso_preference': p.iso_preference,
+                                'exposure_mode': p.exposure_mode,
+                                'denoise_level': p.denoise_level,
+                                'sharpening_level': p.sharpening_level
+                            }
+                        }
+                        for p in self.orchestrator.profile_manager.quality_profiles.values()
+                    ],
+                    'speed': [
+                        {
+                            'name': p.name,
+                            'description': p.description,
+                            'is_custom': p.is_custom,
+                            'is_editable': p.is_editable,
+                            'parameters': {
+                                'feedrate_multiplier': p.feedrate_multiplier,
+                                'settling_delay': p.settling_delay,
+                                'acceleration_factor': p.acceleration_factor,
+                                'motion_precision': p.motion_precision,
+                                'capture_delay': p.capture_delay,
+                                'parallel_processing': p.parallel_processing,
+                                'skip_confirmations': p.skip_confirmations
+                            }
+                        }
+                        for p in self.orchestrator.profile_manager.speed_profiles.values()
+                    ]
+                }
+                
+                return jsonify({'success': True, 'profiles': profiles})
+                
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/profiles/quality/<profile_name>', methods=['GET'])
+        def api_get_quality_profile(profile_name):
+            """Get detailed quality profile"""
+            try:
+                profile = self.orchestrator.profile_manager.get_quality_profile(profile_name)
+                if profile:
+                    from dataclasses import asdict
+                    return jsonify({'success': True, 'profile': asdict(profile)})
+                else:
+                    return jsonify({'success': False, 'error': 'Profile not found'}), 404
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/profiles/speed/<profile_name>', methods=['GET'])
+        def api_get_speed_profile(profile_name):
+            """Get detailed speed profile"""
+            try:
+                profile = self.orchestrator.profile_manager.get_speed_profile(profile_name)
+                if profile:
+                    from dataclasses import asdict
+                    return jsonify({'success': True, 'profile': asdict(profile)})
+                else:
+                    return jsonify({'success': False, 'error': 'Profile not found'}), 404
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/profiles/create', methods=['POST'])
+        def api_create_custom_profile():
+            """Create a new custom profile"""
+            try:
+                data = request.get_json()
+                profile_type = data.get('profile_type')  # 'quality' or 'speed'
+                base_profile = data.get('base_profile')
+                custom_name = data.get('custom_name')
+                modifications = data.get('modifications', {})
+                
+                if not all([profile_type, base_profile, custom_name]):
+                    return jsonify({'success': False, 'error': 'Missing required parameters'}), 400
+                
+                if profile_type == 'quality':
+                    profile = self.orchestrator.profile_manager.create_custom_quality_profile(
+                        base_profile, modifications, custom_name
+                    )
+                elif profile_type == 'speed':
+                    profile = self.orchestrator.profile_manager.create_custom_speed_profile(
+                        base_profile, modifications, custom_name
+                    )
+                else:
+                    return jsonify({'success': False, 'error': 'Invalid profile type'}), 400
+                
+                from dataclasses import asdict
+                return jsonify({'success': True, 'profile': asdict(profile)})
+                
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/profiles/update', methods=['POST'])
+        def api_update_profile():
+            """Update an existing custom profile"""
+            try:
+                data = request.get_json()
+                profile_type = data.get('profile_type')
+                profile_name = data.get('profile_name')
+                modifications = data.get('modifications', {})
+                
+                from scanning.scan_profiles import ProfileType
+                
+                if profile_type == 'quality':
+                    success = self.orchestrator.profile_manager.update_profile(
+                        ProfileType.QUALITY, profile_name, modifications
+                    )
+                elif profile_type == 'speed':
+                    success = self.orchestrator.profile_manager.update_profile(
+                        ProfileType.SPEED, profile_name, modifications
+                    )
+                else:
+                    return jsonify({'success': False, 'error': 'Invalid profile type'}), 400
+                
+                if success:
+                    return jsonify({'success': True})
+                else:
+                    return jsonify({'success': False, 'error': 'Profile not found or not editable'}), 404
+                    
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/profiles/delete', methods=['POST'])
+        def api_delete_profile():
+            """Delete a custom profile"""
+            try:
+                data = request.get_json()
+                profile_type = data.get('profile_type')
+                profile_name = data.get('profile_name')
+                
+                from scanning.scan_profiles import ProfileType
+                
+                if profile_type == 'quality':
+                    success = self.orchestrator.profile_manager.delete_custom_profile(
+                        ProfileType.QUALITY, profile_name
+                    )
+                elif profile_type == 'speed':
+                    success = self.orchestrator.profile_manager.delete_custom_profile(
+                        ProfileType.SPEED, profile_name
+                    )
+                else:
+                    return jsonify({'success': False, 'error': 'Invalid profile type'}), 400
+                
+                if success:
+                    return jsonify({'success': True})
+                else:
+                    return jsonify({'success': False, 'error': 'Profile not found or not deletable'}), 404
+                    
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
         @self.app.route('/api/camera/capture', methods=['POST'])
         def api_camera_capture():
             """Capture image from camera with optional flash"""
@@ -2445,11 +2614,23 @@ class ScannerWebInterface:
                         homing_confirmed = pattern_data.get('homing_confirmed', False)  # Default to False (skip) for safety
                         self.logger.info(f"🏠 Using pre-confirmed homing decision from frontend: {'proceed' if homing_confirmed else 'skip'}")
                         
+                        # Apply scan profiles based on quality and speed settings from pattern_data
+                        quality_profile = pattern_data.get('resolution', 'medium')  # Use 'resolution' field as quality profile
+                        speed_profile = pattern_data.get('speed', 'medium')
+                        
+                        try:
+                            profile_settings = await self.orchestrator.apply_scan_profiles(quality_profile, speed_profile)
+                            self.logger.info(f"🎯 Applied profiles - Quality: {quality_profile}, Speed: {speed_profile}")
+                        except Exception as e:
+                            self.logger.warning(f"Failed to apply scan profiles, using defaults: {e}")
+                            profile_settings = {}
+                        
                         # Prepare scan parameters with all metadata including homing decision
                         scan_params = {
                             'scan_name': scan_name,
                             'pattern_data': pattern_data,
                             'homing_confirmed': homing_confirmed,  # Include homing decision in scan params
+                            'profile_settings': profile_settings,  # Include applied profile settings
                             'web_request_time': datetime.now().isoformat(),
                             'scan_type': 'web_interface',
                             'operator': 'web_user'
