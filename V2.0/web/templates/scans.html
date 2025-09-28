@@ -1237,6 +1237,17 @@
         max-width: 100% !important;
     }
     
+    /* Full width profile customization section */
+    .profile-customization-section.full-width {
+        width: 100vw !important;
+        margin-left: calc(-50vw + 50%) !important;
+        margin-right: calc(-50vw + 50%) !important;
+        padding: 1rem 2rem;
+        background: #f8fafc;
+        border-top: 1px solid #e2e8f0;
+        border-bottom: 1px solid #e2e8f0;
+    }
+    
     /* Remove Bootstrap container constraints */
     .container-fluid {
         padding-left: 0 !important;
@@ -1514,15 +1525,17 @@
                 </div>
             </div>
             
-            <!-- Profile Customization Section -->
-            <div class="profile-customization-section" style="margin-top: 1rem;">
-                <div class="profile-customization-header" style="display: none;">
-                    <h5 class="mb-0">🔧 Profile Customization</h5>
-                </div>
-                
-                <div id="profileCustomizationPanel" style="display: none;">
-                    <!-- Two Column Layout for Quality and Speed Settings -->
-                    <div class="row g-4">
+        </div>
+        
+        <!-- Profile Customization Section (Full Width) -->
+        <div class="profile-customization-section full-width" style="margin-top: 1rem;">
+            <div class="profile-customization-header" style="display: none;">
+                <h5 class="mb-0">🔧 Profile Customization</h5>
+            </div>
+            
+            <div id="profileCustomizationPanel" style="display: none;">
+                <!-- Two Column Layout for Quality and Speed Settings -->
+                <div class="row g-4">
                         <!-- Quality Settings Column -->
                         <div class="col-md-6" id="qualityProfileCustom">
                             <div class="settings-column">
@@ -1722,15 +1735,12 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
                 </div>
             </div>
-            </div>
         </div>
-    </div>
 
-    <!-- Step 3: Scan Area Configuration (Full Width) -->
-    <div class="scan-step full-width" id="scan-configuration">
+        <!-- Step 3: Scan Area Configuration (Full Width) -->
+        <div class="scan-step full-width" id="scan-configuration">
             <div class="step-header">
                 <span class="step-number">3</span>
                 <div class="step-info">
