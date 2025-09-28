@@ -1498,42 +1498,38 @@
                                     </h5>
                                     <h6 class="text-muted mb-3 text-uppercase fw-bold" style="font-size: 0.8rem; letter-spacing: 1px; color: #64748b !important;">📸 Image Quality Parameters</h6>
                                 </div>
+                                
+                                <div class="parameter-group mb-3">
+                                    <label class="form-label">Resolution</label>
+                                    <select class="form-select" id="customResolution">
+                                        <option value="[1920,1080]">1920x1080 (Full HD)</option>
+                                        <option value="[2592,1944]">2592x1944 (5MP)</option>
+                                        <option value="[3840,2160]" selected>3840x2160 (4K)</option>
+                                        <option value="[4608,2592]">4608x2592 (12MP Max)</option>
+                                    </select>
                             </div>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">Resolution</label>
-                                        <select class="form-select" id="customResolution">
-                                            <option value="[1920,1080]">1920x1080 (Full HD)</option>
-                                            <option value="[2592,1944]">2592x1944 (5MP)</option>
-                                            <option value="[3840,2160]" selected>3840x2160 (4K)</option>
-                                            <option value="[4608,2592]">4608x2592 (12MP Max)</option>
-                                        </select>
-                                    </div>
-                                    
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">JPEG Quality: <span id="jpegQualityDisplay">85</span>%</label>
-                                        <input type="range" class="form-range" id="customJpegQuality" 
-                                               min="50" max="100" value="85" 
-                                               oninput="updateQualityDisplay(this.value)">
-                                        <div class="d-flex justify-content-between mt-1">
-                                            <small class="text-muted fw-500">Fast</small>
-                                            <small class="text-muted fw-500">Best</small>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">Capture Timeout: <span id="captureTimeoutDisplay">2.0</span>s</label>
-                                        <input type="range" class="form-range" id="customCaptureTimeout" 
-                                               min="0.5" max="10" step="0.5" value="2.0"
-                                               oninput="updateTimeoutDisplay(this.value)">
-                                        <div class="d-flex justify-content-between mt-1">
-                                            <small class="text-muted fw-500">Quick</small>
-                                            <small class="text-muted fw-500">Patient</small>
-                                        </div>
+                                
+                                <div class="parameter-group mb-3">
+                                    <label class="form-label">JPEG Quality: <span id="jpegQualityDisplay">85</span>%</label>
+                                    <input type="range" class="form-range" id="customJpegQuality" 
+                                           min="50" max="100" value="85" 
+                                           oninput="updateQualityDisplay(this.value)">
+                                    <div class="d-flex justify-content-between mt-1">
+                                        <small class="text-muted fw-500">Fast</small>
+                                        <small class="text-muted fw-500">Best</small>
                                     </div>
                                 </div>
-                                <div class="col-md-6">
+                                
+                                <div class="parameter-group mb-3">
+                                    <label class="form-label">Capture Timeout: <span id="captureTimeoutDisplay">2.0</span>s</label>
+                                    <input type="range" class="form-range" id="customCaptureTimeout" 
+                                           min="0.5" max="10" step="0.5" value="2.0"
+                                           oninput="updateTimeoutDisplay(this.value)">
+                                    <div class="d-flex justify-content-between mt-1">
+                                        <small class="text-muted fw-500">Quick</small>
+                                        <small class="text-muted fw-500">Patient</small>
+                                    </div>
+                                </div>
                                     <div class="parameter-group mb-3">
                                         <label class="form-label">ISO Preference</label>
                                         <select class="form-select" id="customIsoPreference">
@@ -1602,106 +1598,101 @@
                                     <h6 class="text-muted mb-3 text-uppercase fw-bold" style="font-size: 0.8rem; letter-spacing: 1px; color: #64748b !important;">🏃 Motion Control Parameters</h6>
                                 </div>
                             </div>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">
-                                            Motion Speed: <span id="feedrateDisplay">1.0</span>x
-                                            <small class="text-muted d-block">Multiplier for motion feedrates</small>
-                                        </label>
-                                        <input type="range" class="form-range" id="customFeedrateMultiplier" 
-                                               min="0.1" max="2.0" step="0.1" value="1.0"
-                                               oninput="updateFeedrateDisplay(this.value)">
-                                        <div class="d-flex justify-content-between mt-1">
-                                            <small class="text-muted fw-500">Very Slow</small>
-                                            <small class="text-muted fw-500">Very Fast</small>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">
-                                            Settling Delay: <span id="settlingDisplay">2.0</span>s
-                                            <small class="text-muted d-block">Wait time after movement</small>
-                                        </label>
-                                        <input type="range" class="form-range" id="customSettlingDelay" 
-                                               min="0.5" max="5.0" step="0.5" value="2.0"
-                                               oninput="updateSettlingDisplay(this.value)">
-                                        <div class="d-flex justify-content-between mt-1">
-                                            <small class="text-muted fw-500">Quick</small>
-                                            <small class="text-muted fw-500">Patient</small>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">Motion Precision</label>
-                                        <select class="form-select" id="customMotionPrecision">
-                                            <option value="high">High (Slowest, Most Accurate)</option>
-                                            <option value="normal" selected>Normal</option>
-                                            <option value="fast">Fast (Less Accurate)</option>
-                                        </select>
+                                <div class="parameter-group mb-3">
+                                    <label class="form-label">
+                                        Motion Speed: <span id="feedrateDisplay">1.0</span>x
+                                        <small class="text-muted d-block">Multiplier for motion feedrates</small>
+                                    </label>
+                                    <input type="range" class="form-range" id="customFeedrateMultiplier" 
+                                           min="0.1" max="2.0" step="0.1" value="1.0"
+                                           oninput="updateFeedrateDisplay(this.value)">
+                                    <div class="d-flex justify-content-between mt-1">
+                                        <small class="text-muted fw-500">Very Slow</small>
+                                        <small class="text-muted fw-500">Very Fast</small>
                                     </div>
                                 </div>
-                                <div class="col-md-6">
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">
-                                            Acceleration: <span id="accelDisplay">1.0</span>x
-                                            <small class="text-muted d-block">Smoothness vs Speed trade-off</small>
-                                        </label>
-                                        <input type="range" class="form-range" id="customAccelerationFactor" 
-                                               min="0.5" max="1.5" step="0.1" value="1.0"
-                                               oninput="updateAccelDisplay(this.value)">
-                                        <div class="d-flex justify-content-between">
-                                            <small class="text-muted">Smooth</small>
-                                            <small class="text-muted">Aggressive</small>
-                                        </div>
+                                
+                                <div class="parameter-group mb-3">
+                                    <label class="form-label">
+                                        Settling Delay: <span id="settlingDisplay">2.0</span>s
+                                        <small class="text-muted d-block">Wait time after movement</small>
+                                    </label>
+                                    <input type="range" class="form-range" id="customSettlingDelay" 
+                                           min="0.5" max="5.0" step="0.5" value="2.0"
+                                           oninput="updateSettlingDisplay(this.value)">
+                                    <div class="d-flex justify-content-between mt-1">
+                                        <small class="text-muted fw-500">Quick</small>
+                                        <small class="text-muted fw-500">Patient</small>
                                     </div>
-                                    
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">
-                                            Capture Delay: <span id="captureDelayDisplay">0.2</span>s
-                                            <small class="text-muted d-block">After movement complete</small>
-                                        </label>
-                                        <input type="range" class="form-range" id="customCaptureDelay" 
-                                               min="0.0" max="2.0" step="0.1" value="0.2"
-                                               oninput="updateCaptureDelayDisplay(this.value)">
+                                </div>
+                                
+                                <div class="parameter-group mb-3">
+                                    <label class="form-label">Motion Precision</label>
+                                    <select class="form-select" id="customMotionPrecision">
+                                        <option value="high">High (Slowest, Most Accurate)</option>
+                                        <option value="normal" selected>Normal</option>
+                                        <option value="fast">Fast (Less Accurate)</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="parameter-group mb-3">
+                                    <label class="form-label">
+                                        Acceleration: <span id="accelDisplay">1.0</span>x
+                                        <small class="text-muted d-block">Smoothness vs Speed trade-off</small>
+                                    </label>
+                                    <input type="range" class="form-range" id="customAccelerationFactor" 
+                                           min="0.5" max="1.5" step="0.1" value="1.0"
+                                           oninput="updateAccelDisplay(this.value)">
+                                    <div class="d-flex justify-content-between">
+                                        <small class="text-muted">Smooth</small>
+                                        <small class="text-muted">Aggressive</small>
                                     </div>
-                                    
-                                    <div class="parameter-group mb-3">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input" type="checkbox" id="customParallelProcessing" checked>
-                                            <label class="form-check-label" for="customParallelProcessing">
-                                                Enable Parallel Processing
-                                                <small class="text-muted d-block">Process images while moving</small>
-                                            </label>
-                                        </div>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="customSkipConfirmations">
-                                            <label class="form-check-label" for="customSkipConfirmations">
-                                                Skip Non-Critical Confirmations
-                                                <small class="text-muted d-block">Faster operation, less safety checks</small>
-                                            </label>
-                                        </div>
+                                </div>
+                                
+                                <div class="parameter-group mb-3">
+                                    <label class="form-label">
+                                        Capture Delay: <span id="captureDelayDisplay">0.2</span>s
+                                        <small class="text-muted d-block">After movement complete</small>
+                                    </label>
+                                    <input type="range" class="form-range" id="customCaptureDelay" 
+                                           min="0.0" max="2.0" step="0.1" value="0.2"
+                                           oninput="updateCaptureDelayDisplay(this.value)">
+                                </div>
+                                
+                                <div class="parameter-group mb-3">
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" id="customParallelProcessing" checked>
+                                        <label class="form-check-label" for="customParallelProcessing">
+                                            Enable Parallel Processing
+                                            <small class="text-muted d-block">Process images while moving</small>
+                                        </label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="customSkipConfirmations">
+                                        <label class="form-check-label" for="customSkipConfirmations">
+                                            Skip Non-Critical Confirmations
+                                            <small class="text-muted d-block">Faster operation, less safety checks</small>
+                                        </label>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                     
-                    </div>
-                    
-                    <!-- Profile Actions (Full Width) -->
-                    <div class="col-12 mt-4">
-                        <div class="profile-actions">
-                            <div class="d-flex justify-content-center gap-3 flex-wrap">
-                                <button type="button" class="btn btn-primary" onclick="applyCustomSettings()">
-                                    <i class="bi bi-check-circle"></i> Apply Settings
-                                </button>
-                                <button type="button" class="btn btn-success" onclick="saveAsCustomProfile()">
-                                    <i class="bi bi-save"></i> Save as Custom Profile
-                                </button>
-                                <button type="button" class="btn btn-secondary" onclick="resetToDefaults()">
-                                    <i class="bi bi-arrow-clockwise"></i> Reset to Defaults
-                                </button>
+                        <!-- Profile Actions (Full Width) -->
+                        <div class="col-12 mt-4">
+                            <div class="profile-actions">
+                                <div class="d-flex justify-content-center gap-3 flex-wrap">
+                                    <button type="button" class="btn btn-primary" onclick="applyCustomSettings()">
+                                        <i class="bi bi-check-circle"></i> Apply Settings
+                                    </button>
+                                    <button type="button" class="btn btn-success" onclick="saveAsCustomProfile()">
+                                        <i class="bi bi-save"></i> Save as Custom Profile
+                                    </button>
+                                    <button type="button" class="btn btn-secondary" onclick="resetToDefaults()">
+                                        <i class="bi bi-arrow-clockwise"></i> Reset to Defaults
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
