@@ -1206,20 +1206,26 @@
     #profileCustomizationPanel .row {
         display: flex !important;
         flex-wrap: wrap;
+        width: 100%;
+        margin: 0;
+        --bs-gutter-x: 1.5rem;
+    }
+    
+    /* Ensure container uses full width */
+    .profile-customization-section {
+        width: 100%;
     }
     
     #profileCustomizationPanel .col-md-6 {
-        flex: 0 0 50% !important;
-        max-width: 50% !important;
+        flex: 1 1 0% !important;
+        max-width: none !important;
+        width: 50% !important;
+        padding: 0 0.75rem;
     }
     
-    /* Ensure proper spacing between columns */
-    #qualityProfileCustom {
-        padding-right: 0.75rem;
-    }
-    
-    #speedProfileCustom {
-        padding-left: 0.75rem;
+    /* Ensure full width utilization */
+    #profileCustomizationPanel {
+        width: 100%;
     }
 
     /* Enhanced visual feedback for column highlights */
@@ -2600,7 +2606,7 @@ function toggleProfileCustomization() {
     const icon = document.getElementById('advancedIcon');
     const hint = document.getElementById('profileHint');
     
-    if (panel.style.display === 'none') {
+    if (panel.style.display === 'none' || panel.style.display === '') {
         panel.style.display = 'block';
         toggleText.textContent = 'Hide Advanced';
         if (icon) icon.className = 'bi bi-x-circle';
@@ -2612,6 +2618,22 @@ function toggleProfileCustomization() {
         if (hint) hint.style.display = 'inline';
     }
 }
+
+// Ensure proper initialization on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const panel = document.getElementById('profileCustomizationPanel');
+    const toggleText = document.getElementById('profileToggleText');
+    const icon = document.getElementById('advancedIcon');
+    const hint = document.getElementById('profileHint');
+    
+    // Ensure panel starts hidden with correct button text
+    if (panel) {
+        panel.style.display = 'none';
+        if (toggleText) toggleText.textContent = 'Advanced Settings';
+        if (icon) icon.className = 'bi bi-sliders';
+        if (hint) hint.style.display = 'inline';
+    }
+});
 
 // Reset settings to defaults
 function resetToDefaults() {
