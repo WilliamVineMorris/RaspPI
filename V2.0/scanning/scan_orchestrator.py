@@ -1360,51 +1360,51 @@ class CameraManagerAdapter:
                             import asyncio
                             import concurrent.futures
                             
-            def capture_with_metadata(camera_obj):
-                """Capture image and return both image and metadata with ISP buffer management"""
-                try:
-                    # ISP Buffer Management: Clear any existing buffers before capture
-                    import gc
-                    import time
-                    
-                    # Force garbage collection to free memory before capture
-                    gc.collect()
-                    
-                    # Small delay to ensure ISP pipeline is ready
-                    time.sleep(0.05)
-                    
-                    # In Picamera2, metadata is often available during/after capture
-                    # First capture the image with buffer management
-                    image_array = camera_obj.capture_array("main")
-                    
-                    # Immediately clear any internal buffers after capture
-                    gc.collect()
-                    
-                    # Then try to get metadata immediately after capture
-                    metadata = {}
-                    
-                    # Try different ways to get metadata from Picamera2
-                    if hasattr(camera_obj, 'capture_metadata'):
-                        try:
-                            if callable(camera_obj.capture_metadata):
-                                metadata.update(camera_obj.capture_metadata())
-                            else:
-                                metadata.update(camera_obj.capture_metadata)
-                        except:
-                            pass
-                    
-                    # Try to get current controls as metadata
-                    if hasattr(camera_obj, 'controls') and hasattr(camera_obj.controls, 'keys'):
-                        try:
-                            metadata.update({'controls': dict(camera_obj.controls)})
-                        except:
-                            pass
-                    
-                    return image_array, metadata
-                    
-                except Exception as e:
-                    self.logger.error(f"Capture with metadata failed: {e}")
-                    return None, {}
+                            def capture_with_metadata(camera_obj):
+                                """Capture image and return both image and metadata with ISP buffer management"""
+                                try:
+                                    # ISP Buffer Management: Clear any existing buffers before capture
+                                    import gc
+                                    import time
+                                    
+                                    # Force garbage collection to free memory before capture
+                                    gc.collect()
+                                    
+                                    # Small delay to ensure ISP pipeline is ready
+                                    time.sleep(0.05)
+                                    
+                                    # In Picamera2, metadata is often available during/after capture
+                                    # First capture the image with buffer management
+                                    image_array = camera_obj.capture_array("main")
+                                    
+                                    # Immediately clear any internal buffers after capture
+                                    gc.collect()
+                                    
+                                    # Then try to get metadata immediately after capture
+                                    metadata = {}
+                                    
+                                    # Try different ways to get metadata from Picamera2
+                                    if hasattr(camera_obj, 'capture_metadata'):
+                                        try:
+                                            if callable(camera_obj.capture_metadata):
+                                                metadata.update(camera_obj.capture_metadata())
+                                            else:
+                                                metadata.update(camera_obj.capture_metadata)
+                                        except:
+                                            pass
+                                    
+                                    # Try to get current controls as metadata
+                                    if hasattr(camera_obj, 'controls') and hasattr(camera_obj.controls, 'keys'):
+                                        try:
+                                            metadata.update({'controls': dict(camera_obj.controls)})
+                                        except:
+                                            pass
+                                    
+                                    return image_array, metadata
+                                    
+                                except Exception as e:
+                                    self.logger.error(f"Capture with metadata failed: {e}")
+                                    return None, {}
                             
             loop = asyncio.get_event_loop()
             with concurrent.futures.ThreadPoolExecutor() as executor:
