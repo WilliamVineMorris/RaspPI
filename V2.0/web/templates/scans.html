@@ -850,6 +850,62 @@
         border: none;
     }
 
+    /* Two Column Layout for Quality and Speed Settings */
+    .settings-column {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        height: 100%;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        transition: all 0.3s ease;
+    }
+
+    .settings-column:hover {
+        border-color: #cbd5e1;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .column-header h5 {
+        color: #1e293b;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+    }
+
+    /* Quality column specific styling */
+    #qualityProfileCustom .column-header h5 .bi-image {
+        color: #4f46e5;
+    }
+
+    #qualityProfileCustom .settings-column:hover {
+        border-color: #4f46e5;
+    }
+
+    /* Speed column specific styling */
+    #speedProfileCustom .column-header h5 .bi-speedometer2 {
+        color: #10b981;
+    }
+
+    #speedProfileCustom .settings-column:hover {
+        border-color: #10b981;
+    }
+
+    .column-header h6 {
+        border-bottom: 1px solid #f1f5f9;
+        padding-bottom: 0.75rem;
+        margin-bottom: 1.5rem;
+    }
+
+    /* Profile Actions Styling */
+    .profile-actions {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
     .profile-customization-section h5 {
         color: #1e293b;
         font-weight: 700;
@@ -1116,11 +1172,6 @@
         .form-label {
             font-size: 0.9rem;
         }
-        
-        .nav-tabs .nav-link {
-            padding: 0.6rem 1rem;
-            font-size: 0.9rem;
-        }
 
         .d-flex.gap-2 {
             flex-direction: column;
@@ -1129,12 +1180,36 @@
         .quick-actions {
             margin-top: 0.5rem;
         }
+
+        /* Stack columns on mobile */
+        .settings-column {
+            margin-bottom: 1rem;
+        }
+
+        .profile-actions .d-flex {
+            flex-direction: column;
+        }
+
+        .profile-actions .btn {
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
     }
 
     @media (max-width: 992px) {
         .compact-settings-grid .col-lg-3 {
             margin-bottom: 1rem;
         }
+        
+        /* Stack columns on tablet */
+        .settings-column {
+            margin-bottom: 1.5rem;
+        }
+    }
+
+    /* Enhanced visual feedback for column highlights */
+    .settings-column {
+        transition: all 0.3s ease, box-shadow 0.2s ease, border-color 0.2s ease;
     }
 
     /* Loading state improvements */
@@ -1411,26 +1486,18 @@
                 </div>
                 
                 <div id="profileCustomizationPanel" style="display: none;">
-                    <!-- Profile Tabs -->
-                    <ul class="nav nav-tabs mb-3">
-                        <li class="nav-item">
-                            <a class="nav-link active" data-bs-toggle="tab" href="#qualityProfileCustom">
-                                <i class="bi bi-image"></i> Quality Settings
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" data-bs-toggle="tab" href="#speedProfileCustom">
-                                <i class="bi bi-speedometer2"></i> Speed Settings
-                            </a>
-                        </li>
-                    </ul>
-                    
-                    <!-- Tab Content -->
-                    <div class="tab-content">
-                        <!-- Quality Profile Customization -->
-                        <div class="tab-pane fade show active" id="qualityProfileCustom">
-                            <div class="mb-4">
-                                <h6 class="text-muted mb-3 text-uppercase fw-bold" style="font-size: 0.8rem; letter-spacing: 1px; color: #64748b !important;">📸 Image Quality Settings</h6>
+                    <!-- Two Column Layout for Quality and Speed Settings -->
+                    <div class="row g-4">
+                        <!-- Quality Settings Column -->
+                        <div class="col-lg-6" id="qualityProfileCustom">
+                            <div class="settings-column">
+                                <div class="column-header mb-4">
+                                    <h5 class="mb-2">
+                                        <i class="bi bi-image me-2 text-primary"></i>
+                                        Quality Settings
+                                    </h5>
+                                    <h6 class="text-muted mb-3 text-uppercase fw-bold" style="font-size: 0.8rem; letter-spacing: 1px; color: #64748b !important;">📸 Image Quality Parameters</h6>
+                                </div>
                             </div>
                             <div class="row">
                                 <div class="col-md-6">
@@ -1524,10 +1591,16 @@
                             </div>
                         </div>
                         
-                        <!-- Speed Profile Customization -->
-                        <div class="tab-pane fade" id="speedProfileCustom">
-                            <div class="mb-4">
-                                <h6 class="text-muted mb-3 text-uppercase fw-bold" style="font-size: 0.8rem; letter-spacing: 1px; color: #64748b !important;">🏃 Motion Control Settings</h6>
+                        <!-- Speed Settings Column -->
+                        <div class="col-lg-6" id="speedProfileCustom">
+                            <div class="settings-column">
+                                <div class="column-header mb-4">
+                                    <h5 class="mb-2">
+                                        <i class="bi bi-speedometer2 me-2 text-success"></i>
+                                        Speed Settings
+                                    </h5>
+                                    <h6 class="text-muted mb-3 text-uppercase fw-bold" style="font-size: 0.8rem; letter-spacing: 1px; color: #64748b !important;">🏃 Motion Control Parameters</h6>
+                                </div>
                             </div>
                             <div class="row">
                                 <div class="col-md-6">
@@ -1614,17 +1687,23 @@
                         </div>
                     </div>
                     
-                    <!-- Profile Actions -->
-                    <div class="d-flex gap-2 mt-3">
-                        <button type="button" class="btn btn-primary" onclick="applyCustomSettings()">
-                            <i class="bi bi-check-circle"></i> Apply Settings
-                        </button>
-                        <button type="button" class="btn btn-success" onclick="saveAsCustomProfile()">
-                            <i class="bi bi-save"></i> Save as Custom Profile
-                        </button>
-                        <button type="button" class="btn btn-secondary" onclick="resetToDefaults()">
-                            <i class="bi bi-arrow-clockwise"></i> Reset to Defaults
-                        </button>
+                    </div>
+                    
+                    <!-- Profile Actions (Full Width) -->
+                    <div class="col-12 mt-4">
+                        <div class="profile-actions">
+                            <div class="d-flex justify-content-center gap-3 flex-wrap">
+                                <button type="button" class="btn btn-primary" onclick="applyCustomSettings()">
+                                    <i class="bi bi-check-circle"></i> Apply Settings
+                                </button>
+                                <button type="button" class="btn btn-success" onclick="saveAsCustomProfile()">
+                                    <i class="bi bi-save"></i> Save as Custom Profile
+                                </button>
+                                <button type="button" class="btn btn-secondary" onclick="resetToDefaults()">
+                                    <i class="bi bi-arrow-clockwise"></i> Reset to Defaults
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2901,15 +2980,29 @@ async function loadProfileSettings(profileType, profileName) {
             }, 300);
             
             if (profileType === 'quality') {
-                // Activate quality tab
-                const qualityTab = document.querySelector('a[href="#qualityProfileCustom"]');
-                if (qualityTab) qualityTab.click();
                 populateQualitySettings(data.profile.settings || data.profile);
+                // Highlight the quality column
+                const qualityColumn = document.getElementById('qualityProfileCustom');
+                if (qualityColumn) {
+                    qualityColumn.style.boxShadow = '0 0 0 3px rgba(79, 70, 229, 0.1)';
+                    qualityColumn.style.borderColor = '#4f46e5';
+                    setTimeout(() => {
+                        qualityColumn.style.boxShadow = '';
+                        qualityColumn.style.borderColor = '';
+                    }, 2000);
+                }
             } else if (profileType === 'speed') {
-                // Activate speed tab
-                const speedTab = document.querySelector('a[href="#speedProfileCustom"]');
-                if (speedTab) speedTab.click();
                 populateSpeedSettings(data.profile.settings || data.profile);
+                // Highlight the speed column
+                const speedColumn = document.getElementById('speedProfileCustom');
+                if (speedColumn) {
+                    speedColumn.style.boxShadow = '0 0 0 3px rgba(16, 185, 129, 0.1)';
+                    speedColumn.style.borderColor = '#10b981';
+                    setTimeout(() => {
+                        speedColumn.style.boxShadow = '';
+                        speedColumn.style.borderColor = '';
+                    }, 2000);
+                }
             }
         } else {
             console.error(`❌ Failed to load ${profileType} profile:`, data.error);
