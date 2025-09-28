@@ -1738,23 +1738,24 @@ class CameraManagerAdapter:
             total_pixels = width * height
             validated_resolution = custom_resolution
             
-            # Pi hardware limits - 64MP may be too demanding
-            if total_pixels > 50_000_000:  # ~50MP threshold
-                self.logger.warning(f"CAMERA: Very large resolution detected ({total_pixels:,} pixels)")
+            # Pi hardware limits - Only step down for extremely large resolutions
+            if total_pixels > 70_000_000:  # Only for truly excessive resolutions (>70MP)
+                self.logger.warning(f"CAMERA: Extremely large resolution detected ({total_pixels:,} pixels)")
                 
-                # Try stepping down to more manageable resolution
-                if width == 9152 and height == 6944:  # Full 64MP
-                    validated_resolution = (6016, 4512)  # 27MP - more manageable
-                    self.logger.warning(f"CAMERA: Stepped down from 64MP to ~27MP for stability: {validated_resolution}")
-                elif total_pixels > 35_000_000:  # Still quite large
-                    validated_resolution = (4608, 2592)  # 12MP - proven stable
-                    self.logger.warning(f"CAMERA: Stepped down to stable 12MP resolution: {validated_resolution}")
+                # Only step down for impossibly large resolutions
+                if total_pixels > 80_000_000:  # Beyond any reasonable sensor
+                    validated_resolution = (9152, 6944)  # Max 64MP fallback
+                    self.logger.warning(f"CAMERA: Capped at maximum sensor resolution: {validated_resolution}")
+                else:
+                    self.logger.info(f"CAMERA: Large resolution ({total_pixels:,} pixels) - using enhanced buffer management")
             
             custom_resolution = validated_resolution
             
-            # Check if resolution is moderately demanding 
-            if total_pixels > 25_000_000:  # ~25MP threshold
-                self.logger.info(f"CAMERA: Moderately large resolution ({total_pixels:,} pixels). Using safety buffers.")
+            # Log resolution info for debugging
+            if total_pixels > 50_000_000:  # ~50MP threshold
+                self.logger.info(f"CAMERA: High resolution detected ({total_pixels:,} pixels) - using optimized buffer allocation")
+            elif total_pixels > 25_000_000:  # ~25MP threshold
+                self.logger.debug(f"CAMERA: Moderately large resolution ({total_pixels:,} pixels) - normal operation")
             
             # Update capture configurations for both cameras
             for camera_id in [0, 1]:
@@ -1763,13 +1764,22 @@ class CameraManagerAdapter:
                     
                     if camera:
                         try:
-                            # Create new capture configuration with custom resolution and safety measures
+                            # Create new capture configuration with resolution-appropriate buffers
+                            # Scale buffer count based on resolution for optimal performance
+                            if total_pixels > 60_000_000:  # 64MP range
+                                buffer_count = 5  # More buffers for very high res
+                            elif total_pixels > 40_000_000:  # 40MP+ range
+                                buffer_count = 4
+                            elif total_pixels > 20_000_000:  # 20MP+ range
+                                buffer_count = 3
+                            else:
+                                buffer_count = 2  # Lower res can use fewer buffers
+                            
                             new_capture_config = camera.create_still_configuration(
                                 main={"size": custom_resolution, "format": "RGB888"},  # Custom resolution
                                 lores={"size": (1920, 1080), "format": "YUV420"},  # Keep preview same
                                 display="lores",
-                                # Add buffer configuration for large captures
-                                buffer_count=3 if total_pixels > 30_000_000 else 4  # Fewer buffers for large captures
+                                buffer_count=buffer_count  # Dynamic buffer allocation
                             )
                             
                             # Update stored configuration
@@ -1779,9 +1789,9 @@ class CameraManagerAdapter:
                                 
                         except Exception as config_error:
                             self.logger.error(f"CAMERA: Failed to create capture config for camera {camera_id}: {config_error}")
-                            # Fallback to a safer resolution
-                            fallback_resolution = (4608, 2592)  # 12MP fallback
-                            self.logger.warning(f"CAMERA: Falling back to safer resolution: {fallback_resolution}")
+                            # Fallback to max supported resolution instead of stepping down too much
+                            fallback_resolution = (9152, 6944)  # 64MP fallback maintains capability
+                            self.logger.warning(f"CAMERA: Falling back to max supported resolution: {fallback_resolution}")
                             
                             fallback_config = camera.create_still_configuration(
                                 main={"size": fallback_resolution, "format": "RGB888"},
@@ -1808,18 +1818,19 @@ class CameraManagerAdapter:
         """Ensure cameras have working configurations as final fallback"""
         try:
             self.logger.info("CAMERA: Applying fallback configurations for camera stability")
-            safe_resolution = (4608, 2592)  # Safe 12MP resolution
+            safe_resolution = (9152, 6944)  # Safe 64MP resolution - system proven capable
             
             for camera_id in [0, 1]:
                 if hasattr(self.controller, 'cameras') and camera_id in self.controller.cameras:
                     camera = self.controller.cameras[camera_id]
                     
                     if camera:
-                        # Create safe configuration
+                        # Create safe configuration with enhanced buffer count for high res
                         safe_config = camera.create_still_configuration(
                             main={"size": safe_resolution, "format": "RGB888"},
                             lores={"size": (1920, 1080), "format": "YUV420"},
-                            display="lores"
+                            display="lores",
+                            buffer_count=5  # Enhanced buffer for 64MP
                         )
                         
                         if hasattr(self, '_capture_configs'):
@@ -2452,8 +2463,8 @@ class ScanOrchestrator:
         
         # 📋 GENERATE SCAN POSITIONS METADATA FILE and store in storage manager
         try:
-            # Generate initial positions file with planning defaults
-            positions_metadata = await self._generate_scan_positions_file(pattern, Path(output_directory), scan_id, prefer_calibrated=False)
+            # Generate positions file with actual settings (custom settings are already applied at this point)
+            positions_metadata = await self._generate_scan_positions_file(pattern, Path(output_directory), scan_id, prefer_calibrated=True)
             
             # Also save positions file to session directory if session exists
             if 'session_id' in locals() and positions_metadata:
@@ -2533,12 +2544,33 @@ class ScanOrchestrator:
     
     async def _get_actual_camera_settings(self, prefer_calibrated: bool = True) -> dict:
         """Get actual calibrated camera settings instead of template values"""
-        # Start with sensible defaults
+        # Start with sensible defaults, but use actual camera config if available
+        default_resolution = [9152, 6944]  # Default ArduCam 64MP full resolution
+        
+        # Check if we have actual camera configurations with custom resolution
+        if hasattr(self, '_capture_configs') and self._capture_configs:
+            # Use actual resolution from camera configuration
+            try:
+                camera_config = list(self._capture_configs.values())[0]  # Get first camera config
+                if 'main' in camera_config and 'size' in camera_config['main']:
+                    default_resolution = list(camera_config['main']['size'])
+                    self.logger.debug(f"📋 Using actual camera config resolution: {default_resolution}")
+            except Exception as e:
+                self.logger.debug(f"📋 Could not extract resolution from camera config: {e}")
+        
+        # Also check camera manager's quality settings as a secondary source
+        elif hasattr(self.camera_manager, '_quality_settings') and self.camera_manager._quality_settings:
+            if 'resolution' in self.camera_manager._quality_settings:
+                fallback_resolution = self.camera_manager._quality_settings['resolution']
+                if isinstance(fallback_resolution, (list, tuple)) and len(fallback_resolution) >= 2:
+                    default_resolution = list(fallback_resolution)
+                    self.logger.debug(f"📋 Using camera manager quality settings resolution: {default_resolution}")
+        
         actual_settings = {
             'exposure_time': '1/30s',  # Sensible default for ArduCam 64MP
             'iso': 800,               # Sensible default for indoor scanning
             'capture_format': 'JPEG',
-            'resolution': [4608, 2592],  # Default ArduCam 64MP resolution
+            'resolution': default_resolution,  # Use actual or default resolution
             'quality': 95,  # Default quality
             'calibration_source': 'default_values'  # Track source of settings
         }
@@ -2568,6 +2600,17 @@ class ScanOrchestrator:
                 
             actual_settings['calibration_source'] = 'custom_profile_applied'
             self.logger.info(f"📋 Updated camera settings with custom profile: Resolution: {actual_settings['resolution']}, Quality: {actual_settings['quality']}")
+            
+            # Update stored resolution to match what was actually applied
+            if hasattr(self, '_capture_configs') and self._capture_configs:
+                try:
+                    # Update the resolution in our settings to match actual camera config
+                    camera_config = list(self._capture_configs.values())[0]
+                    if 'main' in camera_config and 'size' in camera_config['main']:
+                        actual_settings['resolution'] = list(camera_config['main']['size'])
+                        self.logger.info(f"📋 Final resolution from camera config: {actual_settings['resolution']}")
+                except Exception as e:
+                    self.logger.debug(f"📋 Could not update resolution from camera config: {e}")
         else:
             self.logger.debug("📋 No custom camera settings available, using defaults")
         
@@ -2976,12 +3019,39 @@ class ScanOrchestrator:
                     primary_camera = available_cameras[0]
                     self.logger.info(f"🔄 Synchronized focus mode: Performing calibration on primary camera: {primary_camera}")
                     
+                    # Store custom exposure settings before calibration to restore after
+                    custom_exposure_backup = None
+                    if hasattr(self, '_quality_settings') and self._quality_settings:
+                        if 'exposure_time' in self._quality_settings:
+                            custom_exposure_backup = {
+                                'exposure_time': self._quality_settings['exposure_time'],
+                                'analogue_gain': self._quality_settings.get('analogue_gain', None)
+                            }
+                            self.logger.info(f"🔄 CALIBRATION: Backing up custom exposure settings: {custom_exposure_backup}")
+                    
                     calibration_result = await self.camera_manager.controller.auto_calibrate_camera(primary_camera)
                     
                     if calibration_result and 'focus' in calibration_result:
                         focus_value = calibration_result['focus']
                         self._primary_focus_value = focus_value
                         self._scan_focus_values[primary_camera] = focus_value
+                        
+                        # Restore custom exposure settings if they were provided
+                        if custom_exposure_backup:
+                            self.logger.info(f"🔄 CALIBRATION: Restoring custom exposure settings after focus calibration")
+                            if hasattr(self.camera_manager.controller, '_calibrated_settings') and primary_camera in self.camera_manager.controller._calibrated_settings:
+                                # Keep the focus value but restore custom exposure
+                                calibrated_settings = self.camera_manager.controller._calibrated_settings[primary_camera]
+                                calibrated_settings['exposure_time'] = custom_exposure_backup['exposure_time']
+                                if custom_exposure_backup['analogue_gain'] is not None:
+                                    calibrated_settings['analogue_gain'] = custom_exposure_backup['analogue_gain']
+                                self.logger.info(f"🔄 CALIBRATION: Updated calibrated settings to preserve custom exposure: {calibrated_settings}")
+                            
+                            # Also restore in our quality settings
+                            self._quality_settings.update(custom_exposure_backup)
+                            self.logger.info(f"🔄 CALIBRATION: Custom exposure preserved - Focus: {focus_value:.3f}, Exposure: {custom_exposure_backup['exposure_time']}")
+                        else:
+                            self.logger.info(f"🔄 CALIBRATION: No custom exposure settings to preserve - using auto-calibrated values")
                         
                         # Log primary camera calibration
                         exposure = calibration_result.get('exposure_time', 0)
