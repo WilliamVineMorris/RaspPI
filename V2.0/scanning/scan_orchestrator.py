@@ -876,7 +876,11 @@ class CameraManagerAdapter:
                                     camera.stop()
                                     self.logger.debug(f"CAMERA: Stopped camera {camera_id} before reconfiguration")
                                     
-                                    # Extended delay to ensure complete buffer release and prevent memory conflicts
+                                    # Enhanced ISP buffer cleanup after camera stop
+                                    import gc
+                                    gc.collect()  # Force garbage collection to release ISP buffers
+                                    
+                                    # Extended delay to ensure complete buffer release and ISP pipeline reset
                                     await asyncio.sleep(0.3)
                                     
                                     # Configure for capture
@@ -1356,14 +1360,25 @@ class CameraManagerAdapter:
                             import asyncio
                             import concurrent.futures
                             
-                            def capture_with_metadata(camera_obj):
-                                """Capture image and return both image and metadata"""
-                                try:
-                                    # In Picamera2, metadata is often available during/after capture
-                                    # First capture the image
-                                    image_array = camera_obj.capture_array("main")
-                                    
-                                    # Then try to get metadata immediately after capture
+            def capture_with_metadata(camera_obj):
+                """Capture image and return both image and metadata with ISP buffer management"""
+                try:
+                    # ISP Buffer Management: Clear any existing buffers before capture
+                    import gc
+                    import time
+                    
+                    # Force garbage collection to free memory before capture
+                    gc.collect()
+                    
+                    # Small delay to ensure ISP pipeline is ready
+                    time.sleep(0.05)
+                    
+                    # In Picamera2, metadata is often available during/after capture
+                    # First capture the image with buffer management
+                    image_array = camera_obj.capture_array("main")
+                    
+                    # Immediately clear any internal buffers after capture
+                    gc.collect()                                    # Then try to get metadata immediately after capture
                                     metadata = {}
                                     
                                     # Try different ways to get metadata from Picamera2
@@ -1419,17 +1434,57 @@ class CameraManagerAdapter:
                     return None
                     
                 except Exception as e:
-                    self.logger.error(f"CAMERA: Simultaneous capture failed for {camera_id}: {e}")
+                    # Check for specific ISP buffer errors
+                    error_msg = str(e).lower()
+                    if any(keyword in error_msg for keyword in ['buffer', 'isp', 'queue', 'v4l2', 'enomem']):
+                        self.logger.error(f"CAMERA: ISP buffer error for {camera_id}: {e}")
+                        self.logger.info(f"CAMERA: Attempting buffer recovery for {camera_id}...")
+                        
+                        # Force garbage collection and retry once
+                        import gc
+                        import time
+                        gc.collect()
+                        time.sleep(0.2)  # Allow ISP buffers to clear
+                        
+                        try:
+                            # Retry capture with buffer management
+                            if hasattr(self.controller, 'cameras') and mapped_id in self.controller.cameras:
+                                camera = self.controller.cameras[mapped_id]
+                                if camera and hasattr(camera, 'capture_array'):
+                                    self.logger.info(f"CAMERA: Retry capture for {camera_id} after buffer recovery")
+                                    image_array = camera.capture_array("main")
+                                    if image_array is not None and image_array.size > 0:
+                                        import cv2
+                                        if len(image_array.shape) == 3 and image_array.shape[2] == 3:
+                                            image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                                        else:
+                                            image_bgr = image_array.copy()
+                                        
+                                        self.logger.info(f"CAMERA: Buffer recovery successful for {camera_id}: {image_bgr.shape}")
+                                        return {'image': image_bgr, 'metadata': {}}
+                        except Exception as retry_error:
+                            self.logger.error(f"CAMERA: Buffer recovery failed for {camera_id}: {retry_error}")
+                    else:
+                        self.logger.error(f"CAMERA: General capture error for {camera_id}: {e}")
+                    
                     return None
             
-            # Capture both cameras simultaneously using asyncio.gather
-            self.logger.info("CAMERA: Starting true simultaneous dual camera capture...")
+            # Use sequential capture to prevent ISP buffer queue errors
+            self.logger.info("CAMERA: Starting sequential dual camera capture to avoid ISP buffer conflicts...")
             
-            camera_results = await asyncio.gather(
-                capture_camera_direct('camera_0', 0),
-                capture_camera_direct('camera_1', 1),
-                return_exceptions=True
-            )
+            # Capture cameras sequentially with minimal delay to reduce ISP pipeline pressure
+            camera_results = []
+            for camera_id, mapped_id in [('camera_0', 0), ('camera_1', 1)]:
+                try:
+                    result = await capture_camera_direct(camera_id, mapped_id)
+                    camera_results.append(result)
+                    
+                    # Small delay between captures to allow ISP buffers to clear
+                    await asyncio.sleep(0.1)
+                    
+                except Exception as e:
+                    self.logger.error(f"CAMERA: Sequential capture failed for {camera_id}: {e}")
+                    camera_results.append(e)
             
             # Process results
             for i, (camera_id, result) in enumerate(zip(['camera_0', 'camera_1'], camera_results)):
