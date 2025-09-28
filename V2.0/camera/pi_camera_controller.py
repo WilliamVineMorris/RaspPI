@@ -1711,12 +1711,59 @@ class PiCameraController(CameraController):
             # Allow ISP pipeline to stabilize
             await asyncio.sleep(0.05)
             
-            # Capture with error handling for ISP buffer issues
-            try:
-                image_array = camera.capture_array(stream_name)
-                
-                # Clear buffers immediately after capture
-                gc.collect()
+            # Enhanced capture with ISP buffer retry logic
+            max_retries = 3
+            retry_delay = 0.5
+            
+            for attempt in range(max_retries):
+                try:
+                    # Check camera state before capture
+                    if not camera.started:
+                        logger.warning(f"Camera {camera_id} not started, attempting to start...")
+                        camera.start()
+                        await asyncio.sleep(0.3)  # Extended stabilization
+                    
+                    # ISP stabilization for high-resolution
+                    await asyncio.sleep(0.1 + (attempt * 0.1))  # Progressive delay
+                    
+                    # Capture with buffer management
+                    logger.debug(f"ISP capture attempt {attempt + 1} for camera {camera_id}")
+                    image_array = camera.capture_array(stream_name)
+                    
+                    # Clear buffers immediately after successful capture
+                    gc.collect()
+                    
+                    logger.info(f"ISP-managed capture successful for camera {camera_id}")
+                    break
+                    
+                except Exception as capture_error:
+                    error_msg = str(capture_error)
+                    logger.warning(f"ISP capture attempt {attempt + 1} failed for camera {camera_id}: {error_msg}")
+                    
+                    # Handle specific ISP buffer issues
+                    if "Failed to queue buffer" in error_msg or "Invalid argument" in error_msg:
+                        logger.info(f"ISP buffer issue detected, attempting recovery...")
+                        
+                        # ISP recovery: Stop and restart camera with delay
+                        try:
+                            if camera.started:
+                                camera.stop()
+                            await asyncio.sleep(retry_delay)
+                            gc.collect()
+                            camera.start()
+                            await asyncio.sleep(0.3)  # ISP stabilization
+                            
+                            logger.info(f"Camera {camera_id} ISP recovery completed")
+                            
+                        except Exception as recovery_error:
+                            logger.error(f"ISP recovery failed for camera {camera_id}: {recovery_error}")
+                    
+                    # If this was the last attempt, re-raise
+                    if attempt == max_retries - 1:
+                        raise capture_error
+                    
+                    # Progressive backoff
+                    await asyncio.sleep(retry_delay * (attempt + 1))
                 
                 logger.info(f"ISP-managed capture successful for camera {camera_id}")
                 return image_array
@@ -2041,13 +2088,30 @@ class PiCameraController(CameraController):
                             except Exception as verify_error:
                                 logger.warning(f"📷 {camera_key}: Could not verify configuration: {verify_error}")
                             
-                            # Continue with capture
-                        
-                        # Capture with ISP management
+                            # Continue with capture - check camera state before proceeding
+                            
+                        # Pre-capture ISP preparation
+                        logger.info(f"📷 {camera_key}: Preparing for ISP-managed capture...")
                         gc.collect()
-                        await asyncio.sleep(0.05)
+                        await asyncio.sleep(0.1)
                         
-                        image_array = await self.capture_with_isp_management(camera_id, "main")
+                        # Verify camera is ready for capture
+                        if not camera.started:
+                            logger.error(f"📷 {camera_key}: Camera not started before capture!")
+                            results[camera_key] = None
+                            continue
+                        
+                        logger.info(f"📷 {camera_key}: Starting ISP-managed capture at {target_resolution}")
+                        
+                        # Capture with timeout to prevent hanging
+                        try:
+                            image_array = await asyncio.wait_for(
+                                self.capture_with_isp_management(camera_id, "main"),
+                                timeout=30.0  # 30 second timeout for high-res capture
+                            )
+                        except asyncio.TimeoutError:
+                            logger.error(f"📷 {camera_key}: Capture timed out after 30 seconds")
+                            image_array = None
                         
                         if image_array is not None:
                             results[camera_key] = image_array
@@ -2058,8 +2122,16 @@ class PiCameraController(CameraController):
                         
                         # CRITICAL: Complete camera shutdown after capture to free all memory
                         if camera:
-                            camera.stop()
-                            logger.info(f"📷 {camera_key}: Camera stopped to free ISP buffers")
+                            logger.info(f"📷 {camera_key}: Shutting down camera to free ISP resources...")
+                            
+                            # Force stop to release ISP buffers
+                            if camera.started:
+                                camera.stop()
+                            
+                            # Brief delay to allow ISP cleanup
+                            await asyncio.sleep(0.2)
+                            
+                            logger.info(f"📷 {camera_key}: Camera stopped and ISP buffers released")
                         
                         # Aggressive memory cleanup between cameras
                         for cleanup_round in range(3):
