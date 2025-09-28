@@ -1461,14 +1461,7 @@
                                     <i class="bi bi-sliders" id="advancedIcon"></i>
                                     <span id="profileToggleText">Advanced Settings</span>
                                 </button>
-                                <div class="quick-actions d-flex gap-1" id="quickActions" style="display: none;">
-                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="resetToDefaults()">
-                                        <i class="bi bi-arrow-clockwise"></i> Reset
-                                    </button>
-                                    <button type="button" class="btn btn-outline-success btn-sm" onclick="saveAsCustomProfile()">
-                                        <i class="bi bi-save"></i> Save
-                                    </button>
-                                </div>
+
                             </div>
                             <small class="text-muted" id="profileHint">
                                 <i class="bi bi-info-circle me-1"></i>
@@ -1507,7 +1500,7 @@
                                         <option value="[3840,2160]" selected>3840x2160 (4K)</option>
                                         <option value="[4608,2592]">4608x2592 (12MP Max)</option>
                                     </select>
-                            </div>
+                                </div>
                                 
                                 <div class="parameter-group mb-3">
                                     <label class="form-label">JPEG Quality: <span id="jpegQualityDisplay">85</span>%</label>
@@ -1574,15 +1567,13 @@
                                         <input type="range" class="form-range" id="customDenoiseLevel" 
                                                min="0" max="10" value="2"
                                                oninput="updateDenoiseDisplay(this.value)">
-                                    </div>
                                 </div>
-                                <div class="col-md-6">
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">Sharpening: <span id="sharpeningDisplay">2</span></label>
-                                        <input type="range" class="form-range" id="customSharpeningLevel" 
-                                               min="0" max="10" value="2"
-                                               oninput="updateSharpeningDisplay(this.value)">
-                                    </div>
+                                
+                                <div class="parameter-group mb-3">
+                                    <label class="form-label">Sharpening: <span id="sharpeningDisplay">2</span></label>
+                                    <input type="range" class="form-range" id="customSharpeningLevel" 
+                                           min="0" max="10" value="2"
+                                           oninput="updateSharpeningDisplay(this.value)">
                                 </div>
                             </div>
                         </div>
@@ -1597,7 +1588,7 @@
                                     </h5>
                                     <h6 class="text-muted mb-3 text-uppercase fw-bold" style="font-size: 0.8rem; letter-spacing: 1px; color: #64748b !important;">🏃 Motion Control Parameters</h6>
                                 </div>
-                            </div>
+                                
                                 <div class="parameter-group mb-3">
                                     <label class="form-label">
                                         Motion Speed: <span id="feedrateDisplay">1.0</span>x
@@ -2597,28 +2588,19 @@ document.addEventListener('DOMContentLoaded', function() {
 function toggleProfileCustomization() {
     const panel = document.getElementById('profileCustomizationPanel');
     const toggleText = document.getElementById('profileToggleText');
-    const quickActions = document.getElementById('quickActions');
     const icon = document.getElementById('advancedIcon');
-    const section = document.querySelector('.profile-customization-section');
+    const hint = document.getElementById('profileHint');
     
     if (panel.style.display === 'none') {
         panel.style.display = 'block';
         toggleText.textContent = 'Hide Advanced';
-        if (quickActions) {
-            quickActions.style.display = 'flex';
-            setTimeout(() => quickActions.classList.add('show'), 10);
-        }
-        if (icon) icon.className = 'bi bi-sliders-alt';
-        if (section) section.classList.remove('collapsed');
+        if (icon) icon.className = 'bi bi-x-circle';
+        if (hint) hint.style.display = 'none';
     } else {
         panel.style.display = 'none';
         toggleText.textContent = 'Advanced Settings';
-        if (quickActions) {
-            quickActions.classList.remove('show');
-            setTimeout(() => quickActions.style.display = 'none', 300);
-        }
         if (icon) icon.className = 'bi bi-sliders';
-        if (section) section.classList.add('collapsed');
+        if (hint) hint.style.display = 'inline';
     }
 }
 
