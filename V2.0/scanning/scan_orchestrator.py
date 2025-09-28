@@ -1716,11 +1716,45 @@ class CameraManagerAdapter:
             self._default_jpeg_quality = jpeg_quality
             
             self.logger.info(f"CAMERA: Stored quality settings for capture - JPEG quality: {jpeg_quality}")
+            
+            # Update camera configurations if resolution changed
+            if 'resolution' in quality_settings:
+                custom_resolution = tuple(quality_settings['resolution'])
+                await self._update_camera_configurations(custom_resolution)
+            
             return True
             
         except Exception as e:
             self.logger.error(f"CAMERA: Failed to apply quality settings: {e}")
             return False
+    
+    async def _update_camera_configurations(self, custom_resolution):
+        """Update camera configurations with custom resolution"""
+        try:
+            self.logger.info(f"CAMERA: Updating camera configurations for custom resolution: {custom_resolution}")
+            
+            # Update capture configurations for both cameras
+            for camera_id in [0, 1]:
+                if hasattr(self.controller, 'cameras') and camera_id in self.controller.cameras:
+                    camera = self.controller.cameras[camera_id]
+                    
+                    if camera:
+                        # Create new capture configuration with custom resolution
+                        new_capture_config = camera.create_still_configuration(
+                            main={"size": custom_resolution, "format": "RGB888"},  # Custom resolution
+                            lores={"size": (1920, 1080), "format": "YUV420"},  # Keep preview same
+                            display="lores"
+                        )
+                        
+                        # Update stored configuration
+                        if hasattr(self, '_capture_configs'):
+                            self._capture_configs[camera_id] = new_capture_config
+                            self.logger.info(f"CAMERA: Updated camera {camera_id} capture config to {custom_resolution}")
+            
+            self.logger.info(f"CAMERA: Successfully updated camera configurations for {custom_resolution}")
+            
+        except Exception as e:
+            self.logger.error(f"CAMERA: Failed to update camera configurations: {e}")
     
     def _apply_quality_to_settings(self, settings):
         """Apply stored quality settings to CameraSettings object"""
@@ -2419,19 +2453,41 @@ class ScanOrchestrator:
     
     async def _get_actual_camera_settings(self, prefer_calibrated: bool = True) -> dict:
         """Get actual calibrated camera settings instead of template values"""
-        # Get custom quality if available
-        jpeg_quality = 95  # Default
-        if hasattr(self.camera_manager, '_quality_settings') and self.camera_manager._quality_settings:
-            jpeg_quality = self.camera_manager._quality_settings.get('jpeg_quality', 95)
-        
+        # Start with sensible defaults
         actual_settings = {
             'exposure_time': '1/30s',  # Sensible default for ArduCam 64MP
             'iso': 800,               # Sensible default for indoor scanning
             'capture_format': 'JPEG',
-            'resolution': [4608, 2592],  # Actual ArduCam 64MP resolution
-            'quality': int(jpeg_quality),  # Use custom quality or default
+            'resolution': [4608, 2592],  # Default ArduCam 64MP resolution
+            'quality': 95,  # Default quality
             'calibration_source': 'default_values'  # Track source of settings
         }
+        
+        # Apply custom settings from camera manager if available
+        if hasattr(self.camera_manager, '_quality_settings') and self.camera_manager._quality_settings:
+            custom_settings = self.camera_manager._quality_settings
+            self.logger.info(f"📋 Applying custom camera settings: {custom_settings}")
+            
+            # Apply custom resolution if specified
+            if 'resolution' in custom_settings:
+                actual_settings['resolution'] = custom_settings['resolution']
+                
+            # Apply custom JPEG quality
+            if 'jpeg_quality' in custom_settings:
+                actual_settings['quality'] = int(custom_settings['jpeg_quality'])
+                
+            # Apply other custom settings if present
+            if 'exposure_time' in custom_settings:
+                actual_settings['exposure_time'] = f"1/{1000000//custom_settings['exposure_time']}s" if custom_settings['exposure_time'] > 1000 else f"{custom_settings['exposure_time']/1000000}s"
+                
+            if 'analogue_gain' in custom_settings:
+                # Convert analogue gain to approximate ISO (rough approximation)
+                actual_settings['iso'] = int(100 * custom_settings['analogue_gain'])
+                
+            actual_settings['calibration_source'] = 'custom_profile_applied'
+            self.logger.info(f"📋 Updated camera settings with custom profile: Resolution: {actual_settings['resolution']}, Quality: {actual_settings['quality']}")
+        else:
+            self.logger.debug("📋 No custom camera settings available, using defaults")
         
         try:
             # Check if camera manager is available and accessible
@@ -2535,6 +2591,8 @@ class ScanOrchestrator:
             settings_source = actual_camera_settings.get('calibration_source', 'unknown')
             if settings_source == 'camera_calibrated':
                 settings_note = 'Camera settings reflect actual calibrated values from scan execution'
+            elif settings_source == 'custom_profile_applied':
+                settings_note = 'Camera settings reflect custom user profile (quality, resolution, exposure) - applied to hardware'
             elif settings_source == 'planning_stage_defaults':
                 settings_note = 'Camera settings are planning defaults - will be updated with calibrated values during scan execution'
             elif settings_source == 'controller_unavailable':
