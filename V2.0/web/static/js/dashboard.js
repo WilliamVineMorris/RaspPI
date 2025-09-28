@@ -619,7 +619,7 @@ const Dashboard = {
                             
                             ScannerBase.hideLoading();
                             // Use overlay alert only for final success (important message)
-                            ScannerBase.showAlert('🎉 All axes homed successfully!', 'success', 5000, false);
+                            ScannerBase.showAlert('All axes homed successfully!', 'success', 5000, false);
                             ScannerBase.addLogEntry(`✅ All axes homing completed successfully in ${elapsed + 2} seconds (${homingElapsed + 2}s since detection)`, 'success');
                             
                             // Re-enable button
@@ -689,7 +689,7 @@ const Dashboard = {
             }
             
             ScannerBase.hideLoading();
-            ScannerBase.showAlert(`❌ Homing failed: ${error.message}`, 'error', 8000);
+            ScannerBase.showAlert(`Homing failed: ${error.message}`, 'error', 8000);
             ScannerBase.addLogEntry(`❌ Homing failed: ${error.message}`, 'error');
             
             // Re-enable button

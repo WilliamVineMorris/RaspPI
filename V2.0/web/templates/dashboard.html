@@ -598,10 +598,10 @@
         // Test notification system to demonstrate proper stacking and positioning
         function testNotifications() {
             const messages = [
-                { msg: '✅ Test success notification', type: 'success' },
-                { msg: '⚠️ Test warning notification', type: 'warning' },
-                { msg: '❌ Test error notification', type: 'error' },
-                { msg: '🔔 Test info notification', type: 'info' }
+                { msg: 'Test success notification', type: 'success' },
+                { msg: 'Test warning notification', type: 'warning' },
+                { msg: 'Test error notification', type: 'error' },
+                { msg: 'Test info notification', type: 'info' }
             ];
             
             messages.forEach((notification, index) => {
@@ -623,7 +623,7 @@
                     cancelButton.textContent = '🔄 Canceling...';
                 }
                 
-                showNotification('🛑 Emergency: Stopping all scans...', 'warning');
+                showNotification('Emergency: Stopping all scans...', 'warning');
                 
                 // Call the scan stop API
                 const response = await fetch('/api/scan/stop', {
@@ -635,19 +635,19 @@
                     const result = await response.json();
                     if (result.success) {
                         console.log('All scans stopped successfully');
-                        showNotification('✅ All scanning operations stopped', 'success');
+                        showNotification('All scanning operations stopped', 'success');
                     } else {
                         console.warn('Stop command sent but result unclear:', result);
-                        showNotification('⚠️ Stop command sent - check scan status', 'warning');
+                        showNotification('Stop command sent - check scan status', 'warning');
                     }
                 } else {
                     const errorText = await response.text();
                     console.error('Cancel API error:', response.status, errorText);
-                    showNotification(`❌ Cancel failed: ${response.status}`, 'error');
+                    showNotification(`Cancel failed: ${response.status}`, 'error');
                 }
             } catch (error) {
                 console.error('Cancel all scans error:', error);
-                showNotification('❌ Cancel error: ' + error.message, 'error');
+                showNotification('Cancel error: ' + error.message, 'error');
             } finally {
                 // Re-enable button
                 const cancelButton = document.getElementById('cancelAllBtn');
@@ -672,7 +672,7 @@
                     homeButton.textContent = 'Homing...';
                 }
                 
-                showNotification('🏠 Starting homing sequence...', 'info');
+                showNotification('Starting homing sequence...', 'info');
                 
                 const response = await fetch('/api/home', {
                     method: 'POST',
@@ -686,7 +686,7 @@
                     
                     if (result.success && result.data && result.data.status === 'in_progress') {
                         console.log('Homing started, will listen for completion via status updates');
-                        showNotification('🔄 Homing in progress...', 'warning');
+                        showNotification('Homing in progress...', 'warning');
                         
                         // Use existing status update system instead of separate polling
                         let homingStartTime = Date.now();
@@ -698,7 +698,7 @@
                             if (isWaitingForHoming) {
                                 isWaitingForHoming = false;
                                 console.log('Homing timeout - no completion detected');
-                                showNotification('⚠️ Homing timeout - check system status', 'error');
+                                showNotification('Homing timeout - check system status', 'error');
                                 if (homeButton) {
                                     homeButton.disabled = false;
                                     homeButton.textContent = '🏠 Home All';
@@ -718,7 +718,7 @@
                                 
                                 const elapsed = Math.round((Date.now() - homingStartTime) / 1000);
                                 console.log(`✅ Homing completed in ${elapsed}s via status update!`);
-                                showNotification(`✅ All axes homed successfully! (${elapsed}s)`, 'success');
+                                showNotification(`All axes homed successfully! (${elapsed}s)`, 'success');
                                 
                                 if (homeButton) {
                                     homeButton.disabled = false;
@@ -735,7 +735,7 @@
                     } else {
                         console.error('Homing failed. Full response:', result);
                         const errorMsg = (result.data && result.data.error) || result.error || 'Unknown error';
-                        showNotification('❌ Homing failed: ' + errorMsg, 'error');
+                        showNotification('Homing failed: ' + errorMsg, 'error');
                         if (homeButton) {
                             homeButton.disabled = false;
                             homeButton.textContent = '🏠 Home All';
@@ -744,7 +744,7 @@
                 } else {
                     const errorText = await response.text();
                     console.error('Home API error:', response.status, errorText);
-                    showNotification(`❌ Home request failed: ${response.status}`, 'error');
+                    showNotification(`Home request failed: ${response.status}`, 'error');
                     if (homeButton) {
                         homeButton.disabled = false;
                         homeButton.textContent = '🏠 Home All';
@@ -752,7 +752,7 @@
                 }
             } catch (error) {
                 console.error('Homing error:', error);
-                showNotification('❌ Homing error: ' + error.message, 'error');
+                showNotification('Homing error: ' + error.message, 'error');
                 const homeButton = document.getElementById('homeAllBtn');
                 if (homeButton) {
                     homeButton.disabled = false;
