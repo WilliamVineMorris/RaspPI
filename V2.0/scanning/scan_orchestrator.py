@@ -1494,16 +1494,33 @@ class CameraManagerAdapter:
             # Use camera controller's resolution-aware ISP capture system
             self.logger.info("CAMERA: Using resolution-aware ISP-managed dual camera capture...")
             
-            # Determine target resolution from adapter configuration
+            # Determine target resolution - RESPECT current camera configuration first
             target_resolution = None
             try:
-                # Try to get resolution from quality settings
-                if hasattr(self, '_quality_settings') and self._quality_settings:
+                # PRIMARY: Check current camera configuration (already set resolution)
+                if hasattr(self.controller, 'cameras'):
+                    for camera_id in [0, 1]:
+                        if camera_id in self.controller.cameras:
+                            camera = self.controller.cameras[camera_id]
+                            if camera and hasattr(camera, 'camera_configuration'):
+                                try:
+                                    config = camera.camera_configuration
+                                    if config and 'main' in config:
+                                        current_size = config['main'].get('size')
+                                        if current_size:
+                                            target_resolution = current_size
+                                            self.logger.info(f"CAMERA: Respecting current camera configuration: {target_resolution}")
+                                            break
+                                except Exception:
+                                    continue
+                
+                # SECONDARY: Try quality settings if no current config found
+                if target_resolution is None and hasattr(self, '_quality_settings') and self._quality_settings:
                     if 'resolution' in self._quality_settings:
                         target_resolution = tuple(self._quality_settings['resolution'])
-                        self.logger.info(f"CAMERA: Detected configured resolution: {target_resolution}")
+                        self.logger.info(f"CAMERA: Using quality settings resolution: {target_resolution}")
                 
-                # Fallback: check capture configs for resolution
+                # TERTIARY: Check capture configs for resolution
                 if target_resolution is None and hasattr(self, '_capture_configs'):
                     if self._capture_configs:
                         for camera_id, config in self._capture_configs.items():
@@ -1517,10 +1534,10 @@ class CameraManagerAdapter:
             except Exception as resolution_error:
                 self.logger.debug(f"Resolution detection failed: {resolution_error}")
             
-            # Default to safe moderate resolution if not detected
+            # LAST RESORT: Default to safe moderate resolution only if nothing else found
             if target_resolution is None:
                 target_resolution = (4608, 2592)  # 12MP - good quality, manageable memory
-                self.logger.info(f"CAMERA: Using default moderate resolution: {target_resolution}")
+                self.logger.info(f"CAMERA: No resolution detected, using default: {target_resolution}")
             
             # Prepare cameras with resolution awareness
             if hasattr(self.controller, 'prepare_cameras_for_capture'):

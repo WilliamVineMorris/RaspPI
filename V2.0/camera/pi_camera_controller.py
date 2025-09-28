@@ -1804,109 +1804,137 @@ class PiCameraController(CameraController):
             # Global buffer cleanup
             gc.collect()
             
-            # Check if we need high-resolution mode by examining current quality settings
+            # Detect current resolution and determine if reconfiguration is needed
             needs_high_res = False
-            target_resolution = (4608, 2592)  # Default moderate resolution
+            target_resolution = None
+            needs_reconfiguration = False
             
-            # Try to determine target resolution from current configuration
+            # Try to detect current camera resolution
             try:
-                # Check if we have access to quality settings to determine target resolution
-                if hasattr(self, '_current_capture_resolution'):
-                    target_resolution = self._current_capture_resolution
-                    needs_high_res = target_resolution[0] >= 9000  # 64MP threshold
-                else:
-                    # Default to checking camera properties for max capabilities
+                for camera_id in self.cameras:
+                    camera = self.cameras[camera_id]
+                    if camera and hasattr(camera, 'camera_configuration'):
+                        try:
+                            config = camera.camera_configuration
+                            if config and 'main' in config:
+                                current_size = config['main'].get('size')
+                                if current_size:
+                                    target_resolution = current_size
+                                    logger.info(f"📷 Camera {camera_id}: Current resolution detected: {target_resolution}")
+                                    break
+                        except Exception:
+                            continue
+                
+                # If no current resolution detected, use safe default
+                if target_resolution is None:
+                    target_resolution = (4608, 2592)  # Safe 12MP default
+                    needs_reconfiguration = True  # Will need to configure cameras
+                    logger.info(f"📷 No current resolution detected, will configure to default: {target_resolution}")
+                
+                # Determine if this is high-resolution mode
+                needs_high_res = target_resolution[0] >= 8000  # 8000+ pixels width = high-res
+                
+            except Exception as resolution_check_error:
+                logger.debug(f"Resolution detection failed: {resolution_check_error}")
+                target_resolution = (4608, 2592)  # Safe fallback
+                needs_reconfiguration = True
+            
+            logger.info(f"📷 Camera preparation: Target resolution {target_resolution}, High-res mode: {needs_high_res}, Reconfiguration needed: {needs_reconfiguration}")
+            
+            if needs_reconfiguration:
+                if needs_high_res:
+                    # HIGH-RESOLUTION MODE: Sequential single-camera preparation
+                    logger.info("📷 HIGH-RES MODE: Sequential reconfiguration to prevent memory allocation failures")
+                    
                     for camera_id in self.cameras:
                         camera = self.cameras[camera_id]
                         if camera:
-                            props = camera.camera_properties
-                            pixel_array_size = props.get('PixelArraySize', (0, 0))
-                            if pixel_array_size[0] >= 9000:
-                                # Assume moderate resolution to avoid memory issues
-                                target_resolution = (4608, 2592)  # 12MP - good quality, manageable memory
-                                break
-            except Exception as resolution_check_error:
-                logger.debug(f"Resolution check failed, using safe default: {resolution_check_error}")
-            
-            logger.info(f"📷 Camera preparation: Target resolution {target_resolution}, High-res mode: {needs_high_res}")
-            
-            if needs_high_res:
-                # HIGH-RESOLUTION MODE: Sequential single-camera preparation
-                logger.info("📷 HIGH-RES MODE: Sequential single-camera preparation to prevent memory allocation failures")
-                
-                for camera_id in self.cameras:
-                    camera = self.cameras[camera_id]
-                    if camera:
-                        try:
-                            logger.info(f"📷 Camera {camera_id}: Configuring for high-resolution sequential capture")
-                            
-                            # Stop camera completely before reconfiguration
-                            if camera.started:
-                                camera.stop()
-                            
-                            # Force memory cleanup between cameras
-                            gc.collect()
-                            await asyncio.sleep(0.3)  # Extended delay for memory recovery
-                            
-                            # Create high-resolution single-stream configuration
-                            high_res_config = camera.create_still_configuration(
-                                main={"size": target_resolution, "format": "RGB888"},
-                                raw=None,  # No RAW stream
-                                buffer_count=1  # Minimal buffer allocation
-                            )
-                            
-                            camera.configure(high_res_config)
-                            
-                            # Optimize controls for high-resolution capture
-                            if hasattr(camera, 'set_controls'):
-                                try:
-                                    camera.set_controls({
-                                        "NoiseReductionMode": 0,
-                                        "Sharpness": 0.0,
-                                    })
-                                except Exception as control_error:
-                                    logger.debug(f"Camera {camera_id} control optimization failed: {control_error}")
-                            
-                            # Start camera and verify
-                            camera.start()
-                            await asyncio.sleep(0.2)  # Let camera stabilize
-                            
-                            logger.info(f"📷 Camera {camera_id}: High-resolution configuration successful")
-                            
-                        except Exception as config_error:
-                            logger.error(f"Camera {camera_id} high-resolution configuration failed: {config_error}")
-                            return False  # Fail fast for high-res mode
-                        
-                        # Memory cleanup after each camera configuration
-                        gc.collect()
-                        await asyncio.sleep(0.2)
-                        
-            else:
-                # STANDARD MODE: Simultaneous preparation for lower resolutions
-                logger.info("📷 STANDARD MODE: Simultaneous camera preparation for moderate resolution")
-                
-                for camera_id in self.cameras:
-                    camera = self.cameras[camera_id]
-                    if camera:
-                        try:
-                            # For lower resolutions, standard configuration works fine
-                            if camera.started:
-                                camera.stop()
+                            try:
+                                logger.info(f"📷 Camera {camera_id}: Reconfiguring for high-resolution sequential capture")
                                 
-                            # Use moderate resolution configuration that works reliably
-                            standard_config = camera.create_still_configuration(
-                                main={"size": target_resolution, "format": "RGB888"},
-                                raw=None,
-                                buffer_count=1
-                            )
+                                # Stop camera completely before reconfiguration
+                                if camera.started:
+                                    camera.stop()
+                                
+                                # Force memory cleanup between cameras
+                                gc.collect()
+                                await asyncio.sleep(0.3)  # Extended delay for memory recovery
+                                
+                                # Create high-resolution single-stream configuration
+                                high_res_config = camera.create_still_configuration(
+                                    main={"size": target_resolution, "format": "RGB888"},
+                                    raw=None,  # No RAW stream
+                                    buffer_count=1  # Minimal buffer allocation
+                                )
+                                
+                                camera.configure(high_res_config)
+                                
+                                # Optimize controls for high-resolution capture
+                                if hasattr(camera, 'set_controls'):
+                                    try:
+                                        camera.set_controls({
+                                            "NoiseReductionMode": 0,
+                                            "Sharpness": 0.0,
+                                        })
+                                    except Exception as control_error:
+                                        logger.debug(f"Camera {camera_id} control optimization failed: {control_error}")
+                                
+                                # Start camera and verify
+                                camera.start()
+                                await asyncio.sleep(0.2)  # Let camera stabilize
+                                
+                                logger.info(f"📷 Camera {camera_id}: High-resolution reconfiguration successful")
+                                
+                            except Exception as config_error:
+                                logger.error(f"Camera {camera_id} high-resolution reconfiguration failed: {config_error}")
+                                return False  # Fail fast for high-res mode
                             
-                            camera.configure(standard_config)
-                            camera.start()
+                            # Memory cleanup after each camera configuration
+                            gc.collect()
+                            await asyncio.sleep(0.2)
                             
-                            logger.info(f"📷 Camera {camera_id}: Standard resolution configuration applied")
-                            
-                        except Exception as config_error:
-                            logger.warning(f"Camera {camera_id} standard configuration failed: {config_error}")
+                else:
+                    # STANDARD MODE: Simultaneous preparation for lower resolutions
+                    logger.info("📷 STANDARD MODE: Reconfiguring for moderate resolution")
+                    
+                    for camera_id in self.cameras:
+                        camera = self.cameras[camera_id]
+                        if camera:
+                            try:
+                                # For lower resolutions, standard configuration works fine
+                                if camera.started:
+                                    camera.stop()
+                                    
+                                # Use moderate resolution configuration that works reliably
+                                standard_config = camera.create_still_configuration(
+                                    main={"size": target_resolution, "format": "RGB888"},
+                                    raw=None,
+                                    buffer_count=1
+                                )
+                                
+                                camera.configure(standard_config)
+                                camera.start()
+                                
+                                logger.info(f"📷 Camera {camera_id}: Standard resolution reconfiguration applied")
+                                
+                            except Exception as config_error:
+                                logger.warning(f"Camera {camera_id} standard reconfiguration failed: {config_error}")
+            else:
+                # NO RECONFIGURATION NEEDED: Cameras already at correct resolution
+                logger.info(f"📷 OPTIMAL: Cameras already configured for {target_resolution} - no reconfiguration needed")
+                
+                # Just verify cameras are ready without changing configuration
+                for camera_id in self.cameras:
+                    camera = self.cameras[camera_id]
+                    if camera:
+                        if not camera.started:
+                            try:
+                                camera.start()
+                                logger.info(f"📷 Camera {camera_id}: Started (keeping existing {target_resolution} configuration)")
+                            except Exception as start_error:
+                                logger.warning(f"Camera {camera_id} start failed: {start_error}")
+                        else:
+                            logger.info(f"📷 Camera {camera_id}: Already running with {target_resolution} configuration")
             
             # Final verification
             ready_count = 0
