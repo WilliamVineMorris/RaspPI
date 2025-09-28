@@ -2018,8 +2018,27 @@
             <h3>Homing Confirmation</h3>
         </div>
         <div class="modal-body">
-            <p>The system needs to perform homing before starting the scan.</p>
-            <p>This will move all axes to their home positions to ensure accurate positioning.</p>
+            <div style="background: #fef3cd; border: 1px solid #fecba1; border-radius: 6px; padding: 1rem; margin-bottom: 1rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                    <span style="font-size: 1.5rem;">⚠️</span>
+                    <strong style="color: #b45309;">System Homing Required</strong>
+                </div>
+                <p style="margin: 0; color: #92400e; font-size: 0.9rem;">The system is currently in an alarm state and requires homing to function properly.</p>
+            </div>
+            
+            <p><strong>Homing will:</strong></p>
+            <ul style="margin: 1rem 0; padding-left: 1.5rem;">
+                <li>Clear the alarm state</li>
+                <li>Move all axes to their home positions</li>
+                <li>Establish accurate coordinate reference</li>
+                <li>Enable precise scan positioning</li>
+            </ul>
+            
+            <p style="background: #f0f4f8; padding: 1rem; border-radius: 6px; margin: 1rem 0;">
+                <strong style="color: #1e40af;">Recommendation:</strong> 
+                Always home the system when in alarm state for accurate scanning results.
+            </p>
+            
             <p><strong>Do you want to proceed with homing?</strong></p>
         </div>
         <div class="modal-footer">
@@ -2038,11 +2057,21 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.5);
-    z-index: 1000;
+    background-color: rgba(0, 0, 0, 0.7);
+    z-index: 9999;
     display: flex;
     align-items: center;
     justify-content: center;
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
 }
 
 .modal-content {
@@ -2167,14 +2196,35 @@ async function startScanNow() {
         button.innerHTML = '<span class="btn-icon">⏳</span>Preparing...';
         button.disabled = true;
         
-        // STEP 1: Show homing confirmation modal FIRST
+        // STEP 1: Check system status and show homing confirmation modal
+        console.log('🏠 Checking system status before scan...');
+        try {
+            const statusResponse = await fetch('/api/status');
+            const statusResult = await statusResponse.json();
+            
+            if (statusResult.success && statusResult.data) {
+                const systemStatus = statusResult.data.status;
+                const isHomed = statusResult.data.homed;
+                console.log('🏠 System status:', systemStatus, 'Homed:', isHomed);
+                
+                // Update modal content based on system status
+                updateHomingModalContent(systemStatus, isHomed);
+            }
+        } catch (error) {
+            console.warn('🏠 Could not fetch system status:', error);
+        }
+        
+        console.log('🏠 Showing homing confirmation modal...');
         showHomingConfirmationModal();
         
         // Wait for homing confirmation
+        console.log('🏠 Waiting for user homing decision...');
         const homingDecision = await waitForHomingConfirmation();
+        console.log('🏠 User homing decision received:', homingDecision);
         
         if (homingDecision === null) {
             // User cancelled or closed modal
+            console.log('🏠 Scan cancelled by user');
             button.innerHTML = originalText;
             button.disabled = false;
             return;
@@ -2230,8 +2280,8 @@ function waitForHomingConfirmation() {
         // Set timeout to auto-resolve after 30 seconds
         setTimeout(() => {
             if (window.resolveHomingConfirmation === resolve) {
-                console.log('Homing confirmation timeout - defaulting to proceed');
-                resolve(true); // Default to proceed for safety
+                console.log('Homing confirmation timeout - defaulting to proceed with homing');
+                resolve(true); // Default to proceed with homing for safety
                 window.resolveHomingConfirmation = null;
             }
         }, 30000);
@@ -2565,19 +2615,47 @@ function showHomingConfirmationDialog() {
 
 // Alias for the new scan flow
 function showHomingConfirmationModal() {
-    showHomingConfirmationDialog();
+    console.log('🏠 Attempting to show homing confirmation modal...');
+    const modal = document.getElementById('homingConfirmationModal');
+    if (modal) {
+        console.log('🏠 Modal element found, showing modal...');
+        modal.style.display = 'flex';
+        
+        // Add keyboard support for better accessibility
+        modal.focus();
+        
+        // Add escape key handler
+        const escapeHandler = (e) => {
+            if (e.key === 'Escape') {
+                console.log('🏠 User pressed escape, cancelling scan');
+                cancelScan();
+                document.removeEventListener('keydown', escapeHandler);
+            }
+        };
+        document.addEventListener('keydown', escapeHandler);
+        
+        console.log('🏠 Modal should now be visible');
+    } else {
+        console.error('🏠 ERROR: Homing confirmation modal not found in DOM!');
+    }
 }
 
 function hideHomingConfirmationDialog(confirmed) {
+    console.log('🏠 User clicked homing confirmation button:', confirmed ? 'YES (Home System)' : 'NO (Skip Homing)');
+    
     const modal = document.getElementById('homingConfirmationModal');
     if (modal) {
         modal.style.display = 'none';
+        console.log('🏠 Modal hidden');
     }
     
     // Resolve the promise with the user's decision
     if (window.resolveHomingConfirmation) {
+        console.log('🏠 Resolving homing confirmation promise with:', confirmed);
         window.resolveHomingConfirmation(confirmed);
         window.resolveHomingConfirmation = null;
+    } else {
+        console.warn('🏠 WARNING: No homing confirmation promise to resolve!');
     }
 }
 
@@ -2597,6 +2675,61 @@ async function confirmHoming(shouldHome) {
     } catch (error) {
         console.error('Error sending homing confirmation:', error);
     }
+}
+
+function updateHomingModalContent(systemStatus, isHomed) {
+    const modalBody = document.querySelector('#homingConfirmationModal .modal-body');
+    if (!modalBody) return;
+    
+    let alertClass = 'background: #fef3cd; border: 1px solid #fecba1; color: #92400e;';
+    let alertIcon = '⚠️';
+    let alertTitle = 'System Homing Required';
+    let alertMessage = 'The system requires homing to function properly.';
+    
+    // Customize message based on actual system status
+    if (systemStatus === 'alarm' || systemStatus === 'Alarm') {
+        alertClass = 'background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b;';
+        alertIcon = '🚨';
+        alertTitle = 'ALARM STATE - Homing Required';
+        alertMessage = 'The system is in an alarm state and MUST be homed before scanning.';
+    } else if (!isHomed) {
+        alertClass = 'background: #fef3cd; border: 1px solid #fecba1; color: #92400e;';
+        alertIcon = '⚠️';
+        alertTitle = 'System Not Homed';
+        alertMessage = 'The system has not been homed and should be homed for accurate positioning.';
+    } else {
+        alertClass = 'background: #d1fae5; border: 1px solid #a7f3d0; color: #065f46;';
+        alertIcon = '✅';
+        alertTitle = 'System Status OK';
+        alertMessage = 'The system appears to be homed, but you can choose to re-home for extra precision.';
+    }
+    
+    modalBody.innerHTML = `
+        <div style="${alertClass} border-radius: 6px; padding: 1rem; margin-bottom: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <span style="font-size: 1.5rem;">${alertIcon}</span>
+                <strong>${alertTitle}</strong>
+            </div>
+            <p style="margin: 0; font-size: 0.9rem;">${alertMessage}</p>
+        </div>
+        
+        <p><strong>Homing will:</strong></p>
+        <ul style="margin: 1rem 0; padding-left: 1.5rem;">
+            <li>Clear any alarm states</li>
+            <li>Move all axes to their home positions</li>
+            <li>Establish accurate coordinate reference</li>
+            <li>Enable precise scan positioning</li>
+        </ul>
+        
+        <p style="background: #f0f4f8; padding: 1rem; border-radius: 6px; margin: 1rem 0;">
+            <strong style="color: #1e40af;">Recommendation:</strong> 
+            ${systemStatus === 'alarm' || systemStatus === 'Alarm' ? 
+                'ALWAYS home the system when in alarm state.' : 
+                'Home the system for best accuracy, especially after power cycles or errors.'}
+        </p>
+        
+        <p><strong>Do you want to proceed with homing?</strong></p>
+    `;
 }
 
 // Cancel scan function
