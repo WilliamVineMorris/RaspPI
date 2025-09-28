@@ -2000,14 +2000,23 @@ class PiCameraController(CameraController):
                     try:
                         logger.info(f"📷 High-res sequential capture starting for {camera_key} at {target_resolution}")
                         
-                        # Get camera - it should be valid since we don't close cameras during sequential capture
+                        # Get camera and reinitialize if needed (after previous camera was closed)
                         camera = self.cameras[camera_id]
                         
-                        # Verify camera is still valid (it should be since we're not closing between captures)
-                        if not camera:
-                            logger.error(f"📷 {camera_key}: Camera is None, cannot continue")
-                            results[camera_key] = None
-                            continue
+                        # If camera was closed by previous capture, reinitialize it
+                        if camera is None:
+                            logger.info(f"📷 {camera_key}: Camera needs reinitialization after V4L2 cleanup")
+                            try:
+                                # Reinitialize camera after previous closure
+                                from picamera2 import Picamera2
+                                new_camera = Picamera2(camera_num=camera_id)
+                                self.cameras[camera_id] = new_camera
+                                camera = new_camera
+                                logger.info(f"📷 {camera_key}: Camera reinitialized successfully")
+                            except Exception as reinit_error:
+                                logger.error(f"📷 {camera_key}: Camera reinitialization failed: {reinit_error}")
+                                results[camera_key] = None
+                                continue
                         if camera:
                             # Stop camera and clean memory before reconfiguration
                             if camera.started:
@@ -2106,23 +2115,33 @@ class PiCameraController(CameraController):
                         results[camera_key] = None
                         
                     finally:
-                        # CRITICAL: Always stop camera after each capture to free ISP buffers
-                        # Note: We don't close() cameras as that requires complex reinitialization
+                        # CRITICAL: Complete camera cleanup for V4L2 buffer release
                         if camera:
-                            logger.info(f"📷 {camera_key}: Stopping camera to free ISP resources...")
+                            logger.info(f"📷 {camera_key}: Complete camera cleanup for V4L2 buffer release...")
                             
-                            # Step 1: Force stop camera to release ISP buffers
+                            # Step 1: Stop camera
                             try:
                                 if hasattr(camera, 'started') and camera.started:
                                     camera.stop()
-                                    logger.info(f"📷 {camera_key}: Camera stopped to free ISP buffers")
+                                    logger.info(f"📷 {camera_key}: Camera stopped")
                             except Exception as stop_error:
                                 logger.warning(f"📷 {camera_key}: Camera stop warning: {stop_error}")
                             
-                            # Step 2: Extended delay for ISP resource cleanup
-                            await asyncio.sleep(0.5)
+                            # Step 2: Close camera to release V4L2 buffers (necessary for buffer release)
+                            try:
+                                camera.close()
+                                logger.info(f"📷 {camera_key}: Camera closed - V4L2 buffers released")
+                                
+                                # Mark that this camera needs reinitialization
+                                self.cameras[camera_id] = None
+                                
+                            except Exception as close_error:
+                                logger.warning(f"📷 {camera_key}: Camera close warning: {close_error}")
                             
-                            logger.info(f"📷 {camera_key}: ISP resources released")
+                            # Step 3: Extended delay for complete V4L2 cleanup
+                            await asyncio.sleep(0.7)
+                            
+                            logger.info(f"📷 {camera_key}: V4L2 resources fully released")
                         
                         # Aggressive memory cleanup between cameras
                         for cleanup_round in range(3):
