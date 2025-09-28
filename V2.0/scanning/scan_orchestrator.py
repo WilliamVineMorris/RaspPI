@@ -739,6 +739,9 @@ class CameraManagerAdapter:
             result = await self.controller.initialize()
             
             if result:
+                # Load camera resolution from configuration
+                await self._load_camera_configuration()
+                
                 # Setup dual-mode configurations using Picamera2 native functions
                 await self._setup_dual_mode_configurations()
                 self.logger.info("CAMERA: Dual-mode system initialized successfully")
@@ -750,6 +753,38 @@ class CameraManagerAdapter:
         except Exception as e:
             self.logger.error(f"CAMERA: Dual-mode initialization failed: {e}")
             return False
+            
+    async def _load_camera_configuration(self):
+        """Load camera configuration from YAML file"""
+        try:
+            # Load resolution from camera configuration
+            camera_1_config = self.config_manager.get('cameras.camera_1', {})
+            if camera_1_config and 'resolution' in camera_1_config:
+                capture_resolution = camera_1_config['resolution'].get('capture', [3280, 2464])
+                self.logger.info(f"CAMERA: Loaded capture resolution from config: {capture_resolution}")
+            else:
+                capture_resolution = [3280, 2464]  # Default from YAML
+                self.logger.info(f"CAMERA: Using default capture resolution: {capture_resolution}")
+            
+            # Initialize quality settings with resolution from config
+            self._quality_settings = {
+                'jpeg_quality': 95,  # Default high quality
+                'color_format': 'BGR',
+                'compression_level': 1,
+                'resolution': capture_resolution
+            }
+            
+            self.logger.info(f"CAMERA: Configuration loaded - resolution: {capture_resolution}")
+            
+        except Exception as e:
+            self.logger.error(f"CAMERA: Failed to load camera configuration: {e}")
+            # Set safe defaults
+            self._quality_settings = {
+                'jpeg_quality': 95,
+                'color_format': 'BGR', 
+                'compression_level': 1,
+                'resolution': [3280, 2464]
+            }
     
     async def _setup_dual_mode_configurations(self):
         """Setup optimized camera configurations for streaming and capture"""
@@ -767,12 +802,14 @@ class CameraManagerAdapter:
                             display="lores"  # Use low-res for display efficiency
                         )
                         
-                        # OPTIMIZED SINGLE-STREAM: Minimal buffer allocation for still capture
+                        # OPTIMIZED SINGLE-STREAM: Use configured resolution from YAML
+                        config_resolution = tuple(self._quality_settings['resolution']) if hasattr(self, '_quality_settings') else (3280, 2464)
                         capture_config = camera.create_still_configuration(
-                            main={"size": (9152, 6944), "format": "RGB888"},  # Single stream for 64MP capture
+                            main={"size": config_resolution, "format": "RGB888"},  # Use configured resolution
                             raw=None,  # Explicitly disable RAW to prevent ISP buffer queue errors
                             buffer_count=1  # Minimal buffer allocation for still photos
                         )
+                        self.logger.info(f"CAMERA: Camera {camera_id} capture config set to {config_resolution}")
                         
                         # Store configurations per camera
                         if not hasattr(self, '_stream_configs'):
@@ -1903,11 +1940,19 @@ class CameraManagerAdapter:
             
             # Store settings for use during capture (Pi cameras don't support runtime quality changes)
             # Quality will be applied during actual capture operations
-            self._quality_settings = {
+            if not hasattr(self, '_quality_settings'):
+                self._quality_settings = {}
+            
+            self._quality_settings.update({
                 'jpeg_quality': jpeg_quality,
                 'color_format': color_format,
                 'compression_level': compression_level
-            }
+            })
+            
+            # Include resolution if specified in quality settings
+            if 'resolution' in quality_settings:
+                self._quality_settings['resolution'] = list(quality_settings['resolution'])
+                self.logger.info(f"CAMERA: Updated resolution in quality settings: {self._quality_settings['resolution']}")
             
             # Also store default quality for CameraSettings objects
             self._default_jpeg_quality = jpeg_quality
