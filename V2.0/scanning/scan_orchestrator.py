@@ -2036,6 +2036,71 @@ class ScanOrchestrator:
             self.logger.error(f"Failed to apply scan profiles: {e}")
             return {}
     
+    async def apply_custom_scan_settings(self, quality_settings: Optional[Dict[str, Any]] = None, speed_settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Apply custom quality and speed settings directly to scan
+        
+        Args:
+            quality_settings: Custom quality/camera settings to apply
+            speed_settings: Custom speed/motion settings to apply
+            
+        Returns:
+            Dictionary with applied settings
+        """
+        try:
+            applied_settings = {'camera_settings': {}, 'motion_settings': {}}
+            
+            # Create temporary custom profiles and apply them through the existing system
+            quality_profile_name = 'custom_active'
+            speed_profile_name = 'custom_active'
+            
+            # If custom quality settings provided, create/update temporary quality profile
+            if quality_settings:
+                self.logger.info(f"🎯 Creating temporary custom quality profile with settings: {quality_settings}")
+                try:
+                    # Create a temporary custom quality profile
+                    custom_quality_profile = self.profile_manager.create_custom_quality_profile(
+                        base_profile='medium',  # Use medium as base
+                        modifications=quality_settings,
+                        custom_name='temp_custom_quality'
+                    )
+                    quality_profile_name = 'temp_custom_quality'
+                    applied_settings['camera_settings'] = quality_settings.copy()
+                except Exception as e:
+                    self.logger.warning(f"Failed to create custom quality profile: {e}")
+                    quality_profile_name = 'medium'  # Fallback
+            
+            # If custom speed settings provided, create/update temporary speed profile
+            if speed_settings:
+                self.logger.info(f"🎯 Creating temporary custom speed profile with settings: {speed_settings}")
+                try:
+                    # Create a temporary custom speed profile
+                    custom_speed_profile = self.profile_manager.create_custom_speed_profile(
+                        base_profile='medium',  # Use medium as base
+                        modifications=speed_settings,
+                        custom_name='temp_custom_speed'
+                    )
+                    speed_profile_name = 'temp_custom_speed'
+                    applied_settings['motion_settings'] = speed_settings.copy()
+                except Exception as e:
+                    self.logger.warning(f"Failed to create custom speed profile: {e}")
+                    speed_profile_name = 'medium'  # Fallback
+            
+            # Now apply the profiles through the existing system
+            profile_settings = await self.apply_scan_profiles(quality_profile_name, speed_profile_name)
+            
+            # Merge the profile settings with our applied settings
+            if 'camera_settings' in profile_settings:
+                applied_settings['camera_settings'].update(profile_settings['camera_settings'])
+            if 'motion_settings' in profile_settings:
+                applied_settings['motion_settings'].update(profile_settings['motion_settings'])
+            
+            self.logger.info(f"✅ Applied custom scan settings - Quality: {quality_settings is not None}, Speed: {speed_settings is not None}")
+            return applied_settings
+            
+        except Exception as e:
+            self.logger.error(f"Failed to apply custom scan settings: {e}")
+            return {'camera_settings': {}, 'motion_settings': {}}
+    
     async def is_system_busy(self) -> bool:
         """Check if system is busy with active operations that should block new scans"""
         # Check for active scan

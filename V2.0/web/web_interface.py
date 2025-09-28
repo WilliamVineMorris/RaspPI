@@ -234,7 +234,8 @@ class CommandValidator:
         if not (0.0 <= z_height <= 360.0):
             raise ValueError(f"Z rotation angle {z_height}° outside valid range [0.0, 360.0]°")
         
-        return {
+        # Create return dictionary with preserved custom settings
+        result = {
             'pattern_type': 'grid',
             'x_range': x_range,
             'y_range': y_range,
@@ -244,6 +245,14 @@ class CommandValidator:
             'homing_confirmed': data.get('homing_confirmed', False),  # Preserve homing decision
             'validated': True
         }
+        
+        # Preserve custom settings if present
+        if 'quality_settings' in data:
+            result['quality_settings'] = data['quality_settings']
+        if 'speed_settings' in data:
+            result['speed_settings'] = data['speed_settings']
+            
+        return result
     
     @classmethod
     def _validate_cylindrical_pattern(cls, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -320,7 +329,8 @@ class CommandValidator:
             if not (-90.0 <= angle <= 90.0):
                 raise ValueError(f"C angle {angle}° outside valid range [-90, 90]")
         
-        return {
+        # Create return dictionary with preserved custom settings
+        result = {
             'pattern_type': 'cylindrical',
             'radius': radius,
             'y_range': y_range,
@@ -334,6 +344,14 @@ class CommandValidator:
             'homing_confirmed': data.get('homing_confirmed', False),  # Preserve homing decision
             'validated': True
         }
+        
+        # Preserve custom settings if present
+        if 'quality_settings' in data:
+            result['quality_settings'] = data['quality_settings']
+        if 'speed_settings' in data:
+            result['speed_settings'] = data['speed_settings']
+            
+        return result
 
 
 class ScannerWebInterface:
@@ -2750,11 +2768,26 @@ class ScannerWebInterface:
                         quality_profile = pattern_data.get('resolution', 'medium')  # Use 'resolution' field as quality profile
                         speed_profile = pattern_data.get('speed', 'medium')
                         
+                        # Check for custom settings override
+                        custom_quality_settings = pattern_data.get('quality_settings')
+                        custom_speed_settings = pattern_data.get('speed_settings')
+                        
                         try:
-                            profile_settings = await self.orchestrator.apply_scan_profiles(quality_profile, speed_profile)
-                            self.logger.info(f"🎯 Applied profiles - Quality: {quality_profile}, Speed: {speed_profile}")
+                            if custom_quality_settings or custom_speed_settings:
+                                # Apply custom settings directly
+                                profile_settings = await self.orchestrator.apply_custom_scan_settings(
+                                    quality_settings=custom_quality_settings,
+                                    speed_settings=custom_speed_settings
+                                )
+                                self.logger.info(f"🎯 Applied custom settings - Quality: {custom_quality_settings is not None}, Speed: {custom_speed_settings is not None}")
+                                self.logger.debug(f"🔧 Custom quality settings: {custom_quality_settings}")
+                                self.logger.debug(f"🔧 Custom speed settings: {custom_speed_settings}")
+                            else:
+                                # Apply standard profiles
+                                profile_settings = await self.orchestrator.apply_scan_profiles(quality_profile, speed_profile)
+                                self.logger.info(f"🎯 Applied profiles - Quality: {quality_profile}, Speed: {speed_profile}")
                         except Exception as e:
-                            self.logger.warning(f"Failed to apply scan profiles, using defaults: {e}")
+                            self.logger.warning(f"Failed to apply scan profiles/settings, using defaults: {e}")
                             profile_settings = {}
                         
                         # Prepare scan parameters with all metadata including homing decision

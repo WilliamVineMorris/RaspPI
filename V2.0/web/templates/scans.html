@@ -2408,6 +2408,32 @@ function collectScanParameters() {
         
         console.log('📊 Collecting scan parameters:', { scanName, resolution, speed, cameraCount });
         
+        // NEW: Collect custom settings if active
+        let qualitySettings = null;
+        let speedSettings = null;
+        
+        // Check if custom quality settings are active
+        if (resolution === 'custom_active') {
+            qualitySettings = collectCustomQualitySettings();
+            console.log('🎯 Using custom quality settings:', qualitySettings);
+        }
+        
+        // Check if custom speed settings are active
+        if (speed === 'custom_active') {
+            speedSettings = collectCustomSpeedSettings();
+            console.log('🎯 Using custom speed settings:', speedSettings);
+        }
+        
+        // Log final settings configuration
+        if (qualitySettings || speedSettings) {
+            console.log('🎯 Custom settings detected:', { 
+                quality_active: !!qualitySettings, 
+                speed_active: !!speedSettings,
+                quality_settings: qualitySettings,
+                speed_settings: speedSettings
+            });
+        }
+        
         let scanPattern;
         
         if (scanType === 'cylindrical') {
@@ -2445,7 +2471,7 @@ function collectScanParameters() {
             );
             
             // Return flattened structure expected by backend
-            return {
+            const scanData = {
                 pattern_type: 'cylindrical',
                 radius: parseFloat(radius),
                 y_range: [parseFloat(yMin), parseFloat(yMax)],
@@ -2458,6 +2484,16 @@ function collectScanParameters() {
                 speed: speed,
                 camera_count: parseInt(cameraCount)
             };
+            
+            // Add custom settings if active
+            if (qualitySettings) {
+                scanData.quality_settings = qualitySettings;
+            }
+            if (speedSettings) {
+                scanData.speed_settings = speedSettings;
+            }
+            
+            return scanData;
         } else {
             // Get grid parameters
             const xMin = document.getElementById('boundaryXMin')?.value || '-50';
@@ -2468,7 +2504,7 @@ function collectScanParameters() {
             const zHeight = document.getElementById('gridZHeight')?.value || '25';
             
             // Return flattened structure expected by backend
-            return {
+            const scanData = {
                 pattern_type: 'grid',
                 x_min: parseFloat(xMin),
                 x_max: parseFloat(xMax),
@@ -2481,6 +2517,16 @@ function collectScanParameters() {
                 speed: speed,
                 camera_count: parseInt(cameraCount)
             };
+            
+            // Add custom settings if active
+            if (qualitySettings) {
+                scanData.quality_settings = qualitySettings;
+            }
+            if (speedSettings) {
+                scanData.speed_settings = speedSettings;
+            }
+            
+            return scanData;
         }
         
     } catch (error) {
