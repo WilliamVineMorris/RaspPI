@@ -859,6 +859,8 @@
         height: 100%;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         transition: all 0.3s ease;
+        margin: 0;
+        width: 100%;
     }
 
     .settings-column:hover {
@@ -1207,9 +1209,11 @@
         display: flex !important;
         flex-wrap: wrap;
         width: 100%;
-        max-width: calc(100% - 3rem);
-        margin: 0 auto;
-        --bs-gutter-x: 1.5rem;
+        max-width: 100%;
+        margin: 0;
+        --bs-gutter-x: 2rem;
+        justify-content: center;
+        align-items: flex-start;
     }
     
     /* Ensure container uses full width */
@@ -1218,11 +1222,12 @@
     }
     
     #profileCustomizationPanel .col-md-6 {
-        flex: 1 !important;
-        max-width: none !important;
-        width: auto !important;
+        flex: 1 1 calc(50% - 1rem) !important;
+        max-width: calc(50% - 1rem) !important;
+        width: calc(50% - 1rem) !important;
         min-width: 0;
-        padding: 0 0.75rem;
+        padding: 0;
+        margin: 0 0.5rem;
     }
     
     /* Ensure full width utilization */
@@ -1257,8 +1262,8 @@
     
     /* Align profile actions with column content */
     .profile-actions-container {
-        max-width: calc(100% - 3rem);
-        margin: 0 auto 1.5rem auto;
+        width: calc(100% - 2rem);
+        margin: 0 1rem 1.5rem 1rem;
         background: white;
         border-radius: 12px;
         padding: 1.5rem 2rem;
