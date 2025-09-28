@@ -1242,10 +1242,31 @@
         width: 100vw !important;
         margin-left: calc(-50vw + 50%) !important;
         margin-right: calc(-50vw + 50%) !important;
-        padding: 1rem 2rem;
+        padding: 1.5rem 2rem;
         background: #f8fafc;
         border-top: 1px solid #e2e8f0;
         border-bottom: 1px solid #e2e8f0;
+    }
+    
+    /* Add spacing between columns and actions */
+    #profileCustomizationPanel .row {
+        margin-bottom: 2rem;
+    }
+    
+    /* Align profile actions with column content */
+    .profile-actions-container {
+        margin: 0 2rem 1.5rem 2rem;
+        background: white;
+        border-radius: 12px;
+        padding: 1.5rem 2rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        border: 1px solid #e2e8f0;
+    }
+    
+    .profile-actions-aligned {
+        display: flex;
+        justify-content: center;
+        align-items: center;
     }
     
     /* Remove Bootstrap container constraints */
@@ -1719,9 +1740,9 @@
                         </div>
                     </div>
                     
-                        <!-- Profile Actions (Full Width) -->
-                        <div class="col-12 mt-4">
-                            <div class="profile-actions">
+                        <!-- Profile Actions (Aligned with Columns) -->
+                        <div class="profile-actions-container">
+                            <div class="profile-actions-aligned">
                                 <div class="d-flex justify-content-center gap-3 flex-wrap">
                                     <button type="button" class="btn btn-primary" onclick="applyCustomSettings()">
                                         <i class="bi bi-check-circle"></i> Apply Settings
