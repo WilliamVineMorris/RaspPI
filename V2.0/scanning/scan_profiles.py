@@ -53,13 +53,13 @@ class SpeedProfile:
 class ScanProfileManager:
     """Manages scan profiles with persistence and customization"""
     
-    # Default quality profiles
+    # Default quality profiles optimized for Arducam 64MP Camera
     DEFAULT_QUALITY_PROFILES = {
         'low': QualityProfile(
             name='low',
             description='Draft Quality (Fast)',
-            resolution=[1920, 1080],
-            jpeg_quality=75,
+            resolution=[1280, 720],  # 720p @ 120fps capability
+            jpeg_quality=70,
             capture_timeout=1.0,
             iso_preference='auto',
             exposure_mode='auto',
@@ -70,7 +70,7 @@ class ScanProfileManager:
         'medium': QualityProfile(
             name='medium',
             description='Standard Quality',
-            resolution=[3840, 2160],
+            resolution=[2312, 1736],  # 30fps capability, good balance
             jpeg_quality=85,
             capture_timeout=2.0,
             iso_preference='low_noise',
@@ -82,7 +82,7 @@ class ScanProfileManager:
         'high': QualityProfile(
             name='high',
             description='High Quality (Detailed)',
-            resolution=[4608, 2592],
+            resolution=[4624, 3472],  # 10fps capability, very high detail
             jpeg_quality=95,
             capture_timeout=3.0,
             iso_preference='low_noise',
@@ -94,9 +94,9 @@ class ScanProfileManager:
         'ultra': QualityProfile(
             name='ultra',
             description='Maximum Quality (Slow)',
-            resolution=[4608, 2592],
+            resolution=[9152, 6944],  # Full 64MP @ 2.7fps
             jpeg_quality=98,
-            capture_timeout=5.0,
+            capture_timeout=8.0,  # Longer timeout for huge images
             iso_preference='lowest_iso',
             exposure_mode='calibrated',
             exposure_time=32000,

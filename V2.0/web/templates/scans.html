@@ -1601,10 +1601,12 @@
                                 <div class="parameter-group mb-3">
                                     <label class="form-label">Resolution</label>
                                     <select class="form-select" id="customResolution">
-                                        <option value="[1920,1080]">1920x1080 (Full HD)</option>
-                                        <option value="[2592,1944]">2592x1944 (5MP)</option>
-                                        <option value="[3840,2160]" selected>3840x2160 (4K)</option>
-                                        <option value="[4608,2592]">4608x2592 (12MP Max)</option>
+                                        <option value="[1280,720]">1280x720 (HD - 120fps capable)</option>
+                                        <option value="[1920,1080]">1920x1080 (Full HD - 60fps capable)</option>
+                                        <option value="[2312,1736]" selected>2312x1736 (4MP - 30fps capable)</option>
+                                        <option value="[3840,2160]">3840x2160 (4K - 20fps capable)</option>
+                                        <option value="[4624,3472]">4624x3472 (16MP - 10fps capable)</option>
+                                        <option value="[9152,6944]">9152x6944 (64MP Full - 2.7fps capable)</option>
                                     </select>
                                 </div>
                                 
@@ -3187,7 +3189,7 @@ async function saveAsCustomProfile() {
 // Reset all custom settings to defaults
 function resetToDefaults() {
     // Quality settings defaults
-    document.getElementById('customResolution').value = '[3840,2160]';
+    document.getElementById('customResolution').value = '[2312,1736]';
     document.getElementById('customJpegQuality').value = '85';
     document.getElementById('customCaptureTimeout').value = '2.0';
     document.getElementById('customIsoPreference').value = 'low_noise';

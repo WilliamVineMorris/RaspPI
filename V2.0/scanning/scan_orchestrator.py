@@ -231,6 +231,12 @@ class MockCameraManager:
             'active_cameras': ['camera_0', 'camera_1'] if self._initialized else [],
             'initialized': self._initialized
         }
+    
+    async def apply_quality_settings(self, quality_settings):
+        """Mock quality settings application"""
+        logger = logging.getLogger(__name__)
+        logger.info(f"MOCK CAMERA: Applied quality settings: {quality_settings}")
+        return True
 
 class MockLightingController:
     """Mock lighting controller for testing"""
@@ -957,10 +963,17 @@ class CameraManagerAdapter:
                     # Save the high-resolution image
                     output_path = output_dir / f"{filename_base}_camera_1.jpg"
                     
-                    # Encode and save
+                    # Encode and save with custom quality settings
                     import cv2
+                    
+                    # Use stored quality settings or default
+                    jpeg_quality = 95  # Default high quality
+                    if hasattr(self, '_quality_settings') and self._quality_settings:
+                        jpeg_quality = self._quality_settings.get('jpeg_quality', 95)
+                    
+                    self.logger.info(f"CAMERA: Saving image with JPEG quality: {jpeg_quality}")
                     success = cv2.imwrite(str(output_path), high_res_image, [
-                        cv2.IMWRITE_JPEG_QUALITY, 95,  # High quality for scanning
+                        cv2.IMWRITE_JPEG_QUALITY, int(jpeg_quality),
                         cv2.IMWRITE_JPEG_OPTIMIZE, 1
                     ])
                     
@@ -1675,6 +1688,48 @@ class CameraManagerAdapter:
                 'active_cameras': [],
                 'initialized': False
             }
+    
+    async def apply_quality_settings(self, quality_settings):
+        """Apply quality settings to camera hardware (JPEG quality, format options)"""
+        try:
+            self.logger.info(f"CAMERA: Applying quality settings: {quality_settings}")
+            
+            # Extract settings with defaults
+            jpeg_quality = quality_settings.get('jpeg_quality', 85)
+            color_format = quality_settings.get('color_format', 'RGB888')
+            compression_level = quality_settings.get('compression_level', 1)
+            
+            # Validate JPEG quality (0-100)
+            if not 0 <= jpeg_quality <= 100:
+                self.logger.warning(f"Invalid JPEG quality {jpeg_quality}, clamping to 0-100 range")
+                jpeg_quality = max(0, min(100, jpeg_quality))
+            
+            # Store settings for use during capture (Pi cameras don't support runtime quality changes)
+            # Quality will be applied during actual capture operations
+            self._quality_settings = {
+                'jpeg_quality': jpeg_quality,
+                'color_format': color_format,
+                'compression_level': compression_level
+            }
+            
+            # Also store default quality for CameraSettings objects
+            self._default_jpeg_quality = jpeg_quality
+            
+            self.logger.info(f"CAMERA: Stored quality settings for capture - JPEG quality: {jpeg_quality}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"CAMERA: Failed to apply quality settings: {e}")
+            return False
+    
+    def _apply_quality_to_settings(self, settings):
+        """Apply stored quality settings to CameraSettings object"""
+        if hasattr(self, '_default_jpeg_quality') and hasattr(settings, 'quality'):
+            original_quality = settings.quality
+            settings.quality = self._default_jpeg_quality
+            if original_quality != settings.quality:
+                self.logger.info(f"CAMERA: Applied custom JPEG quality: {original_quality} → {settings.quality}")
+        return settings
 
 class LightingControllerAdapter:
     """Adapter to make GPIOLEDController compatible with orchestrator protocol"""
@@ -3382,14 +3437,20 @@ class ScanOrchestrator:
                 self.logger.warning("piexif not available, saving without EXIF metadata")
                 # Fallback without EXIF
                 output = io.BytesIO()
-                img_pil.save(output, format='JPEG', quality=95)
+                # Use custom quality settings if available
+                jpeg_quality = 95  # Default
+                if hasattr(self, 'camera_manager') and hasattr(self.camera_manager, '_quality_settings'):
+                    jpeg_quality = self.camera_manager._quality_settings.get('jpeg_quality', 95)
+                
+                img_pil.save(output, format='JPEG', quality=int(jpeg_quality))
                 return output.getvalue()
                 
         except Exception as e:
             self.logger.error(f"Failed to embed metadata in JPEG: {e}")
             # Ultra-fallback: simple cv2 encoding
             import cv2
-            success, encoded_image = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            # Use the same custom quality for fallback encoding
+            success, encoded_image = cv2.imencode('.jpg', image_data, [cv2.IMWRITE_JPEG_QUALITY, int(jpeg_quality)])
             if success:
                 return encoded_image.tobytes()
             else:
