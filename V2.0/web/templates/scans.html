@@ -1200,11 +1200,26 @@
         .compact-settings-grid .col-lg-3 {
             margin-bottom: 1rem;
         }
-        
-        /* Stack columns on tablet */
-        .settings-column {
-            margin-bottom: 1.5rem;
-        }
+    }
+    
+    /* Force side-by-side layout for advanced settings */
+    #profileCustomizationPanel .row {
+        display: flex !important;
+        flex-wrap: wrap;
+    }
+    
+    #profileCustomizationPanel .col-md-6 {
+        flex: 0 0 50% !important;
+        max-width: 50% !important;
+    }
+    
+    /* Ensure proper spacing between columns */
+    #qualityProfileCustom {
+        padding-right: 0.75rem;
+    }
+    
+    #speedProfileCustom {
+        padding-left: 0.75rem;
     }
 
     /* Enhanced visual feedback for column highlights */
@@ -1482,7 +1497,7 @@
                     <!-- Two Column Layout for Quality and Speed Settings -->
                     <div class="row g-4">
                         <!-- Quality Settings Column -->
-                        <div class="col-lg-6" id="qualityProfileCustom">
+                        <div class="col-md-6" id="qualityProfileCustom">
                             <div class="settings-column">
                                 <div class="column-header mb-4">
                                     <h5 class="mb-2">
@@ -1523,50 +1538,44 @@
                                         <small class="text-muted fw-500">Patient</small>
                                     </div>
                                 </div>
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">ISO Preference</label>
-                                        <select class="form-select" id="customIsoPreference">
-                                            <option value="auto">Auto</option>
-                                            <option value="low_noise" selected>Low Noise Priority</option>
-                                            <option value="high_speed">High Speed Priority</option>
-                                            <option value="lowest_iso">Lowest ISO (Best Quality)</option>
-                                        </select>
+                                
+                                <div class="parameter-group mb-3">
+                                    <label class="form-label">ISO Preference</label>
+                                    <select class="form-select" id="customIsoPreference">
+                                        <option value="auto">Auto</option>
+                                        <option value="low_noise" selected>Low Noise Priority</option>
+                                        <option value="high_speed">High Speed Priority</option>
+                                        <option value="lowest_iso">Lowest ISO (Best Quality)</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="parameter-group mb-3">
+                                    <label class="form-label">Exposure Mode</label>
+                                    <select class="form-select" id="customExposureMode" onchange="toggleManualExposureSettings()">
+                                        <option value="auto" selected>Auto</option>
+                                        <option value="calibrated">Calibrated</option>
+                                        <option value="manual">Manual</option>
+                                    </select>
+                                </div>
+                                
+                                <div id="manualExposureSettings" style="display: none;">
+                                    <div class="parameter-group mb-2">
+                                        <label class="form-label">Exposure Time (ms)</label>
+                                        <input type="number" class="form-control" id="customExposureTime" 
+                                               min="1" max="1000" value="32">
                                     </div>
-                                    
                                     <div class="parameter-group mb-3">
-                                        <label class="form-label">Exposure Mode</label>
-                                        <select class="form-select" id="customExposureMode" onchange="toggleManualExposureSettings()">
-                                            <option value="auto" selected>Auto</option>
-                                            <option value="calibrated">Calibrated</option>
-                                            <option value="manual">Manual</option>
-                                        </select>
-                                    </div>
-                                    
-                                    <div id="manualExposureSettings" style="display: none;">
-                                        <div class="parameter-group mb-2">
-                                            <label class="form-label">Exposure Time (ms)</label>
-                                            <input type="number" class="form-control" id="customExposureTime" 
-                                                   min="1" max="1000" value="32">
-                                        </div>
-                                        <div class="parameter-group mb-3">
-                                            <label class="form-label">Analogue Gain</label>
-                                            <input type="number" class="form-control" id="customAnalogueGain" 
-                                                   min="1.0" max="16.0" step="0.1" value="1.0">
-                                        </div>
+                                        <label class="form-label">Analogue Gain</label>
+                                        <input type="number" class="form-control" id="customAnalogueGain" 
+                                               min="1.0" max="16.0" step="0.1" value="1.0">
                                     </div>
                                 </div>
-                            </div>
-                            
-                            <div class="mb-4 mt-4">
-                                <h6 class="text-muted mb-3 text-uppercase fw-bold" style="font-size: 0.8rem; letter-spacing: 1px; color: #64748b !important;">✨ Post-Processing</h6>
-                            </div>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">Denoise Level: <span id="denoiseDisplay">2</span></label>
-                                        <input type="range" class="form-range" id="customDenoiseLevel" 
-                                               min="0" max="10" value="2"
-                                               oninput="updateDenoiseDisplay(this.value)">
+                                
+                                <div class="parameter-group mb-3">
+                                    <label class="form-label">Denoise Level: <span id="denoiseDisplay">2</span></label>
+                                    <input type="range" class="form-range" id="customDenoiseLevel" 
+                                           min="0" max="10" value="2"
+                                           oninput="updateDenoiseDisplay(this.value)">
                                 </div>
                                 
                                 <div class="parameter-group mb-3">
@@ -1579,7 +1588,7 @@
                         </div>
                         
                         <!-- Speed Settings Column -->
-                        <div class="col-lg-6" id="speedProfileCustom">
+                        <div class="col-md-6" id="speedProfileCustom">
                             <div class="settings-column">
                                 <div class="column-header mb-4">
                                     <h5 class="mb-2">
