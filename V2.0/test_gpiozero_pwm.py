@@ -17,7 +17,7 @@ project_root = Path(__file__).parent.absolute()
 sys.path.insert(0, str(project_root))
 
 try:
-    from gpiozero import LED, Device
+    from gpiozero import PWMLED, Device
     from gpiozero.pins.rpigpio import RPiGPIOFactory
     print("✅ gpiozero imported successfully")
 except ImportError as e:
@@ -25,10 +25,10 @@ except ImportError as e:
     sys.exit(1)
 
 def test_gpiozero_pwm():
-    """Test gpiozero LED with 300Hz PWM"""
+    """Test gpiozero PWMLED with 300Hz PWM"""
     
-    print("=== gpiozero LED PWM Test (300Hz) ===")
-    print("Testing LED.value and LED.frequency properties")
+    print("=== gpiozero PWMLED PWM Test (300Hz) ===")
+    print("Testing PWMLED.value with 300Hz frequency")
     
     # Set pin factory to RPi.GPIO (no pigpiod required)
     Device.pin_factory = RPiGPIOFactory()
@@ -38,26 +38,24 @@ def test_gpiozero_pwm():
     test_pins = [12, 13]  # GPIO 12 (inner), GPIO 13 (outer)
     
     try:
-        # Create LED objects
+        # Create PWMLED objects with 300Hz frequency
         leds = {}
         for pin in test_pins:
-            print(f"\nInitializing LED on GPIO {pin}...")
-            led = LED(pin)
+            print(f"\nInitializing PWMLED on GPIO {pin}...")
+            led = PWMLED(pin, frequency=300)
             
-            # Set PWM frequency to 300Hz as requested
-            led.frequency = 300
-            print(f"  LED.frequency = {led.frequency}Hz")
+            print(f"  PWMLED frequency = 300Hz")
             
             # Start with LED off
             led.value = 0.0
-            print(f"  LED.value = {led.value} (off)")
+            print(f"  PWMLED.value = {led.value} (off)")
             
             leds[pin] = led
         
-        print(f"\n✅ {len(leds)} LEDs initialized at 300Hz")
+        print(f"\n✅ {len(leds)} PWMLEDs initialized at 300Hz")
         
-        # Test PWM control with LED.value
-        print("\n=== Testing LED.value PWM Control ===")
+        # Test PWM control with PWMLED.value
+        print("\n=== Testing PWMLED.value PWM Control ===")
         
         test_values = [0.0, 0.25, 0.5, 0.75, 0.9, 0.0]  # 0-90% (safety limit)
         
@@ -66,7 +64,7 @@ def test_gpiozero_pwm():
             
             for pin, led in leds.items():
                 led.value = value
-                print(f"  GPIO {pin}: LED.value = {led.value:.2f}, frequency = {led.frequency}Hz")
+                print(f"  GPIO {pin}: PWMLED.value = {led.value:.2f}, frequency = 300Hz")
             
             time.sleep(1.0)  # Hold for 1 second
         
@@ -82,12 +80,12 @@ def test_gpiozero_pwm():
                 led.value = intensity
                 time.sleep(0.5)
         
-        print("\n✅ All gpiozero LED PWM tests completed successfully")
+        print("\n✅ All gpiozero PWMLED PWM tests completed successfully")
         
         # Show final status
-        print("\n=== Final LED Status ===")
+        print("\n=== Final PWMLED Status ===")
         for pin, led in leds.items():
-            print(f"GPIO {pin}: value={led.value:.2f}, frequency={led.frequency}Hz, active={led.is_active}")
+            print(f"GPIO {pin}: value={led.value:.2f}, frequency=300Hz, active={led.is_active}")
         
     except Exception as e:
         print(f"❌ Test failed: {e}")

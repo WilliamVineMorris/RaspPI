@@ -20,14 +20,14 @@ from pathlib import Path
 import json
 
 try:
-    # Try gpiozero first for modern PWM control (LED.value and LED.frequency)
-    from gpiozero import LED, Device
+    # Try gpiozero first for modern PWM control (PWMLED.value and pin frequency)
+    from gpiozero import PWMLED, Device
     from gpiozero.pins.rpigpio import RPiGPIOFactory
     GPIOZERO_AVAILABLE = True
     GPIO_LIBRARY = 'gpiozero'
 except ImportError:
     GPIOZERO_AVAILABLE = False
-    LED = None
+    PWMLED = None
     Device = None
 
 try:
@@ -194,8 +194,8 @@ class GPIOLEDController(LightingController):
         # Pigpio connection (if available)
         self.pi = None
         
-        # GPIO Zero LED objects (if using gpiozero)
-        self.gpiozero_leds: Dict[str, List[LED]] = {}
+        # GPIO Zero PWMLED objects (if using gpiozero)
+        self.gpiozero_leds: Dict[str, List[PWMLED]] = {}
         
         # Determine which GPIO library to use
         # Check if user wants gpiozero (new preferred method for 300Hz PWM)
@@ -265,8 +265,9 @@ class GPIOLEDController(LightingController):
             if self._use_gpiozero:
                 # Initialize gpiozero with RPi.GPIO pin factory (no pigpiod required)
                 if GPIOZERO_AVAILABLE:
+                    # Set up pin factory with PWM frequency
                     Device.pin_factory = RPiGPIOFactory()
-                    logger.info(f"Using gpiozero with RPi.GPIO factory - {self.pwm_frequency}Hz PWM")
+                    logger.info(f"Using gpiozero PWMLED with RPi.GPIO factory - {self.pwm_frequency}Hz PWM")
                 else:
                     logger.error("gpiozero requested but not available")
                     raise LEDError("gpiozero library not available")
@@ -323,19 +324,19 @@ class GPIOLEDController(LightingController):
             
             for pin in zone.gpio_pins:
                 if self._use_gpiozero:
-                    # Using gpiozero LED with frequency property for PWM
-                    led = LED(pin)
-                    led.frequency = self.pwm_frequency  # Set PWM frequency (300Hz)
+                    # Using gpiozero PWMLED for PWM control
+                    # Create PWMLED with frequency parameter
+                    led = PWMLED(pin, frequency=self.pwm_frequency)
                     led.value = 0.0  # Start with 0% duty cycle (LED off)
                     
-                    # Store LED object for zone
+                    # Store PWMLED object for zone
                     if zone.zone_id not in self.gpiozero_leds:
                         self.gpiozero_leds[zone.zone_id] = []
                     self.gpiozero_leds[zone.zone_id].append(led)
                     
                     pwm_objects.append({'type': 'gpiozero', 'pin': pin, 'led': led})
                     
-                    logger.debug(f"Initialized gpiozero LED on pin {pin} for zone '{zone.zone_id}' at {self.pwm_frequency}Hz")
+                    logger.debug(f"Initialized gpiozero PWMLED on pin {pin} for zone '{zone.zone_id}' at {self.pwm_frequency}Hz")
                     
                 elif self._use_pigpio and self.pi:
                     # Using pigpio for precise PWM control

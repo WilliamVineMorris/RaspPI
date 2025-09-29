@@ -25,13 +25,13 @@ from pathlib import Path
 import json
 
 try:
-    from gpiozero import LED, Device
+    from gpiozero import PWMLED, Device
     from gpiozero.pins.pigpio import PiGPIOFactory
     from gpiozero.pins.rpigpio import RPiGPIOFactory
     GPIOZERO_AVAILABLE = True
 except ImportError:
     GPIOZERO_AVAILABLE = False
-    LED = None
+    PWMLED = None
     Device = None
 
 from core.exceptions import (
@@ -81,7 +81,7 @@ class GPIOZeroLEDController(LightingController):
             logger.info("Using RPi.GPIO factory (no pigpiod required)")
         
         # LED objects by zone
-        self.led_objects: Dict[str, List[LED]] = {}
+        self.led_objects: Dict[str, List[PWMLED]] = {}
         self._initialized = False
         
         logger.info(f"GPIO Zero LED Controller initialized - {self.pwm_frequency}Hz PWM")
@@ -99,20 +99,17 @@ class GPIOZeroLEDController(LightingController):
                 zone_leds = []
                 
                 for pin in zone.gpio_pins:
-                    logger.info(f"Setting up LED on GPIO {pin} for zone '{zone.zone_id}' at {self.pwm_frequency}Hz")
+                    logger.info(f"Setting up PWMLED on GPIO {pin} for zone '{zone.zone_id}' at {self.pwm_frequency}Hz")
                     
-                    # Create LED object
-                    led = LED(pin)
-                    
-                    # Set PWM frequency for hardware PWM
-                    led.frequency = self.pwm_frequency
+                    # Create PWMLED object with frequency parameter
+                    led = PWMLED(pin, frequency=self.pwm_frequency)
                     
                     # Start at 0% duty cycle (LED off)
                     led.value = 0.0
                     
                     zone_leds.append(led)
                     
-                    logger.debug(f"GPIO {pin} LED initialized for zone '{zone.zone_id}' (frequency: {led.frequency}Hz)")
+                    logger.debug(f"GPIO {pin} PWMLED initialized for zone '{zone.zone_id}' (frequency: {self.pwm_frequency}Hz)")
                 
                 self.led_objects[zone.zone_id] = zone_leds
             
@@ -264,7 +261,7 @@ class GPIOZeroLEDController(LightingController):
                     led_status.append({
                         'pin': led.pin.number,
                         'value': led.value,
-                        'frequency': led.frequency,
+                        'frequency': self.pwm_frequency,  # PWMLED doesn't expose frequency property
                         'active': led.is_active
                     })
                 except:
