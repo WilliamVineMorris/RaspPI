@@ -1848,6 +1848,31 @@
                             <input type="number" id="cylindricalRotationPositions" class="parameter-input" min="3" max="72" value="6" step="1">
                             <small class="parameter-help">Enter number of positions (3-72). More positions = higher detail but longer scan time</small>
                         </div>
+                        
+                        <!-- Servo Tilt Configuration -->
+                        <div class="parameter-group">
+                            <label for="servoTiltMode">🎯 Servo Tilt Mode</label>
+                            <select id="servoTiltMode" class="parameter-input" onchange="updateServoTiltControls()">
+                                <option value="none">None - Fixed Camera Position</option>
+                                <option value="manual">Manual Angle</option>
+                                <option value="focus_point">Focus Point Targeting</option>
+                            </select>
+                            <small class="parameter-help" id="servoModeHelp">Camera will maintain fixed position during scanning</small>
+                        </div>
+                        
+                        <!-- Manual Angle Controls -->
+                        <div class="parameter-group" id="servoManualGroup" style="display: none;">
+                            <label for="servoManualAngle">🔧 Manual Servo Angle (°)</label>
+                            <input type="number" id="servoManualAngle" class="parameter-input" min="-75" max="75" value="0" step="1">
+                            <small class="parameter-help">Set servo to a fixed angle (-75° to +75°)</small>
+                        </div>
+                        
+                        <!-- Focus Point Controls -->
+                        <div class="parameter-group" id="servoFocusGroup" style="display: none;">
+                            <label for="servoYFocus">🎯 Focus Y Position (mm)</label>
+                            <input type="number" id="servoYFocus" class="parameter-input" min="10" max="200" value="80" step="5">
+                            <small class="parameter-help">Y-coordinate to focus servo on during scanning</small>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2388,6 +2413,33 @@ function saveScanTemplate() {
     }
 }
 
+// Servo tilt control function
+function updateServoTiltControls() {
+    const mode = document.getElementById('servoTiltMode')?.value || 'none';
+    const manualGroup = document.getElementById('servoManualGroup');
+    const focusGroup = document.getElementById('servoFocusGroup');
+    const helpText = document.getElementById('servoModeHelp');
+    
+    // Hide all controls first
+    if (manualGroup) manualGroup.style.display = 'none';
+    if (focusGroup) focusGroup.style.display = 'none';
+    
+    // Show appropriate controls and update help text
+    switch(mode) {
+        case 'none':
+            if (helpText) helpText.textContent = 'Camera will maintain fixed position during scanning';
+            break;
+        case 'manual':
+            if (manualGroup) manualGroup.style.display = 'block';
+            if (helpText) helpText.textContent = 'Servo will be set to a fixed manual angle for all positions';
+            break;
+        case 'focus_point':
+            if (focusGroup) focusGroup.style.display = 'block';
+            if (helpText) helpText.textContent = 'Servo will automatically tilt to focus on specified Y coordinate';
+            break;
+    }
+}
+
 function toggleAdvancedSettings() {
     const panel = document.getElementById('cylindrical-parameters');
     if (panel) {
@@ -2474,6 +2526,11 @@ function collectScanParameters() {
                 i * rotationStep
             );
             
+            // Get servo tilt parameters
+            const servoTiltMode = document.getElementById('servoTiltMode')?.value || 'none';
+            const servoManualAngle = parseFloat(document.getElementById('servoManualAngle')?.value) || 0.0;
+            const servoYFocus = parseFloat(document.getElementById('servoYFocus')?.value) || 80.0;
+            
             // Return flattened structure expected by backend
             const scanData = {
                 pattern_type: 'cylindrical',
@@ -2486,7 +2543,12 @@ function collectScanParameters() {
                 scan_name: scanName,
                 resolution: resolution,
                 speed: speed,
-                camera_count: parseInt(cameraCount)
+                camera_count: parseInt(cameraCount),
+                
+                // Add servo tilt parameters
+                servo_tilt_mode: servoTiltMode,
+                servo_manual_angle: servoManualAngle,
+                servo_y_focus: servoYFocus
             };
             
             // Add custom settings if active
@@ -2836,6 +2898,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(() => {
         previewScan();
         loadAvailableProfiles(); // Load profile options on page load
+        updateServoTiltControls(); // Initialize servo tilt controls
     }, 500);
 });
 
