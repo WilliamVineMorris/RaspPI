@@ -323,7 +323,7 @@ class PiCameraController(CameraController):
             if settings:
                 await self.set_camera_settings(cam_id, settings)
             
-            success = await self.capture_image(cam_id, settings or CameraSettings(resolution=(1920, 1080)), temp_path)
+            success = await self.capture_image(cam_id, settings or CameraSettings(resolution=(1280, 960)), temp_path)
             
             # Restore live streaming settings after capture
             await self.restore_live_settings(camera_id)
@@ -356,7 +356,7 @@ class PiCameraController(CameraController):
                 await self.set_camera_settings(cam_id, settings)
             
             # Use the internal burst capture method with different name
-            captured_files = await self._capture_burst_internal(cam_id, settings or CameraSettings(resolution=(1920, 1080)), output_dir, count)
+            captured_files = await self._capture_burst_internal(cam_id, settings or CameraSettings(resolution=(1280, 960)), output_dir, count)
             
             results = []
             for i, file_path in enumerate(captured_files):
@@ -387,8 +387,8 @@ class PiCameraController(CameraController):
             camera2_id = available_cameras[1]
             
             # Use provided settings or defaults
-            cam1_settings = settings.get(camera1_id, CameraSettings(resolution=(1920, 1080))) if settings else CameraSettings(resolution=(1920, 1080))
-            cam2_settings = settings.get(camera2_id, CameraSettings(resolution=(1920, 1080))) if settings else CameraSettings(resolution=(1920, 1080))
+            cam1_settings = settings.get(camera1_id, CameraSettings(resolution=(1280, 960))) if settings else CameraSettings(resolution=(1280, 960))
+            cam2_settings = settings.get(camera2_id, CameraSettings(resolution=(1280, 960))) if settings else CameraSettings(resolution=(1280, 960))
             
             # Synchronous capture (simplified)
             start_time = time.time()
@@ -1567,7 +1567,7 @@ class PiCameraController(CameraController):
             
             # Return default settings (in real implementation would read from camera)
             return CameraSettings(
-                resolution=(1920, 1080),
+                resolution=(1280, 960),
                 format=self.default_format,
                 exposure_time=0.01,  # 10ms
                 iso=100,
@@ -1576,7 +1576,7 @@ class PiCameraController(CameraController):
             
         except Exception as e:
             logger.error(f"Failed to get camera settings: {e}")
-            return CameraSettings(resolution=(1920, 1080))
+            return CameraSettings(resolution=(1280, 960))
     
     async def get_camera_capabilities(self, camera_id: int) -> CameraCapabilities:
         """Get camera capabilities"""
@@ -1587,7 +1587,7 @@ class PiCameraController(CameraController):
             # Pi Camera typical capabilities
             return CameraCapabilities(
                 supported_resolutions=[
-                    (640, 480), (1280, 720), (1920, 1080), (2592, 1944)
+                    (640, 480), (1280, 960), (1920, 1440), (2592, 1944)
                 ],
                 supported_formats=[ImageFormat.JPEG, ImageFormat.PNG],
                 min_exposure_time=0.000001,  # 1 microsecond
@@ -1603,7 +1603,7 @@ class PiCameraController(CameraController):
             logger.error(f"Failed to get camera capabilities: {e}")
             return CameraCapabilities(
                 supported_resolutions=[
-                    (640, 480), (1280, 720), (1920, 1080), (2592, 1944)
+                    (640, 480), (1280, 960), (1920, 1440), (2592, 1944)
                 ],
                 supported_formats=[ImageFormat.JPEG, ImageFormat.PNG],
                 min_exposure_time=0.000001,  # 1 microsecond
@@ -1644,21 +1644,25 @@ class PiCameraController(CameraController):
             
             # Create PREVIEW configuration for better livestream (not still config)
             if 'imx519' in camera_model.lower() or pixel_array_size[0] >= 9000:
-                logger.info(f"📷 Camera {camera_id}: Detected ArduCam 64MP (IMX519), applying livestream-optimized config")
-                # ArduCam 64MP livestream configuration - lower resolution for smooth streaming
+                logger.info(f"📷 Camera {camera_id}: Detected ArduCam 64MP (IMX519), applying aspect-ratio optimized config")
+                # ArduCam 64MP livestream configuration - MATCH NATIVE 4:3 ASPECT RATIO
+                # Native sensor: 4624x3472 (4:3) -> Use 4:3 streaming to prevent cropping
                 config = camera.create_preview_configuration(
-                    main={"size": (1920, 1080), "format": "RGB888"},  # Good quality but smooth for streaming
-                    lores={"size": (640, 480)},  # Low-res stream for web preview
+                    main={"size": (1280, 960), "format": "RGB888"},   # 4:3 aspect ratio for no cropping
+                    lores={"size": (640, 480)},  # 4:3 low-res stream for web preview
                     raw=None  # Disable raw for performance
                 )
+                logger.info(f"📷 Camera {camera_id}: Using 4:3 aspect ratio (1280x960) to match sensor")
             else:
-                logger.info(f"📷 Camera {camera_id}: Standard Pi camera livestream configuration")
-                # Standard Pi camera livestream configuration  
+                logger.info(f"📷 Camera {camera_id}: Standard Pi camera aspect-ratio optimized configuration")
+                # Standard Pi camera livestream configuration - MATCH NATIVE ASPECT RATIO
+                # Most Pi cameras are 4:3 native, avoid 16:9 cropping
                 config = camera.create_preview_configuration(
-                    main={"size": (1920, 1080), "format": "RGB888"},  # Standard streaming resolution
-                    lores={"size": (640, 480)},  # Low-res for web
+                    main={"size": (1280, 960), "format": "RGB888"},   # 4:3 aspect ratio
+                    lores={"size": (640, 480)},  # 4:3 low-res for web
                     raw=None
                 )
+                logger.info(f"📷 Camera {camera_id}: Using 4:3 aspect ratio (1280x960) for full sensor coverage")
             
             # Apply configuration
             camera.configure(config)

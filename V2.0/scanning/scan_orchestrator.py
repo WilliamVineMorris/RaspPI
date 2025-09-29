@@ -836,9 +836,9 @@ class CameraManagerAdapter:
                     camera = self.controller.cameras[camera_id]
                     
                     if camera:
-                        # OPTIMAL: RGB888 format with direct output provides correct colors
+                        # OPTIMAL: RGB888 format with 4:3 aspect ratio for proper sensor coverage
                         stream_config = camera.create_video_configuration(
-                            main={"size": (1920, 1080), "format": "RGB888"},
+                            main={"size": (1280, 960), "format": "RGB888"},  # 4:3 aspect ratio
                             lores={"size": (640, 480), "format": "YUV420"},  # Thumbnail for processing
                             display="lores"  # Use low-res for display efficiency
                         )
@@ -909,9 +909,9 @@ class CameraManagerAdapter:
                             if hasattr(self, '_stream_configs') and 0 in self._stream_configs:
                                 camera.configure(self._stream_configs[0])
                             else:
-                                # Fallback configuration - match what camera is actually providing
+                                # Fallback configuration - use 4:3 aspect ratio for proper coverage
                                 config = camera.create_video_configuration(
-                                    main={"size": (1920, 1080), "format": "RGB888"}
+                                    main={"size": (1280, 960), "format": "RGB888"}  # 4:3 aspect ratio
                                 )
                                 camera.configure(config)
                             camera.start()

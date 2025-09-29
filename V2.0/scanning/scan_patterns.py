@@ -458,7 +458,7 @@ class CylindricalScanPattern(ScanPattern):
             exposure_time=0.1,  # Template - will be replaced with calibrated value
             iso=200,            # Template - will be replaced with calibrated value
             capture_format="JPEG",
-            resolution=(4608, 2592)  # Correct ArduCam 64MP resolution
+            resolution=(4624, 3472)  # Correct ArduCam 64MP native sensor resolution (4:3)
         )
     
     def estimate_duration(self) -> float:
