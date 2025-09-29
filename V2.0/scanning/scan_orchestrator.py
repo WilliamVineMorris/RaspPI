@@ -2945,19 +2945,31 @@ class ScanOrchestrator:
             camera_controller = None
             
             # Try different ways to access the camera controller
-            if hasattr(self, 'camera_manager'):
-                if hasattr(self.camera_manager, 'controller'):
+            if hasattr(self, 'camera_manager') and self.camera_manager:
+                # Check for direct controller access (CameraManagerAdapter pattern)
+                if hasattr(self.camera_manager, 'controller') and self.camera_manager.controller:
                     camera_controller = self.camera_manager.controller
-                elif hasattr(self.camera_manager, '_controller'):
+                    self.logger.debug("📋 Camera controller accessed via camera_manager.controller")
+                # Check for internal controller access
+                elif hasattr(self.camera_manager, '_controller') and self.camera_manager._controller:
                     camera_controller = self.camera_manager._controller
-                elif hasattr(self.camera_manager, 'camera_controller'):
+                    self.logger.debug("📋 Camera controller accessed via camera_manager._controller")
+                # Check if camera manager has controller method
+                elif hasattr(self.camera_manager, 'camera_controller') and self.camera_manager.camera_controller:
                     camera_controller = self.camera_manager.camera_controller
+                    self.logger.debug("📋 Camera controller accessed via camera_manager.camera_controller")
+                # Check if camera manager is itself the controller (Pi setup)
+                elif hasattr(self.camera_manager, '_calibrated_settings'):
+                    camera_controller = self.camera_manager
+                    self.logger.debug("📋 Camera manager is acting as controller directly")
                 else:
-                    # Camera manager might be the controller itself (Pi setup)
-                    if hasattr(self.camera_manager, '_calibrated_settings'):
-                        camera_controller = self.camera_manager
-            
-            if camera_controller and hasattr(camera_controller, '_calibrated_settings'):
+                    self.logger.debug("📋 Camera manager exists but no controller interface found")
+            else:
+                self.logger.debug("📋 No camera manager available or camera manager is None")
+
+            # Check if we have a valid controller with calibrated settings
+            if camera_controller and hasattr(camera_controller, '_calibrated_settings') and camera_controller._calibrated_settings:
+                self.logger.debug("📋 Found camera controller with calibrated settings")
                 calibrated = camera_controller._calibrated_settings
                 
                 # Use Camera 0 calibrated settings as reference (both cameras should be similar)
@@ -3015,12 +3027,33 @@ class ScanOrchestrator:
                         self.logger.debug("📋 Calibration not required at this stage, using defaults")
                         actual_settings['calibration_source'] = 'planning_stage_defaults'
             else:
+                # Camera controller not available or no calibrated settings
                 if prefer_calibrated:
-                    self.logger.warning("📋 Camera controller not accessible, using default settings")
+                    # Try to initialize camera controller if not yet done
+                    initialization_attempted = False
+                    if hasattr(self, 'camera_manager') and self.camera_manager:
+                        try:
+                            if hasattr(self.camera_manager, 'controller') and not hasattr(self.camera_manager.controller, '_calibrated_settings'):
+                                self.logger.debug("📋 Attempting to initialize camera controller for calibrated settings...")
+                                await self.camera_manager.initialize()
+                                initialization_attempted = True
+                        except Exception as init_error:
+                            self.logger.debug(f"📋 Camera controller initialization attempt failed: {init_error}")
+                    
+                    if initialization_attempted:
+                        self.logger.info("📋 Camera controller initialization attempted - settings will be updated during scan execution")
+                    else:
+                        self.logger.warning("📋 Camera controller not accessible or no calibrated settings available")
+                    
                     actual_settings['calibration_source'] = 'controller_unavailable'
+                    
+                    # Add note that settings will be updated during scan execution
+                    actual_settings['will_update_during_scan'] = True
+                    self.logger.info("📋 Camera settings will be updated with calibrated values during scan execution")
                 else:
                     self.logger.debug("📋 Using planning-stage defaults (controller will be available during execution)")
                     actual_settings['calibration_source'] = 'planning_stage_defaults'
+                    actual_settings['will_update_during_scan'] = True
                 
         except Exception as e:
             self.logger.warning(f"📋 Failed to get calibrated settings: {e}, using defaults")
@@ -4488,7 +4521,8 @@ class ScanOrchestrator:
                                  y_step: float = 20.0,
                                  y_positions: Optional[List[float]] = None,
                                  z_rotations: Optional[List[float]] = None,
-                                 c_angles: Optional[List[float]] = None):
+                                 c_angles: Optional[List[float]] = None,
+                                 servo_tilt_params: Optional[Dict[str, Any]] = None):
         """
         Create a cylindrical scan pattern for turntable scanner with fixed radius
         
@@ -4498,7 +4532,8 @@ class ScanOrchestrator:
             y_step: Vertical step size in mm
             y_positions: Explicit Y positions in mm (overrides y_range/y_step if provided)
             z_rotations: Turntable rotation angles in degrees (None for default)
-            c_angles: Camera pivot angles in degrees (None for default)
+            c_angles: Camera pivot angles in degrees (None for default, overridden by servo_tilt_params)
+            servo_tilt_params: Servo tilt configuration dict with 'mode', 'manual_angle', 'y_focus'
         """
         from .scan_patterns import CylindricalPatternParameters, CylindricalScanPattern
         
@@ -4508,12 +4543,45 @@ class ScanOrchestrator:
             z_rotations = list(range(0, 360, 60))  # Default: 6 positions
             logger.warning(f"No Z-rotations provided for cylindrical scan, using default: {z_rotations}")
             
-        # Ensure single servo angle for consistency
-        if c_angles is None or len(c_angles) == 0:
-            c_angles = [0.0]  # Default: servo at center
-        elif len(c_angles) > 1:
-            c_angles = [c_angles[0]]  # Use only first angle for consistency
-            logger.info(f"Multiple servo angles provided, using single angle: {c_angles[0]}°")
+        # Calculate servo angles based on tilt parameters
+        if servo_tilt_params and servo_tilt_params.get('mode') != 'none':
+            # Generate Y positions if not provided
+            if y_positions is None:
+                y_positions = []
+                y = y_range[0]
+                while y <= y_range[1]:
+                    y_positions.append(y)
+                    y += y_step
+            
+            if servo_tilt_params['mode'] == 'focus_point':
+                # Calculate servo angle for each Y position to focus on target
+                import math
+                y_focus = servo_tilt_params['y_focus']
+                c_angles = []
+                
+                for y_pos in y_positions:
+                    # Calculate focus offset from current Y position to target focus point
+                    focus_offset = y_focus - y_pos
+                    # Calculate servo angle: angle = atan(offset / radius)
+                    servo_angle = math.atan(focus_offset / radius) * (180.0 / math.pi)
+                    c_angles.append(servo_angle)
+                
+                logger.info(f"🎯 Calculated {len(c_angles)} servo focus angles for Y positions:")
+                for y_pos, angle in zip(y_positions, c_angles):
+                    logger.info(f"   Y={y_pos}mm -> Servo={angle:.1f}° (focus={y_focus}mm, offset={y_focus-y_pos:.1f}mm)")
+                    
+            elif servo_tilt_params['mode'] == 'manual':
+                # Use manual angle for all positions
+                manual_angle = servo_tilt_params['manual_angle']
+                c_angles = [manual_angle] * len(y_positions) if y_positions else [manual_angle]
+                logger.info(f"🎯 Using manual servo angle: {manual_angle}° for {len(c_angles)} positions")
+        else:
+            # No servo tilt or legacy c_angles parameter
+            if c_angles is None or len(c_angles) == 0:
+                c_angles = [0.0]  # Default: servo at center
+                logger.info("🎯 Using default servo angle: 0° (no tilt)")
+            else:
+                logger.info(f"🎯 Using provided servo angles: {c_angles}")
         
         parameters = CylindricalPatternParameters(
             x_start=radius,      # Fixed camera radius
@@ -4524,9 +4592,12 @@ class ScanOrchestrator:
             y_step=y_step,
             y_positions=y_positions,  # 🎯 NEW: Explicit Y positions
             z_rotations=z_rotations,  # Z-axis: cylinder rotation angles
-            c_angles=c_angles,        # C-axis: single servo angle
+            c_angles=c_angles,        # C-axis: calculated servo angles
             safety_margin=0.5
         )
+        
+        # Log final pattern configuration
+        logger.info(f"📐 Final cylindrical pattern: C-axis (servo) angles={c_angles} ({len(c_angles)} angles)")
         
         # Generate pattern ID
         pattern_id = f"cylindrical_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
