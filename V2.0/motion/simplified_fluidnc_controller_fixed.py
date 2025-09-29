@@ -20,6 +20,7 @@ from typing import Optional, Dict, Any
 # Import the fixed protocol
 from motion.simplified_fluidnc_protocol_fixed import SimplifiedFluidNCProtocolFixed, FluidNCStatus
 from motion.base import MotionController, Position4D, MotionStatus, MotionCapabilities, MotionLimits
+from motion.servo_tilt import ServoTiltCalculator, create_servo_tilt_calculator
 from core.events import EventBus
 from core.exceptions import MotionError, MotionSafetyError, ConfigurationError
 
@@ -117,6 +118,19 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         
         # Event system
         self.event_bus = EventBus()
+        
+        # Servo tilt calculator (optional, created if camera config available)
+        self.servo_tilt_calculator = None
+        try:
+            # Try to initialize servo tilt from camera configuration
+            camera_config = config.get('cameras', {})
+            if camera_config and camera_config.get('servo_tilt', {}).get('enable', False):
+                self.servo_tilt_calculator = create_servo_tilt_calculator(camera_config)
+                logger.info("✓ Servo tilt calculator initialized")
+            else:
+                logger.info("Servo tilt calculator disabled in configuration")
+        except Exception as e:
+            logger.warning(f"Failed to initialize servo tilt calculator: {e}")
         
         # Statistics
         self.stats = {
@@ -1230,15 +1244,17 @@ class SimplifiedFluidNCControllerFixed(MotionController):
     def _validate_position_limits(self, position: Position4D) -> bool:
         """Validate position against motion limits"""
         try:
-            # Check X axis
+            # Check X axis (assuming limits exist)
             x_limits = self.limits['x']
-            if position.x < x_limits.min_limit or position.x > x_limits.max_limit:
+            if (x_limits.min_limit is not None and position.x < x_limits.min_limit) or \
+               (x_limits.max_limit is not None and position.x > x_limits.max_limit):
                 logger.error(f"❌ X position {position.x} outside limits {x_limits}")
                 return False
             
-            # Check Y axis
+            # Check Y axis (assuming limits exist)
             y_limits = self.limits['y']
-            if position.y < y_limits.min_limit or position.y > y_limits.max_limit:
+            if (y_limits.min_limit is not None and position.y < y_limits.min_limit) or \
+               (y_limits.max_limit is not None and position.y > y_limits.max_limit):
                 logger.error(f"❌ Y position {position.y} outside limits {y_limits}")
                 return False
             
@@ -1251,9 +1267,10 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             else:
                 logger.debug(f"✅ Z axis continuous rotation - no limits (position: {position.z}°)")
             
-            # Check C axis
+            # Check C axis (servo limits should exist)
             c_limits = self.limits['c']
-            if position.c < c_limits.min_limit or position.c > c_limits.max_limit:
+            if (c_limits.min_limit is not None and position.c < c_limits.min_limit) or \
+               (c_limits.max_limit is not None and position.c > c_limits.max_limit):
                 logger.error(f"❌ C position {position.c} outside limits {c_limits}")
                 return False
             
@@ -1534,6 +1551,127 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         current = await self.get_position()
         target = Position4D(x=current.x, y=current.y, z=current.z, c=c)
         return await self.move_to_position(target)
+    
+    # Servo Tilt Methods
+    def calculate_servo_angle(self, 
+                            mode: str,
+                            fluidnc_x: float = 0.0,
+                            fluidnc_y: float = 0.0, 
+                            user_y_focus: float = 0.0,
+                            manual_angle: float = 0.0) -> Optional[float]:
+        """
+        Calculate servo tilt angle for camera positioning
+        
+        Args:
+            mode: "manual" or "automatic"
+            fluidnc_x: FluidNC X position (for automatic mode)
+            fluidnc_y: FluidNC Y position (for automatic mode)
+            user_y_focus: Target Y focus height (for automatic mode)
+            manual_angle: Fixed angle (for manual mode)
+            
+        Returns:
+            Calculated servo angle in degrees, or None if calculator not available
+        """
+        if not self.servo_tilt_calculator:
+            logger.warning("Servo tilt calculator not initialized")
+            return None
+            
+        try:
+            return self.servo_tilt_calculator.calculate_servo_angle(
+                mode=mode,
+                fluidnc_x=fluidnc_x,
+                fluidnc_y=fluidnc_y,
+                user_y_focus=user_y_focus,
+                manual_angle=manual_angle
+            )
+        except Exception as e:
+            logger.error(f"Servo angle calculation failed: {e}")
+            return None
+    
+    async def move_with_servo_tilt(self, 
+                                 position: Position4D,
+                                 servo_mode: str = "automatic",
+                                 user_y_focus: float = 50.0,
+                                 manual_servo_angle: float = 0.0,
+                                 feedrate: Optional[float] = None) -> bool:
+        """
+        Move to position with automatic servo tilt calculation
+        
+        Args:
+            position: Target position (C-axis will be calculated if servo mode is automatic)
+            servo_mode: "manual" or "automatic"
+            user_y_focus: Target Y focus height for automatic calculation
+            manual_servo_angle: Fixed servo angle for manual mode
+            feedrate: Optional feedrate override
+            
+        Returns:
+            True if movement successful
+        """
+        try:
+            # Calculate servo angle if in automatic mode
+            if servo_mode == "automatic" and self.servo_tilt_calculator:
+                calculated_angle = self.calculate_servo_angle(
+                    mode="automatic",
+                    fluidnc_x=position.x,
+                    fluidnc_y=position.y,
+                    user_y_focus=user_y_focus
+                )
+                if calculated_angle is not None:
+                    position.c = calculated_angle
+                    logger.info(f"Automatic servo angle: {calculated_angle:.1f}°")
+                else:
+                    logger.warning("Using position.c as provided (servo calculation failed)")
+                    
+            elif servo_mode == "manual":
+                position.c = manual_servo_angle
+                logger.info(f"Manual servo angle: {manual_servo_angle:.1f}°")
+            
+            # Move to the position
+            return await self.move_to_position(position, feedrate)
+            
+        except Exception as e:
+            logger.error(f"Move with servo tilt failed: {e}")
+            return False
+    
+    def get_servo_tilt_info(self) -> Dict[str, Any]:
+        """
+        Get servo tilt configuration and status information
+        
+        Returns:
+            Dictionary with servo tilt information
+        """
+        if not self.servo_tilt_calculator:
+            return {
+                "enabled": False,
+                "reason": "Servo tilt calculator not initialized"
+            }
+        
+        config = self.servo_tilt_calculator.config
+        validation = self.servo_tilt_calculator.validate_configuration()
+        
+        return {
+            "enabled": True,
+            "configuration": {
+                "camera_offset": {
+                    "x": config.camera_offset_x,
+                    "y": config.camera_offset_y
+                },
+                "turntable_offset": {
+                    "x": config.turntable_offset_x,
+                    "y": config.turntable_offset_y
+                },
+                "angle_limits": {
+                    "min": config.min_angle,
+                    "max": config.max_angle,
+                    "center": config.center_angle
+                },
+                "calculation_settings": {
+                    "min_distance": config.min_calculation_distance,
+                    "allow_negative": config.enable_negative_angles
+                }
+            },
+            "validation": validation
+        }
     
     def get_current_settings(self) -> Dict[str, Any]:
         """Get current motion settings (compatibility method)"""

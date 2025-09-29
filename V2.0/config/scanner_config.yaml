@@ -135,6 +135,15 @@ motion:
 cameras:
   system_type: "dual_camera"
   
+  # Camera positioning offsets for servo angle calculation
+  positioning:
+    camera_offset:
+      x: 50.0    # mm - Horizontal offset of camera from FluidNC X position
+      y: 30.0    # mm - Vertical offset of camera from FluidNC Y position
+    turntable_offset:
+      x: 100.0   # mm - Horizontal offset of turntable center from origin
+      y: 25.0    # mm - Vertical offset of turntable surface from origin
+  
   camera_1:
     port: 0
     name: "Primary Camera"
@@ -161,6 +170,24 @@ cameras:
     enable: true
     fps: 30
     quality: 70
+    
+  # Servo Tilt Configuration
+  servo_tilt:
+    enable: true
+    calculation_mode: "automatic"  # "automatic" or "manual"
+    
+    # Servo angle limits
+    min_angle: -45.0    # degrees - Maximum downward tilt
+    max_angle: 45.0     # degrees - Maximum upward tilt
+    center_angle: 0.0   # degrees - Horizontal position
+    
+    # Manual mode: constant servo angle for all points
+    manual_angle: 0.0   # degrees - Used when calculation_mode is "manual"
+    
+    # Automatic mode: calculate angle based on focus geometry
+    auto_calculation:
+      enable_negative_angles: true  # Allow negative angles for points below FluidNC height
+      min_calculation_distance: 10.0  # mm - Minimum distance for stable calculation
     
 # LED Flash Configuration  
 # gpiozero PWM Setup: Uses gpiozero.LED with frequency property at 300Hz
@@ -266,6 +293,18 @@ scanning:
   default_stabilization_delay: 1.0  # Seconds to wait after movement (general)
   scan_stabilization_delay: 2.0     # Extended delay for scanning precision
   default_capture_delay: 0.5        # Additional delay before capture
+  
+  # Default scan settings
+  default_settings:
+    resolution: "high"     # high, medium, low
+    overlap: 0.2          # 20% overlap between captures
+    lighting_mode: "auto" # auto, manual, off
+    
+    # Servo tilt settings for scanning
+    servo_tilt:
+      mode: "automatic"        # "automatic" or "manual" 
+      y_focus_position: 50.0   # mm - Target Y height for automatic angle calculation
+      manual_angle: 0.0        # degrees - Used when mode is "manual"
   
   path_planning:
     default_overlap_percent: 20
