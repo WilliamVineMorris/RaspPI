@@ -2241,34 +2241,15 @@ class PiCameraController(CameraController):
                                              capture_output=True, timeout=2)
                                 logger.info("🧹 System cache drop completed")
                                 
-                                # Step 2: Force V4L2 device reset (if possible)
-                                try:
-                                    # Reset V4L2 devices by briefly toggling camera module power
-                                    subprocess.run(['sudo', 'modprobe', '-r', 'arducam_64mp'], 
-                                                 capture_output=True, timeout=3)
-                                    await asyncio.sleep(0.5)
-                                    subprocess.run(['sudo', 'modprobe', 'arducam_64mp'], 
-                                                 capture_output=True, timeout=3)
-                                    logger.info("🧹 V4L2 module reset completed")
-                                except Exception as module_error:
-                                    logger.debug(f"V4L2 module reset skipped: {module_error}")
+                                # Step 2: Skip V4L2 module reset to prevent device conflicts
+                                # Module reset can interfere with other active cameras
+                                logger.info("🧹 Skipping V4L2 module reset to protect other active cameras")
                                 
                             except Exception as cleanup_error:
                                 logger.debug(f"V4L2 cleanup skipped: {cleanup_error}")
                             
-                            # Extended V4L2 stabilization delay for driver recovery
-                            await asyncio.sleep(2.0)
-                            
-                            # V4L2 device state diagnostics
-                            try:
-                                import subprocess
-                                # Check V4L2 device states
-                                result = subprocess.run(['ls', '-la', '/dev/video*'], 
-                                                      capture_output=True, text=True, timeout=2)
-                                video_devices = len(result.stdout.splitlines()) if result.returncode == 0 else 0
-                                logger.info(f"🔍 V4L2 devices available: {video_devices}")
-                            except Exception as diag_error:
-                                logger.debug(f"V4L2 diagnostics skipped: {diag_error}")
+                            # Reduced delay to prevent device conflicts
+                            await asyncio.sleep(0.3)  # Reduced from 2.0s
                             
                             # Memory status check before next camera
                             try:
@@ -2277,6 +2258,8 @@ class PiCameraController(CameraController):
                                 logger.info(f"📊 Pre-camera memory: {mem.percent}% used, {mem.available / 1024**3:.1f}GB available")
                             except ImportError:
                                 pass
+                            
+                            logger.info(f"✅ {camera_key}: Safe cleanup completed, ready for next camera")
 
                 
             else:
