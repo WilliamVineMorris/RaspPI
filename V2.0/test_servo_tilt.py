@@ -180,14 +180,14 @@ def test_geometric_calculation():
     print("\n🧪 Testing Geometric Calculations")
     print("=" * 50)
     
-    # Create calculator with known configuration
+    # Create calculator with correct configuration (matching the updated config)
     config = ServoTiltConfig(
-        camera_offset_x=50.0,
-        camera_offset_y=30.0,
-        turntable_offset_x=100.0,
-        turntable_offset_y=25.0,
-        min_angle=-45.0,
-        max_angle=45.0
+        camera_offset_x=-10.0,  # Correct negative value
+        camera_offset_y=20.0,   # Correct positive value
+        turntable_offset_x=30.0, # Correct positive value
+        turntable_offset_y=-10.0, # Correct negative value
+        min_angle=-75.0,        # Updated range
+        max_angle=75.0          # Updated range
     )
     
     calculator = ServoTiltCalculator(config)
@@ -238,11 +238,18 @@ def test_motion_controller_integration():
         config_file = "config/scanner_config.yaml"
         config_manager = ConfigManager(config_file)
         
-        # Create motion controller in simulation mode
+        # Get the full configuration and ensure cameras section is passed to motion controller
         motion_config = config_manager.get('motion', {})
+        cameras_config = config_manager.get('cameras', {})
+        
+        # Motion controller needs cameras config at the top level, not nested
+        motion_config['cameras'] = cameras_config
         motion_config['simulation_mode'] = True  # Force simulation mode
         
         print("1. Creating motion controller...")
+        print(f"   Camera config available: {bool(cameras_config)}")
+        print(f"   Servo tilt in config: {cameras_config.get('servo_tilt', {}).get('enable', False)}")
+        
         controller = SimplifiedFluidNCControllerFixed(motion_config)
         print(f"   Servo tilt available: {controller.servo_tilt_calculator is not None}")
         
