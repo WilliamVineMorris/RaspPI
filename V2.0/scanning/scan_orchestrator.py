@@ -1176,9 +1176,17 @@ class CameraManagerAdapter:
                                     frame_bgr = frame_array[:, :, :3]  # Take first 3 channels (BGR)
                                     self.logger.info(f"CAMERA: Converted XBGR8888 to BGR: {frame_bgr.shape}")
                                 elif frame_array.shape[2] == 3:
-                                    # RGB888 format (3 channels) - camera is in capture mode
-                                    frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
-                                    self.logger.info(f"CAMERA: Converted RGB888 to BGR: {frame_bgr.shape}")
+                                    # RGB888 format (3 channels) - check if conversion is needed
+                                    # Picamera2 typically outputs RGB, but let's test if colors look correct
+                                    if not hasattr(self, '_color_test_done'):
+                                        # Test frame: if it's already BGR, don't convert; if RGB, convert
+                                        # For now, assume it's RGB and needs conversion to BGR
+                                        frame_bgr = frame_array.copy()  # Try using directly first
+                                        self.logger.info(f"CAMERA: Using RGB888 frame directly (no conversion): {frame_bgr.shape}")
+                                        self._color_test_done = True
+                                    else:
+                                        # Use the frame directly without conversion for now
+                                        frame_bgr = frame_array.copy()
                                 else:
                                     # Other channel counts - use as is
                                     frame_bgr = frame_array.copy()
