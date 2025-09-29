@@ -1163,28 +1163,43 @@ class CameraManagerAdapter:
                             time.sleep(0.1)  # Brief wait for mode switch
                         
                         # Use Picamera2's native capture with streaming-optimized config
-                        # This gets the 1080p main stream directly without additional processing
+                        # This gets the main stream directly but needs format handling
                         frame_array = camera.capture_array("main")
                         
                         if frame_array is not None and frame_array.size > 0:
-                            # OPTIMAL: Use camera RGB888 output directly - provides perfect colors
-                            frame_bgr = frame_array.copy()  # Direct use - optimal performance
+                            # Handle the actual format returned by the camera
+                            self.logger.info(f"CAMERA: Raw frame captured: {frame_array.shape}, dtype: {frame_array.dtype}")
                             
-                            if not hasattr(self, '_color_format_logged'):
-                                self.logger.info("CAMERA: Using native RGB888 output directly - optimal configuration (no conversion overhead)")
-                                self._color_format_logged = True
+                            if len(frame_array.shape) == 3:
+                                if frame_array.shape[2] == 4:
+                                    # XBGR8888 format (4 channels) - camera is in streaming mode
+                                    frame_bgr = frame_array[:, :, :3]  # Take first 3 channels (BGR)
+                                    self.logger.info(f"CAMERA: Converted XBGR8888 to BGR: {frame_bgr.shape}")
+                                elif frame_array.shape[2] == 3:
+                                    # RGB888 format (3 channels) - camera is in capture mode
+                                    frame_bgr = cv2.cvtColor(frame_array, cv2.COLOR_RGB2BGR)
+                                    self.logger.info(f"CAMERA: Converted RGB888 to BGR: {frame_bgr.shape}")
+                                else:
+                                    # Other channel counts - use as is
+                                    frame_bgr = frame_array.copy()
+                                    self.logger.info(f"CAMERA: Using raw format: {frame_bgr.shape}")
+                            else:
+                                # Grayscale or other formats
+                                frame_bgr = frame_array.copy()
+                                self.logger.info(f"CAMERA: Using grayscale/raw format: {frame_bgr.shape}")
                                 
-                            # Frame is ready for OpenCV JPEG encoding
-                            
                             # Optional: Apply minimal enhancement for better web display
                             # Only if the frame appears too dark/flat
-                            mean_brightness = np.mean(frame_bgr)
-                            if mean_brightness < 80:  # Dark frame
-                                frame_bgr = cv2.convertScaleAbs(frame_bgr, alpha=1.2, beta=15)
+                            try:
+                                mean_brightness = np.mean(frame_bgr)
+                                if mean_brightness < 80:  # Dark frame
+                                    frame_bgr = cv2.convertScaleAbs(frame_bgr, alpha=1.2, beta=15)
+                            except Exception as enhance_error:
+                                self.logger.debug(f"CAMERA: Enhancement skipped: {enhance_error}")
                             
                             # Performance logging
                             if not hasattr(self, '_last_success_log') or (current_time - self._last_success_log) > 20.0:
-                                self.logger.info(f"CAMERA: Native 1080p frame captured: {frame_bgr.shape}, dtype: {frame_bgr.dtype}")
+                                self.logger.info(f"CAMERA: Native frame processed: {frame_bgr.shape}, dtype: {frame_bgr.dtype}")
                                 self._last_success_log = current_time
                             
                             return frame_bgr
