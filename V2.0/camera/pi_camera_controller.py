@@ -210,6 +210,9 @@ class PiCameraController(CameraController):
             if not PICAMERA2_AVAILABLE:
                 raise CameraConnectionError("picamera2 library not available")
             
+            # CRITICAL: Ensure any existing cameras are properly closed first
+            await self._cleanup_existing_cameras()
+            
             # Initialize available cameras
             initialized_count = 0
             for camera_id, info in self.camera_info.items():
@@ -219,6 +222,8 @@ class PiCameraController(CameraController):
                         initialized_count += 1
                     except Exception as e:
                         logger.error(f"Failed to initialize camera {camera_id}: {e}")
+                        # Try to cleanup this specific camera if initialization failed
+                        await self._force_cleanup_camera(camera_id)
             
             if initialized_count == 0:
                 raise CameraConnectionError("No cameras could be initialized")
@@ -246,14 +251,18 @@ class PiCameraController(CameraController):
         try:
             logger.info("Shutting down camera controller...")
             
-            # Stop camera thread
+            # Stop camera thread first
             if self.camera_thread and self.camera_thread.is_alive():
                 self.thread_stop_event.set()
                 self.camera_thread.join(timeout=5.0)
             
-            # Close all cameras
-            for camera_id in list(self.cameras.keys()):
-                await self._close_camera(camera_id)
+            # Force cleanup all cameras with enhanced error protection
+            await self._cleanup_existing_cameras()
+            
+            # Clear all state
+            self.cameras = {}
+            self.active_captures = {}
+            self.camera_locks = {}
             
             self.status = CameraStatus.DISCONNECTED
             logger.info("Camera controller shutdown complete")
@@ -262,6 +271,8 @@ class PiCameraController(CameraController):
             
         except Exception as e:
             logger.error(f"Camera shutdown error: {e}")
+            # Force status to disconnected even if shutdown failed
+            self.status = CameraStatus.DISCONNECTED
             return False
     
     def is_connected(self) -> bool:
@@ -905,15 +916,39 @@ class PiCameraController(CameraController):
 
     async def auto_calibrate_camera(self, camera_id: str) -> Dict[str, float]:
         """Perform comprehensive auto-calibration: autofocus + auto-exposure optimization"""
-        logger.info(f"🔧 CALIBRATION: Starting auto-calibration for {camera_id}")
+        calibration_timeout = 15.0  # Maximum time for entire calibration
+        calibration_start = time.time()
+        
+        logger.info(f"🔧 CALIBRATION: Starting auto-calibration for {camera_id} (timeout: {calibration_timeout}s)")
         
         try:
             cam_id = int(camera_id.replace('camera', ''))
+            
             if cam_id not in self.cameras or not self.cameras[cam_id]:
                 logger.warning(f"📷 Camera {camera_id} not available for calibration")
                 return {'focus': 0.5, 'exposure_time': 33000, 'analogue_gain': 1.0}
                 
             picamera2 = self.cameras[cam_id]
+            
+            # Check camera state before calibration with enhanced error checking
+            try:
+                if not hasattr(picamera2, 'started') or not picamera2.started:
+                    logger.warning(f"⚠️ Camera {camera_id} not started - attempting to start...")
+                    try:
+                        picamera2.start()
+                        await asyncio.sleep(0.2)
+                        
+                        # Verify start was successful
+                        if not hasattr(picamera2, 'started') or not picamera2.started:
+                            raise CameraError(f"Camera {camera_id} failed to start after restart attempt")
+                            
+                    except Exception as start_error:
+                        logger.error(f"❌ Failed to start camera {camera_id}: {start_error}")
+                        return {'focus': 0.5, 'exposure_time': 33000, 'analogue_gain': 1.0}
+                        
+            except Exception as state_error:
+                logger.error(f"❌ Camera {camera_id} state check failed: {state_error}")
+                return {'focus': 0.5, 'exposure_time': 33000, 'analogue_gain': 1.0}
             
             # Step 1: Enable auto-exposure and auto-white-balance
             logger.info(f"📷 Camera {camera_id} enabling auto-exposure controls...")
@@ -939,32 +974,76 @@ class PiCameraController(CameraController):
                 })
                 await asyncio.sleep(1.0)
             
-            # Step 2: Capture a few frames to let AE settle
+            # Step 2: Capture a few frames to let AE settle (with timeout protection)
             logger.info(f"📷 Camera {camera_id} letting auto-exposure settle...")
-            for i in range(3):
-                metadata = picamera2.capture_metadata()
-                exposure = metadata.get('ExposureTime', 33000)
-                gain = metadata.get('AnalogueGain', 1.0)
-                logger.debug(f"📷 Camera {camera_id} AE settle frame {i+1}: exposure={exposure}, gain={gain:.2f}")
-                await asyncio.sleep(0.3)
+            settle_timeout = 5.0  # Maximum time to wait for AE settling
+            settle_start = time.time()
             
-            # Step 3: Perform autofocus (reuse existing method)
-            logger.info(f"📷 Camera {camera_id} performing autofocus...")
-            focus_value = await self.auto_focus_and_get_value(camera_id)
-            if focus_value is None:
+            try:
+                for i in range(3):
+                    if time.time() - settle_start > settle_timeout:
+                        logger.warning(f"⚠️ Camera {camera_id} AE settling timeout - proceeding with current settings")
+                        break
+                    
+                    try:
+                        metadata = picamera2.capture_metadata()
+                        exposure = metadata.get('ExposureTime', 33000)
+                        gain = metadata.get('AnalogueGain', 1.0)
+                        logger.debug(f"📷 Camera {camera_id} AE settle frame {i+1}: exposure={exposure}, gain={gain:.2f}")
+                        await asyncio.sleep(0.3)
+                    except Exception as metadata_error:
+                        logger.warning(f"⚠️ Camera {camera_id} metadata capture failed on frame {i+1}: {metadata_error}")
+                        # Continue with reduced delay
+                        await asyncio.sleep(0.1)
+                        
+            except Exception as settle_error:
+                logger.error(f"❌ Camera {camera_id} AE settling failed: {settle_error}")
+                # Continue calibration with defaults
+            
+            # Step 3: Perform autofocus (reuse existing method) with timeout check
+            if time.time() - calibration_start > calibration_timeout:
+                logger.warning(f"⚠️ Camera {camera_id} calibration timeout - using defaults")
                 focus_value = 0.5
+            else:
+                logger.info(f"📷 Camera {camera_id} performing autofocus...")
+                try:
+                    focus_value = await asyncio.wait_for(
+                        self.auto_focus_and_get_value(camera_id), 
+                        timeout=calibration_timeout - (time.time() - calibration_start)
+                    )
+                    if focus_value is None:
+                        focus_value = 0.5
+                except asyncio.TimeoutError:
+                    logger.warning(f"⚠️ Camera {camera_id} autofocus timeout - using default")
+                    focus_value = 0.5
+                except Exception as focus_error:
+                    logger.warning(f"⚠️ Camera {camera_id} autofocus failed: {focus_error}")
+                    focus_value = 0.5
             
-            # Step 4: Capture final calibration metadata
+            # Step 4: Capture final calibration metadata with timeout protection
             logger.info(f"📷 Camera {camera_id} capturing final calibration values...")
-            final_metadata = picamera2.capture_metadata()
+            try:
+                final_metadata = picamera2.capture_metadata()
+            except Exception as metadata_error:
+                logger.warning(f"⚠️ Camera {camera_id} final metadata capture failed: {metadata_error}")
+                # Use default metadata
+                final_metadata = {
+                    'ExposureTime': 33000,
+                    'AnalogueGain': 1.0,
+                    'Lux': None
+                }
             
-            # Extract optimized exposure settings
+            # Extract optimized exposure settings with fallbacks
             final_exposure = final_metadata.get('ExposureTime', 33000)  # microseconds
             final_gain = final_metadata.get('AnalogueGain', 1.0)
             final_lux = final_metadata.get('Lux', None)
             
-            # Calculate brightness score (0-1) from current image
-            brightness_score = await self._calculate_brightness_score(picamera2)
+            # Calculate brightness score (0-1) from current image with error protection
+            try:
+                brightness_score = await self._calculate_brightness_score(picamera2)
+            except Exception as brightness_error:
+                logger.warning(f"⚠️ Camera {camera_id} brightness calculation failed: {brightness_error}")
+                brightness_score = 0.5  # Default middle brightness
             
             # Store calibrated settings for scan-time application (don't lock during live streaming)
             logger.info(f"📷 Camera {camera_id} storing calibrated settings for scan use...")
@@ -1542,9 +1621,19 @@ class PiCameraController(CameraController):
         try:
             if not PICAMERA2_AVAILABLE or Picamera2 is None:
                 raise CameraConfigurationError("picamera2 not available")
+            
+            # Ensure any existing camera for this ID is cleaned up first
+            await self._force_cleanup_camera(camera_id)
+            await asyncio.sleep(0.2)  # Give hardware time to reset
                 
             logger.info(f"📷 Initializing camera {camera_id}")
-            camera = Picamera2(camera_id)
+            
+            # Initialize with error protection
+            try:
+                camera = Picamera2(camera_id)
+            except Exception as init_error:
+                logger.error(f"❌ Failed to create Picamera2 instance for camera {camera_id}: {init_error}")
+                raise CameraInitializationError(f"Camera {camera_id} instance creation failed: {init_error}")
             
             # Get camera properties for ArduCam detection
             props = camera.camera_properties
@@ -1574,9 +1663,23 @@ class PiCameraController(CameraController):
             # Apply configuration
             camera.configure(config)
             
-            # Start camera to make it operational
-            camera.start()
-            logger.debug(f"📷 Camera {camera_id}: Camera started successfully")
+            # Start camera to make it operational (with error protection)
+            try:
+                camera.start()
+                logger.debug(f"📷 Camera {camera_id}: Camera started successfully")
+                
+                # Verify camera is actually running
+                if not hasattr(camera, 'started') or not camera.started:
+                    raise CameraError(f"Camera {camera_id} failed to start properly")
+                    
+            except Exception as start_error:
+                logger.error(f"❌ Camera {camera_id} start failed: {start_error}")
+                # Try to cleanup the failed camera
+                try:
+                    camera.close()
+                except:
+                    pass
+                raise CameraInitializationError(f"Camera {camera_id} start failed: {start_error}")
             
             # Set high quality capture controls for both camera types
             try:
@@ -1644,15 +1747,70 @@ class PiCameraController(CameraController):
             logger.error(f"❌ Failed to initialize camera {camera_id}: {e}")
             raise CameraConfigurationError(f"Camera {camera_id} initialization failed: {e}")
     
-    async def _close_camera(self, camera_id: int):
-        """Close specific camera"""
+    async def _cleanup_existing_cameras(self):
+        """Cleanup any existing cameras before reinitialization"""
+        try:
+            if hasattr(self, 'cameras') and self.cameras:
+                logger.info("🧹 Cleaning up existing cameras before reinitialization...")
+                for camera_id in list(self.cameras.keys()):
+                    await self._force_cleanup_camera(camera_id)
+                self.cameras.clear()
+            
+            # Reset camera state
+            self.cameras = {}
+            self.active_captures = {}
+            
+            # Give hardware time to reset
+            await asyncio.sleep(0.5)
+            logger.info("✅ Camera cleanup completed")
+            
+        except Exception as e:
+            logger.error(f"❌ Camera cleanup error: {e}")
+    
+    async def _force_cleanup_camera(self, camera_id: int):
+        """Force cleanup of specific camera with error protection"""
         try:
             if camera_id in self.cameras and self.cameras[camera_id]:
                 camera = self.cameras[camera_id]
-                camera.stop()
-                camera.close()
+                
+                # Try graceful stop first
+                try:
+                    if hasattr(camera, 'stop') and callable(camera.stop):
+                        camera.stop()
+                        logger.debug(f"📷 Camera {camera_id} stopped gracefully")
+                        # Give time for stop to complete
+                        await asyncio.sleep(0.1)
+                except Exception as stop_error:
+                    logger.warning(f"⚠️ Camera {camera_id} stop failed: {stop_error}")
+                
+                # Force close with additional error protection
+                try:
+                    if hasattr(camera, 'close') and callable(camera.close):
+                        camera.close()
+                        logger.debug(f"📷 Camera {camera_id} closed")
+                        # Give time for cleanup to complete
+                        await asyncio.sleep(0.1)
+                except Exception as close_error:
+                    logger.warning(f"⚠️ Camera {camera_id} close failed: {close_error}")
+                
+                # Clear reference
                 self.cameras[camera_id] = None
-                logger.info(f"Camera {camera_id} closed")
+                
+            # Clear from active captures if present
+            if camera_id in self.active_captures:
+                self.active_captures[camera_id] = False
+                
+        except Exception as e:
+            logger.error(f"❌ Force cleanup camera {camera_id} failed: {e}")
+            # Always clear reference even if cleanup failed
+            if hasattr(self, 'cameras') and camera_id in self.cameras:
+                self.cameras[camera_id] = None
+    
+    async def _close_camera(self, camera_id: int):
+        """Close specific camera"""
+        try:
+            await self._force_cleanup_camera(camera_id)
+            logger.info(f"Camera {camera_id} closed")
                 
         except Exception as e:
             logger.error(f"Error closing camera {camera_id}: {e}")
