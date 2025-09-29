@@ -909,7 +909,7 @@ class CameraManagerAdapter:
                             if hasattr(self, '_stream_configs') and 0 in self._stream_configs:
                                 camera.configure(self._stream_configs[0])
                             else:
-                                # Fallback configuration
+                                # Fallback configuration - match what camera is actually providing
                                 config = camera.create_video_configuration(
                                     main={"size": (1920, 1080), "format": "RGB888"}
                                 )
@@ -1507,14 +1507,27 @@ class CameraManagerAdapter:
                                 image_array, capture_metadata = await loop.run_in_executor(executor, capture_with_metadata, camera)
             
                             if image_array is not None and image_array.size > 0:
-                                # Convert RGB to BGR format (Picamera2 returns RGB, system expects BGR)
+                                # Handle different camera formats properly
                                 import cv2
-                                if len(image_array.shape) == 3 and image_array.shape[2] == 3:
-                                    # Convert RGB to BGR for consistency with OpenCV
-                                    image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
-                                    self.logger.info(f"CAMERA: Converted RGB to BGR for {camera_id}")
+                                self.logger.info(f"CAMERA: Raw capture shape for {camera_id}: {image_array.shape}")
+                                
+                                if len(image_array.shape) == 3:
+                                    if image_array.shape[2] == 4:
+                                        # XBGR8888 format (4 channels) - convert to BGR by dropping alpha
+                                        image_bgr = image_array[:, :, :3]  # Take first 3 channels (BGR)
+                                        self.logger.info(f"CAMERA: Converted XBGR8888 to BGR for {camera_id}")
+                                    elif image_array.shape[2] == 3:
+                                        # RGB format (3 channels) - convert to BGR
+                                        image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                                        self.logger.info(f"CAMERA: Converted RGB to BGR for {camera_id}")
+                                    else:
+                                        # Other formats - use as is
+                                        image_bgr = image_array.copy()
+                                        self.logger.info(f"CAMERA: Using raw format for {camera_id}")
                                 else:
+                                    # Grayscale or other formats
                                     image_bgr = image_array.copy()
+                                    self.logger.info(f"CAMERA: Using grayscale/raw format for {camera_id}")
                                 
                                 # Log captured metadata
                                 if capture_metadata and isinstance(capture_metadata, dict):
@@ -1551,9 +1564,22 @@ class CameraManagerAdapter:
                                     image_array = camera.capture_array("main")
                                     if image_array is not None and image_array.size > 0:
                                         import cv2
-                                        if len(image_array.shape) == 3 and image_array.shape[2] == 3:
-                                            image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                                        self.logger.info(f"CAMERA: Retry capture shape for {camera_id}: {image_array.shape}")
+                                        
+                                        if len(image_array.shape) == 3:
+                                            if image_array.shape[2] == 4:
+                                                # XBGR8888 format (4 channels) - convert to BGR by dropping alpha
+                                                image_bgr = image_array[:, :, :3]  # Take first 3 channels (BGR)
+                                                self.logger.info(f"CAMERA: Retry converted XBGR8888 to BGR for {camera_id}")
+                                            elif image_array.shape[2] == 3:
+                                                # RGB format (3 channels) - convert to BGR
+                                                image_bgr = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                                                self.logger.info(f"CAMERA: Retry converted RGB to BGR for {camera_id}")
+                                            else:
+                                                # Other formats - use as is
+                                                image_bgr = image_array.copy()
                                         else:
+                                            # Grayscale or other formats
                                             image_bgr = image_array.copy()
                                         
                                         self.logger.info(f"CAMERA: Buffer recovery successful for {camera_id}: {image_bgr.shape}")

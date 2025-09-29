@@ -2266,6 +2266,37 @@ class PiCameraController(CameraController):
                 # LOWER-RESOLUTION: Simultaneous capture for better sync
                 logger.info(f"🔧 STANDARD SIMULTANEOUS: Capturing {len(available_cameras)} cameras simultaneously at {target_resolution}")
                 
+                # Ensure cameras are properly configured for target resolution before capture
+                for camera_id in available_cameras:
+                    camera = self.cameras[camera_id]
+                    if camera:
+                        try:
+                            # Check current configuration matches target
+                            current_config = camera.camera_configuration
+                            if current_config and 'main' in current_config:
+                                current_size = current_config['main'].get('size')
+                                if current_size != target_resolution:
+                                    logger.info(f"📷 Camera {camera_id}: Reconfiguring from {current_size} to {target_resolution}")
+                                    
+                                    # Stop and reconfigure with correct resolution
+                                    if camera.started:
+                                        camera.stop()
+                                    
+                                    # Create proper configuration for target resolution
+                                    capture_config = camera.create_still_configuration(
+                                        main={"size": target_resolution, "format": "RGB888"},
+                                        raw=None
+                                    )
+                                    camera.configure(capture_config)
+                                    camera.start()
+                                    
+                                    # Allow camera to stabilize
+                                    await asyncio.sleep(0.3)
+                                    
+                                    logger.info(f"📷 Camera {camera_id}: Reconfigured to {target_resolution}")
+                        except Exception as config_error:
+                            logger.warning(f"📷 Camera {camera_id}: Configuration check failed: {config_error}")
+                
                 # Use standard dual sequential with shorter delays for lower-res
                 results = await self.capture_dual_sequential_isp("main", delay_ms=100)
                 
