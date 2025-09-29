@@ -199,7 +199,7 @@ lighting:
   
   zones:
     inner:
-      gpio_pins: [12]      # Inner flash ring - PWM-capable pin (avoiding I2S pins 17,21,22)
+      gpio_pins: [13]      # Inner flash ring - PWM-capable pin (avoiding I2S pins 17,21,22)
       led_type: "cool_white"
       max_current_ma: 800
       position: [0.0, 0.0, 80.0]    # X, Y, Z position in mm
@@ -208,7 +208,7 @@ lighting:
       max_brightness: 0.9           # 90% safety limit
       
     outer:
-      gpio_pins: [13]      # Outer flash ring - PWM-capable pin (avoiding FluidNC limit pins)
+      gpio_pins: [18]      # Outer flash ring - PWM-capable pin (avoiding FluidNC limit pins)
       led_type: "cool_white" 
       max_current_ma: 1000
       position: [0.0, 0.0, 80.0]    # X, Y, Z position in mm
