@@ -347,7 +347,7 @@ class CylindricalScanPattern(ScanPattern):
         
         Cylindrical scanning strategy:
         - Z-axis: Rotates cylinder/turntable through multiple angles
-        - C-axis: Camera servo stays at fixed angle (or minimal variation)
+        - C-axis: Camera servo angle mapped to Y position for focus targeting
         - X,Y: Camera positioning for coverage
         """
         points = []
@@ -356,46 +356,64 @@ class CylindricalScanPattern(ScanPattern):
         # Z-axis: Cylinder rotation angles (primary rotation axis)
         z_rotations = params.z_rotations or list(range(0, 360, int(params.z_step)))
         
-        # C-axis: Camera servo angle(s) - typically fixed for consistency
-        # For cylindrical scan, usually keep servo at one angle for consistent viewpoint
+        # Generate Y positions first
+        y_positions = self._generate_y_positions()
+        
+        # C-axis: Camera servo angle(s) - should map 1:1 with Y positions for focus targeting
         c_angles = params.c_angles
         if c_angles is None or len(c_angles) == 0:
-            # Default: single servo angle for consistent camera positioning
-            c_angles = [0.0]  # Fixed servo angle
-            self.logger.info(f"Cylindrical scan: Using fixed servo angle C=0.0°")
-        elif len(c_angles) > 3:
-            # Limit servo variations in cylindrical scan to avoid excessive points
-            c_angles = c_angles[:3]
-            self.logger.warning(f"Cylindrical scan: Limited servo angles to {c_angles} (max 3 for efficiency)")
+            # Default: single servo angle for all Y positions
+            c_angles = [0.0] * len(y_positions)
+            self.logger.info(f"Cylindrical scan: Using fixed servo angle C=0.0° for all Y positions")
+        elif len(c_angles) == 1:
+            # Single angle provided - use for all Y positions
+            c_angles = c_angles * len(y_positions)
+            self.logger.info(f"Cylindrical scan: Using servo angle C={c_angles[0]}° for all Y positions")
+        elif len(c_angles) != len(y_positions):
+            # Mismatch between Y positions and servo angles
+            self.logger.warning(f"Servo angle count ({len(c_angles)}) doesn't match Y position count ({len(y_positions)})")
+            if len(c_angles) > len(y_positions):
+                # Too many angles - truncate
+                c_angles = c_angles[:len(y_positions)]
+                self.logger.info(f"Truncated servo angles to match Y positions: {c_angles}")
+            else:
+                # Too few angles - repeat last angle
+                while len(c_angles) < len(y_positions):
+                    c_angles.append(c_angles[-1])
+                self.logger.info(f"Extended servo angles to match Y positions: {c_angles}")
         
-        self.logger.info(f"Cylindrical scan setup: {len(z_rotations)} cylinder rotations × {len(c_angles)} servo angle(s)")
+        # Create Y position to servo angle mapping
+        y_servo_mapping = list(zip(y_positions, c_angles))
         
-        # Generate positions: CYLINDER rotates (Z), SERVO fixed or minimal (C)
+        self.logger.info(f"Cylindrical scan setup: {len(z_rotations)} cylinder rotations × {len(y_servo_mapping)} Y-servo pairs")
+        for y_pos, c_angle in y_servo_mapping:
+            self.logger.info(f"  Y={y_pos}mm -> Servo={c_angle:.1f}°")
+        
+        # Generate positions: CYLINDER rotates (Z), SERVO mapped to Y position (C)
         for z_rotation in z_rotations:  # Primary: rotate cylinder
-            for c_angle in c_angles:    # Secondary: servo angle (usually single value)
-                for y_pos in self._generate_y_positions():
-                    for x_pos in self._generate_x_positions(y_pos):
-                        
-                        position = Position4D(
-                            x=x_pos,
-                            y=y_pos, 
-                            z=z_rotation,  # CYLINDER rotation angle
-                            c=c_angle       # SERVO angle (typically fixed)
-                        )
-                        
-                        # Create scan point
-                        point = ScanPoint(
-                            position=position,
-                            camera_settings=self._get_camera_settings(position),
-                            capture_count=1,
-                            dwell_time=0.2
-                        )
-                        
-                        # Validate point before adding
-                        if self.validate_point(point):
-                            points.append(point)
-                        else:
-                            self.logger.warning(f"Skipping invalid point: {position}")
+            for y_pos, c_angle in y_servo_mapping:  # Each Y position has its specific servo angle
+                for x_pos in self._generate_x_positions(y_pos):
+                    
+                    position = Position4D(
+                        x=x_pos,
+                        y=y_pos, 
+                        z=z_rotation,  # CYLINDER rotation angle
+                        c=c_angle       # SERVO angle mapped to this Y position
+                    )
+                    
+                    # Create scan point
+                    point = ScanPoint(
+                        position=position,
+                        camera_settings=self._get_camera_settings(position),
+                        capture_count=1,
+                        dwell_time=0.2
+                    )
+                    
+                    # Validate point before adding
+                    if self.validate_point(point):
+                        points.append(point)
+                    else:
+                        self.logger.warning(f"Skipping invalid point: {position}")
         
         self.logger.info(f"Generated {len(points)} valid points for cylindrical pattern")
         return points
