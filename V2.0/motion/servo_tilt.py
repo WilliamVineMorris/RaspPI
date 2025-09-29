@@ -42,8 +42,8 @@ class ServoTiltCalculator:
     2. Automatic: Calculates angle based on geometric triangle
     
     Geometric calculation uses triangle where:
-    - Base = fluidnc_x - x_turntable_offset - x_camera_offset
-    - Height = fluidnc_y - y_camera_offset - y_turntable_offset - user_y_focus
+    - Base = fluidnc_x + x_turntable_offset + x_camera_offset
+    - Height = fluidnc_y + y_camera_offset + y_turntable_offset + user_y_focus
     - Angle = atan2(height, base) converted to degrees
     """
     
@@ -81,8 +81,8 @@ class ServoTiltCalculator:
         Automatic mode: Calculate servo angle based on geometric triangle
         
         Triangle geometry:
-        - Base = fluidnc_x - x_turntable_offset - x_camera_offset
-        - Height = fluidnc_y - y_camera_offset - y_turntable_offset - user_y_focus
+        - Base = fluidnc_x + x_turntable_offset + x_camera_offset
+        - Height = fluidnc_y + y_camera_offset + y_turntable_offset + user_y_focus
         - Angle = atan2(height, base) converted to degrees
         
         Args:
@@ -97,9 +97,9 @@ class ServoTiltCalculator:
             MotionControlError: If calculation fails or distance too small
         """
         try:
-            # Calculate triangle components
-            base = fluidnc_x - self.config.turntable_offset_x - self.config.camera_offset_x
-            height = fluidnc_y - self.config.camera_offset_y - self.config.turntable_offset_y - user_y_focus
+            # Calculate triangle components using addition instead of subtraction
+            base = fluidnc_x + self.config.turntable_offset_x + self.config.camera_offset_x
+            height = fluidnc_y + self.config.camera_offset_y + self.config.turntable_offset_y + user_y_focus
             
             # Check minimum distance for stable calculation
             distance = math.sqrt(base * base + height * height)
@@ -110,24 +110,32 @@ class ServoTiltCalculator:
                 )
             
             # Calculate angle using atan2 for proper quadrant handling
+            # Note: atan2(height, base) gives angle from horizontal
+            # Servo: 0° = horizontal, +90° = up, -90° = down
             angle_radians = math.atan2(height, base)
             angle_degrees = math.degrees(angle_radians)
             
+            # For servo orientation: if height is positive (camera above focus), angle should be negative (look down)
+            # If height is negative (camera below focus), angle should be positive (look up)
+            servo_angle = -angle_degrees  # Invert the angle for servo orientation
+            
             # Handle negative angles based on configuration
-            if not self.config.enable_negative_angles and angle_degrees < 0:
-                angle_degrees = 0.0
-                print(f"Warning: Negative angle disabled, using 0° instead of {math.degrees(angle_radians):.1f}°")
+            if not self.config.enable_negative_angles and servo_angle < 0:
+                servo_angle = 0.0
+                print(f"Warning: Negative angle disabled, using 0° instead of {servo_angle:.1f}°")
             
             # Clamp to servo limits
             clamped_angle = max(self.config.min_angle, 
-                               min(self.config.max_angle, angle_degrees))
+                               min(self.config.max_angle, servo_angle))
             
             # Debug information
             print(f"Servo Angle Calculation:")
             print(f"  FluidNC Position: X={fluidnc_x:.1f}, Y={fluidnc_y:.1f}")
             print(f"  User Y Focus: {user_y_focus:.1f}mm")
-            print(f"  Triangle - Base: {base:.1f}mm, Height: {height:.1f}mm")
-            print(f"  Calculated Angle: {angle_degrees:.1f}° -> Clamped: {clamped_angle:.1f}°")
+            print(f"  Camera/Turntable Offsets: Cam({self.config.camera_offset_x}, {self.config.camera_offset_y}) Turntable({self.config.turntable_offset_x}, {self.config.turntable_offset_y})")
+            print(f"  Triangle - Base: {base:.1f}mm, Height: {height:.1f}mm (using addition)")
+            print(f"  Raw Angle: {angle_degrees:.1f}° -> Servo Angle: {servo_angle:.1f}° -> Clamped: {clamped_angle:.1f}°")
+            print(f"  Servo Interpretation: {clamped_angle:.1f}° ({'UP' if clamped_angle > 0 else 'DOWN' if clamped_angle < 0 else 'HORIZONTAL'})")
             
             return clamped_angle
             

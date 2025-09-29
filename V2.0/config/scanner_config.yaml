@@ -138,11 +138,11 @@ cameras:
   # Camera positioning offsets for servo angle calculation
   positioning:
     camera_offset:
-      x: 50.0    # mm - Horizontal offset of camera from FluidNC X position
-      y: 30.0    # mm - Vertical offset of camera from FluidNC Y position
+      x: -10.0   # mm - Horizontal offset of camera from FluidNC X position (negative)
+      y: 20.0    # mm - Vertical offset of camera from FluidNC Y position
     turntable_offset:
-      x: 100.0   # mm - Horizontal offset of turntable center from origin
-      y: 25.0    # mm - Vertical offset of turntable surface from origin
+      x: 30.0    # mm - Horizontal offset of turntable center from origin
+      y: -10.0   # mm - Vertical offset of turntable surface from origin (negative)
   
   camera_1:
     port: 0
@@ -177,8 +177,8 @@ cameras:
     calculation_mode: "automatic"  # "automatic" or "manual"
     
     # Servo angle limits
-    min_angle: -45.0    # degrees - Maximum downward tilt
-    max_angle: 45.0     # degrees - Maximum upward tilt
+    min_angle: -75.0    # degrees - Maximum downward tilt
+    max_angle: 75.0     # degrees - Maximum upward tilt
     center_angle: 0.0   # degrees - Horizontal position
     
     # Manual mode: constant servo angle for all points
