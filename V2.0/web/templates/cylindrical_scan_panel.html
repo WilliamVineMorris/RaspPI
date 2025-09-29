@@ -64,6 +64,34 @@
             </div>
         </div>
         
+        <!-- Servo Tilt Configuration -->
+        <div class="config-group">
+            <h4>🎯 Servo Tilt Control</h4>
+            <div class="input-group">
+                <label for="servo-tilt-mode">Servo Tilt Mode:</label>
+                <select id="servo-tilt-mode" onchange="updateServoTiltMode()">
+                    <option value="none">None - Fixed Camera Position</option>
+                    <option value="manual">Manual Angle</option>
+                    <option value="focus_point">Focus Point Targeting</option>
+                </select>
+                <small id="servo-mode-description">Camera will maintain fixed position during scanning</small>
+            </div>
+            
+            <!-- Manual Angle Controls -->
+            <div id="servo-manual-controls" class="input-group" style="display: none;">
+                <label for="servo-manual-angle">Manual Servo Angle (°):</label>
+                <input type="number" id="servo-manual-angle" min="-75" max="75" value="0" step="1">
+                <small>Set servo to a fixed angle (-75° to +75°)</small>
+            </div>
+            
+            <!-- Focus Point Controls -->
+            <div id="servo-focus-controls" class="input-group" style="display: none;">
+                <label for="servo-y-focus">Focus Y Position (mm):</label>
+                <input type="number" id="servo-y-focus" min="10" max="200" value="80" step="5">
+                <small>Y-coordinate to focus servo on during scanning</small>
+            </div>
+        </div>
+        
         <!-- Scan Summary -->
         <div class="config-group scan-summary">
             <h4>📊 Scan Summary</h4>
@@ -127,6 +155,36 @@ function updateHeightLevels() {
     document.getElementById('height-levels').textContent = `Height levels: ${levels} (${heightSteps} steps)`;
 }
 
+// New function for servo tilt mode handling
+function updateServoTiltMode() {
+    const mode = document.getElementById('servo-tilt-mode').value;
+    const manualControls = document.getElementById('servo-manual-controls');
+    const focusControls = document.getElementById('servo-focus-controls');
+    const description = document.getElementById('servo-mode-description');
+    
+    // Hide all controls first
+    manualControls.style.display = 'none';
+    focusControls.style.display = 'none';
+    
+    // Show appropriate controls and update description
+    switch(mode) {
+        case 'none':
+            description.textContent = 'Camera will maintain fixed position during scanning';
+            break;
+        case 'manual':
+            manualControls.style.display = 'block';
+            description.textContent = 'Servo will be set to a fixed manual angle for all positions';
+            break;
+        case 'focus_point':
+            focusControls.style.display = 'block';
+            description.textContent = 'Servo will automatically tilt to focus on specified Y coordinate';
+            break;
+    }
+    
+    // Update scan summary to reflect servo changes
+    updateCylindricalScanSummary();
+}
+
 function updateCylindricalScanSummary() {
     // Get current values
     const yMin = parseFloat(document.getElementById('y-min').value) || 40;
@@ -146,319 +204,232 @@ function updateCylindricalScanSummary() {
     // Estimate time (2 seconds per point)
     const estimatedMinutes = Math.ceil(totalPoints * 2 / 60);
     
+    // Get servo tilt status for display
+    const servoMode = document.getElementById('servo-tilt-mode').value;
+    let servoInfo = '';
+    switch(servoMode) {
+        case 'none':
+            servoInfo = `servo fixed at ${servoAngle}°`;
+            break;
+        case 'manual':
+            const manualAngle = parseFloat(document.getElementById('servo-manual-angle').value) || 0;
+            servoInfo = `servo at manual ${manualAngle}°`;
+            break;
+        case 'focus_point':
+            const focusY = parseFloat(document.getElementById('servo-y-focus').value) || 80;
+            servoInfo = `servo targeting Y=${focusY}mm`;
+            break;
+    }
+    
     // Update display
     document.getElementById('total-points').textContent = totalPoints;
     document.getElementById('estimated-time').textContent = `${estimatedMinutes} min`;
     document.getElementById('coverage-info').textContent = 
-        `${heightLevels} heights × ${rotationPositions} Z-rotations (servo fixed at ${servoAngle}°)`;
+        `${heightLevels} heights × ${rotationPositions} Z-rotations (${servoInfo})`;
 }
 
 function previewCylindricalScan() {
     const config = getCylindricalScanConfig();
     
-    console.log('Cylindrical Scan Preview:', config);
-    
-    // Show preview in console or modal
+    // Create preview text
     const preview = `
-🔄 CYLINDRICAL SCAN PREVIEW
-===========================
-📐 Camera Radius: ${config.radius}mm (fixed)
-📏 Height Range: ${config.y_min}mm to ${config.y_max}mm (step: ${config.y_step}mm)
-🔄 Rotation: Every ${config.rotation_step}° (${Math.floor(360/config.rotation_step)} positions)
-📷 Camera Angles: ${config.c_angles.join('°, ')}°
-📊 Total Points: ${config.estimated_points}
-⏱️ Estimated Time: ${config.estimated_time} minutes
-    `;
+📋 Cylindrical Scan Preview
+
+📐 Setup:
+   Camera radius: ${config.radius}mm
+   Height range: ${config.y_min}mm to ${config.y_max}mm (${config.height_steps + 1} levels)
+   Rotation positions: ${config.rotation_positions} (${(360/config.rotation_positions).toFixed(1)}° steps)
+
+🎯 Servo Configuration:
+   Mode: ${config.servo_tilt_mode}
+   ${config.servo_tilt_mode === 'manual' ? `Manual angle: ${config.servo_manual_angle}°` : ''}
+   ${config.servo_tilt_mode === 'focus_point' ? `Focus Y position: ${config.servo_y_focus}mm` : ''}
+   ${config.servo_tilt_mode === 'none' ? `Fixed servo angle: ${config.servo_angle}°` : ''}
+
+📊 Totals:
+   Total scan points: ${config.total_points}
+   Estimated time: ${Math.ceil(config.total_points * 2 / 60)} minutes
+   
+🔍 Details:
+   ${config.coverage_details}
+`;
     
     alert(preview);
 }
 
 function getCylindricalScanConfig() {
+    // Get basic scan parameters
+    const radius = parseFloat(document.getElementById('radius').value) || 30;
     const yMin = parseFloat(document.getElementById('y-min').value) || 40;
     const yMax = parseFloat(document.getElementById('y-max').value) || 120;
-    const heightSteps = parseInt(document.getElementById('height-steps').value) || 0;  // Number of height steps
+    const heightSteps = parseInt(document.getElementById('height-steps').value) || 0;
     const rotationPositions = parseInt(document.getElementById('rotation-positions').value) || 6;
-    const radius = parseFloat(document.getElementById('radius').value) || 30;
     
-    // 🎯 NEW HEIGHT STEP CALCULATION:
-    // 0 steps = 1 ring at min height
-    // 1 step = 2 rings at min and max height  
-    // 2+ steps = calculate intermediate heights
-    let yPositions = [];
-    if (heightSteps === 0) {
-        // Only one ring at minimum height
-        yPositions = [yMin];
-    } else if (heightSteps === 1) {
-        // Two rings: min and max height
-        yPositions = [yMin, yMax];
-    } else {
-        // Multiple rings: min, intermediate heights, max
-        yPositions = [yMin];
-        for (let i = 1; i < heightSteps; i++) {
-            const intermediate = yMin + (yMax - yMin) * (i / heightSteps);
-            yPositions.push(intermediate);
-        }
-        yPositions.push(yMax);
-    }
-    
-    // Use single camera angle for cylindrical scanning (C-axis fixed)
+    // Parse camera angles (use single angle for cylindrical scanning)
     const angleText = document.getElementById('camera-angles').value;
     const parsedAngles = angleText.split(',').map(a => parseFloat(a.trim())).filter(a => !isNaN(a));
     const servoAngle = parsedAngles.length > 0 ? parsedAngles[0] : 0.0;  // Use first angle only
     
-    // Calculate statistics (Z-axis rotations × Y-axis heights, C-axis fixed)
-    const heightLevels = yPositions.length;
-    const totalPoints = heightLevels * rotationPositions;  // No C-axis multiplication!
-    const estimatedTime = Math.ceil(totalPoints * 2 / 60);
+    // Get servo tilt configuration
+    const servoTiltMode = document.getElementById('servo-tilt-mode').value;
+    const servoManualAngle = parseFloat(document.getElementById('servo-manual-angle').value) || 0;
+    const servoYFocus = parseFloat(document.getElementById('servo-y-focus').value) || 80;
     
-    // Calculate Z rotations from number of positions
-    const zRotations = [];
-    const rotationStep = 360 / rotationPositions;
-    for (let i = 0; i < rotationPositions; i++) {
-        zRotations.push(i * rotationStep);
+    // Calculate totals
+    const heightLevels = heightSteps + 1;
+    const totalPoints = heightLevels * rotationPositions;
+    
+    // Coverage details based on servo mode
+    let coverageDetails;
+    switch(servoTiltMode) {
+        case 'manual':
+            coverageDetails = `${heightLevels} heights × ${rotationPositions} Z-rotations (servo at manual ${servoManualAngle}°)`;
+            break;
+        case 'focus_point':
+            coverageDetails = `${heightLevels} heights × ${rotationPositions} Z-rotations (servo targeting Y=${servoYFocus}mm)`;
+            break;
+        default:
+            coverageDetails = `${heightLevels} heights × ${rotationPositions} Z-rotations (servo fixed at ${servoAngle}°)`;
     }
     
     return {
-        pattern_type: 'cylindrical',
+        pattern: 'cylindrical',
         radius: radius,
-        y_range: [yMin, yMax],           // Send as range for backend
-        y_positions: yPositions,         // NEW: Explicit Y positions
-        height_steps: heightSteps,       // NEW: Number of steps for reference
-        rotation_positions: rotationPositions,  // NEW: Number of rotation positions
-        z_rotations: zRotations,         // Explicit Z rotation angles
-        servo_angle: servoAngle,         // Single fixed servo angle
+        y_min: yMin,
+        y_max: yMax,
+        height_steps: heightSteps,
+        rotation_positions: rotationPositions,
+        servo_angle: servoAngle,         // Single fixed servo angle (for none mode)
         c_angles: [servoAngle],          // Array with single angle for backend
-        estimated_points: totalPoints,
-        estimated_time: estimatedTime
+        total_points: totalPoints,
+        coverage_details: coverageDetails,
+        scan_name: document.getElementById('scan-name')?.value || 'Cylindrical_Scan',
+        
+        // New servo tilt parameters
+        servo_tilt_mode: servoTiltMode,
+        servo_manual_angle: servoManualAngle,
+        servo_y_focus: servoYFocus
     };
 }
 
-async function startCylindricalScan() {
+function startCylindricalScan() {
     const config = getCylindricalScanConfig();
     
-    // Confirm scan start
-    const confirmMessage = `
-Start Cylindrical Scan?
-
-📊 ${config.estimated_points} total positions
-⏱️ ~${config.estimated_time} minutes estimated
-📐 Fixed radius: ${config.radius}mm
-📏 ${Math.floor((config.y_max - config.y_min) / config.y_step) + 1} height levels  
-🔄 ${Math.floor(360 / config.rotation_step)} Z-axis rotations (cylinder)
-📷 Fixed servo angle: ${config.servo_angle}° (C-axis)
-
-This will capture ${config.estimated_points * 2} photos total (2 cameras).
-    `;
-    
-    if (!confirm(confirmMessage)) {
+    // Validation
+    if (config.radius < 10 || config.radius > 100) {
+        alert('❌ Camera radius must be between 10-100mm');
         return;
     }
     
-    try {
-        // Disable start button
-        const startBtn = document.getElementById('start-cylindrical-scan');
-        startBtn.disabled = true;
-        startBtn.textContent = '🔄 Starting Scan...';
+    if (config.y_min >= config.y_max) {
+        alert('❌ Start height must be less than end height');
+        return;
+    }
+    
+    if (config.rotation_positions < 3) {
+        alert('❌ Must have at least 3 rotation positions');
+        return;
+    }
+    
+    // Servo tilt validation
+    if (config.servo_tilt_mode === 'manual') {
+        if (config.servo_manual_angle < -75 || config.servo_manual_angle > 75) {
+            alert('❌ Manual servo angle must be between -75° and +75°');
+            return;
+        }
+    }
+    
+    if (config.servo_tilt_mode === 'focus_point') {
+        if (config.servo_y_focus < config.y_min || config.servo_y_focus > config.y_max) {
+            alert('❌ Focus Y position should be within the scan height range');
+            return;
+        }
+    }
+    
+    // Show confirmation with servo details
+    let servoInfo = '';
+    switch(config.servo_tilt_mode) {
+        case 'manual':
+            servoInfo = ` with manual servo angle ${config.servo_manual_angle}°`;
+            break;
+        case 'focus_point':
+            servoInfo = ` with servo targeting focus point Y=${config.servo_y_focus}mm`;
+            break;
+        default:
+            servoInfo = ` with fixed servo at ${config.servo_angle}°`;
+    }
+    
+    const confirmation = `🚀 Start cylindrical scan?
+
+📊 ${config.total_points} total points
+⏱️ ~${Math.ceil(config.total_points * 2 / 60)} minutes
+🎯${servoInfo}
+
+📋 ${config.coverage_details}
+`;
+    
+    if (confirm(confirmation)) {
+        // Display scan starting message
+        displayNotification('🚀 Starting cylindrical scan...', 'info');
         
-        // Send scan request to API
-        const response = await fetch('/api/scan/start', {
+        // Send to backend
+        fetch('/api/scan/start', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
             },
             body: JSON.stringify(config)
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            alert(`✅ Cylindrical scan started successfully!\n\nScan ID: ${result.data.scan_id}\nTotal Points: ${result.data.estimated_points}`);
-            
-            // Switch to scan monitoring view
-            if (typeof showScanMonitoring === 'function') {
-                showScanMonitoring();
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                displayNotification(`✅ Cylindrical scan started successfully! (${config.total_points} points)`, 'success');
+                console.log('Scan started:', data);
+            } else {
+                displayNotification(`❌ Failed to start scan: ${data.error}`, 'error');
+                console.error('Scan start failed:', data.error);
             }
-        } else {
-            throw new Error(result.error || 'Unknown error');
-        }
-        
-    } catch (error) {
-        console.error('Scan start error:', error);
-        alert(`❌ Failed to start cylindrical scan:\n${error.message}`);
-    } finally {
-        // Re-enable start button
-        const startBtn = document.getElementById('start-cylindrical-scan');
-        startBtn.disabled = false;
-        startBtn.textContent = '🚀 Start Cylindrical Scan';
+        })
+        .catch(error => {
+            displayNotification(`❌ Network error: ${error.message}`, 'error');
+            console.error('Network error:', error);
+        });
     }
 }
 
-// Auto-update calculations when values change
+// Event listeners for real-time updates
 document.addEventListener('DOMContentLoaded', function() {
-    // Add event listeners for auto-update
+    // Update summaries when values change
     ['y-min', 'y-max', 'height-steps', 'rotation-positions', 'camera-angles'].forEach(id => {
         const element = document.getElementById(id);
         if (element) {
             element.addEventListener('input', function() {
-                updateHeightLevels();
-                updateRotationDetails();
+                if (id.includes('height')) updateHeightLevels();
+                if (id.includes('rotation')) updateRotationDetails();
                 updateCylindricalScanSummary();
             });
         }
     });
     
-    // Initial calculations
-    updateHeightLevels();
+    // Update servo controls when mode changes
+    const servoModeSelect = document.getElementById('servo-tilt-mode');
+    if (servoModeSelect) {
+        servoModeSelect.addEventListener('change', updateServoTiltMode);
+    }
+    
+    // Update summary when servo values change
+    ['servo-manual-angle', 'servo-y-focus'].forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.addEventListener('input', updateCylindricalScanSummary);
+        }
+    });
+    
+    // Initialize displays
     updateRotationDetails();
+    updateHeightLevels();
+    updateServoTiltMode();
     updateCylindricalScanSummary();
 });
 
 </script>
-
-<style>
-.scan-panel {
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
-    border-radius: 8px;
-    padding: 20px;
-    margin: 10px 0;
-}
-
-.config-group {
-    margin-bottom: 20px;
-    padding: 15px;
-    background: white;
-    border-radius: 6px;
-    border: 1px solid #e9ecef;
-}
-
-.config-group h4 {
-    margin: 0 0 15px 0;
-    color: #495057;
-    font-size: 1.1em;
-}
-
-.input-row {
-    display: flex;
-    gap: 15px;
-}
-
-.input-group {
-    margin-bottom: 10px;
-}
-
-.input-group label {
-    display: block;
-    margin-bottom: 5px;
-    font-weight: 500;
-    color: #6c757d;
-}
-
-.input-group input {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid #ced4da;
-    border-radius: 4px;
-    font-size: 14px;
-}
-
-.input-group small {
-    display: block;
-    margin-top: 5px;
-    color: #6c757d;
-    font-size: 12px;
-}
-
-.preset-buttons {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
-}
-
-.preset-buttons button {
-    padding: 6px 12px;
-    border: 1px solid #007bff;
-    background: white;
-    color: #007bff;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-}
-
-.preset-buttons button:hover {
-    background: #007bff;
-    color: white;
-}
-
-.scan-summary {
-    background: #e3f2fd !important;
-    border-color: #2196f3 !important;
-}
-
-.summary-stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 15px;
-}
-
-.stat {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px;
-    background: white;
-    border-radius: 4px;
-    border: 1px solid #bbdefb;
-}
-
-.stat .label {
-    font-weight: 500;
-    color: #1976d2;
-}
-
-.stat .value {
-    font-weight: bold;
-    color: #0d47a1;
-}
-
-.action-buttons {
-    display: flex;
-    gap: 15px;
-    margin-top: 20px;
-    justify-content: center;
-}
-
-.btn-primary, .btn-secondary {
-    padding: 12px 24px;
-    border: none;
-    border-radius: 6px;
-    font-size: 16px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.btn-primary {
-    background: #28a745;
-    color: white;
-}
-
-.btn-primary:hover {
-    background: #218838;
-}
-
-.btn-secondary {
-    background: #6c757d;
-    color: white;
-}
-
-.btn-secondary:hover {
-    background: #5a6268;
-}
-
-.btn-primary:disabled {
-    background: #6c757d;
-    cursor: not-allowed;
-}
-</style>

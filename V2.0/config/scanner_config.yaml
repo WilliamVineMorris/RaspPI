@@ -302,8 +302,8 @@ scanning:
     
     # Servo tilt settings for scanning
     servo_tilt:
-      mode: "automatic"        # "automatic" or "manual" 
-      y_focus_position: 50.0   # mm - Target Y height for automatic angle calculation
+      mode: "none"             # "none", "manual", or "focus_point" 
+      y_focus_position: 50.0   # mm - Target Y height for focus_point mode
       manual_angle: 0.0        # degrees - Used when mode is "manual"
   
   path_planning:

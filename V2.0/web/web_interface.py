@@ -329,7 +329,7 @@ class CommandValidator:
             if not (-90.0 <= angle <= 90.0):
                 raise ValueError(f"C angle {angle}° outside valid range [-90, 90]")
         
-        # Create return dictionary with preserved custom settings
+        # Create return dictionary with preserved custom settings and servo tilt parameters
         result = {
             'pattern_type': 'cylindrical',
             'radius': radius,
@@ -342,7 +342,12 @@ class CommandValidator:
             'servo_angle': servo_angle,    # Single servo angle value
             'scan_name': data.get('scan_name', 'Untitled_Scan'),  # Preserve scan name
             'homing_confirmed': data.get('homing_confirmed', False),  # Preserve homing decision
-            'validated': True
+            'validated': True,
+            
+            # Add servo tilt parameters from web interface
+            'servo_tilt_mode': data.get('servo_tilt_mode', 'none'),
+            'servo_manual_angle': float(data.get('servo_manual_angle', 0.0)),
+            'servo_y_focus': float(data.get('servo_y_focus', 80.0))
         }
         
         # Preserve custom settings if present
@@ -2800,7 +2805,7 @@ class ScannerWebInterface:
                             self.logger.warning(f"Failed to apply scan profiles/settings, using defaults: {e}")
                             profile_settings = {}
                         
-                        # Prepare scan parameters with all metadata including homing decision
+                        # Prepare scan parameters with all metadata including homing decision and servo tilt settings
                         scan_params = {
                             'scan_name': scan_name,
                             'pattern_data': pattern_data,
@@ -2808,7 +2813,11 @@ class ScannerWebInterface:
                             'profile_settings': profile_settings,  # Include applied profile settings
                             'web_request_time': datetime.now().isoformat(),
                             'scan_type': 'web_interface',
-                            'operator': 'web_user'
+                            'operator': 'web_user',
+                            # Add servo tilt parameters from web interface
+                            'servo_tilt_mode': pattern_data.get('servo_tilt_mode', 'none'),
+                            'servo_manual_angle': pattern_data.get('servo_manual_angle', 0.0),
+                            'servo_y_focus': pattern_data.get('servo_y_focus', 80.0)
                         }
                         
                         # Set notification callback

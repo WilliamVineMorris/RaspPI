@@ -3521,8 +3521,8 @@ class ScanOrchestrator:
         
         self.logger.info(f"📐 Moving to scan point: X={point.position.x:.1f}, Y={point.position.y:.1f}, Z={point.position.z:.1f}°, C={point.position.c:.1f}°")
         
-        # OPTIMIZED: Move to full 4D position with servo tilt calculation
-        # This eliminates redundant motion commands and enables automatic camera tilting
+        # OPTIMIZED: Move to full 4D position with optional servo tilt calculation
+        # Servo tilt is now configurable per scan, not applied by default
         try:
             # Convert core.types.Position4D to motion.base.Position4D if needed
             from motion.base import Position4D as MotionPosition4D
@@ -3533,13 +3533,14 @@ class ScanOrchestrator:
                 c=point.position.c
             )
             
-            # Check if servo tilt is enabled and use automatic calculation
-            servo_config = self.config.get('scanning', {}).get('default_settings', {}).get('servo_tilt', {})
-            if servo_config.get('mode') == 'automatic':
-                y_focus = servo_config.get('y_focus_position', 50.0)
-                self.logger.info(f"🎯 Using automatic servo tilt with Y focus: {y_focus}mm")
+            # Check if servo tilt is enabled for this specific scan
+            servo_mode = getattr(self.current_scan, 'servo_tilt_mode', 'none') if self.current_scan else 'none'
+            
+            if servo_mode == 'focus_point':
+                y_focus = getattr(self.current_scan, 'servo_y_focus', 50.0) if self.current_scan else 50.0
+                self.logger.info(f"🎯 Using focus point servo tilt with Y focus: {y_focus}mm")
                 
-                # Use the new servo tilt method if available
+                # Use the focus point servo tilt method if available
                 if hasattr(self.motion_controller, 'move_with_servo_tilt'):
                     success = await self.motion_controller.move_with_servo_tilt(
                         position=motion_pos,
@@ -3549,8 +3550,9 @@ class ScanOrchestrator:
                 else:
                     self.logger.warning("Motion controller doesn't support servo tilt, using standard move")
                     success = await self.motion_controller.move_to_position(motion_pos)
-            elif servo_config.get('mode') == 'manual':
-                manual_angle = servo_config.get('manual_angle', 0.0)
+                    
+            elif servo_mode == 'manual':
+                manual_angle = getattr(self.current_scan, 'servo_manual_angle', 0.0) if self.current_scan else 0.0
                 self.logger.info(f"🎯 Using manual servo tilt: {manual_angle}°")
                 
                 # Use manual servo tilt if available
@@ -3563,8 +3565,9 @@ class ScanOrchestrator:
                 else:
                     motion_pos.c = manual_angle  # Set C-axis directly
                     success = await self.motion_controller.move_to_position(motion_pos)
+                    
             else:
-                # No servo tilt, use standard position move
+                # No servo tilt (default) - use standard position move
                 success = await self.motion_controller.move_to_position(motion_pos)
                 
             if not success:
