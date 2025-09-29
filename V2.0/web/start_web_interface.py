@@ -316,7 +316,7 @@ def initialize_real_orchestrator():
         config_file.parent.mkdir(exist_ok=True)
         if not config_file.exists():
             with open(config_file, 'w') as f:
-            f.write("""
+                f.write("""
 # Hardware Configuration for 3D Scanner
 system:
   name: "3D Scanner Hardware Mode"
