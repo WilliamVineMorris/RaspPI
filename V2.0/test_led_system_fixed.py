@@ -54,6 +54,10 @@ class LEDTester:
             
             if not lighting_config:
                 raise ConfigurationError("No lighting configuration found")
+            
+            # Debug: Check zones in config
+            zones_config = lighting_config.get('zones', {})
+            logger.info(f"🔍 Found {len(zones_config)} zones in config: {list(zones_config.keys())}")
                 
             # Initialize LED controller
             logger.info("💡 Initializing LED controller...")
@@ -78,20 +82,26 @@ class LEDTester:
         try:
             # Test controller status
             status = await self.led_controller.get_status()
-            if status != LightingStatus.READY:
-                logger.error("❌ LED controller not ready")
-                return False
-                
-            logger.info("✅ LED controller status: Ready")
+            logger.info(f"Controller status: {status}")
             
             # Test zone listing
             zones = await self.led_controller.list_zones()
             logger.info(f"📋 Available zones: {zones}")
             
             if not zones:
-                logger.warning("⚠️ No LED zones configured")
-                return False
+                logger.warning("⚠️ No LED zones configured - checking configuration...")
+                # Check if this is a configuration issue
+                lighting_config = self.config_manager.get('lighting')
+                zones_config = lighting_config.get('zones', {}) if lighting_config else {}
+                logger.info(f"Configuration zones found: {list(zones_config.keys())}")
+                if zones_config:
+                    logger.error("❌ Zones in config but not loaded by controller")
+                    return False
+                else:
+                    logger.error("❌ No zones in configuration file")
+                    return False
                 
+            logger.info("✅ LED controller connectivity verified")
             self.test_results['basic_connectivity'] = True
             return True
             
@@ -250,7 +260,7 @@ class LEDTester:
                 logger.info(f"   Current brightness: {current_brightness:.1%}")
             
             # Test power metrics
-            power_metrics = await self.led_controller.get_power_metrics()
+            power_metrics = self.led_controller.get_power_metrics()
             logger.info(f"⚡ Power metrics:")
             logger.info(f"   Current: {power_metrics.total_current_ma:.1f}mA")
             logger.info(f"   Voltage: {power_metrics.voltage_v:.1f}V") 

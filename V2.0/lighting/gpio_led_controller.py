@@ -236,7 +236,7 @@ class GPIOLEDController(LightingController):
                 zone = LEDZone(
                     zone_id=zone_id,
                     gpio_pins=zone_data['gpio_pins'],
-                    led_type=LEDType(zone_data.get('led_type', 'standard')),
+                    led_type=LEDType(zone_data.get('led_type', 'white')),  # 'white' is valid LEDType
                     max_current_ma=zone_data.get('max_current_ma', 1000),
                     position=tuple(zone_data.get('position', [0.0, 0.0, 0.0])),
                     direction=tuple(zone_data.get('direction', [0.0, 0.0, -1.0])),
