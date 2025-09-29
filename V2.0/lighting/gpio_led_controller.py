@@ -199,13 +199,18 @@ class GPIOLEDController(LightingController):
         
         # Determine which GPIO library to use
         # Check if user wants gpiozero (new preferred method for 300Hz PWM)
-        if self.gpio_library == 'gpiozero':
+        if self.gpio_library == 'gpiozero' and GPIOZERO_AVAILABLE:
             self._use_gpiozero = True
             self._use_pigpio = False
+            logger.info("Configured to use gpiozero library")
+        elif PIGPIO_AVAILABLE:
+            self._use_gpiozero = False
+            self._use_pigpio = True
+            logger.info("Configured to use pigpio library")
         else:
             self._use_gpiozero = False
-            # Force RPi.GPIO for simple hardware PWM (user requested 300Hz hardware PWM)
-            self._use_pigpio = False  # Disable pigpio - use direct hardware PWM instead
+            self._use_pigpio = False  # Use RPi.GPIO as fallback
+            logger.info("Configured to use RPi.GPIO library (fallback)")
         
         logger.info(f"GPIO LED Controller: Using {GPIO_LIBRARY} library (pigpio available: {PIGPIO_AVAILABLE})")
         
@@ -216,9 +221,10 @@ class GPIOLEDController(LightingController):
         self._shutdown_complete = False  # Track shutdown state
         
         # Zone Configuration from config
-        # Zones are nested under lighting.zones in the YAML structure
-        lighting_config = config.get('lighting', {})
-        zones_config = lighting_config.get('zones', {})
+        # The config parameter IS the lighting configuration section
+        logger.info(f"Received config keys: {list(config.keys())}")
+        zones_config = config.get('zones', {})
+        logger.info(f"Extracted zones config: {zones_config}")
         self.zone_configs = self._parse_zone_configs(zones_config)
         
         logger.info(f"Initialized GPIO LED controller with {len(self.zone_configs)} zones")
@@ -230,9 +236,11 @@ class GPIOLEDController(LightingController):
     def _parse_zone_configs(self, zones_config: Dict[str, Any]) -> Dict[str, LEDZone]:
         """Parse zone configurations from config"""
         zones = {}
+        logger.info(f"Parsing {len(zones_config)} zones from config...")
         
         for zone_id, zone_data in zones_config.items():
             try:
+                logger.info(f"Parsing zone '{zone_id}': {zone_data}")
                 zone = LEDZone(
                     zone_id=zone_id,
                     gpio_pins=zone_data['gpio_pins'],
@@ -244,12 +252,15 @@ class GPIOLEDController(LightingController):
                     max_brightness=zone_data.get('max_brightness', 1.0)
                 )
                 zones[zone_id] = zone
-                logger.debug(f"Configured zone '{zone_id}' with {len(zone.gpio_pins)} pins")
+                logger.info(f"✅ Successfully configured zone '{zone_id}' with {len(zone.gpio_pins)} pins")
                 
             except Exception as e:
-                logger.error(f"Failed to parse zone '{zone_id}': {e}")
-                raise LEDError(f"Invalid zone configuration '{zone_id}': {e}")
+                logger.error(f"❌ Failed to parse zone '{zone_id}': {e}")
+                logger.exception(f"Full error details for zone '{zone_id}':")
+                # Continue with other zones instead of raising
+                continue
         
+        logger.info(f"Zone parsing complete: {len(zones)} zones successfully configured")
         return zones
     
     # Connection Management
