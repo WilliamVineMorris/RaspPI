@@ -79,14 +79,18 @@ class Position4D:
 @dataclass
 class MotionLimits:
     """Motion limits for an axis"""
-    min_limit: float
-    max_limit: float
+    min_limit: Optional[float]  # None = no limit (continuous rotation)
+    max_limit: Optional[float]  # None = no limit (continuous rotation)
     max_feedrate: float  # mm/min or degrees/min
     acceleration: Optional[float] = None  # mm/min² or degrees/min²
     
     def is_within_limits(self, position: float) -> bool:
-        """Check if position is within limits"""
-        return self.min_limit <= position <= self.max_limit
+        """Check if position is within limits (None = no limit)"""
+        if self.min_limit is not None and position < self.min_limit:
+            return False
+        if self.max_limit is not None and position > self.max_limit:
+            return False
+        return True
 
 
 @dataclass

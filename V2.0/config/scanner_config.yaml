@@ -61,8 +61,8 @@ motion:
     z_axis:
       type: "rotational"
       units: "degrees"
-      min_limit: -180.0             # Practical limit for continuous rotation
-      max_limit: 180.0              # 360mm travel from FluidNC
+      min_limit: null               # No limits - continuous rotation
+      max_limit: null               # No limits - continuous rotation  
       home_position: 0.0
       max_feedrate: 800             # From FluidNC max_rate_mm_per_min (converted to degrees/min)
       steps_per_mm: 1422            # From FluidNC (actually steps per degree)

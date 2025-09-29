@@ -104,8 +104,8 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 max_feedrate=axis_limits.get('y', {}).get('max_feedrate', 1000.0)
             ),
             'z': MotionLimits(
-                min_limit=axis_limits.get('z', {}).get('min', -360.0),  # Continuous rotation
-                max_limit=axis_limits.get('z', {}).get('max', 360.0),
+                min_limit=axis_limits.get('z', {}).get('min', None),  # Allow null for continuous rotation
+                max_limit=axis_limits.get('z', {}).get('max', None),  # Allow null for continuous rotation
                 max_feedrate=axis_limits.get('z', {}).get('max_feedrate', 1000.0)
             ),
             'c': MotionLimits(
@@ -1242,11 +1242,14 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 logger.error(f"❌ Y position {position.y} outside limits {y_limits}")
                 return False
             
-            # Check Z axis (continuous rotation, but still has practical limits)
+            # Check Z axis (continuous rotation - skip limits if null)
             z_limits = self.limits['z']
-            if position.z < z_limits.min_limit or position.z > z_limits.max_limit:
-                logger.error(f"❌ Z position {position.z} outside limits {z_limits}")
-                return False
+            if z_limits.min_limit is not None and z_limits.max_limit is not None:
+                if position.z < z_limits.min_limit or position.z > z_limits.max_limit:
+                    logger.error(f"❌ Z position {position.z} outside limits {z_limits}")
+                    return False
+            else:
+                logger.debug(f"✅ Z axis continuous rotation - no limits (position: {position.z}°)")
             
             # Check C axis
             c_limits = self.limits['c']
