@@ -2689,7 +2689,32 @@ class ScannerWebInterface:
                     z_rotations = list(range(0, 360, 60))  # 6 positions at 60° intervals
                     self.logger.warning(f"No Z-rotations provided, using default: {z_rotations}")
                 
-                c_angles = pattern_data.get('c_angles', [0.0])  # Single servo angle
+                # Calculate servo angle based on servo tilt settings
+                c_angles = [0.0]  # Default servo angle
+                servo_mode = pattern_data.get('servo_tilt_mode', 'none')
+                
+                if servo_mode == 'focus_point':
+                    # Calculate servo angle to focus on the specified Y position
+                    y_focus = float(pattern_data.get('servo_y_focus', 20.0))  # Focus point in mm
+                    radius = pattern_data['radius']  # Camera distance from object
+                    
+                    # Calculate servo angle using trigonometry
+                    # servo_angle = atan(y_focus / radius) * (180 / π)
+                    import math
+                    servo_angle = math.atan(y_focus / radius) * (180.0 / math.pi)
+                    c_angles = [servo_angle]
+                    self.logger.info(f"🎯 Calculated servo focus angle: {servo_angle:.1f}° for focus point at Y={y_focus}mm (radius={radius}mm)")
+                    
+                elif servo_mode == 'manual':
+                    # Use manually specified servo angle
+                    manual_angle = float(pattern_data.get('servo_manual_angle', 0.0))
+                    c_angles = [manual_angle]
+                    self.logger.info(f"🎯 Using manual servo angle: {manual_angle}°")
+                    
+                else:
+                    # No servo tilt - use default center position
+                    c_angles = [0.0]
+                    self.logger.info("🎯 Using default servo angle: 0° (no tilt)")
                 
                 pattern = self.orchestrator.create_cylindrical_pattern(
                     radius=pattern_data['radius'],
@@ -2697,10 +2722,10 @@ class ScannerWebInterface:
                     y_step=pattern_data['y_step'],
                     y_positions=pattern_data.get('y_positions'),  # 🎯 NEW: Explicit Y positions
                     z_rotations=z_rotations,  # CYLINDER rotation angles
-                    c_angles=c_angles         # SERVO angle (typically fixed)
+                    c_angles=c_angles         # SERVO angle (calculated from tilt settings)
                 )
                 self.logger.info(f"🔄 Cylindrical scan: Z-axis (cylinder) rotations={z_rotations} ({len(z_rotations)} positions)")
-                self.logger.info(f"📐 Cylindrical scan: C-axis (servo) angles={c_angles} (fixed servo)")
+                self.logger.info(f"📐 Cylindrical scan: C-axis (servo) angles={c_angles} (calculated servo angle)")
                 self.logger.info(f"📈 Pattern parameters: radius={pattern_data['radius']}, y_range={pattern_data['y_range']}, y_step={pattern_data['y_step']}")
             else:
                 raise ValueError(f"Unknown pattern type: {pattern_data['pattern_type']}")
