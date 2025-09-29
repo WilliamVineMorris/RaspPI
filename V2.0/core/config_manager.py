@@ -218,17 +218,37 @@ class ConfigManager:
                 raise ConfigurationValidationError(f"Missing axis configuration: {axis_name}")
             
             axis = axes[axis_name]
-            required_axis_fields = ['type', 'units', 'min_limit', 'max_limit', 'max_feedrate']
+            required_axis_fields = ['type', 'units', 'max_feedrate']
             for field in required_axis_fields:
                 if field not in axis:
                     raise ConfigurationValidationError(
                         f"Missing field '{field}' in {axis_name} configuration"
                     )
             
-            # Validate axis limits
-            if axis['min_limit'] >= axis['max_limit']:
+            # Check that min_limit and max_limit fields exist (but can be null)
+            for limit_field in ['min_limit', 'max_limit']:
+                if limit_field not in axis:
+                    raise ConfigurationValidationError(
+                        f"Missing field '{limit_field}' in {axis_name} configuration (can be null for continuous rotation)"
+                    )
+            
+            # Validate axis limits (allow null for continuous rotation)
+            min_limit = axis['min_limit']
+            max_limit = axis['max_limit']
+            
+            # If both limits are null, this is continuous rotation (valid)
+            if min_limit is None and max_limit is None:
+                logger.debug(f"Axis {axis_name} configured for continuous rotation (no limits)")
+            # If both limits are set, validate they make sense
+            elif min_limit is not None and max_limit is not None:
+                if min_limit >= max_limit:
+                    raise ConfigurationValidationError(
+                        f"Invalid limits for {axis_name}: min_limit ({min_limit}) must be < max_limit ({max_limit})"
+                    )
+            # If only one limit is set, that's invalid
+            elif min_limit is None or max_limit is None:
                 raise ConfigurationValidationError(
-                    f"Invalid limits for {axis_name}: min_limit must be < max_limit"
+                    f"Invalid limits for {axis_name}: both min_limit and max_limit must be set or both must be null for continuous rotation"
                 )
     
     def _validate_camera_config(self):
