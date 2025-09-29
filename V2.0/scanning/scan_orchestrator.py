@@ -760,7 +760,14 @@ class CameraManagerAdapter:
             # Load resolution from camera configuration
             camera_1_config = self.config_manager.get('cameras.camera_1', {})
             if camera_1_config and 'resolution' in camera_1_config:
-                capture_resolution = camera_1_config['resolution'].get('capture', [3280, 2464])
+                resolution_config = camera_1_config['resolution']
+                # Handle both dict format (resolution.capture) and list format ([width, height])
+                if isinstance(resolution_config, dict):
+                    capture_resolution = resolution_config.get('capture', [3280, 2464])
+                elif isinstance(resolution_config, list):
+                    capture_resolution = resolution_config
+                else:
+                    capture_resolution = [3280, 2464]
                 self.logger.info(f"CAMERA: Loaded capture resolution from config: {capture_resolution}")
             else:
                 capture_resolution = [3280, 2464]  # Default from YAML

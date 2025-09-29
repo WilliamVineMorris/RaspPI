@@ -309,12 +309,13 @@ def initialize_real_orchestrator():
         from core.config_manager import ConfigManager
         import asyncio
         
-        # Create config manager with default config
-        config_file = Path(__file__).parent.parent / "config" / "hardware_config.yaml"
+        # Create config manager with existing scanner config
+        config_file = Path(__file__).parent.parent / "config" / "scanner_config.yaml"
         
-        # Always recreate the config file to ensure it has all required fields
+        # Use existing config file if it exists, otherwise create a minimal one
         config_file.parent.mkdir(exist_ok=True)
-        with open(config_file, 'w') as f:
+        if not config_file.exists():
+            with open(config_file, 'w') as f:
             f.write("""
 # Hardware Configuration for 3D Scanner
 system:

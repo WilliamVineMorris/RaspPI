@@ -11,7 +11,7 @@ system:
 # Hardware Platform
 platform:
   type: "raspberry_pi_5"
-  gpio_library: "pigpio"  # pigpio for precise timing
+  gpio_library: "gpiozero"  # gpiozero with RPi.GPIO factory - no pigpiod required
   camera_interface: "libcamera"  # Pi5 camera system
 
 # Motion Control Configuration
@@ -163,9 +163,12 @@ cameras:
     quality: 70
     
 # LED Flash Configuration  
+# gpiozero PWM Setup: Uses gpiozero.LED with frequency property at 300Hz
+# LED.value for duty cycle control, LED.frequency for PWM frequency
 lighting:
-  controller_type: "gpio"
-  pwm_frequency: 1000  # Hz
+  controller_type: "gpiozero"       # Use gpiozero LED controller
+  use_pigpio_factory: false         # Use RPi.GPIO factory (no pigpiod required)
+  pwm_frequency: 300                # Hz - PWM frequency via LED.frequency property
   
   zones:
     inner:
