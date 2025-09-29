@@ -109,6 +109,40 @@ class MockMotionController:
         })
         return True
         
+    async def move_with_servo_tilt(self, position, servo_mode: str = "automatic", 
+                                 user_y_focus: float = 50.0, manual_servo_angle: float = 0.0,
+                                 feedrate: Optional[float] = None) -> bool:
+        """Mock servo tilt movement for testing"""
+        await asyncio.sleep(0.3)
+        # Simulate servo angle calculation
+        if servo_mode == "automatic":
+            # Mock automatic calculation based on position
+            calculated_angle = -30.0 + (position.x - 100) * 0.1  # Mock formula
+            position.c = max(-75, min(75, calculated_angle))  # Clamp to limits
+        else:
+            position.c = manual_servo_angle
+            
+        self._position.update({
+            'x': position.x, 
+            'y': position.y, 
+            'z': position.z, 
+            'rotation': position.c
+        })
+        return True
+        
+    def get_servo_tilt_info(self) -> Dict[str, Any]:
+        """Mock servo tilt info for testing"""
+        return {
+            "enabled": True,
+            "mode": "mock",
+            "last_angle": self._position.get('rotation', 0.0),
+            "configuration": {
+                "camera_offset": {"x": -10.0, "y": 20.0},
+                "turntable_offset": {"x": 30.0, "y": -10.0},
+                "angle_limits": {"min": -75.0, "max": 75.0}
+            }
+        }
+        
     async def emergency_stop(self) -> bool:
         return True
         
@@ -3487,8 +3521,8 @@ class ScanOrchestrator:
         
         self.logger.info(f"📐 Moving to scan point: X={point.position.x:.1f}, Y={point.position.y:.1f}, Z={point.position.z:.1f}°, C={point.position.c:.1f}°")
         
-        # OPTIMIZED: Move to full 4D position in a single command instead of 3 separate commands
-        # This eliminates redundant motion commands and reduces scan time significantly
+        # OPTIMIZED: Move to full 4D position with servo tilt calculation
+        # This eliminates redundant motion commands and enables automatic camera tilting
         try:
             # Convert core.types.Position4D to motion.base.Position4D if needed
             from motion.base import Position4D as MotionPosition4D
@@ -3498,8 +3532,44 @@ class ScanOrchestrator:
                 z=point.position.z, 
                 c=point.position.c
             )
-            if not await self.motion_controller.move_to_position(motion_pos):
+            
+            # Check if servo tilt is enabled and use automatic calculation
+            servo_config = self.config.get('scanning', {}).get('default_settings', {}).get('servo_tilt', {})
+            if servo_config.get('mode') == 'automatic':
+                y_focus = servo_config.get('y_focus_position', 50.0)
+                self.logger.info(f"🎯 Using automatic servo tilt with Y focus: {y_focus}mm")
+                
+                # Use the new servo tilt method if available
+                if hasattr(self.motion_controller, 'move_with_servo_tilt'):
+                    success = await self.motion_controller.move_with_servo_tilt(
+                        position=motion_pos,
+                        servo_mode="automatic",
+                        user_y_focus=y_focus
+                    )
+                else:
+                    self.logger.warning("Motion controller doesn't support servo tilt, using standard move")
+                    success = await self.motion_controller.move_to_position(motion_pos)
+            elif servo_config.get('mode') == 'manual':
+                manual_angle = servo_config.get('manual_angle', 0.0)
+                self.logger.info(f"🎯 Using manual servo tilt: {manual_angle}°")
+                
+                # Use manual servo tilt if available
+                if hasattr(self.motion_controller, 'move_with_servo_tilt'):
+                    success = await self.motion_controller.move_with_servo_tilt(
+                        position=motion_pos,
+                        servo_mode="manual",
+                        manual_servo_angle=manual_angle
+                    )
+                else:
+                    motion_pos.c = manual_angle  # Set C-axis directly
+                    success = await self.motion_controller.move_to_position(motion_pos)
+            else:
+                # No servo tilt, use standard position move
+                success = await self.motion_controller.move_to_position(motion_pos)
+                
+            if not success:
                 raise HardwareError(f"Failed to move to scan position {point.position}")
+                
         except Exception as e:
             logger.error(f"Motion error during scan: {e}")
             raise HardwareError(f"Failed to move to scan position {point.position}: {e}")
