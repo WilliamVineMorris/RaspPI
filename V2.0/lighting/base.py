@@ -341,6 +341,22 @@ class LightingController(ABC):
         pass
     
     @abstractmethod
+    async def trigger_for_capture(self, camera_controller, zone_ids: List[str], 
+                                 settings: LightingSettings) -> FlashResult:
+        """
+        Trigger LED flash synchronized with camera capture
+        
+        Args:
+            camera_controller: Camera controller for synchronization
+            zone_ids: List of zone identifiers to flash
+            settings: Flash settings
+            
+        Returns:
+            Flash operation result with camera sync info
+        """
+        pass
+    
+    @abstractmethod
     async def fade_to(self, zone_id: str, target_brightness: float, duration_ms: float) -> bool:
         """
         Fade LED zone to target brightness

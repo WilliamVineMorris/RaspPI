@@ -3094,16 +3094,30 @@ class ScannerWebInterface:
                 'pulse_count': 1
             }
             
-            # Manual coordination: Flash + Capture timing
+            # Manual coordination: Synchronized Flash + Capture timing
             async def flash_capture_coordination():
-                # Trigger flash with timing coordination using inner and outer zones
-                flash_result = await self.orchestrator.lighting_controller.flash(['inner', 'outer'], flash_settings)
+                from lighting.base import LightingSettings
                 
-                # Small delay to let flash reach peak intensity
-                await asyncio.sleep(0.02)  # 20ms delay
+                # Create proper LightingSettings object
+                flash_settings = LightingSettings(
+                    brightness=flash_intensity / 100.0,  # Convert percentage to 0-1 range
+                    duration_ms=120,  # 120ms flash duration for web interface
+                    fade_time_ms=20   # Quick fade for responsive feel
+                )
                 
-                # Capture during flash
+                # Start flash (non-blocking)
+                flash_task = asyncio.create_task(
+                    self.orchestrator.lighting_controller.flash(['inner', 'outer'], flash_settings)
+                )
+                
+                # Wait for flash to reach peak intensity
+                await asyncio.sleep(0.025)  # 25ms for peak intensity
+                
+                # Capture during flash peak
                 image_data = await self.orchestrator.camera_manager.capture_high_resolution(camera_id)
+                
+                # Wait for flash completion
+                flash_result = await flash_task
                 
                 return flash_result, image_data
             

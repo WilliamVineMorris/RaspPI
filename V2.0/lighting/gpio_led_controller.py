@@ -590,7 +590,109 @@ class GPIOLEDController(LightingController):
                 error_message=str(e)
             )
     
-    async def fade_to(self, zone_id: str, target_brightness: float, duration_ms: float) -> bool:
+    async def trigger_for_capture(self, camera_controller, zone_ids: List[str], 
+                                 settings: LightingSettings) -> FlashResult:
+        """
+        Trigger LED flash synchronized with camera capture
+        
+        Args:
+            camera_controller: Camera controller for synchronization
+            zone_ids: List of zone identifiers to flash
+            settings: Flash settings
+            
+        Returns:
+            Flash operation result with camera sync info
+        """
+        try:
+            from core.exceptions import CameraError
+            
+            # Start flash (non-blocking)
+            flash_task = asyncio.create_task(self.flash(zone_ids, settings))
+            
+            # Wait for flash to reach peak intensity (LED rise time)
+            # LEDs typically take 10-30ms to reach peak brightness
+            peak_delay = 0.025  # 25ms for reliable peak intensity
+            await asyncio.sleep(peak_delay)
+            
+            # Trigger camera capture during flash peak
+            try:
+                if hasattr(camera_controller, 'capture_both_cameras_simultaneously'):
+                    capture_result = await camera_controller.capture_both_cameras_simultaneously()
+                elif hasattr(camera_controller, 'capture_high_resolution'):
+                    capture_result = await camera_controller.capture_high_resolution(0)  # Camera 0
+                else:
+                    logger.warning("Camera controller doesn't have expected capture methods")
+                    capture_result = None
+            except Exception as camera_error:
+                logger.error(f"Camera capture failed during flash: {camera_error}")
+                capture_result = None
+            
+            # Wait for flash to complete
+            flash_result = await flash_task
+            
+            # Add camera sync info to result
+            if flash_result.success:
+                logger.info(f"✅ Flash-camera synchronization successful: {zone_ids}")
+                flash_result.timestamp = time.time()
+                # Store camera result in flash result for caller
+                if hasattr(flash_result, '__dict__'):
+                    flash_result.__dict__['camera_result'] = capture_result
+            else:
+                logger.warning(f"⚠️ Flash failed but camera may have captured: {flash_result.error_message}")
+            
+            return flash_result
+            
+        except Exception as e:
+            logger.error(f"Flash-camera synchronization failed: {e}")
+            return FlashResult(
+                success=False,
+                zones_activated=[],
+                actual_brightness={},
+                duration_ms=0,
+                error_message=f"Synchronization failed: {e}"
+            )
+    
+    async def calibrate_camera_sync(self, camera_controller, test_flashes: int = 5) -> float:
+        """
+        Calibrate LED flash timing with camera
+        
+        Args:
+            camera_controller: Camera controller for calibration
+            test_flashes: Number of test flashes for calibration
+            
+        Returns:
+            Average synchronization delay in milliseconds
+        """
+        try:
+            delays = []
+            
+            for i in range(test_flashes):
+                start_time = time.time()
+                
+                # Test flash with camera capture
+                test_settings = LightingSettings(brightness=0.5, duration_ms=50)
+                result = await self.trigger_for_capture(
+                    camera_controller, 
+                    ['inner'], 
+                    test_settings
+                )
+                
+                end_time = time.time()
+                total_delay = (end_time - start_time) * 1000.0  # Convert to ms
+                delays.append(total_delay)
+                
+                # Small delay between test flashes
+                await asyncio.sleep(0.5)
+            
+            # Calculate average delay
+            avg_delay = sum(delays) / len(delays) if delays else 0.0
+            logger.info(f"Flash-camera sync calibration: {avg_delay:.1f}ms average delay")
+            
+            return avg_delay
+            
+        except Exception as e:
+            logger.error(f"Flash-camera sync calibration failed: {e}")
+            return 0.0
         """Fade LED zone to target brightness"""
         try:
             if not self._validate_zone(zone_id):
