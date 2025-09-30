@@ -3760,7 +3760,7 @@ class ScanOrchestrator:
                     
                     flash_settings = LightingSettings(
                         brightness=0.7,      # 70% intensity as requested
-                        duration_ms=500      # Extended 500ms flash duration for better camera synchronization
+                        duration_ms=600      # Extended 600ms flash duration for better camera synchronization
                     )
                     
                     # Use both inner and outer zones for maximum illumination

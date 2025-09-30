@@ -635,11 +635,11 @@ class GPIOLEDController(LightingController):
                 # NOW trigger extended flash that covers BOTH sequential camera captures
                 logger.info("🔥� FIRING 500ms FLASH at 70% brightness during sensor exposure...")
                 
-                # Use extended flash (500ms) at 70% brightness to cover both camera captures
+                # Use extended flash (600ms) at 70% brightness to cover both camera captures
                 # Camera 0: captures immediately, Camera 1: captures ~100ms later
                 extended_flash_settings = LightingSettings(
                     brightness=0.7,  # Set to 70% brightness as requested
-                    duration_ms=500  # Extended 500ms flash to ensure coverage
+                    duration_ms=600  # Extended 600ms flash to ensure coverage
                 )
                 
                 # Fire the extended flash
