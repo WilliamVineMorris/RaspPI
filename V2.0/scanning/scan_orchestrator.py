@@ -3807,63 +3807,56 @@ class ScanOrchestrator:
                         raise Exception("Camera manager not available")
                 except Exception as capture_error:
                     raise Exception(f"Both flash and capture failed: Flash={flash_error}, Capture={capture_error}")
-                
-                # Convert result to expected format
-                capture_results = []
-                if camera_data_dict and isinstance(camera_data_dict, dict):
-                    # Camera manager returns: {'camera_0': {'image': array, 'metadata': {}}, 'camera_1': {...}}
-                    for camera_id in ['camera_0', 'camera_1']:
-                        camera_result = camera_data_dict.get(camera_id)
+            
+            # Convert result to expected format (for both flash and non-flash cases)
+            capture_results = []
+            if camera_data_dict and isinstance(camera_data_dict, dict):
+                # Camera manager returns: {'camera_0': {'image': array, 'metadata': {}}, 'camera_1': {...}}
+                for camera_id in ['camera_0', 'camera_1']:
+                    camera_result = camera_data_dict.get(camera_id)
+                    
+                    if camera_result and isinstance(camera_result, dict) and 'image' in camera_result:
+                        # Extract image data and metadata from nested structure
+                        image_data = camera_result['image']
+                        camera_metadata = camera_result.get('metadata', {})
                         
-                        if camera_result and isinstance(camera_result, dict) and 'image' in camera_result:
-                            # Extract image data and metadata from nested structure
-                            image_data = camera_result['image']
-                            camera_metadata = camera_result.get('metadata', {})
-                            
-                            capture_results.append({
-                                'camera_id': camera_id,
-                                'success': True,
-                                'image_data': image_data,
-                                'metadata': {
-                                    'scan_point': point_index, 
-                                    'timestamp': timestamp,
-                                    **camera_metadata  # Include camera capture metadata
-                                },
-                                'error': None
-                            })
-                            
-                            # Log successful capture with shape
-                            if hasattr(image_data, 'shape'):
-                                self.logger.info(f"✅ Successfully captured from {camera_id}: shape {image_data.shape}")
-                            else:
-                                self.logger.info(f"✅ Successfully captured from {camera_id}: {type(image_data)}")
-                                
+                        capture_results.append({
+                            'camera_id': camera_id,
+                            'success': True,
+                            'image_data': image_data,
+                            'metadata': {
+                                'scan_point': point_index, 
+                                'timestamp': timestamp,
+                                **camera_metadata  # Include camera capture metadata
+                            },
+                            'error': None
+                        })
+                        
+                        # Log successful capture with shape
+                        if hasattr(image_data, 'shape'):
+                            self.logger.info(f"✅ Successfully captured from {camera_id}: shape {image_data.shape}")
                         else:
-                            capture_results.append({
-                                'camera_id': camera_id,
-                                'success': False,
-                                'image_data': None,
-                                'metadata': {},
-                                'error': 'No image data in camera result'
-                            })
-                            self.logger.warning(f"❌ Failed to capture from {camera_id}: invalid result structure")
-                    
-                    # Log capture summary
-                    successful_captures = len([r for r in capture_results if r['success']])
-                    self.logger.info(f"📸 Captured from {successful_captures}/{len(capture_results)} cameras at scan point {point_index}")
-                    
-                else:
-                    self.logger.error("Camera manager returned invalid result format")
-                    capture_results = [
-                        {'camera_id': 'camera_0', 'success': False, 'error': 'Invalid capture result format'},
-                        {'camera_id': 'camera_1', 'success': False, 'error': 'Invalid capture result format'}
-                    ]
-                    
-            except Exception as capture_error:
-                self.logger.error(f"Camera manager capture failed: {capture_error}")
+                            self.logger.info(f"✅ Successfully captured from {camera_id}: {type(image_data)}")
+                            
+                    else:
+                        capture_results.append({
+                            'camera_id': camera_id,
+                            'success': False,
+                            'image_data': None,
+                            'metadata': {},
+                            'error': 'No image data in camera result'
+                        })
+                        self.logger.warning(f"❌ Failed to capture from {camera_id}: invalid result structure")
+                
+                # Log capture summary
+                successful_captures = len([r for r in capture_results if r['success']])
+                self.logger.info(f"📸 Captured from {successful_captures}/{len(capture_results)} cameras at scan point {point_index}")
+                
+            else:
+                self.logger.error("Camera manager returned invalid result format")
                 capture_results = [
-                    {'camera_id': 'camera_0', 'success': False, 'error': str(capture_error)},
-                    {'camera_id': 'camera_1', 'success': False, 'error': str(capture_error)}
+                    {'camera_id': 'camera_0', 'success': False, 'error': 'Invalid capture result format'},
+                    {'camera_id': 'camera_1', 'success': False, 'error': 'Invalid capture result format'}
                 ]
             
             images_captured = len([r for r in capture_results if r['success']])
