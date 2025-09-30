@@ -632,17 +632,18 @@ class GPIOLEDController(LightingController):
                 logger.info("⏱️  Waiting for camera prep to complete (~2.8s)...")
                 await asyncio.sleep(2.8)  # Wait until cameras are about to expose sensors
                 
-                # NOW trigger a very short, bright flash during actual sensor exposure
+                # NOW trigger extended flash that covers BOTH sequential camera captures
                 logger.info("🔥� FIRING SHORT FLASH during sensor exposure...")
                 
-                # Use a very short flash (50ms) at normal brightness during actual exposure
-                short_flash_settings = LightingSettings(
+                # Use extended flash (200ms) to cover both camera captures with 100ms delay between them
+                # Camera 0: captures immediately, Camera 1: captures ~100ms later
+                extended_flash_settings = LightingSettings(
                     brightness=settings.brightness,  # Keep original brightness
-                    duration_ms=50  # Very short flash during exposure
+                    duration_ms=200  # Extended flash to cover sequential captures (100ms delay + margin)
                 )
                 
-                # Fire the short flash
-                flash_result = await self.flash(zone_ids, short_flash_settings)
+                # Fire the extended flash
+                flash_result = await self.flash(zone_ids, extended_flash_settings)
                 
                 # Wait for camera capture to complete
                 logger.info("📸 Waiting for camera capture to complete...")
