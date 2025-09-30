@@ -818,31 +818,51 @@ class CameraManagerAdapter:
     async def _load_camera_configuration(self):
         """Load camera configuration from YAML file"""
         try:
-            # Load resolution from camera configuration
-            camera_1_config = self.config_manager.get('cameras.camera_1', {})
-            if camera_1_config and 'resolution' in camera_1_config:
-                resolution_config = camera_1_config['resolution']
-                # Handle both dict format (resolution.capture) and list format ([width, height])
-                if isinstance(resolution_config, dict):
-                    capture_resolution = resolution_config.get('capture', [3280, 2464])
-                elif isinstance(resolution_config, list):
-                    capture_resolution = resolution_config
-                else:
-                    capture_resolution = [3280, 2464]
-                self.logger.info(f"CAMERA: Loaded capture resolution from config: {capture_resolution}")
+            # Check if custom quality settings are already applied and preserve their resolution
+            existing_custom_resolution = None
+            if hasattr(self, '_quality_settings') and 'resolution' in self._quality_settings:
+                existing_custom_resolution = self._quality_settings['resolution']
+                self.logger.info(f"CAMERA: Found existing custom resolution: {existing_custom_resolution}")
+            
+            # Load resolution from camera configuration only if no custom settings exist
+            if existing_custom_resolution:
+                capture_resolution = existing_custom_resolution
+                self.logger.info(f"CAMERA: Preserving custom resolution: {capture_resolution}")
             else:
-                capture_resolution = [3280, 2464]  # Default from YAML
-                self.logger.info(f"CAMERA: Using default capture resolution: {capture_resolution}")
+                camera_1_config = self.config_manager.get('cameras.camera_1', {})
+                if camera_1_config and 'resolution' in camera_1_config:
+                    resolution_config = camera_1_config['resolution']
+                    # Handle both dict format (resolution.capture) and list format ([width, height])
+                    if isinstance(resolution_config, dict):
+                        capture_resolution = resolution_config.get('capture', [3280, 2464])
+                    elif isinstance(resolution_config, list):
+                        capture_resolution = resolution_config
+                    else:
+                        capture_resolution = [3280, 2464]
+                    self.logger.info(f"CAMERA: Loaded capture resolution from config: {capture_resolution}")
+                else:
+                    capture_resolution = [3280, 2464]  # Default from YAML
+                    self.logger.info(f"CAMERA: Using default capture resolution: {capture_resolution}")
             
-            # Initialize quality settings with resolution from config
-            self._quality_settings = {
-                'jpeg_quality': 95,  # Default high quality
-                'color_format': 'BGR',
-                'compression_level': 1,
-                'resolution': capture_resolution
-            }
+            # Initialize or preserve quality settings
+            if hasattr(self, '_quality_settings') and self._quality_settings:
+                # Preserve existing custom quality settings, only update resolution if needed
+                if 'resolution' not in self._quality_settings or not self._quality_settings['resolution']:
+                    self._quality_settings['resolution'] = capture_resolution
+                    self.logger.info(f"CAMERA: Updated existing quality settings with resolution: {capture_resolution}")
+                else:
+                    self.logger.info(f"CAMERA: Preserving existing quality settings including resolution: {self._quality_settings['resolution']}")
+            else:
+                # Initialize quality settings with resolution from config/defaults
+                self._quality_settings = {
+                    'jpeg_quality': 95,  # Default high quality
+                    'color_format': 'BGR',
+                    'compression_level': 1,
+                    'resolution': capture_resolution
+                }
+                self.logger.info(f"CAMERA: Initialized new quality settings with resolution: {capture_resolution}")
             
-            self.logger.info(f"CAMERA: Configuration loaded - resolution: {capture_resolution}")
+            self.logger.info(f"CAMERA: Configuration loaded - final resolution: {self._quality_settings.get('resolution', capture_resolution)}")
             
         except Exception as e:
             self.logger.error(f"CAMERA: Failed to load camera configuration: {e}")
