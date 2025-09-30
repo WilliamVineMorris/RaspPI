@@ -693,6 +693,8 @@ class GPIOLEDController(LightingController):
         except Exception as e:
             logger.error(f"Flash-camera sync calibration failed: {e}")
             return 0.0
+    
+    async def fade_to(self, zone_id: str, target_brightness: float, duration_ms: float) -> bool:
         """Fade LED zone to target brightness"""
         try:
             if not self._validate_zone(zone_id):
@@ -750,20 +752,6 @@ class GPIOLEDController(LightingController):
         """Stop currently executing pattern"""
         # Placeholder implementation
         return await self.turn_off_all()
-    
-    # Camera Synchronization (Abstract methods)
-    async def trigger_for_capture(self, camera_controller, zone_ids: List[str], 
-                                 settings: LightingSettings) -> FlashResult:
-        """Trigger LED flash synchronized with camera capture"""
-        # For now, just do a regular flash
-        # TODO: Implement proper camera synchronization
-        return await self.flash(zone_ids, settings)
-    
-    async def calibrate_camera_sync(self, camera_controller, test_flashes: int = 5) -> float:
-        """Calibrate LED flash timing with camera"""
-        # Placeholder implementation
-        logger.warning("Camera synchronization calibration not implemented")
-        return 0.0  # Return 0ms delay for now
     
     # Status and Monitoring (Abstract methods)
     async def get_status(self, zone_id: Optional[str] = None) -> Union[LightingStatus, Dict[str, LightingStatus]]:
