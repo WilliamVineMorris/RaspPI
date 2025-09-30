@@ -606,14 +606,19 @@ class GPIOLEDController(LightingController):
         try:
             from core.exceptions import CameraError
             
+            logger.info(f"🔥 Starting flash-camera sync: zones={zone_ids}, brightness={settings.brightness}")
+            
             # Start flash (non-blocking)
             flash_task = asyncio.create_task(self.flash(zone_ids, settings))
             
             # Wait for flash to reach peak intensity (LED rise time)
             # LEDs typically take 10-30ms to reach peak brightness
-            peak_delay = 0.025  # 25ms for reliable peak intensity
+            # Increased delay to ensure full LED brightness before capture
+            peak_delay = 0.050  # 50ms for reliable peak intensity
+            logger.info(f"⏱️  Waiting {peak_delay*1000:.0f}ms for LED peak intensity...")
             await asyncio.sleep(peak_delay)
             
+            logger.info("📸 Triggering camera capture during LED peak...")
             # Trigger camera capture during flash peak
             try:
                 if hasattr(camera_controller, 'capture_both_cameras_simultaneously'):

@@ -303,7 +303,7 @@ class MockLightingController:
         
     async def trigger_for_capture(self, camera_controller, zone_ids: List[str], settings: Any) -> Any:
         """Mock synchronized flash-capture method"""
-        await asyncio.sleep(0.03)  # Simulate LED rise time
+        await asyncio.sleep(0.05)  # Simulate LED rise time (increased to match real controller)
         
         # Mock camera capture during flash
         camera_result = None
@@ -3760,7 +3760,7 @@ class ScanOrchestrator:
                     
                     flash_settings = LightingSettings(
                         brightness=0.8,      # 80% intensity for scanning
-                        duration_ms=150      # Longer 150ms flash duration for better sync
+                        duration_ms=200      # Extended 200ms flash duration for better sync timing
                     )
                     
                     # Use both inner and outer zones for maximum illumination

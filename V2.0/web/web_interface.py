@@ -3111,7 +3111,7 @@ class ScannerWebInterface:
                 )
                 
                 # Wait for flash to reach peak intensity
-                await asyncio.sleep(0.025)  # 25ms for peak intensity
+                await asyncio.sleep(0.050)  # 50ms for peak intensity (increased for better sync)
                 
                 # Capture during flash peak
                 image_data = await self.orchestrator.camera_manager.capture_high_resolution(camera_id)
