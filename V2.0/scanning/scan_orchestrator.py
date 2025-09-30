@@ -301,6 +301,33 @@ class MockLightingController:
             'duration_ms': 100
         }
         
+    async def trigger_for_capture(self, camera_controller, zone_ids: List[str], settings: Any) -> Any:
+        """Mock synchronized flash-capture method"""
+        await asyncio.sleep(0.03)  # Simulate LED rise time
+        
+        # Mock camera capture during flash
+        camera_result = None
+        if hasattr(camera_controller, 'capture_both_cameras_simultaneously'):
+            try:
+                camera_result = await camera_controller.capture_both_cameras_simultaneously()
+            except Exception:
+                pass
+        
+        # Return mock flash result with camera data
+        flash_result = {
+            'success': True,
+            'zones_activated': zone_ids,
+            'actual_brightness': {zone_id: 0.8 for zone_id in zone_ids},
+            'duration_ms': 150,
+            'timestamp': time.time()
+        }
+        
+        # Add camera result to flash result
+        if hasattr(flash_result, '__dict__'):
+            flash_result['camera_result'] = camera_result
+        
+        return flash_result
+        
     async def turn_off_all(self) -> bool:
         return True
         
@@ -2199,6 +2226,14 @@ class LightingControllerAdapter:
         
     async def flash(self, zone_ids: List[str], settings: Any) -> Any:
         return await self.controller.flash(zone_ids, settings)
+        
+    async def trigger_for_capture(self, camera_controller, zone_ids: List[str], settings: Any) -> Any:
+        """Delegate to controller's synchronized flash-capture method"""
+        if hasattr(self.controller, 'trigger_for_capture'):
+            return await self.controller.trigger_for_capture(camera_controller, zone_ids, settings)
+        else:
+            # Fallback to regular flash for controllers without sync support
+            return await self.controller.flash(zone_ids, settings)
         
     async def turn_off_all(self) -> bool:
         return await self.controller.turn_off_all()
