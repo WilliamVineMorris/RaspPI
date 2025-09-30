@@ -245,7 +245,7 @@ lighting:
       intensity_percent: 50.0
   
   safety:
-    max_continuous_ms: 200  # Never flash longer than 200ms
+    max_continuous_ms: 500  # Allow up to 500ms flash for camera synchronization
     cooldown_ms: 1000       # Minimum time between flashes
     auto_shutoff: true      # Auto turn off if system error
     

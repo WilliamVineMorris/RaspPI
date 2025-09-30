@@ -628,18 +628,18 @@ class GPIOLEDController(LightingController):
                         error_message="No suitable camera capture method found"
                     )
                 
-                # Wait for camera preparation to mostly complete (empirically ~2.8 seconds based on logs)
-                logger.info("⏱️  Waiting for camera prep to complete (~2.8s)...")
-                await asyncio.sleep(2.8)  # Wait until cameras are about to expose sensors
+                # Wait for camera preparation to mostly complete (empirically ~2.7 seconds to trigger 0.1s earlier)
+                logger.info("⏱️  Waiting for camera prep to complete (~2.7s)...")
+                await asyncio.sleep(2.7)  # Wait until cameras are about to expose sensors, trigger 0.1s earlier
                 
                 # NOW trigger extended flash that covers BOTH sequential camera captures
-                logger.info("🔥� FIRING SHORT FLASH during sensor exposure...")
+                logger.info("🔥� FIRING 500ms FLASH at 70% brightness during sensor exposure...")
                 
-                # Use extended flash (200ms) to cover both camera captures with 100ms delay between them
+                # Use extended flash (500ms) at 70% brightness to cover both camera captures
                 # Camera 0: captures immediately, Camera 1: captures ~100ms later
                 extended_flash_settings = LightingSettings(
-                    brightness=settings.brightness,  # Keep original brightness
-                    duration_ms=200  # Extended flash to cover sequential captures (100ms delay + margin)
+                    brightness=0.7,  # Set to 70% brightness as requested
+                    duration_ms=500  # Extended 500ms flash to ensure coverage
                 )
                 
                 # Fire the extended flash

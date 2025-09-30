@@ -3759,8 +3759,8 @@ class ScanOrchestrator:
                     from lighting.base import LightingSettings
                     
                     flash_settings = LightingSettings(
-                        brightness=0.8,      # 80% intensity for scanning
-                        duration_ms=200      # Extended 200ms flash duration for better sync timing
+                        brightness=0.7,      # 70% intensity as requested
+                        duration_ms=500      # Extended 500ms flash duration for better camera synchronization
                     )
                     
                     # Use both inner and outer zones for maximum illumination
