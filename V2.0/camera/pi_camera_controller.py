@@ -1299,8 +1299,8 @@ class PiCameraController(CameraController):
         if camera_id in self.cameras and self.cameras[camera_id]:
             camera = self.cameras[camera_id]
             camera_data.update({
-                "current_configuration": camera.camera_configuration,
-                "controls": camera.camera_controls,
+                "current_configuration": camera.camera_configuration(),
+                "controls": camera.camera_controls(),
                 "is_recording": self.active_captures.get(camera_id, False)
             })
         
@@ -2058,7 +2058,7 @@ class PiCameraController(CameraController):
                         camera = self.cameras[camera_id]
                         if camera and hasattr(camera, 'camera_configuration'):
                             try:
-                                config = camera.camera_configuration
+                                config = camera.camera_configuration()
                                 if config and 'main' in config:
                                     current_size = config['main'].get('size')
                                     if current_size:
@@ -2179,7 +2179,7 @@ class PiCameraController(CameraController):
                         camera = self.cameras[camera_id]
                         if camera and hasattr(camera, 'camera_configuration'):
                             try:
-                                config = camera.camera_configuration
+                                config = camera.camera_configuration()
                                 if 'main' in config and 'size' in config['main']:
                                     target_resolution = config['main']['size']
                                     break
@@ -2485,7 +2485,7 @@ class PiCameraController(CameraController):
                     if camera:
                         try:
                             # Check current configuration matches target
-                            current_config = camera.camera_configuration
+                            current_config = camera.camera_configuration()
                             if current_config and 'main' in current_config:
                                 current_size = current_config['main'].get('size')
                                 if current_size != target_resolution:

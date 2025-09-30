@@ -606,44 +606,63 @@ class GPIOLEDController(LightingController):
         try:
             from core.exceptions import CameraError
             
-            logger.info(f"🔥 Starting flash-camera sync: zones={zone_ids}, brightness={settings.brightness}")
+            logger.info(f"🔥 Starting JUST-IN-TIME flash sync: zones={zone_ids}, brightness={settings.brightness}")
             
-            # Start flash (non-blocking)
-            flash_task = asyncio.create_task(self.flash(zone_ids, settings))
+            # Strategy: Start camera capture process first, then flash when sensors actually expose
+            logger.info("📷 Starting camera capture process (this takes ~3 seconds)...")
             
-            # Wait for flash to reach peak intensity (LED rise time)
-            # LEDs typically take 10-30ms to reach peak brightness
-            # Increased delay to ensure full LED brightness before capture
-            peak_delay = 0.050  # 50ms for reliable peak intensity
-            logger.info(f"⏱️  Waiting {peak_delay*1000:.0f}ms for LED peak intensity...")
-            await asyncio.sleep(peak_delay)
-            
-            logger.info("📸 Triggering camera capture during LED peak...")
-            # Trigger camera capture during flash peak
+            # Start the long camera capture process
+            capture_task = None
             try:
                 if hasattr(camera_controller, 'capture_both_cameras_simultaneously'):
-                    capture_result = await camera_controller.capture_both_cameras_simultaneously()
+                    capture_task = asyncio.create_task(camera_controller.capture_both_cameras_simultaneously())
                 elif hasattr(camera_controller, 'capture_high_resolution'):
-                    capture_result = await camera_controller.capture_high_resolution(0)  # Camera 0
+                    capture_task = asyncio.create_task(camera_controller.capture_high_resolution(0))
                 else:
                     logger.warning("Camera controller doesn't have expected capture methods")
-                    capture_result = None
+                    return FlashResult(
+                        success=False,
+                        zones_activated=[],
+                        actual_brightness={},
+                        duration_ms=0,
+                        error_message="No suitable camera capture method found"
+                    )
+                
+                # Wait for camera preparation to mostly complete (empirically ~2.8 seconds based on logs)
+                logger.info("⏱️  Waiting for camera prep to complete (~2.8s)...")
+                await asyncio.sleep(2.8)  # Wait until cameras are about to expose sensors
+                
+                # NOW trigger a very short, bright flash during actual sensor exposure
+                logger.info("🔥� FIRING SHORT FLASH during sensor exposure...")
+                
+                # Use a very short flash (50ms) at normal brightness during actual exposure
+                short_flash_settings = LightingSettings(
+                    brightness=settings.brightness,  # Keep original brightness
+                    duration_ms=50  # Very short flash during exposure
+                )
+                
+                # Fire the short flash
+                flash_result = await self.flash(zone_ids, short_flash_settings)
+                
+                # Wait for camera capture to complete
+                logger.info("📸 Waiting for camera capture to complete...")
+                capture_result = await capture_task
+                
             except Exception as camera_error:
-                logger.error(f"Camera capture failed during flash: {camera_error}")
+                logger.error(f"Camera capture failed: {camera_error}")
+                # Still fire a flash for debugging
+                flash_result = await self.flash(zone_ids, settings)
                 capture_result = None
             
-            # Wait for flash to complete
-            flash_result = await flash_task
-            
             # Add camera sync info to result
-            if flash_result.success:
-                logger.info(f"✅ Flash-camera synchronization successful: {zone_ids}")
+            if flash_result and hasattr(flash_result, 'success') and flash_result.success:
+                logger.info(f"✅ JUST-IN-TIME flash successful: {zone_ids}")
                 flash_result.timestamp = time.time()
                 # Store camera result in flash result for caller
                 if hasattr(flash_result, '__dict__'):
                     flash_result.__dict__['camera_result'] = capture_result
             else:
-                logger.warning(f"⚠️ Flash failed but camera may have captured: {flash_result.error_message}")
+                logger.warning(f"⚠️ Flash failed but camera may have captured: {getattr(flash_result, 'error_message', 'Unknown error')}")
             
             return flash_result
             
