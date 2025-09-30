@@ -768,6 +768,7 @@ class CameraManagerAdapter:
         # Dual-mode camera system for optimized streaming and capture
         self._streaming_mode = True  # Start in streaming-only mode
         self._is_scanning = False
+        self._is_capturing = False  # More specific flag for active capture moments
         
         # Picamera2 dual-configuration system
         self._stream_configs = {}     # 1080p streaming configurations per camera
@@ -1196,8 +1197,16 @@ class CameraManagerAdapter:
                 
                 if camera and hasattr(camera, 'capture_array'):
                     try:
-                        # Ensure we're in streaming mode for live preview
-                        if self._current_mode != "streaming":
+                        # CRITICAL: Don't switch camera modes during active capture moments
+                        # This prevents the live stream from interfering with scan capture resolution
+                        # but allows live stream to work normally during scan movements/preparation
+                        if self._is_capturing:
+                            # During active capture, use the camera in its current mode without switching
+                            # This preserves the high-resolution capture configuration
+                            self.logger.debug(f"CAMERA: Active capture in progress - using current mode for preview (no mode switch)")
+                        elif self._current_mode != "streaming":
+                            # Only switch to streaming mode when NOT actively capturing
+                            # This allows live stream during scan movements/preparation but prevents interference during captures
                             # Run the async mode switch in a new event loop for sync method
                             try:
                                 import asyncio
@@ -1386,6 +1395,9 @@ class CameraManagerAdapter:
         results = {}
         
         try:
+            # Set capturing flag to prevent live stream interference during capture
+            self._is_capturing = True
+            
             # Switch to capture mode ONCE for both cameras
             await self._switch_camera_mode("capture")
             self.logger.info("CAMERA: Both cameras prepared for simultaneous capture")
@@ -1828,6 +1840,9 @@ class CameraManagerAdapter:
             results = {'camera_0': None, 'camera_1': None}
         
         finally:
+            # Always reset capturing flag when capture completes (success or failure)
+            self._is_capturing = False
+            
             # Always switch back to streaming mode
             try:
                 await self._switch_camera_mode("streaming")
