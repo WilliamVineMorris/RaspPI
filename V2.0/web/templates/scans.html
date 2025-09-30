@@ -1471,13 +1471,13 @@
             
             <div class="step-content">
                 <div class="scan-type-selector">
-                <div class="scan-type-card" data-type="surface">
+                <div class="scan-type-card" data-type="surface" style="display: none;">
                     <div class="card-icon">📐</div>
                     <h4>Surface Scan</h4>
                     <p>High-resolution surface capture with multiple angles</p>
                     <div class="card-badge">Standard</div>
                 </div>
-                <div class="scan-type-card" data-type="volume">
+                <div class="scan-type-card" data-type="volume" style="display: none;">
                     <div class="card-icon">📦</div>
                     <h4>Volume Scan</h4>
                     <p>Complete 360° volumetric capture</p>
@@ -1489,7 +1489,7 @@
                     <p>Continuous rotation scan with height steps</p>
                     <div class="card-badge">Specialized</div>
                 </div>
-                <div class="scan-type-card" data-type="detail">
+                <div class="scan-type-card" data-type="detail" style="display: none;">
                     <div class="card-icon">🔍</div>
                     <h4>Detail Scan</h4>
                     <p>Ultra-high resolution focused scan</p>
@@ -2205,10 +2205,10 @@ cards.forEach(card => {
     });
 });
 
-// Set initial state - default to surface scan
-switchScanType('surface');
-const surfaceCard = document.querySelector('[data-type="surface"]');
-if (surfaceCard) surfaceCard.classList.add('selected');
+// Set initial state - default to cylindrical scan (only available option)
+switchScanType('cylindrical');
+const cylindricalCard = document.querySelector('[data-type="cylindrical"]');
+if (cylindricalCard) cylindricalCard.classList.add('selected');
 
 // Scan control functions
 async function startScanNow() {

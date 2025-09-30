@@ -38,7 +38,7 @@ from werkzeug.exceptions import BadRequest
 try:
     from core.exceptions import ScannerSystemError, HardwareError
     from core.types import Position4D
-    from scanning.scan_patterns import GridScanPattern, CylindricalScanPattern
+    from scanning.scan_patterns import CylindricalScanPattern  # Only cylindrical scanning supported
     from scanning.scan_state import ScanStatus, ScanPhase
     from scanning.scan_orchestrator import ScanOrchestrator
     SCANNER_MODULES_AVAILABLE = True
@@ -84,10 +84,7 @@ except ImportError as e:
         PROCESSING = "processing"
         COMPLETED = "completed"
     
-    class GridScanPattern:
-        def __init__(self, *args, **kwargs):
-            pass
-    
+    # Only cylindrical scanning is supported
     class CylindricalScanPattern:
         def __init__(self, *args, **kwargs):
             pass
@@ -201,58 +198,18 @@ class CommandValidator:
     
     @classmethod
     def validate_scan_pattern(cls, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate scan pattern parameters"""
+        """Validate scan pattern parameters - Only cylindrical scans allowed"""
         try:
             pattern_type = data.get('pattern_type', '').lower()
             
-            if pattern_type == 'grid':
-                return cls._validate_grid_pattern(data)
-            elif pattern_type == 'cylindrical':
+            # Only allow cylindrical scanning for now
+            if pattern_type == 'cylindrical':
                 return cls._validate_cylindrical_pattern(data)
             else:
-                raise ValueError(f"Unknown pattern type: {pattern_type}")
+                raise ValueError(f"Only cylindrical scanning is currently supported. Pattern type '{pattern_type}' is not available.")
                 
         except (ValueError, TypeError) as e:
             raise WebInterfaceError(f"Invalid scan pattern: {e}")
-    
-    @classmethod
-    def _validate_grid_pattern(cls, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate grid pattern parameters"""
-        x_range = (float(data.get('x_min', -50)), float(data.get('x_max', 50)))
-        y_range = (float(data.get('y_min', -50)), float(data.get('y_max', 50)))
-        spacing = float(data.get('spacing', 5.0))
-        z_height = float(data.get('z_height', 25.0))
-        
-        # Validate ranges
-        if x_range[0] >= x_range[1] or y_range[0] >= y_range[1]:
-            raise ValueError("Invalid coordinate ranges")
-        
-        if not (1.0 <= spacing <= 25.0):
-            raise ValueError(f"Spacing {spacing}mm outside valid range [1.0, 25.0]")
-        
-        # z_height in grid scan represents cylinder rotation angle, not height
-        if not (0.0 <= z_height <= 360.0):
-            raise ValueError(f"Z rotation angle {z_height}° outside valid range [0.0, 360.0]°")
-        
-        # Create return dictionary with preserved custom settings
-        result = {
-            'pattern_type': 'grid',
-            'x_range': x_range,
-            'y_range': y_range,
-            'spacing': spacing,
-            'z_height': z_height,  # Cylinder rotation angle for grid scan
-            'scan_name': data.get('scan_name', 'Untitled_Scan'),  # Preserve scan name
-            'homing_confirmed': data.get('homing_confirmed', False),  # Preserve homing decision
-            'validated': True
-        }
-        
-        # Preserve custom settings if present
-        if 'quality_settings' in data:
-            result['quality_settings'] = data['quality_settings']
-        if 'speed_settings' in data:
-            result['speed_settings'] = data['speed_settings']
-            
-        return result
     
     @classmethod
     def _validate_cylindrical_pattern(cls, data: Dict[str, Any]) -> Dict[str, Any]:
