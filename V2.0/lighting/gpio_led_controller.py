@@ -183,9 +183,12 @@ class GPIOLEDController(LightingController):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         
-        # GPIO Configuration
+        # GPIO Configuration - map controller_type to library selection
         self.pwm_frequency = config.get('pwm_frequency', 1000)  # Hz
-        self.gpio_library = config.get('gpio_library', 'rpi_gpio')  # Default to RPi.GPIO for simplicity
+        # Map controller_type from config to gpio_library for backward compatibility
+        controller_type = config.get('controller_type', 'rpi_gpio')
+        self.gpio_library = 'gpiozero' if controller_type == 'gpiozero' else controller_type
+        logger.info(f"Config controller_type: {controller_type} -> gpio_library: {self.gpio_library}")
         self.gpio_mode = GPIO.BCM if GPIO_AVAILABLE else None
         self.pwm_controllers: Dict[str, List[Any]] = {}  # Zone -> [PWM objects]
         self.zone_states: Dict[str, Dict[str, Any]] = {}
@@ -197,20 +200,29 @@ class GPIOLEDController(LightingController):
         # GPIO Zero PWMLED objects (if using gpiozero)
         self.gpiozero_leds: Dict[str, List[PWMLED]] = {}
         
-        # Determine which GPIO library to use
-        # Check if user wants gpiozero (new preferred method for 300Hz PWM)
+        # Determine which GPIO library to use - prioritize user's config choice
         if self.gpio_library == 'gpiozero' and GPIOZERO_AVAILABLE:
             self._use_gpiozero = True
             self._use_pigpio = False
-            logger.info("Configured to use gpiozero library")
-        elif PIGPIO_AVAILABLE:
+            logger.info("✅ Configured to use gpiozero library (as requested)")
+        elif self.gpio_library == 'pigpio' and PIGPIO_AVAILABLE:
             self._use_gpiozero = False
             self._use_pigpio = True
-            logger.info("Configured to use pigpio library")
+            logger.info("✅ Configured to use pigpio library (as requested)")
         else:
-            self._use_gpiozero = False
-            self._use_pigpio = False  # Use RPi.GPIO as fallback
-            logger.info("Configured to use RPi.GPIO library (fallback)")
+            # Fallback logic - prefer gpiozero over pigpio for modern Pi systems
+            if GPIOZERO_AVAILABLE:
+                self._use_gpiozero = True
+                self._use_pigpio = False
+                logger.info("✅ Using gpiozero library (fallback - available and modern)")
+            elif PIGPIO_AVAILABLE:
+                self._use_gpiozero = False
+                self._use_pigpio = True
+                logger.info("✅ Using pigpio library (fallback)")
+            else:
+                self._use_gpiozero = False
+                self._use_pigpio = False
+                logger.info("✅ Using RPi.GPIO library (fallback - others unavailable)")
         
         logger.info(f"GPIO LED Controller: Using {GPIO_LIBRARY} library (pigpio available: {PIGPIO_AVAILABLE})")
         
