@@ -3433,9 +3433,6 @@ class ScanOrchestrator:
                 self.logger.warning("No camera controller available, skipping focus setup")
                 return
             
-            # Import LightingSettings at the beginning for calibration flash control
-            from lighting.base import LightingSettings
-            
             self.logger.info(f"Setting up focus for cameras: {available_cameras}")
             
             if self._focus_mode == 'manual' and self._primary_focus_value is not None:
@@ -3467,8 +3464,7 @@ class ScanOrchestrator:
                     
                     # Enable flash at 30% brightness for the entire calibration process
                     try:
-                        calibration_flash_settings = LightingSettings(brightness=0.3, duration_ms=0)  # Continuous light
-                        await self.lighting_controller.set_brightness(['inner', 'outer'], calibration_flash_settings)
+                        await self.lighting_controller.set_brightness("all", 0.3)
                         self.logger.info("💡 CALIBRATION: Enabled 30% flash for calibration process")
                     except Exception as flash_error:
                         self.logger.warning(f"⚠️ CALIBRATION: Could not enable flash: {flash_error}")
@@ -3478,8 +3474,7 @@ class ScanOrchestrator:
                     finally:
                         # Always turn off the flash after calibration, even if it fails
                         try:
-                            off_settings = LightingSettings(brightness=0.0, duration_ms=0)
-                            await self.lighting_controller.set_brightness(['inner', 'outer'], off_settings)
+                            await self.lighting_controller.turn_off_all()
                             self.logger.info("💡 CALIBRATION: Disabled flash after calibration")
                         except Exception as flash_off_error:
                             self.logger.warning(f"⚠️ CALIBRATION: Could not disable flash: {flash_off_error}")
@@ -3535,8 +3530,7 @@ class ScanOrchestrator:
                                     try:
                                         # Enable flash for secondary camera calibration
                                         try:
-                                            sec_calibration_flash_settings = LightingSettings(brightness=0.3, duration_ms=0)
-                                            await self.lighting_controller.set_brightness(['inner', 'outer'], sec_calibration_flash_settings)
+                                            await self.lighting_controller.set_brightness("all", 0.3)
                                             self.logger.info(f"💡 CALIBRATION: Enabled 30% flash for {camera_id} calibration")
                                         except Exception as flash_error:
                                             self.logger.warning(f"⚠️ CALIBRATION: Could not enable flash for {camera_id}: {flash_error}")
@@ -3549,8 +3543,7 @@ class ScanOrchestrator:
                                         finally:
                                             # Turn off flash after secondary calibration
                                             try:
-                                                off_settings = LightingSettings(brightness=0.0, duration_ms=0)
-                                                await self.lighting_controller.set_brightness(['inner', 'outer'], off_settings)
+                                                await self.lighting_controller.turn_off_all()
                                                 self.logger.info(f"💡 CALIBRATION: Disabled flash after {camera_id} calibration")
                                             except Exception as flash_off_error:
                                                 self.logger.warning(f"⚠️ CALIBRATION: Could not disable flash: {flash_off_error}")
@@ -3581,8 +3574,7 @@ class ScanOrchestrator:
                         try:
                             # Enable flash for calibration
                             try:
-                                ind_calibration_flash_settings = LightingSettings(brightness=0.3, duration_ms=0)
-                                await self.lighting_controller.set_brightness(['inner', 'outer'], ind_calibration_flash_settings)
+                                await self.lighting_controller.set_brightness("all", 0.3)
                                 self.logger.info(f"💡 CALIBRATION: Enabled 30% flash for {camera_id} calibration")
                             except Exception as flash_error:
                                 self.logger.warning(f"⚠️ CALIBRATION: Could not enable flash for {camera_id}: {flash_error}")
@@ -3596,8 +3588,7 @@ class ScanOrchestrator:
                             finally:
                                 # Turn off flash after calibration
                                 try:
-                                    off_settings = LightingSettings(brightness=0.0, duration_ms=0)
-                                    await self.lighting_controller.set_brightness(['inner', 'outer'], off_settings)
+                                    await self.lighting_controller.turn_off_all()
                                     self.logger.info(f"💡 CALIBRATION: Disabled flash after {camera_id} calibration")
                                 except Exception as flash_off_error:
                                     self.logger.warning(f"⚠️ CALIBRATION: Could not disable flash: {flash_off_error}")
