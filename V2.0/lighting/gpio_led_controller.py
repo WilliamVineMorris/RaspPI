@@ -546,13 +546,21 @@ class GPIOLEDController(LightingController):
             logger.error(f"Failed to set all brightness: {e}")
             return False
     
+    def _turn_on_direct(self, zone_id: str, brightness: float = 1.0) -> bool:
+        """Turn on LED zone - direct synchronous operation"""
+        return self._set_brightness_direct(zone_id, brightness)
+    
+    def _turn_off_direct(self, zone_id: str) -> bool:
+        """Turn off LED zone - direct synchronous operation"""
+        return self._set_brightness_direct(zone_id, 0.0)
+    
     async def turn_on(self, zone_id: str, brightness: float = 1.0) -> bool:
-        """Turn on LED zone"""
-        return await self.set_brightness(zone_id, brightness)
+        """Turn on LED zone (async wrapper)"""
+        return self._turn_on_direct(zone_id, brightness)
     
     async def turn_off(self, zone_id: str) -> bool:
-        """Turn off LED zone"""
-        return await self.set_brightness(zone_id, 0.0)
+        """Turn off LED zone (async wrapper)"""
+        return self._turn_off_direct(zone_id)
     
     # Advanced Lighting Operations (Abstract methods)
     async def flash(self, zone_ids: List[str], settings: LightingSettings) -> FlashResult:
@@ -634,17 +642,19 @@ class GPIOLEDController(LightingController):
                                         settings: LightingSettings) -> FlashResult:
         """
         Constant lighting mode: Keep LEDs on at specified brightness during entire capture
-        This is resolution-independent and ensures proper lighting regardless of camera timing
+        Uses simple ON/OFF strategy - sets brightness once, captures, turns off
+        This minimizes PWM updates and prevents flickering from repeated brightness changes
         """
         try:
             logger.info("💡 CONSTANT LIGHTING: Turning on LEDs before capture...")
             
-            # Turn on LEDs using DIRECT synchronous control - eliminates async flickering
+            # Turn on LEDs using DIRECT synchronous control
+            # Single brightness update per zone - no repeated calls
             for zone_id in zone_ids:
                 self._set_brightness_direct(zone_id, settings.brightness)
             
             # Minimal settling time for hardware PWM
-            await asyncio.sleep(0.02)  # 20ms settling time (reduced from 50ms)
+            await asyncio.sleep(0.02)  # 20ms settling time
             
             logger.info(f"💡 LEDs on at {settings.brightness*100:.0f}% brightness, starting camera capture...")
             
@@ -675,9 +685,11 @@ class GPIOLEDController(LightingController):
                 logger.error(f"Camera capture failed: {camera_error}")
                 capture_result = None
             finally:
-                # Always turn off LEDs after capture
+                # Always turn off LEDs after capture - direct synchronous operation
                 logger.info("💡 CONSTANT LIGHTING: Turning off LEDs after capture...")
-                await self.turn_off_all()
+                # Use direct method to avoid any async overhead during cleanup
+                for zone_id in zone_ids:
+                    self._turn_off_direct(zone_id)
             
             # Create successful result
             actual_brightness = {zone_id: settings.brightness for zone_id in zone_ids}
@@ -909,7 +921,8 @@ class GPIOLEDController(LightingController):
     def _set_brightness_direct(self, zone_id: str, brightness: float) -> bool:
         """
         Direct synchronous brightness control - NO async overhead
-        This is the FASTEST way to control LEDs without flickering
+        Only updates PWM when brightness changes significantly (0.5% threshold)
+        This prevents flickering caused by redundant PWM updates
         """
         try:
             if zone_id not in self.zone_configs:
@@ -918,6 +931,11 @@ class GPIOLEDController(LightingController):
             # Clamp brightness to safe range
             max_brightness = self.zone_configs[zone_id].max_brightness
             brightness = max(0.0, min(brightness, max_brightness))
+            
+            # CRITICAL: Skip if brightness hasn't changed (0.5% threshold prevents flickering)
+            current_brightness = self.zone_states[zone_id].get('brightness', -1.0)
+            if abs(current_brightness - brightness) < 0.005:  # 0.5% tolerance - prevents redundant updates
+                return True  # No update needed - prevents flickering from repeated calls
             
             # Calculate duty cycle with safety limit
             duty_cycle = brightness * 100.0
@@ -937,9 +955,13 @@ class GPIOLEDController(LightingController):
                 else:
                     pwm_obj['pwm'].ChangeDutyCycle(duty_cycle)
             
-            # Minimal state update (no dictionary update overhead)
+            # Minimal state update - only brightness and duty cycle, NO timestamp
             self.zone_states[zone_id]['brightness'] = brightness
             self.zone_states[zone_id]['duty_cycle'] = duty_cycle
+            
+            # Log only actual PWM changes (not skipped updates)
+            if abs(current_brightness - brightness) > 0.05:  # Log 5%+ changes
+                logger.debug(f"Zone '{zone_id}' brightness: {current_brightness*100:.1f}% → {brightness*100:.1f}%")
             
             return True
             
