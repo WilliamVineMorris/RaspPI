@@ -5,14 +5,7 @@
 system:
   name: "4DOF Scanner V2.0"
   debug_mode: false
-  simulation_mode: fals# LED Flash Configuration  
-# Hardware PWM Setup: Uses Pi's hardware PWM channels for flicker-free operation
-# GPIO 13 = PWM1 (hardware channel 1), GPIO 18 = PWM0 (hardware channel 0)
-# Lower frequency (100Hz) reduces CPU load and electrical noise interference
-lighting:
-  controller_type: 'gpiozero'       # Use gpiozero LED controller
-  use_pigpio_factory: false         # Use RPi.GPIO factory with hardware PWM
-  pwm_frequency: 100                # Hz - Hardware PWM frequency (100Hz for stability)t to true for testing without hardware
+  simulation_mode: false  # Set to true for testing without hardware
   log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
   
 # Hardware Platform
