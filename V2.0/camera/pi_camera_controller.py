@@ -555,8 +555,14 @@ class PiCameraController(CameraController):
                     af_mode_auto = 1  # Auto mode
                     logger.debug(f"📷 Camera {camera_id} using numeric AF mode (fallback)")
                 
-                # Set Auto mode for controlled autofocus
-                picamera2.set_controls({"AfMode": af_mode_auto})
+                # Set Auto mode for controlled autofocus with 1m max distance limit
+                # Limit autofocus range to 8cm-1m (lens positions ~3.0 to 10.0)
+                # Lower values = farther focus, higher values = closer focus
+                picamera2.set_controls({
+                    "AfMode": af_mode_auto,
+                    "AfRange": [3.0, 10.0]  # ~1m to 8cm focus range
+                })
+                logger.info(f"📷 Camera {camera_id} AF range limited to 8cm-1m (lens pos: 3.0-10.0)")
                 await asyncio.sleep(0.2)  # Let mode change take effect
                 
                 # Use official autofocus_cycle() helper function (recommended approach)
@@ -817,8 +823,14 @@ class PiCameraController(CameraController):
                 af_mode_auto = controls.AfModeEnum.Auto
             except ImportError:
                 af_mode_auto = 1  # Auto mode fallback
-                
-            picamera2.set_controls({"AfMode": af_mode_auto})
+            
+            # Limit autofocus range to 8cm-1m (lens positions ~3.0 to 10.0)
+            # Lower values = farther focus, higher values = closer focus
+            picamera2.set_controls({
+                "AfMode": af_mode_auto,
+                "AfRange": [3.0, 10.0]  # ~1m to 8cm focus range
+            })
+            logger.info(f"📷 Camera {camera_id} AF range limited to 8cm-1m (lens pos: 3.0-10.0)")
             await asyncio.sleep(0.2)
             
             # Variable to store final lens position
