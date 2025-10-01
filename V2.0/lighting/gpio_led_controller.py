@@ -197,6 +197,7 @@ class GPIOLEDController(LightingController):
         # CRITICAL: Thread lock to prevent concurrent LED updates (prevents flickering)
         import threading
         self._led_update_lock = threading.Lock()
+        self._led_active = {}  # Track which zones are currently ON (prevents redundant updates)
         
         # Pigpio connection (if available)
         self.pi = None
@@ -925,7 +926,7 @@ class GPIOLEDController(LightingController):
     def _set_brightness_direct(self, zone_id: str, brightness: float) -> bool:
         """
         Direct synchronous brightness control - NO async overhead
-        ULTRA-AGGRESSIVE: 1% threshold + thread lock prevents ALL redundant updates
+        ULTRA-AGGRESSIVE: 1% threshold + thread lock + state tracking prevents ALL redundant updates
         This is the ONLY method that writes to PWM hardware
         """
         try:
@@ -940,6 +941,14 @@ class GPIOLEDController(LightingController):
             current_brightness = self.zone_states[zone_id].get('brightness', -1.0)
             if abs(current_brightness - brightness) < 0.01:  # 1% tolerance - prevents ALL micro-updates
                 return True  # No update needed - prevents flickering from ANY repeated calls
+            
+            # ADDITIONAL CHECK: Skip if LED is already in desired state (on/off)
+            # This catches redundant on/off commands that might pass the 1% threshold
+            is_on = brightness > 0.01
+            was_on = self._led_active.get(zone_id, False)
+            if is_on == was_on and abs(current_brightness - brightness) < 0.02:  # 2% for state transitions
+                logger.debug(f"Zone '{zone_id}' already in state (on={is_on}), skipping update")
+                return True
             
             # THREAD LOCK: Prevent concurrent updates (critical for flickering prevention)
             with self._led_update_lock:
@@ -964,10 +973,13 @@ class GPIOLEDController(LightingController):
                 # Minimal state update - only brightness and duty cycle, NO timestamp
                 self.zone_states[zone_id]['brightness'] = brightness
                 self.zone_states[zone_id]['duty_cycle'] = duty_cycle
+                
+                # Update active state tracking
+                self._led_active[zone_id] = is_on
             
             # Log only actual PWM changes (not skipped updates)
             if abs(current_brightness - brightness) > 0.05:  # Log 5%+ changes
-                logger.debug(f"Zone '{zone_id}' brightness: {current_brightness*100:.1f}% → {brightness*100:.1f}%")
+                logger.info(f"💡 LED UPDATE: Zone '{zone_id}' {current_brightness*100:.1f}% → {brightness*100:.1f}% (state: {'ON' if is_on else 'OFF'})")
             
             return True
             
