@@ -81,10 +81,11 @@ class LEDZone:
 class LightingSettings:
     """LED lighting configuration settings"""
     brightness: float = 0.5  # 0.0-1.0
-    duration_ms: Optional[float] = None  # Flash duration in milliseconds
+    duration_ms: Optional[float] = None  # Flash duration in milliseconds (0 = constant mode)
     fade_time_ms: float = 100  # Fade in/out time
     strobe_frequency: Optional[float] = None  # Hz for strobe mode
     pattern_file: Optional[Path] = None  # Pattern definition file
+    constant_mode: bool = False  # If True, use constant lighting instead of timed flash
     
     def __post_init__(self):
         # Safety validation
@@ -93,6 +94,10 @@ class LightingSettings:
         
         if self.strobe_frequency and self.strobe_frequency <= 0:
             raise ValueError("Strobe frequency must be positive")
+        
+        # Auto-enable constant mode if duration is 0
+        if self.duration_ms == 0:
+            self.constant_mode = True
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization"""
@@ -101,7 +106,8 @@ class LightingSettings:
             'duration_ms': self.duration_ms,
             'fade_time_ms': self.fade_time_ms,
             'strobe_frequency': self.strobe_frequency,
-            'pattern_file': str(self.pattern_file) if self.pattern_file else None
+            'pattern_file': str(self.pattern_file) if self.pattern_file else None,
+            'constant_mode': self.constant_mode
         }
 
 

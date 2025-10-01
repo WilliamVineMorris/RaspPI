@@ -595,10 +595,14 @@ class GPIOLEDController(LightingController):
         """
         Trigger LED flash synchronized with camera capture
         
+        Two strategies:
+        1. Constant lighting mode: Keep LEDs on at 30% during entire capture (resolution-independent)
+        2. Just-in-time flash: Time-based flash trigger (legacy, resolution-dependent)
+        
         Args:
             camera_controller: Camera controller for synchronization
             zone_ids: List of zone identifiers to flash
-            settings: Flash settings
+            settings: Flash settings (brightness, duration_ms)
             
         Returns:
             Flash operation result with camera sync info
@@ -606,6 +610,107 @@ class GPIOLEDController(LightingController):
         try:
             from core.exceptions import CameraError
             
+            # Check if constant lighting mode is enabled via settings
+            use_constant_lighting = getattr(settings, 'constant_mode', False) or settings.duration_ms == 0
+            
+            if use_constant_lighting:
+                logger.info(f"💡 Using CONSTANT LIGHTING mode: zones={zone_ids}, brightness={settings.brightness}")
+                return await self._constant_lighting_capture(camera_controller, zone_ids, settings)
+            else:
+                logger.info(f"🔥 Using JUST-IN-TIME flash mode: zones={zone_ids}, brightness={settings.brightness}")
+                return await self._timed_flash_capture(camera_controller, zone_ids, settings)
+                
+        except Exception as e:
+            logger.error(f"Flash trigger failed: {e}", exc_info=True)
+            return FlashResult(
+                success=False,
+                zones_activated=[],
+                actual_brightness={},
+                duration_ms=0,
+                error_message=str(e)
+            )
+    
+    async def _constant_lighting_capture(self, camera_controller, zone_ids: List[str],
+                                        settings: LightingSettings) -> FlashResult:
+        """
+        Constant lighting mode: Keep LEDs on at specified brightness during entire capture
+        This is resolution-independent and ensures proper lighting regardless of camera timing
+        """
+        try:
+            logger.info("💡 CONSTANT LIGHTING: Turning on LEDs before capture...")
+            
+            # Turn on LEDs at specified brightness (typically 30%)
+            for zone_id in zone_ids:
+                await self.set_brightness(zone_id, settings.brightness)
+            
+            logger.info(f"💡 LEDs on at {settings.brightness*100:.0f}% brightness, starting camera capture...")
+            
+            # Start camera capture with LEDs already on
+            capture_task = None
+            try:
+                if hasattr(camera_controller, 'capture_both_cameras_simultaneously'):
+                    capture_task = asyncio.create_task(camera_controller.capture_both_cameras_simultaneously())
+                elif hasattr(camera_controller, 'capture_high_resolution'):
+                    capture_task = asyncio.create_task(camera_controller.capture_high_resolution(0))
+                else:
+                    logger.warning("Camera controller doesn't have expected capture methods")
+                    await self.turn_off_all()
+                    return FlashResult(
+                        success=False,
+                        zones_activated=[],
+                        actual_brightness={},
+                        duration_ms=0,
+                        error_message="No suitable camera capture method found"
+                    )
+                
+                # Wait for camera capture to complete
+                logger.info("📸 Waiting for camera capture to complete...")
+                capture_result = await capture_task
+                logger.info("✅ Camera capture completed")
+                
+            except Exception as camera_error:
+                logger.error(f"Camera capture failed: {camera_error}")
+                capture_result = None
+            finally:
+                # Always turn off LEDs after capture
+                logger.info("💡 CONSTANT LIGHTING: Turning off LEDs after capture...")
+                await self.turn_off_all()
+            
+            # Create successful result
+            actual_brightness = {zone_id: settings.brightness for zone_id in zone_ids}
+            flash_result = FlashResult(
+                success=True,
+                zones_activated=zone_ids,
+                actual_brightness=actual_brightness,
+                duration_ms=0,  # Constant lighting doesn't have fixed duration
+                timestamp=time.time()
+            )
+            
+            # Store camera result in flash result for caller
+            if hasattr(flash_result, '__dict__'):
+                flash_result.__dict__['camera_result'] = capture_result
+            
+            logger.info(f"✅ CONSTANT LIGHTING capture successful: {zone_ids}")
+            return flash_result
+            
+        except Exception as e:
+            logger.error(f"Constant lighting capture failed: {e}", exc_info=True)
+            await self.turn_off_all()  # Ensure LEDs are off
+            return FlashResult(
+                success=False,
+                zones_activated=[],
+                actual_brightness={},
+                duration_ms=0,
+                error_message=str(e)
+            )
+    
+    async def _timed_flash_capture(self, camera_controller, zone_ids: List[str],
+                                   settings: LightingSettings) -> FlashResult:
+        """
+        Timed flash mode (legacy): Use fixed timing to trigger flash during capture
+        WARNING: Timing is resolution-dependent and may not work for all resolutions
+        """
+        try:
             logger.info(f"🔥 Starting JUST-IN-TIME flash sync: zones={zone_ids}, brightness={settings.brightness}")
             
             # Strategy: Start camera capture process first, then flash when sensors actually expose

@@ -3851,9 +3851,12 @@ class ScanOrchestrator:
                 if hasattr(self, 'lighting_controller') and self.lighting_controller:
                     from lighting.base import LightingSettings
                     
+                    # Use constant lighting mode (30% brightness) for resolution-independent timing
+                    # This ensures proper lighting regardless of camera resolution/timing variations
                     flash_settings = LightingSettings(
-                        brightness=0.7,      # 70% intensity as requested
-                        duration_ms=600      # Extended 600ms flash duration for better camera synchronization
+                        brightness=0.3,      # 30% constant lighting during capture
+                        duration_ms=0,       # 0 = constant mode (not timed flash)
+                        constant_mode=True   # Explicit constant mode flag
                     )
                     
                     # Use both inner and outer zones for maximum illumination
