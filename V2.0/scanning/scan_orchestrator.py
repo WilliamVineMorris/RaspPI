@@ -3892,46 +3892,20 @@ class ScanOrchestrator:
                     zones_to_flash = ['inner', 'outer']
                     
                     # SYNCHRONIZED FLASH + CAPTURE using LED controller method
-                    self.logger.info("⚡ Starting synchronized flash + capture...")
+                    self.logger.info("📸 V5: Capturing with scan-level lighting (LEDs already on)...")
                     
-                    # Use the dedicated synchronized method from LED controller
-                    flash_result = await self.lighting_controller.trigger_for_capture(
-                        self.camera_manager,
-                        zones_to_flash,
-                        flash_settings
-                    )
-                    
-                    # Extract camera result from flash operation
+                    # V5 FIX: Direct camera capture - LEDs already on at 30% from scan level
+                    # Skip LED controller trigger_for_capture() to prevent per-point on/off cycling
                     camera_data_dict = None
-                    if hasattr(flash_result, '__dict__') and 'camera_result' in flash_result.__dict__:
-                        camera_data_dict = flash_result.camera_result
-                    
-                    # If no camera result from synchronized method, try direct capture
-                    if not camera_data_dict:
-                        self.logger.info("📸 Fallback to direct camera capture...")
-                        if hasattr(self, 'camera_manager') and self.camera_manager:
-                            camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
-                    
-                    if flash_result and hasattr(flash_result, 'success') and flash_result.success:
-                        self.logger.info(f"⚡ Flash synchronized with capture - zones: {flash_result.zones_activated}")
-                    else:
-                        self.logger.warning(f"⚡ Flash synchronization had issues but capture completed")
-                else:
-                    self.logger.info("� No lighting controller available - capturing without flash")
-                    # Capture without flash
-                    if not hasattr(self, 'camera_manager') or not self.camera_manager:
-                        raise Exception("Camera manager not available")
-                    camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
-            except Exception as flash_error:
-                self.logger.warning(f"⚠️ Synchronized flash failed: {flash_error}, attempting capture without flash")
-                # Fallback: capture without flash
-                try:
                     if hasattr(self, 'camera_manager') and self.camera_manager:
                         camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
+                        self.logger.info("✅ V5: Camera capture successful with scan-level lighting")
                     else:
                         raise Exception("Camera manager not available")
-                except Exception as capture_error:
-                    raise Exception(f"Both flash and capture failed: Flash={flash_error}, Capture={capture_error}")
+                    
+            except Exception as capture_error:
+                self.logger.error(f"❌ V5: Camera capture failed: {capture_error}")
+                raise Exception(f"Camera capture failed: {capture_error}")
             
             # Convert result to expected format (for both flash and non-flash cases)
             capture_results = []

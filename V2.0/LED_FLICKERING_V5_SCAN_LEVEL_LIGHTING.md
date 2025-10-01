@@ -127,8 +127,10 @@ self.logger.info("✅ Camera capture successful with scan-level lighting")
 
 ## Implementation Status
 
-✅ **File 1**: `scanning/scan_orchestrator.py` `_execute_scan_points()` - UPDATED  
-⏳ **File 2**: `scanning/scan_orchestrator.py` `_capture_at_point()` - NEEDS UPDATE
+✅ **COMPLETE** - Both files updated successfully!
+
+✅ **File 1**: `scanning/scan_orchestrator.py` `_execute_scan_points()` - LED on/off at scan level  
+✅ **File 2**: `scanning/scan_orchestrator.py` `_capture_at_point()` - Direct capture, no LED control
 
 ### Manual Fix Needed for `_capture_at_point()`:
 
