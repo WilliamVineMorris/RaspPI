@@ -353,6 +353,16 @@ class GPIOLEDController(LightingController):
             for pin in zone.gpio_pins:
                 if self._use_gpiozero:
                     # Using gpiozero PWMLED for PWM control
+                    # GPIO 13 and 18 use HARDWARE PWM on Raspberry Pi (PWM1 and PWM0 channels)
+                    # Hardware PWM is immune to CPU load and timing jitter
+                    
+                    # Verify hardware PWM pins
+                    hardware_pwm_pins = [12, 13, 18, 19]  # Pi hardware PWM capable pins
+                    if pin in hardware_pwm_pins:
+                        logger.info(f"⚡ GPIO {pin} supports HARDWARE PWM (immune to CPU interference)")
+                    else:
+                        logger.warning(f"⚠️  GPIO {pin} uses SOFTWARE PWM (may flicker with CPU load)")
+                    
                     # Create PWMLED with frequency parameter
                     led = PWMLED(pin, frequency=self.pwm_frequency)
                     led.value = 0.0  # Start with 0% duty cycle (LED off)

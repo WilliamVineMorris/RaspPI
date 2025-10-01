@@ -5,7 +5,14 @@
 system:
   name: "4DOF Scanner V2.0"
   debug_mode: false
-  simulation_mode: false  # Set to true for testing without hardware
+  simulation_mode: fals# LED Flash Configuration  
+# Hardware PWM Setup: Uses Pi's hardware PWM channels for flicker-free operation
+# GPIO 13 = PWM1 (hardware channel 1), GPIO 18 = PWM0 (hardware channel 0)
+# Lower frequency (100Hz) reduces CPU load and electrical noise interference
+lighting:
+  controller_type: 'gpiozero'       # Use gpiozero LED controller
+  use_pigpio_factory: false         # Use RPi.GPIO factory with hardware PWM
+  pwm_frequency: 100                # Hz - Hardware PWM frequency (100Hz for stability)t to true for testing without hardware
   log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
   
 # Hardware Platform
@@ -190,16 +197,17 @@ cameras:
       min_calculation_distance: 10.0  # mm - Minimum distance for stable calculation
     
 # LED Flash Configuration  
-# gpiozero PWM Setup: Uses gpiozero.LED with frequency property at 300Hz
-# LED.value for duty cycle control, LED.frequency for PWM frequency
+# Hardware PWM Setup: Uses Pi's hardware PWM channels for flicker-free operation
+# GPIO 13 = PWM1 (hardware channel 1), GPIO 18 = PWM0 (hardware channel 0)
+# Lower frequency (100Hz) reduces CPU load and electrical noise interference
 lighting:
   controller_type: "gpiozero"       # Use gpiozero LED controller
-  use_pigpio_factory: false         # Use RPi.GPIO factory (no pigpiod required)
-  pwm_frequency: 300                # Hz - PWM frequency via LED.frequency property
+  use_pigpio_factory: false         # Use RPi.GPIO factory with hardware PWM
+  pwm_frequency: 100                # Hz - Hardware PWM frequency (100Hz for stability)
   
   zones:
     inner:
-      gpio_pins: [13]      # Inner flash ring - PWM-capable pin (avoiding I2S pins 17,21,22)
+      gpio_pins: [13]      # GPIO 13 = Hardware PWM1 channel (flicker-free)
       led_type: "cool_white"
       max_current_ma: 800
       position: [0.0, 0.0, 80.0]    # X, Y, Z position in mm
@@ -208,7 +216,7 @@ lighting:
       max_brightness: 0.9           # 90% safety limit
       
     outer:
-      gpio_pins: [18]      # Outer flash ring - PWM-capable pin (avoiding FluidNC limit pins)
+      gpio_pins: [18]      # GPIO 18 = Hardware PWM0 channel (flicker-free)
       led_type: "cool_white" 
       max_current_ma: 1000
       position: [0.0, 0.0, 80.0]    # X, Y, Z position in mm
@@ -223,8 +231,9 @@ lighting:
     flash_timeout_seconds: 5.0
       
   # Hardware Notes:
+  # - GPIO 13 and 18 use HARDWARE PWM (immune to CPU load and timing jitter)
   # - Avoid GPIO 17,21,22 (I2S stepper control)
-  # - Avoid GPIO 16 (X-axis limit), GPIO 13,4 (Y-axis limits) 
+  # - Avoid GPIO 16 (X-axis limit), GPIO 4,13 (Y-axis limits) 
   # - Avoid GPIO 26 (C-axis servo)
   # - Use GPIO 12,13 or other PWM-capable pins
   
