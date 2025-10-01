@@ -640,8 +640,12 @@ class GPIOLEDController(LightingController):
             logger.info("💡 CONSTANT LIGHTING: Turning on LEDs before capture...")
             
             # Turn on LEDs at specified brightness (typically 30%)
-            for zone_id in zone_ids:
-                await self.set_brightness(zone_id, settings.brightness)
+            # Set all zones simultaneously to minimize flickering
+            brightness_tasks = [self.set_brightness(zone_id, settings.brightness) for zone_id in zone_ids]
+            await asyncio.gather(*brightness_tasks)
+            
+            # Add settling time for PWM to stabilize (prevents flickering)
+            await asyncio.sleep(0.05)  # 50ms settling time
             
             logger.info(f"💡 LEDs on at {settings.brightness*100:.0f}% brightness, starting camera capture...")
             
@@ -914,6 +918,11 @@ class GPIOLEDController(LightingController):
             max_brightness = zone.max_brightness
             brightness = max(0.0, min(brightness, max_brightness))
             
+            # Skip if brightness hasn't changed (prevent unnecessary PWM updates)
+            current_brightness = self.zone_states[zone_id].get('brightness', -1.0)
+            if abs(current_brightness - brightness) < 0.001:  # 0.1% tolerance
+                return True
+            
             # Calculate duty cycle with safety limit
             duty_cycle = brightness * 100.0
             duty_cycle = min(duty_cycle, self._max_duty_cycle * 100.0)
@@ -925,7 +934,9 @@ class GPIOLEDController(LightingController):
                     led = pwm_obj['led']
                     led_value = brightness  # LED.value expects 0.0-1.0, brightness is already 0.0-1.0
                     led.value = led_value
-                    logger.debug(f"GPIO {led.pin.number} LED.value set to {led_value:.2f}")
+                    # Only log significant changes to reduce overhead
+                    if abs(current_brightness - brightness) > 0.05:  # Log 5%+ changes
+                        logger.debug(f"GPIO {led.pin.number} LED.value set to {led_value:.2f}")
                 elif pwm_obj['type'] == 'pigpio':
                     # Use pigpio PWM
                     pi = pwm_obj['pi']
@@ -1045,13 +1056,13 @@ class GPIOLEDController(LightingController):
             ) for zone_id in zone_settings}
     
     async def turn_off_all(self) -> bool:
-        """Turn off all LEDs"""
+        """Turn off all LEDs - batch operation to prevent flickering"""
         try:
-            success = True
-            for zone_id in self.zone_configs:
-                result = await self.set_brightness(zone_id, 0.0)
-                success = success and result
+            # Turn off all zones simultaneously to minimize flickering
+            turnoff_tasks = [self.set_brightness(zone_id, 0.0) for zone_id in self.zone_configs]
+            results = await asyncio.gather(*turnoff_tasks)
             
+            success = all(results)
             logger.info("All LEDs turned off")
             return success
             
