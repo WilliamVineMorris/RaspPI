@@ -194,6 +194,10 @@ class GPIOLEDController(LightingController):
         self.zone_states: Dict[str, Dict[str, Any]] = {}
         self._active_pwm_objects = []  # Track all PWM objects for cleanup
         
+        # CRITICAL: Thread lock to prevent concurrent LED updates (prevents flickering)
+        import threading
+        self._led_update_lock = threading.Lock()
+        
         # Pigpio connection (if available)
         self.pi = None
         
@@ -921,8 +925,8 @@ class GPIOLEDController(LightingController):
     def _set_brightness_direct(self, zone_id: str, brightness: float) -> bool:
         """
         Direct synchronous brightness control - NO async overhead
-        Only updates PWM when brightness changes significantly (0.5% threshold)
-        This prevents flickering caused by redundant PWM updates
+        ULTRA-AGGRESSIVE: 1% threshold + thread lock prevents ALL redundant updates
+        This is the ONLY method that writes to PWM hardware
         """
         try:
             if zone_id not in self.zone_configs:
@@ -932,32 +936,34 @@ class GPIOLEDController(LightingController):
             max_brightness = self.zone_configs[zone_id].max_brightness
             brightness = max(0.0, min(brightness, max_brightness))
             
-            # CRITICAL: Skip if brightness hasn't changed (0.5% threshold prevents flickering)
+            # CRITICAL: Skip if brightness hasn't changed (1% threshold - ULTRA AGGRESSIVE)
             current_brightness = self.zone_states[zone_id].get('brightness', -1.0)
-            if abs(current_brightness - brightness) < 0.005:  # 0.5% tolerance - prevents redundant updates
-                return True  # No update needed - prevents flickering from repeated calls
+            if abs(current_brightness - brightness) < 0.01:  # 1% tolerance - prevents ALL micro-updates
+                return True  # No update needed - prevents flickering from ANY repeated calls
             
-            # Calculate duty cycle with safety limit
-            duty_cycle = brightness * 100.0
-            duty_cycle = min(duty_cycle, self._max_duty_cycle * 100.0)
-            
-            # Apply to ALL PWM controllers in zone - synchronously, no await
-            for pwm_obj in self.pwm_controllers[zone_id]:
-                if pwm_obj['type'] == 'gpiozero':
-                    # Direct gpiozero PWMLED control - hardware PWM, no overhead
-                    led = pwm_obj['led']
-                    led.value = brightness  # Direct assignment, instant update
-                elif pwm_obj['type'] == 'pigpio':
-                    pi = pwm_obj['pi']
-                    pin = pwm_obj['pin']
-                    pigpio_duty = int((duty_cycle / 100.0) * 255)
-                    pi.set_PWM_dutycycle(pin, pigpio_duty)
-                else:
-                    pwm_obj['pwm'].ChangeDutyCycle(duty_cycle)
-            
-            # Minimal state update - only brightness and duty cycle, NO timestamp
-            self.zone_states[zone_id]['brightness'] = brightness
-            self.zone_states[zone_id]['duty_cycle'] = duty_cycle
+            # THREAD LOCK: Prevent concurrent updates (critical for flickering prevention)
+            with self._led_update_lock:
+                # Calculate duty cycle with safety limit
+                duty_cycle = brightness * 100.0
+                duty_cycle = min(duty_cycle, self._max_duty_cycle * 100.0)
+                
+                # Apply to ALL PWM controllers in zone - synchronously, no await
+                for pwm_obj in self.pwm_controllers[zone_id]:
+                    if pwm_obj['type'] == 'gpiozero':
+                        # Direct gpiozero PWMLED control - hardware PWM, no overhead
+                        led = pwm_obj['led']
+                        led.value = brightness  # Direct assignment, instant update
+                    elif pwm_obj['type'] == 'pigpio':
+                        pi = pwm_obj['pi']
+                        pin = pwm_obj['pin']
+                        pigpio_duty = int((duty_cycle / 100.0) * 255)
+                        pi.set_PWM_dutycycle(pin, pigpio_duty)
+                    else:
+                        pwm_obj['pwm'].ChangeDutyCycle(duty_cycle)
+                
+                # Minimal state update - only brightness and duty cycle, NO timestamp
+                self.zone_states[zone_id]['brightness'] = brightness
+                self.zone_states[zone_id]['duty_cycle'] = duty_cycle
             
             # Log only actual PWM changes (not skipped updates)
             if abs(current_brightness - brightness) > 0.05:  # Log 5%+ changes
@@ -1083,10 +1089,11 @@ class GPIOLEDController(LightingController):
     
     # Status and Monitoring
     def get_zone_status(self, zone_id: str) -> Optional[Dict[str, Any]]:
-        """Get current status of a zone"""
+        """Get current status of a zone - READ ONLY, no PWM access"""
         if zone_id not in self.zone_states:
             return None
         
+        # Return COPY of state to prevent external modifications
         zone_state = self.zone_states[zone_id].copy()
         zone_config = self.zone_configs[zone_id]
         
@@ -1095,7 +1102,7 @@ class GPIOLEDController(LightingController):
             'brightness': zone_state['brightness'],
             'duty_cycle': zone_state['duty_cycle'],
             'enabled': zone_state['enabled'],
-            'last_update': zone_state['last_update'],
+            'last_update': zone_state.get('last_update', 0),
             'pin_count': len(zone_config.gpio_pins),
             'max_brightness': zone_config.max_brightness,
             'led_type': zone_config.led_type.value
