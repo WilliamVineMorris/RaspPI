@@ -3429,6 +3429,9 @@ class ScanOrchestrator:
                 self.logger.warning("No camera controller available, skipping focus setup")
                 return
             
+            # Import LightingSettings at the beginning for calibration flash control
+            from lighting.base import LightingSettings
+            
             self.logger.info(f"Setting up focus for cameras: {available_cameras}")
             
             if self._focus_mode == 'manual' and self._primary_focus_value is not None:
@@ -3447,9 +3450,6 @@ class ScanOrchestrator:
                     # Synchronized focus mode: calibrate primary camera and copy focus to others
                     primary_camera = available_cameras[0]
                     self.logger.info(f"🔄 Synchronized focus mode: Performing calibration on primary camera: {primary_camera}")
-                    
-                    # Import LightingSettings for calibration flash control
-                    from lighting.base import LightingSettings
                     
                     # Store custom exposure settings before calibration to restore after
                     custom_exposure_backup = None
