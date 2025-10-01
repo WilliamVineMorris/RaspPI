@@ -1,14 +1,34 @@
 # Autofocus Range Configuration
 
 ## Overview
-The autofocus system has been configured to limit the maximum focus distance to **1 meter**, preventing the cameras from trying to focus at infinity and ensuring consistent focus on nearby scanning objects.
+The autofocus system has been configured to use **Macro mode**, which focuses on the closest part of the range (approximately 8cm to 1m), preventing the cameras from trying to focus at infinity and ensuring consistent focus on nearby scanning objects.
 
 ## Current Settings
-- **Minimum Focus**: 8cm (closest focus distance)
-- **Maximum Focus**: 1m (prevents infinity focus)
-- **Lens Position Range**: 3.0 to 10.0
-  - Higher values = closer focus (10.0 ≈ 8cm)
-  - Lower values = farther focus (3.0 ≈ 1m)
+- **Mode**: Macro (AfRangeEnum.Macro)
+- **Focus Range**: ~8cm to ~1m (closest objects only)
+- **Excludes**: Far distances and infinity focus
+
+## AfRange Modes Available
+
+The libcamera `AfRange` control accepts these enum values:
+
+### 1. **Macro** (Current Setting) ✅
+- **Range**: 8cm to ~1m
+- **Use Case**: Scanning nearby objects
+- **Speed**: Fast (small search range)
+- **Perfect for**: Object scanning at close range
+
+### 2. **Normal** 
+- **Range**: ~30cm to infinity (may exclude very closest objects)
+- **Use Case**: General photography
+- **Speed**: Medium
+- **Not ideal for**: Close-up scanning (excludes <30cm)
+
+### 3. **Full**
+- **Range**: 8cm to infinity (entire range)
+- **Use Case**: When object distance is unknown
+- **Speed**: Slowest (searches entire range)
+- **Not recommended for**: Consistent scanning (too slow)
 
 ## Camera Specifications (ArduCam 64MP)
 - **Focal Length**: 5.1mm
@@ -16,75 +36,78 @@ The autofocus system has been configured to limit the maximum focus distance to 
 - **Physical Focus Range**: 8cm to infinity
 - **Lens Type**: Auto/Manual focus
 
-## How Lens Position Maps to Distance
+## Adjusting the Focus Mode
 
-For the ArduCam with 5.1mm focal length:
-```
-Lens Position    Approximate Distance
-─────────────    ───────────────────
-0.0              ∞ (infinity)
-1.0-2.0          5m - 10m
-3.0              ~1m (current max limit)
-4.0              ~50cm
-6.0              ~20cm
-8.0              ~12cm
-10.0             ~8cm (minimum focus)
-```
+If you need to change the focus mode, edit these two locations in `camera/pi_camera_controller.py`:
 
-## Adjusting the Focus Range
-
-If you need to change the maximum focus distance, edit these two locations in `camera/pi_camera_controller.py`:
-
-### Location 1: `auto_focus()` method (around line 561)
+### Location 1: `auto_focus()` method (around line 550)
 ```python
+try:
+    from libcamera import controls
+    af_mode_auto = controls.AfModeEnum.Auto
+    af_range_macro = controls.AfRangeEnum.Macro  # Change this
+except ImportError:
+    af_mode_auto = 1
+    af_range_macro = 1  # Change this (0=Normal, 1=Macro, 2=Full)
+
 picamera2.set_controls({
     "AfMode": af_mode_auto,
-    "AfRange": [3.0, 10.0]  # Adjust these values
+    "AfRange": af_range_macro  # Uses Macro mode
 })
 ```
 
-### Location 2: `auto_focus_and_get_value()` method (around line 831)
+### Location 2: `auto_focus_and_get_value()` method (around line 820)
 ```python
+try:
+    from libcamera import controls
+    af_mode_auto = controls.AfModeEnum.Auto
+    af_range_macro = controls.AfRangeEnum.Macro  # Change this
+except ImportError:
+    af_mode_auto = 1
+    af_range_macro = 1  # Change this (0=Normal, 1=Macro, 2=Full)
+
 picamera2.set_controls({
     "AfMode": af_mode_auto,
-    "AfRange": [3.0, 10.0]  # Adjust these values
+    "AfRange": af_range_macro  # Uses Macro mode
 })
 ```
 
 ## Example Configurations
 
-### For 2m maximum focus (wider range):
+### For Normal range (30cm-infinity, excludes close objects):
 ```python
-"AfRange": [2.0, 10.0]  # ~2m to 8cm
+from libcamera import controls
+af_range_normal = controls.AfRangeEnum.Normal
+# Or numeric: af_range_normal = 0
 ```
 
-### For 50cm maximum focus (closer objects):
+### For Macro range (8cm-1m, closest objects only) - CURRENT:
 ```python
-"AfRange": [4.0, 10.0]  # ~50cm to 8cm
+from libcamera import controls
+af_range_macro = controls.AfRangeEnum.Macro
+# Or numeric: af_range_macro = 1
 ```
 
-### For 20cm maximum focus (very close objects):
+### For Full range (8cm-infinity, everything):
 ```python
-"AfRange": [6.0, 10.0]  # ~20cm to 8cm
+from libcamera import controls
+af_range_full = controls.AfRangeEnum.Full
+# Or numeric: af_range_full = 2
 ```
 
-### For full range (no limit - not recommended for scanning):
-```python
-"AfRange": [0.0, 10.0]  # infinity to 8cm
-```
+## Why Use Macro Mode?
 
-## Why Limit Focus Range?
-
-1. **Speed**: Smaller search range = faster autofocus
-2. **Accuracy**: Prevents focus hunting at far distances
-3. **Consistency**: Ensures all scans focus on the object, not the background
-4. **Object Scanning**: Typical scanning objects are 10-50cm away, well within 1m limit
+1. **Speed**: Small search range = fastest autofocus
+2. **Accuracy**: Optimized for close objects (8cm-1m)
+3. **Consistency**: Prevents focus hunting at far distances
+4. **Perfect for Scanning**: Objects are typically 10-50cm away
+5. **No Infinity Focus**: Won't accidentally focus on background
 
 ## Verification
 
-After changing the range, look for this log message during autofocus:
+After starting autofocus, look for this log message:
 ```
-📷 Camera camera0 AF range limited to 8cm-1m (lens pos: 3.0-10.0)
+📷 Camera camera0 AF range set to Macro (8cm-1m, closest objects only)
 ```
 
 The actual focus value achieved will be shown as:
@@ -95,19 +118,27 @@ The actual focus value achieved will be shown as:
 ## Troubleshooting
 
 ### If objects are too far away (>1m) and won't focus:
-- Increase the minimum AfRange value (e.g., `[2.0, 10.0]` for 2m max)
+- Switch to `AfRangeEnum.Normal` or `AfRangeEnum.Full`
+- Normal range starts at ~30cm and goes to infinity
 
 ### If autofocus is too slow:
-- Reduce the search range by increasing minimum value (e.g., `[4.0, 10.0]` for 50cm max)
+- Keep using Macro mode (already the fastest)
+- Ensure adequate lighting (30% flash during calibration helps)
 
 ### If focus is inconsistent:
-- Ensure adequate lighting (30% flash during calibration helps)
-- Check object distance is within the configured range
+- Macro mode should be most consistent for close objects
+- Ensure object distance is within 8cm-1m range
 - Verify object has sufficient contrast/texture for autofocus
+- Check that lighting is adequate
+
+### If getting "Unable to cast Python instance" errors:
+- This was fixed - AfRange now uses enum values (Macro/Normal/Full)
+- NOT custom numeric ranges like [3.0, 10.0]
 
 ## Technical Notes
 
-- The `AfRange` control is a libcamera feature supported by ArduCam drivers
-- Values are in lens position units, not physical distance
-- The mapping between lens position and distance is approximate and may vary slightly between cameras
-- Autofocus algorithm uses contrast detection within the specified range
+- `AfRange` expects `AfRangeEnum` values (Normal=0, Macro=1, Full=2)
+- Macro mode is hardware-optimized for close-range focus
+- The exact distance ranges may vary slightly between camera modules
+- Macro mode typically covers 8cm to approximately 1m
+- For objects beyond 1m, use Normal or Full mode

@@ -549,20 +549,21 @@ class PiCameraController(CameraController):
                 try:
                     from libcamera import controls
                     af_mode_auto = controls.AfModeEnum.Auto
+                    af_range_macro = controls.AfRangeEnum.Macro
                     logger.debug(f"📷 Camera {camera_id} using libcamera controls enum")
                 except ImportError:
                     # Fallback to numeric mode if libcamera not available
                     af_mode_auto = 1  # Auto mode
+                    af_range_macro = 1  # Macro range
                     logger.debug(f"📷 Camera {camera_id} using numeric AF mode (fallback)")
                 
-                # Set Auto mode for controlled autofocus with 1m max distance limit
-                # Limit autofocus range to 8cm-1m (lens positions ~3.0 to 10.0)
-                # Lower values = farther focus, higher values = closer focus
+                # Set Auto mode for controlled autofocus with Macro range (closest objects)
+                # Macro range focuses on 8cm-1m, excluding infinity/far distances
                 picamera2.set_controls({
                     "AfMode": af_mode_auto,
-                    "AfRange": [3.0, 10.0]  # ~1m to 8cm focus range
+                    "AfRange": af_range_macro
                 })
-                logger.info(f"📷 Camera {camera_id} AF range limited to 8cm-1m (lens pos: 3.0-10.0)")
+                logger.info(f"📷 Camera {camera_id} AF range set to Macro (8cm-1m, closest objects only)")
                 await asyncio.sleep(0.2)  # Let mode change take effect
                 
                 # Use official autofocus_cycle() helper function (recommended approach)
@@ -817,20 +818,22 @@ class PiCameraController(CameraController):
             picamera2 = self.cameras[cam_id]
             logger.info(f"📷 Camera {camera_id} starting integrated autofocus with value retrieval...")
             
-            # Set Auto mode for single-shot autofocus
+            # Set Auto mode for single-shot autofocus with Macro range
             try:
                 from libcamera import controls
                 af_mode_auto = controls.AfModeEnum.Auto
+                af_range_macro = controls.AfRangeEnum.Macro
             except ImportError:
                 af_mode_auto = 1  # Auto mode fallback
+                af_range_macro = 1  # Macro range fallback
             
-            # Limit autofocus range to 8cm-1m (lens positions ~3.0 to 10.0)
-            # Lower values = farther focus, higher values = closer focus
+            # Set Macro range to focus on closest objects (8cm-1m)
+            # Macro range excludes far distances and infinity
             picamera2.set_controls({
                 "AfMode": af_mode_auto,
-                "AfRange": [3.0, 10.0]  # ~1m to 8cm focus range
+                "AfRange": af_range_macro
             })
-            logger.info(f"📷 Camera {camera_id} AF range limited to 8cm-1m (lens pos: 3.0-10.0)")
+            logger.info(f"📷 Camera {camera_id} AF range set to Macro (8cm-1m, closest objects only)")
             await asyncio.sleep(0.2)
             
             # Variable to store final lens position
