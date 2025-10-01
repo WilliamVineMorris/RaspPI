@@ -3661,6 +3661,10 @@ class ScanOrchestrator:
                 focus_summary = ", ".join([f"{cam}: {val:.3f}" for cam, val in self._scan_focus_values.items()])
                 self.logger.info(f"Focus setup completed. Mode: {self._focus_mode}, Sync: disabled, Values: {focus_summary}")
             
+            # 🔥 FIX: Add settling delay after calibration LEDs turn off (prevents flicker when scan LEDs turn on)
+            self.logger.info("⏱️ Waiting 50ms for LED settling after calibration...")
+            await asyncio.sleep(0.05)  # 50ms delay to prevent rapid OFF→ON flicker
+            
         except Exception as e:
             self.logger.error(f"Focus setup failed: {e}")
             self.logger.info("🔄 Continuing scan with camera default focus settings...")
