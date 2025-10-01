@@ -185,10 +185,13 @@ class GPIOLEDController(LightingController):
         
         # GPIO Configuration - map controller_type to library selection
         self.pwm_frequency = config.get('pwm_frequency', 1000)  # Hz
-        # Map controller_type from config to gpio_library for backward compatibility
+        # Map controller_type from config to library selection
         controller_type = config.get('controller_type', 'rpi_gpio')
         self.gpio_library = 'gpiozero' if controller_type == 'gpiozero' else controller_type
+        # Check if we should use pigpio factory for hardware PWM
+        self.use_pigpio_factory = config.get('use_pigpio_factory', False)
         logger.info(f"Config controller_type: {controller_type} -> gpio_library: {self.gpio_library}")
+        logger.info(f"Config use_pigpio_factory: {self.use_pigpio_factory}")
         self.gpio_mode = GPIO.BCM if GPIO_AVAILABLE else None
         self.pwm_controllers: Dict[str, List[Any]] = {}  # Zone -> [PWM objects]
         self.zone_states: Dict[str, Dict[str, Any]] = {}
@@ -291,11 +294,20 @@ class GPIOLEDController(LightingController):
             
             # Initialize GPIO library
             if self._use_gpiozero:
-                # Initialize gpiozero with RPi.GPIO pin factory (no pigpiod required)
+                # Initialize gpiozero with appropriate pin factory
                 if GPIOZERO_AVAILABLE:
-                    # Set up pin factory with PWM frequency
-                    Device.pin_factory = RPiGPIOFactory()
-                    logger.info(f"Using gpiozero PWMLED with RPi.GPIO factory - {self.pwm_frequency}Hz PWM")
+                    # Check if we should use pigpio factory for hardware PWM
+                    if self.use_pigpio_factory and PIGPIO_AVAILABLE:
+                        # Use pigpio factory for TRUE hardware PWM on GPIO 13/18
+                        from gpiozero.pins.pigpio import PiGPIOFactory
+                        Device.pin_factory = PiGPIOFactory()
+                        logger.info(f"⚡ Using gpiozero with PIGPIO FACTORY - Hardware PWM on GPIO 13/18 at {self.pwm_frequency}Hz")
+                        logger.info(f"⚡ This provides TRUE hardware PWM immune to CPU load!")
+                    else:
+                        # Use RPi.GPIO factory (software PWM on all pins)
+                        Device.pin_factory = RPiGPIOFactory()
+                        logger.warning(f"⚠️  Using gpiozero with RPi.GPIO factory - SOFTWARE PWM only")
+                        logger.warning(f"⚠️  For hardware PWM, set use_pigpio_factory: true in config")
                 else:
                     logger.error("gpiozero requested but not available")
                     raise LEDError("gpiozero library not available")
@@ -353,15 +365,19 @@ class GPIOLEDController(LightingController):
             for pin in zone.gpio_pins:
                 if self._use_gpiozero:
                     # Using gpiozero PWMLED for PWM control
-                    # GPIO 13 and 18 use HARDWARE PWM on Raspberry Pi (PWM1 and PWM0 channels)
-                    # Hardware PWM is immune to CPU load and timing jitter
+                    # With pigpio factory: GPIO 13/18 use HARDWARE PWM (immune to CPU load)
+                    # With RPi.GPIO factory: ALL pins use SOFTWARE PWM (affected by CPU load)
                     
-                    # Verify hardware PWM pins
+                    # Verify hardware PWM capability
                     hardware_pwm_pins = [12, 13, 18, 19]  # Pi hardware PWM capable pins
                     if pin in hardware_pwm_pins:
-                        logger.info(f"⚡ GPIO {pin} supports HARDWARE PWM (immune to CPU interference)")
+                        if self.use_pigpio_factory:
+                            logger.info(f"⚡ GPIO {pin} using HARDWARE PWM via pigpio factory (flicker-free!)")
+                        else:
+                            logger.warning(f"⚠️  GPIO {pin} CAN use hardware PWM but pigpio factory not enabled")
+                            logger.warning(f"⚠️  Currently using SOFTWARE PWM - may flicker with CPU load")
                     else:
-                        logger.warning(f"⚠️  GPIO {pin} uses SOFTWARE PWM (may flicker with CPU load)")
+                        logger.warning(f"⚠️  GPIO {pin} uses SOFTWARE PWM (no hardware PWM available)")
                     
                     # Create PWMLED with frequency parameter
                     led = PWMLED(pin, frequency=self.pwm_frequency)

@@ -258,12 +258,33 @@ If you still see flickering after this complete fix, the issue is **hardware-rel
 
 ### gpiozero Hardware PWM
 
-gpiozero automatically uses hardware PWM when:
-- Pin supports hardware PWM (GPIO 12, 13, 18, 19)
-- Using `PWMLED` class with `frequency` parameter
-- RPi.GPIO factory is active (default)
+**CRITICAL**: gpiozero requires the **pigpio factory** for true hardware PWM!
 
-No special configuration needed - it "just works"!
+- **RPi.GPIO factory** (default): Uses SOFTWARE PWM on all pins
+- **pigpio factory**: Uses HARDWARE PWM on GPIO 12, 13, 18, 19
+
+**Configuration Required**:
+```yaml
+lighting:
+  controller_type: "gpiozero"
+  use_pigpio_factory: true  # ← MUST be true for hardware PWM!
+  pwm_frequency: 100
+```
+
+**Requirements**:
+1. Install pigpio: `sudo apt install pigpio python3-pigpio`
+2. Start pigpio daemon: `sudo pigpiod`
+3. Enable at boot: `sudo systemctl enable pigpiod`
+
+**How to Verify**:
+Look for this in startup logs:
+```
+⚡ Using gpiozero with PIGPIO FACTORY - Hardware PWM on GPIO 13/18 at 100Hz
+⚡ GPIO 13 using HARDWARE PWM via pigpio factory (flicker-free!)
+⚡ GPIO 18 using HARDWARE PWM via pigpio factory (flicker-free!)
+```
+
+If you see "RPi.GPIO factory" instead, you're using software PWM and WILL see flickering!
 
 ## Conclusion
 
