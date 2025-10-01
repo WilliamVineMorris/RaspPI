@@ -989,6 +989,14 @@ class GPIOLEDController(LightingController):
 
     async def set_brightness(self, zone_id: str, brightness: float) -> bool:
         """Set brightness for a zone (async wrapper for compatibility)"""
+        # Handle "all" zones - set all configured zones to same brightness
+        if zone_id == "all":
+            results = []
+            for actual_zone_id in self.zone_configs.keys():
+                result = self._set_brightness_direct(actual_zone_id, brightness)
+                results.append(result)
+            return all(results)  # Return True only if all zones succeeded
+        
         # Call synchronous method directly - no async overhead
         return self._set_brightness_direct(zone_id, brightness)
     
