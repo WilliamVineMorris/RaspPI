@@ -2261,6 +2261,10 @@ class LightingControllerAdapter:
         
     async def flash(self, zone_ids: List[str], settings: Any) -> Any:
         return await self.controller.flash(zone_ids, settings)
+    
+    async def set_brightness(self, zone_id: str, brightness: float) -> bool:
+        """Set brightness for a specific LED zone"""
+        return await self.controller.set_brightness(zone_id, brightness)
         
     async def trigger_for_capture(self, camera_controller, zone_ids: List[str], settings: Any) -> Any:
         """Delegate to controller's synchronized flash-capture method"""
