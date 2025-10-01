@@ -3684,48 +3684,70 @@ class ScanOrchestrator:
         scan_points = self.current_pattern.generate_points()
         self.logger.info(f"Starting scan of {len(scan_points)} points")
         
-        for i, point in enumerate(scan_points):
-            if self._check_stop_conditions():
-                self.logger.info(f"Scan stopped at point {i}")
-                break
-            
-            # Handle pause requests
-            await self._handle_pause()
-            
-            try:
-                self.logger.debug(f"Processing point {i+1}/{len(scan_points)}: {point.position}")
+        # 🔥 V5 FIX: Turn on LEDs ONCE before entire scan (prevents per-point flickering)
+        leds_turned_on = False
+        try:
+            self.logger.info("💡 SCAN: Turning on LEDs for entire scan duration...")
+            await self.lighting_controller.set_brightness("all", 0.3)
+            leds_turned_on = True
+            self.logger.info("💡 SCAN: LEDs on at 30% - will remain on for all scan points")
+            await asyncio.sleep(0.05)  # 50ms settling time
+        except Exception as led_error:
+            self.logger.warning(f"⚠️ SCAN: Could not enable LEDs: {led_error}")
+        
+        try:
+            for i, point in enumerate(scan_points):
+                if self._check_stop_conditions():
+                    self.logger.info(f"Scan stopped at point {i}")
+                    break
                 
-                # Move to position
-                await self._move_to_point(point)
+                # Handle pause requests
+                await self._handle_pause()
                 
-                # Setup focus at first point so cameras can focus on the object
-                if i == 0:
-                    self.logger.info("🎯 Setting up focus at first scan point for object-based focusing")
-                    await self._setup_scan_focus()
-                    self.logger.info("✅ Focus setup completed at first scan point")
-                
-                # Capture images
-                images_captured = await self._capture_at_point(point, i)
-                
-                # Update progress
-                self.current_scan.update_progress(i + 1, images_captured)
-                
-                self.logger.debug(f"Completed point {i+1}/{len(scan_points)}")
-                
-            except Exception as e:
-                self.logger.error(f"Failed to process point {i}: {e}")
-                self.current_scan.add_error(
-                    "point_processing_error",
-                    f"Failed to process scan point {i}: {e}",
-                    {'point_index': i, 'point_data': point.__dict__},
-                    recoverable=True
-                )
-                
-                # Continue with next point unless it's a critical error
-                if not isinstance(e, HardwareError):
-                    continue
-                else:
-                    raise
+                try:
+                    self.logger.debug(f"Processing point {i+1}/{len(scan_points)}: {point.position}")
+                    
+                    # Move to position
+                    await self._move_to_point(point)
+                    
+                    # Setup focus at first point so cameras can focus on the object
+                    if i == 0:
+                        self.logger.info("🎯 Setting up focus at first scan point for object-based focusing")
+                        await self._setup_scan_focus()
+                        self.logger.info("✅ Focus setup completed at first scan point")
+                    
+                    # Capture images (LEDs already on, will stay on)
+                    images_captured = await self._capture_at_point(point, i)
+                    
+                    # Update progress
+                    self.current_scan.update_progress(i + 1, images_captured)
+                    
+                    self.logger.debug(f"Completed point {i+1}/{len(scan_points)}")
+                    
+                except Exception as e:
+                    self.logger.error(f"Failed to process point {i}: {e}")
+                    self.current_scan.add_error(
+                        "point_processing_error",
+                        f"Failed to process scan point {i}: {e}",
+                        {'point_index': i, 'point_data': point.__dict__},
+                        recoverable=True
+                    )
+                    
+                    # Continue with next point unless it's a critical error
+                    if not isinstance(e, HardwareError):
+                        continue
+                    else:
+                        raise
+        
+        finally:
+            # 🔥 V5 FIX: Turn off LEDs ONCE after entire scan completes
+            if leds_turned_on:
+                try:
+                    self.logger.info("💡 SCAN: Turning off LEDs after scan completion...")
+                    await self.lighting_controller.turn_off_all()
+                    self.logger.info("💡 SCAN: LEDs turned off after complete scan")
+                except Exception as led_off_error:
+                    self.logger.warning(f"⚠️ SCAN: Could not disable LEDs: {led_off_error}")
         
         self.logger.info(f"Scan execution completed")
     
