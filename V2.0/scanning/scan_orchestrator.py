@@ -3634,12 +3634,9 @@ class ScanOrchestrator:
                                 self._scan_focus_values[camera_id] = 0.5  # Default focus
                     
                     finally:
-                        # 🔥 FIX: Turn off flash ONCE after all camera calibrations (prevents flickering)
-                        try:
-                            await self.lighting_controller.turn_off_all()
-                            self.logger.info(f"💡 CALIBRATION: Disabled flash after all camera calibrations")
-                        except Exception as flash_off_error:
-                            self.logger.warning(f"⚠️ CALIBRATION: Could not disable flash: {flash_off_error}")
+                        # 🔥 V5.1: DO NOT turn off LEDs here - scan-level lighting manages LED state
+                        # The scan has already turned LEDs on and will turn them off at the end
+                        self.logger.info(f"💡 CALIBRATION: Completed (scan-level lighting remains active)")
                     
                     # Ensure we have focus values for all cameras
                     for camera_id in available_cameras:
@@ -3661,9 +3658,9 @@ class ScanOrchestrator:
                 focus_summary = ", ".join([f"{cam}: {val:.3f}" for cam, val in self._scan_focus_values.items()])
                 self.logger.info(f"Focus setup completed. Mode: {self._focus_mode}, Sync: disabled, Values: {focus_summary}")
             
-            # 🔥 FIX: Add settling delay after calibration LEDs turn off (prevents flicker when scan LEDs turn on)
-            self.logger.info("⏱️ Waiting 50ms for LED settling after calibration...")
-            await asyncio.sleep(0.05)  # 50ms delay to prevent rapid OFF→ON flicker
+            # 🔥 V5.1: Add settling delay after calibration to stabilize camera settings
+            self.logger.info("⏱️ Waiting 50ms for camera settling after calibration...")
+            await asyncio.sleep(0.05)  # 50ms delay for camera exposure/focus to stabilize
             
         except Exception as e:
             self.logger.error(f"Focus setup failed: {e}")

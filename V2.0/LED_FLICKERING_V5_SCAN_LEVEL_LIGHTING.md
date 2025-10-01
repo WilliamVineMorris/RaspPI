@@ -1,5 +1,7 @@
 # LED Flickering V5: Scan-Level Lighting Control
 
+**CURRENT VERSION**: V5.1 (hotfix applied - see bottom of document)
+
 ## 🎯 ROOT CAUSE FINALLY IDENTIFIED!
 
 **Problem**: Even with V4 (batch calibration) + V4.1 (50ms delay), flickering persists during the **scan itself** because LEDs are turned on/off **for each scan point**:
@@ -239,6 +241,25 @@ Expected: Only 2 LED on/off cycles for entire multi-point scan!
 - ✅ V3.1: State tracking (blocks redundant on/off)
 - ✅ V4: Batch calibration lighting
 - ✅ V4.1: 50ms settling delay
-- ✅ **V5: Scan-level lighting control** ← **THIS IS THE FINAL ROOT CAUSE FIX!**
+- ✅ **V5: Scan-level lighting control** ← **ROOT CAUSE FIX**
+- ✅ **V5.1: Removed calibration LED OFF** ← **HOTFIX for calibration conflict**
+
+---
+
+## 🔥 V5.1 HOTFIX (October 2, 2025)
+
+**Issue Discovered**: After implementing V5, user logs showed LEDs still turning OFF after calibration:
+```
+2025-10-02 00:00:27.855 - 💡 LED UPDATE: Zone 'inner' 30.0% → 0.0% (state: OFF)  ← PROBLEM!
+2025-10-02 00:00:27.855 - 💡 CALIBRATION: Disabled flash after all camera calibrations
+```
+
+**Root Cause**: The calibration code had a `finally` block that called `turn_off_all()`, conflicting with V5's scan-level LED control.
+
+**Fix Applied**: Removed `turn_off_all()` from calibration's finally block (scan_orchestrator.py line 3638-3640).
+
+**Result**: LEDs now stay ON continuously from scan start through calibration through all scan points until scan end. Only 2 LED transitions per scan.
+
+**Full Details**: See `LED_FLICKERING_V5.1_CALIBRATION_CONFLICT.md` for complete hotfix documentation.
 
 **Result**: Zero flickering during calibration AND scan! 🎉
