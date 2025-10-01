@@ -2263,8 +2263,17 @@ class LightingControllerAdapter:
         return await self.controller.flash(zone_ids, settings)
     
     async def set_brightness(self, zone_id: str, brightness: float) -> bool:
-        """Set brightness for a specific LED zone"""
-        return await self.controller.set_brightness(zone_id, brightness)
+        """Set brightness for LED zones (supports 'all' to set both inner and outer)"""
+        if zone_id == "all":
+            # Set brightness for all configured zones
+            results = []
+            for zone in ["inner", "outer"]:
+                result = await self.controller.set_brightness(zone, brightness)
+                results.append(result)
+            return all(results)  # Return True only if all zones succeeded
+        else:
+            # Set brightness for specific zone
+            return await self.controller.set_brightness(zone_id, brightness)
         
     async def trigger_for_capture(self, camera_controller, zone_ids: List[str], settings: Any) -> Any:
         """Delegate to controller's synchronized flash-capture method"""
