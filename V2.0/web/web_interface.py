@@ -267,9 +267,9 @@ class CommandValidator:
         
         c_angles = [servo_angle]  # Single servo angle for cylindrical scan
         
-        # Validate parameters
-        if not (5.0 <= radius <= 100.0):
-            raise ValueError(f"Camera radius {radius}mm outside valid range [5, 100]")
+        # Validate parameters - X-axis range: 30mm minimum (safety from center), 200mm maximum (hardware limit)
+        if not (30.0 <= radius <= 200.0):
+            raise ValueError(f"Camera radius {radius}mm outside valid range [30, 200] (30mm safety margin from center, 200mm X-axis limit)")
         
         if y_range[0] >= y_range[1]:
             raise ValueError("Invalid Y height range: min must be less than max")

@@ -275,10 +275,10 @@ class GridPatternParameters(PatternParameters):
 @dataclass
 class CylindricalPatternParameters(PatternParameters):
     """Parameters for cylindrical scan pattern - matches scanner geometry"""
-    # Horizontal scanning (X-axis)
-    x_start: float = -50.0  # Start position (mm)
-    x_end: float = 50.0     # End position (mm) 
-    x_step: float = 10.0    # Step size (mm)
+    # Horizontal scanning (X-axis) - Config limits: 0-200mm
+    x_start: float = 50.0   # Start position (mm) - default camera radius
+    x_end: float = 50.0     # End position (mm) - same as start for fixed radius
+    x_step: float = 10.0    # Step size (mm) - not used when x_start = x_end
     
     # Vertical scanning (Y-axis)
     y_start: float = 10.0   # Start height (mm)
@@ -317,6 +317,12 @@ class CylindricalPatternParameters(PatternParameters):
             raise ValueError("x_start must be less than or equal to x_end")
         if self.y_start > self.y_end:
             raise ValueError("y_start must be less than or equal to y_end")
+        
+        # Validate X-axis limits: 30mm minimum (safety from center), 200mm maximum (hardware limit)
+        if self.x_start < 30.0 or self.x_start > 200.0:
+            raise ValueError(f"x_start {self.x_start}mm outside valid range [30, 200]mm (30mm safety margin)")
+        if self.x_end < 30.0 or self.x_end > 200.0:
+            raise ValueError(f"x_end {self.x_end}mm outside valid range [30, 200]mm (30mm safety margin)")
 
 
 class CylindricalScanPattern(ScanPattern):

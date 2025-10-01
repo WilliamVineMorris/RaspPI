@@ -4664,7 +4664,7 @@ class ScanOrchestrator:
         Create a cylindrical scan pattern for turntable scanner with fixed radius
         
         Args:
-            radius: Fixed camera radius (distance from object center) in mm
+            radius: Fixed camera radius (X-axis position, 0-200mm from config) in mm
             y_range: Vertical camera movement range (start, end) in mm  
             y_step: Vertical step size in mm
             y_positions: Explicit Y positions in mm (overrides y_range/y_step if provided)
@@ -4673,6 +4673,12 @@ class ScanOrchestrator:
             servo_tilt_params: Servo tilt configuration dict with 'mode', 'manual_angle', 'y_focus'
         """
         from .scan_patterns import CylindricalPatternParameters, CylindricalScanPattern
+        
+        # Validate radius is within safe scanning range (30mm minimum, 200mm hardware maximum)
+        if radius < 30.0 or radius > 200.0:
+            raise ValueError(f"Camera radius {radius}mm outside valid range [30, 200]mm (30mm safety margin, 200mm hardware limit)")
+        
+        logger.info(f"📐 Creating cylindrical pattern: radius={radius}mm (X-axis position within 30-200mm scanning range)")
         
         # Create pattern parameters with fixed radius (x_start = x_end)
         # Ensure Z-axis rotations are provided for cylindrical scan
