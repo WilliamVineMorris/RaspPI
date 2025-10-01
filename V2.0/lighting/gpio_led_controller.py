@@ -639,13 +639,12 @@ class GPIOLEDController(LightingController):
         try:
             logger.info("💡 CONSTANT LIGHTING: Turning on LEDs before capture...")
             
-            # Turn on LEDs at specified brightness (typically 30%)
-            # Set all zones simultaneously to minimize flickering
-            brightness_tasks = [self.set_brightness(zone_id, settings.brightness) for zone_id in zone_ids]
-            await asyncio.gather(*brightness_tasks)
+            # Turn on LEDs using DIRECT synchronous control - eliminates async flickering
+            for zone_id in zone_ids:
+                self._set_brightness_direct(zone_id, settings.brightness)
             
-            # Add settling time for PWM to stabilize (prevents flickering)
-            await asyncio.sleep(0.05)  # 50ms settling time
+            # Minimal settling time for hardware PWM
+            await asyncio.sleep(0.02)  # 20ms settling time (reduced from 50ms)
             
             logger.info(f"💡 LEDs on at {settings.brightness*100:.0f}% brightness, starting camera capture...")
             
@@ -907,60 +906,51 @@ class GPIOLEDController(LightingController):
         return None
     
     # Lighting Control
-    async def set_brightness(self, zone_id: str, brightness: float) -> bool:
-        """Set brightness for a zone"""
+    def _set_brightness_direct(self, zone_id: str, brightness: float) -> bool:
+        """
+        Direct synchronous brightness control - NO async overhead
+        This is the FASTEST way to control LEDs without flickering
+        """
         try:
-            if not self._validate_zone(zone_id):
+            if zone_id not in self.zone_configs:
                 return False
             
             # Clamp brightness to safe range
-            zone = self.zone_configs[zone_id]
-            max_brightness = zone.max_brightness
+            max_brightness = self.zone_configs[zone_id].max_brightness
             brightness = max(0.0, min(brightness, max_brightness))
-            
-            # Skip if brightness hasn't changed (prevent unnecessary PWM updates)
-            current_brightness = self.zone_states[zone_id].get('brightness', -1.0)
-            if abs(current_brightness - brightness) < 0.001:  # 0.1% tolerance
-                return True
             
             # Calculate duty cycle with safety limit
             duty_cycle = brightness * 100.0
             duty_cycle = min(duty_cycle, self._max_duty_cycle * 100.0)
             
-            # Apply to all PWM controllers in zone
+            # Apply to ALL PWM controllers in zone - synchronously, no await
             for pwm_obj in self.pwm_controllers[zone_id]:
                 if pwm_obj['type'] == 'gpiozero':
-                    # Use gpiozero LED.value for duty cycle control
+                    # Direct gpiozero PWMLED control - hardware PWM, no overhead
                     led = pwm_obj['led']
-                    led_value = brightness  # LED.value expects 0.0-1.0, brightness is already 0.0-1.0
-                    led.value = led_value
-                    # Only log significant changes to reduce overhead
-                    if abs(current_brightness - brightness) > 0.05:  # Log 5%+ changes
-                        logger.debug(f"GPIO {led.pin.number} LED.value set to {led_value:.2f}")
+                    led.value = brightness  # Direct assignment, instant update
                 elif pwm_obj['type'] == 'pigpio':
-                    # Use pigpio PWM
                     pi = pwm_obj['pi']
                     pin = pwm_obj['pin']
-                    # Convert duty cycle percentage to pigpio duty cycle (0-255)
                     pigpio_duty = int((duty_cycle / 100.0) * 255)
                     pi.set_PWM_dutycycle(pin, pigpio_duty)
                 else:
-                    # Use RPi.GPIO PWM
                     pwm_obj['pwm'].ChangeDutyCycle(duty_cycle)
             
-            # Update state
-            self.zone_states[zone_id].update({
-                'brightness': brightness,
-                'duty_cycle': duty_cycle,
-                'last_update': time.time()
-            })
+            # Minimal state update (no dictionary update overhead)
+            self.zone_states[zone_id]['brightness'] = brightness
+            self.zone_states[zone_id]['duty_cycle'] = duty_cycle
             
-            logger.debug(f"Zone '{zone_id}' brightness set to {brightness:.2f} ({duty_cycle:.1f}%)")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to set brightness for zone '{zone_id}': {e}")
+            logger.error(f"LED brightness error zone '{zone_id}': {e}")
             return False
+
+    async def set_brightness(self, zone_id: str, brightness: float) -> bool:
+        """Set brightness for a zone (async wrapper for compatibility)"""
+        # Call synchronous method directly - no async overhead
+        return self._set_brightness_direct(zone_id, brightness)
     
     async def flash_zone(self, zone_id: str, settings: LightingSettings) -> FlashResult:
         """Flash a specific zone"""
@@ -1056,15 +1046,14 @@ class GPIOLEDController(LightingController):
             ) for zone_id in zone_settings}
     
     async def turn_off_all(self) -> bool:
-        """Turn off all LEDs - batch operation to prevent flickering"""
+        """Turn off all LEDs - direct synchronous operation for fastest response"""
         try:
-            # Turn off all zones simultaneously to minimize flickering
-            turnoff_tasks = [self.set_brightness(zone_id, 0.0) for zone_id in self.zone_configs]
-            results = await asyncio.gather(*turnoff_tasks)
+            # Turn off ALL zones synchronously - no async overhead, no flickering
+            for zone_id in self.zone_configs:
+                self._set_brightness_direct(zone_id, 0.0)
             
-            success = all(results)
             logger.info("All LEDs turned off")
-            return success
+            return True
             
         except Exception as e:
             logger.error(f"Failed to turn off all LEDs: {e}")
