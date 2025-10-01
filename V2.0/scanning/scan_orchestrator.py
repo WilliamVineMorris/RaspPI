@@ -3458,7 +3458,25 @@ class ScanOrchestrator:
                             }
                             self.logger.info(f"🔄 CALIBRATION: Backing up custom exposure settings: {custom_exposure_backup}")
                     
-                    calibration_result = await self.camera_manager.controller.auto_calibrate_camera(primary_camera)
+                    # Enable flash at 30% brightness for the entire calibration process
+                    try:
+                        from lighting.base import LightingSettings
+                        calibration_flash_settings = LightingSettings(brightness=0.3, duration_ms=0)  # Continuous light
+                        await self.lighting_controller.set_brightness(['inner', 'outer'], calibration_flash_settings)
+                        self.logger.info("💡 CALIBRATION: Enabled 30% flash for calibration process")
+                    except Exception as flash_error:
+                        self.logger.warning(f"⚠️ CALIBRATION: Could not enable flash: {flash_error}")
+                    
+                    try:
+                        calibration_result = await self.camera_manager.controller.auto_calibrate_camera(primary_camera)
+                    finally:
+                        # Always turn off the flash after calibration, even if it fails
+                        try:
+                            off_settings = LightingSettings(brightness=0.0, duration_ms=0)
+                            await self.lighting_controller.set_brightness(['inner', 'outer'], off_settings)
+                            self.logger.info("💡 CALIBRATION: Disabled flash after calibration")
+                        except Exception as flash_off_error:
+                            self.logger.warning(f"⚠️ CALIBRATION: Could not disable flash: {flash_off_error}")
                     
                     if calibration_result and 'focus' in calibration_result:
                         focus_value = calibration_result['focus']
@@ -3509,10 +3527,27 @@ class ScanOrchestrator:
                                     
                                     # Let secondary cameras do their own exposure calibration
                                     try:
-                                        secondary_calib = await self.camera_manager.controller.auto_calibrate_camera(camera_id)
-                                        sec_exposure = secondary_calib.get('exposure_time', 0)
-                                        sec_gain = secondary_calib.get('analogue_gain', 1.0)
-                                        self.logger.info(f"✅ {camera_id} exposure calibrated: {sec_exposure/1000:.1f}ms, gain: {sec_gain:.2f}")
+                                        # Enable flash for secondary camera calibration
+                                        try:
+                                            calibration_flash_settings = LightingSettings(brightness=0.3, duration_ms=0)
+                                            await self.lighting_controller.set_brightness(['inner', 'outer'], calibration_flash_settings)
+                                            self.logger.info(f"💡 CALIBRATION: Enabled 30% flash for {camera_id} calibration")
+                                        except Exception as flash_error:
+                                            self.logger.warning(f"⚠️ CALIBRATION: Could not enable flash for {camera_id}: {flash_error}")
+                                        
+                                        try:
+                                            secondary_calib = await self.camera_manager.controller.auto_calibrate_camera(camera_id)
+                                            sec_exposure = secondary_calib.get('exposure_time', 0)
+                                            sec_gain = secondary_calib.get('analogue_gain', 1.0)
+                                            self.logger.info(f"✅ {camera_id} exposure calibrated: {sec_exposure/1000:.1f}ms, gain: {sec_gain:.2f}")
+                                        finally:
+                                            # Turn off flash after secondary calibration
+                                            try:
+                                                off_settings = LightingSettings(brightness=0.0, duration_ms=0)
+                                                await self.lighting_controller.set_brightness(['inner', 'outer'], off_settings)
+                                                self.logger.info(f"💡 CALIBRATION: Disabled flash after {camera_id} calibration")
+                                            except Exception as flash_off_error:
+                                                self.logger.warning(f"⚠️ CALIBRATION: Could not disable flash: {flash_off_error}")
                                     except Exception as calib_error:
                                         self.logger.warning(f"⚠️ {camera_id} exposure calibration failed: {calib_error}")
                                 else:
@@ -3538,11 +3573,28 @@ class ScanOrchestrator:
                         self.logger.info(f"Performing camera calibration (focus + exposure) on {camera_id}...")
                         
                         try:
-                            # Add per-camera timeout for full calibration
-                            calibration_result = await asyncio.wait_for(
-                                self.camera_manager.controller.auto_calibrate_camera(camera_id),
-                                timeout=15.0  # 15 second timeout for calibration (longer than just focus)
-                            )
+                            # Enable flash for calibration
+                            try:
+                                calibration_flash_settings = LightingSettings(brightness=0.3, duration_ms=0)
+                                await self.lighting_controller.set_brightness(['inner', 'outer'], calibration_flash_settings)
+                                self.logger.info(f"💡 CALIBRATION: Enabled 30% flash for {camera_id} calibration")
+                            except Exception as flash_error:
+                                self.logger.warning(f"⚠️ CALIBRATION: Could not enable flash for {camera_id}: {flash_error}")
+                            
+                            try:
+                                # Add per-camera timeout for full calibration
+                                calibration_result = await asyncio.wait_for(
+                                    self.camera_manager.controller.auto_calibrate_camera(camera_id),
+                                    timeout=15.0  # 15 second timeout for calibration (longer than just focus)
+                                )
+                            finally:
+                                # Turn off flash after calibration
+                                try:
+                                    off_settings = LightingSettings(brightness=0.0, duration_ms=0)
+                                    await self.lighting_controller.set_brightness(['inner', 'outer'], off_settings)
+                                    self.logger.info(f"💡 CALIBRATION: Disabled flash after {camera_id} calibration")
+                                except Exception as flash_off_error:
+                                    self.logger.warning(f"⚠️ CALIBRATION: Could not disable flash: {flash_off_error}")
                             
                             if calibration_result and 'focus' in calibration_result:
                                 focus_value = calibration_result['focus']
