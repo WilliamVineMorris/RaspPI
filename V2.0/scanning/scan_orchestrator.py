@@ -3471,22 +3471,14 @@ class ScanOrchestrator:
                             }
                             self.logger.info(f"🔄 CALIBRATION: Backing up custom exposure settings: {custom_exposure_backup}")
                     
-                    # Enable flash at 30% brightness for the entire calibration process
-                    try:
-                        await self.lighting_controller.set_brightness("all", 0.3)
-                        self.logger.info("💡 CALIBRATION: Enabled 30% flash for calibration process")
-                    except Exception as flash_error:
-                        self.logger.warning(f"⚠️ CALIBRATION: Could not enable flash: {flash_error}")
+                    # 🔥 V5.1: DO NOT turn LEDs on - scan-level lighting already has them on at 30%
+                    self.logger.info("💡 CALIBRATION: Using scan-level lighting (already on at 30%)")
                     
                     try:
                         calibration_result = await self.camera_manager.controller.auto_calibrate_camera(primary_camera)
                     finally:
-                        # Always turn off the flash after calibration, even if it fails
-                        try:
-                            await self.lighting_controller.turn_off_all()
-                            self.logger.info("💡 CALIBRATION: Disabled flash after calibration")
-                        except Exception as flash_off_error:
-                            self.logger.warning(f"⚠️ CALIBRATION: Could not disable flash: {flash_off_error}")
+                        # 🔥 V5.1: DO NOT turn off LEDs - scan-level lighting manages state
+                        self.logger.info("💡 CALIBRATION: Primary camera completed (scan-level lighting remains active)")
                     
                     if calibration_result and 'focus' in calibration_result:
                         focus_value = calibration_result['focus']
@@ -3528,14 +3520,10 @@ class ScanOrchestrator:
                                 self.logger.warning(f"📋 Failed to update positions file with calibration: {pos_update_error}")
                         
                         # Apply the same focus value to all other cameras (but let them auto-expose independently)
-                        # 🔥 FIX: Enable flash ONCE before all secondary camera calibrations (prevents flickering)
+                        # 🔥 V5.1: DO NOT turn LEDs on - scan-level lighting already has them on at 30%
                         secondary_cameras = [cam for cam in available_cameras if cam != primary_camera]
                         if secondary_cameras:
-                            try:
-                                await self.lighting_controller.set_brightness("all", 0.3)
-                                self.logger.info(f"💡 CALIBRATION: Enabled 30% flash for secondary camera calibrations")
-                            except Exception as flash_error:
-                                self.logger.warning(f"⚠️ CALIBRATION: Could not enable flash: {flash_error}")
+                            self.logger.info(f"💡 CALIBRATION: Secondary cameras using scan-level lighting (already on at 30%)")
                             
                             try:
                                 for camera_id in secondary_cameras:
@@ -3556,12 +3544,8 @@ class ScanOrchestrator:
                                         self.logger.warning(f"❌ Failed to sync focus to {camera_id}")
                             
                             finally:
-                                # 🔥 FIX: Turn off flash ONCE after all secondary calibrations (prevents flickering)
-                                try:
-                                    await self.lighting_controller.turn_off_all()
-                                    self.logger.info(f"💡 CALIBRATION: Disabled flash after all secondary camera calibrations")
-                                except Exception as flash_off_error:
-                                    self.logger.warning(f"⚠️ CALIBRATION: Could not disable flash: {flash_off_error}")
+                                # 🔥 V5.1: DO NOT turn off LEDs - scan-level lighting manages state
+                                self.logger.info(f"💡 CALIBRATION: Secondary cameras completed (scan-level lighting remains active)")
                     else:
                         self.logger.error("❌ Primary camera calibration failed")
                         
@@ -3573,12 +3557,8 @@ class ScanOrchestrator:
                     focus_timeout = 40.0  # Maximum time for all cameras to calibrate (15s per camera + buffer)
                     focus_start_time = asyncio.get_event_loop().time()
                     
-                    # 🔥 FIX: Enable flash ONCE before all camera calibrations (prevents flickering)
-                    try:
-                        await self.lighting_controller.set_brightness("all", 0.3)
-                        self.logger.info(f"💡 CALIBRATION: Enabled 30% flash for all camera calibrations")
-                    except Exception as flash_error:
-                        self.logger.warning(f"⚠️ CALIBRATION: Could not enable flash: {flash_error}")
+                    # 🔥 V5.1: DO NOT turn LEDs on - scan-level lighting already has them on at 30%
+                    self.logger.info(f"💡 CALIBRATION: All cameras using scan-level lighting (already on at 30%)")
                     
                     try:
                         for camera_id in available_cameras:
@@ -3658,8 +3638,8 @@ class ScanOrchestrator:
                 focus_summary = ", ".join([f"{cam}: {val:.3f}" for cam, val in self._scan_focus_values.items()])
                 self.logger.info(f"Focus setup completed. Mode: {self._focus_mode}, Sync: disabled, Values: {focus_summary}")
             
-            # 🔥 V5.1: Add settling delay after calibration to stabilize camera settings
-            self.logger.info("⏱️ Waiting 50ms for camera settling after calibration...")
+            # 🔥 V5.1: Add settling delay after calibration (LEDs remain on from scan-level control)
+            self.logger.info("⏱️ V5.1: Waiting 50ms for camera settling (LEDs remain on at 30%)...")
             await asyncio.sleep(0.05)  # 50ms delay for camera exposure/focus to stabilize
             
         except Exception as e:
