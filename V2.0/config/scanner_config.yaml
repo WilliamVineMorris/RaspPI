@@ -192,12 +192,12 @@ cameras:
 # LED Flash Configuration  
 # Hardware PWM Setup: Uses Pi's hardware PWM channels for flicker-free operation
 # GPIO 13 = PWM1 (hardware channel 1), GPIO 18 = PWM0 (hardware channel 0)
-# Higher frequency (400Hz) eliminates visible flicker for human eyes
+# 400Hz frequency - testing if direct lgpio is more stable than gpiozero
 # IMPORTANT: use_pigpio_factory MUST be true for hardware PWM on GPIO 13/18
 lighting:
   controller_type: "gpiozero"       # Use gpiozero LED controller
-  use_pigpio_factory: true          # TRUE = Hardware PWM via pigpio (required!)
-  pwm_frequency: 400                # Hz - Hardware PWM frequency (400Hz for flicker-free operation)
+  use_pigpio_factory: true          # TRUE = Hardware PWM via lgpio on Pi 5 (hardware PWM)
+  pwm_frequency: 400                # Hz - 400Hz PWM (do not exceed 500Hz per user requirement)
   
   zones:
     inner:

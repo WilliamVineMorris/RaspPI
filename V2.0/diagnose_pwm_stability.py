@@ -103,6 +103,11 @@ try:
     frequency = 400
     duty_cycle = 30  # 30%
     
+    print(f"Setting GPIO {pin} to output mode...")
+    # First claim the GPIO as output
+    lgpio.gpio_claim_output(h, pin)
+    print(f"✅ GPIO {pin} claimed as output")
+    
     print(f"Setting GPIO {pin} to {frequency}Hz PWM at {duty_cycle}% duty cycle...")
     
     # Set PWM mode
