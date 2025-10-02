@@ -1385,7 +1385,7 @@ class ScannerWebInterface:
                 
                 # Get hardware limits for validator (for future use)
                 config_manager = self.orchestrator.config_manager if self.orchestrator else None
-                axes_config = config_manager.get_axes_config() if config_manager else {}
+                axes_config = config_manager.get_all_axes() if config_manager else {}
                 
                 validator = ScanPointValidator(axes_config)
                 csv_content = validator.points_to_csv(scan_points)
@@ -1406,11 +1406,11 @@ class ScannerWebInterface:
         def api_scan_import_csv():
             """Import and validate scan points from CSV file"""
             try:
-                # Check if file was uploaded
-                if 'csv_file' not in request.files:
+                # Check if file was uploaded (frontend sends 'file', not 'csv_file')
+                if 'file' not in request.files:
                     raise BadRequest("No CSV file provided")
                 
-                file = request.files['csv_file']
+                file = request.files['file']
                 if file.filename == '':
                     raise BadRequest("No file selected")
                 
@@ -1419,7 +1419,7 @@ class ScannerWebInterface:
                 
                 # Get hardware limits for validation
                 config_manager = self.orchestrator.config_manager if self.orchestrator else None
-                axes_config = config_manager.get_axes_config() if config_manager else {}
+                axes_config = config_manager.get_all_axes() if config_manager else {}
                 
                 # Validate CSV
                 from scanning.csv_validator import ScanPointValidator

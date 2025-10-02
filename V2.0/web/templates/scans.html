@@ -2785,6 +2785,26 @@ function visualizeScanPath(points) {
         return;
     }
 
+    // Check if Plotly is loaded
+    if (typeof Plotly === 'undefined') {
+        console.error('Plotly.js is not loaded! Check internet connection or install locally.');
+        document.getElementById('scan-path-3d-plot').innerHTML = `
+            <div style="text-align: center; padding: 2rem; color: #d63031; background: #fff5f5; border-radius: 4px;">
+                <h4 style="margin: 0 0 0.5rem 0;">⚠️ Plotly.js Not Loaded</h4>
+                <p style="margin: 0 0 1rem 0; font-size: 0.9rem;">The 3D visualization library could not be loaded.</p>
+                <details style="text-align: left; max-width: 500px; margin: 0 auto;">
+                    <summary style="cursor: pointer; font-weight: 600; margin-bottom: 0.5rem;">Troubleshooting Steps</summary>
+                    <ol style="font-size: 0.85rem; line-height: 1.6;">
+                        <li><strong>Check Internet:</strong> Pi needs internet to load Plotly from CDN</li>
+                        <li><strong>Or Install Locally:</strong> Download plotly-2.27.0.min.js to web/static/js/</li>
+                        <li><strong>Update base.html:</strong> Change CDN link to local file</li>
+                    </ol>
+                </details>
+            </div>
+        `;
+        return;
+    }
+
     // Convert cylindrical to Cartesian coordinates
     const cartesianPoints = points.map(p => cylindricalToCartesian(p.x, p.y, p.z));
     
