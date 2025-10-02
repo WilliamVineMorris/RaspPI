@@ -3661,13 +3661,24 @@ class ScanOrchestrator:
         scan_points = self.current_pattern.generate_points()
         self.logger.info(f"Starting scan of {len(scan_points)} points")
         
-        # 🔥 V5 FIX: Turn on LEDs ONCE before entire scan (prevents per-point flickering)
+        # Flash mode or constant lighting based on configuration
+        flash_mode = getattr(self.lighting_controller, 'flash_mode', False)
+        idle_brightness = getattr(self.lighting_controller, 'idle_brightness', 0.05)
+        capture_brightness = getattr(self.lighting_controller, 'capture_brightness', 0.30)
+        flash_duration_ms = getattr(self.lighting_controller, 'flash_duration_ms', 650)
+        
         leds_turned_on = False
         try:
-            self.logger.info("💡 SCAN: Turning on LEDs for entire scan duration...")
-            await self.lighting_controller.set_brightness("all", 0.3)
-            leds_turned_on = True
-            self.logger.info("💡 SCAN: LEDs on at 30% - will remain on for all scan points")
+            if flash_mode:
+                self.logger.info(f"💡 SCAN: Flash mode enabled - LEDs at {idle_brightness*100:.0f}% during idle/movement")
+                await self.lighting_controller.set_brightness("all", idle_brightness)
+                leds_turned_on = True
+                self.logger.info(f"💡 SCAN: Will flash to {capture_brightness*100:.0f}% for {flash_duration_ms}ms during capture")
+            else:
+                self.logger.info(f"💡 SCAN: Constant lighting mode - LEDs at {capture_brightness*100:.0f}% for entire scan")
+                await self.lighting_controller.set_brightness("all", capture_brightness)
+                leds_turned_on = True
+                self.logger.info("💡 SCAN: LEDs will remain on for all scan points")
             await asyncio.sleep(0.05)  # 50ms settling time
         except Exception as led_error:
             self.logger.warning(f"⚠️ SCAN: Could not enable LEDs: {led_error}")
@@ -3868,17 +3879,40 @@ class ScanOrchestrator:
                     # Use both inner and outer zones for maximum illumination
                     zones_to_flash = ['inner', 'outer']
                     
-                    # SYNCHRONIZED FLASH + CAPTURE using LED controller method
-                    self.logger.info("📸 V5: Capturing with scan-level lighting (LEDs already on)...")
+                    # Flash mode: Increase brightness for capture, then reduce
+                    # Constant mode: LEDs already at capture brightness
+                    flash_mode = getattr(self.lighting_controller, 'flash_mode', False)
                     
-                    # V5 FIX: Direct camera capture - LEDs already on at 30% from scan level
-                    # Skip LED controller trigger_for_capture() to prevent per-point on/off cycling
-                    camera_data_dict = None
-                    if hasattr(self, 'camera_manager') and self.camera_manager:
-                        camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
-                        self.logger.info("✅ V5: Camera capture successful with scan-level lighting")
+                    if flash_mode:
+                        # Flash mode: Increase to capture brightness
+                        capture_brightness = getattr(self.lighting_controller, 'capture_brightness', 0.30)
+                        flash_duration_ms = getattr(self.lighting_controller, 'flash_duration_ms', 650)
+                        
+                        self.logger.info(f"⚡ FLASH MODE: Increasing LEDs to {capture_brightness*100:.0f}% for capture...")
+                        await self.lighting_controller.set_brightness("all", capture_brightness)
+                        await asyncio.sleep(0.05)  # 50ms LED settling
+                        
+                        # Capture with both cameras
+                        camera_data_dict = None
+                        if hasattr(self, 'camera_manager') and self.camera_manager:
+                            camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
+                            self.logger.info("✅ FLASH: Camera capture successful")
+                        else:
+                            raise Exception("Camera manager not available")
+                        
+                        # Reduce back to idle brightness
+                        idle_brightness = getattr(self.lighting_controller, 'idle_brightness', 0.05)
+                        self.logger.info(f"💡 FLASH: Reducing LEDs back to {idle_brightness*100:.0f}% idle brightness")
+                        await self.lighting_controller.set_brightness("all", idle_brightness)
                     else:
-                        raise Exception("Camera manager not available")
+                        # Constant mode: LEDs already at correct brightness
+                        self.logger.info("📸 CONSTANT MODE: Capturing with constant lighting...")
+                        camera_data_dict = None
+                        if hasattr(self, 'camera_manager') and self.camera_manager:
+                            camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
+                            self.logger.info("✅ CONSTANT: Camera capture successful")
+                        else:
+                            raise Exception("Camera manager not available")
                     
             except Exception as capture_error:
                 self.logger.error(f"❌ V5: Camera capture failed: {capture_error}")

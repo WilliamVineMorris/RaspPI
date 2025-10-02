@@ -208,6 +208,13 @@ class GPIOLEDController(LightingController):
         self.zone_states: Dict[str, Dict[str, Any]] = {}
         self._active_pwm_objects = []  # Track all PWM objects for cleanup
         
+        # Flash mode configuration (energy-efficient lighting)
+        self.flash_mode = config.get('flash_mode', False)
+        self.idle_brightness = config.get('idle_brightness', 0.05)  # 5% during idle
+        self.capture_brightness = config.get('capture_brightness', 0.30)  # 30% during capture
+        self.flash_duration_ms = config.get('flash_duration_ms', 650)  # 650ms flash
+        logger.info(f"Flash mode: {self.flash_mode}, Idle: {self.idle_brightness*100:.0f}%, Capture: {self.capture_brightness*100:.0f}%, Duration: {self.flash_duration_ms}ms")
+        
         # CRITICAL: Thread lock to prevent concurrent LED updates (prevents flickering)
         import threading
         self._led_update_lock = threading.Lock()

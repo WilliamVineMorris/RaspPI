@@ -199,6 +199,12 @@ lighting:
   use_pigpio_factory: true          # TRUE = Hardware PWM via lgpio on Pi 5 (hardware PWM)
   pwm_frequency: 400                # Hz - 400Hz PWM (do not exceed 500Hz per user requirement)
   
+  # Flash-based lighting control (energy efficient)
+  flash_mode: true                  # Use flash mode instead of constant lighting
+  idle_brightness: 0.05             # 5% brightness during idle/movement (illuminates object, saves energy)
+  capture_brightness: 0.30          # 30% brightness during photo capture (both cameras)
+  flash_duration_ms: 650            # Flash duration in milliseconds (covers both camera captures)
+  
   zones:
     inner:
       gpio_pins: [13]      # GPIO 13 = Hardware PWM1 channel (flicker-free)
