@@ -19,7 +19,7 @@ motion:
   controller:
     type: "fluidnc"
     connection: "usb"
-    port: "/dev/ttyUSB0"  # Adjust as needed - may be /dev/ttyACM0
+    port: "auto"          # "auto" for auto-detection, or specific port like "/dev/ttyUSB0"
     baudrate: 115200      # From FluidNC default
     timeout: 10.0
     

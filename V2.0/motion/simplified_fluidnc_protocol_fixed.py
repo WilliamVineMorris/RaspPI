@@ -94,10 +94,103 @@ class SimplifiedFluidNCProtocolFixed:
             'debug_messages_captured': 0
         }
     
+    def _detect_fluidnc_port(self) -> Optional[str]:
+        """
+        Auto-detect FluidNC controller on USB ports
+        
+        Returns:
+            Port path if found, None otherwise
+        """
+        import glob
+        import os
+        
+        # Try common USB serial device patterns
+        patterns = [
+            '/dev/ttyUSB*',  # USB-to-serial adapters
+            '/dev/ttyACM*',  # Direct USB CDC devices
+        ]
+        
+        possible_ports = []
+        for pattern in patterns:
+            possible_ports.extend(glob.glob(pattern))
+        
+        if not possible_ports:
+            logger.warning("No USB serial devices found")
+            return None
+        
+        logger.info(f"🔍 Found {len(possible_ports)} USB device(s): {possible_ports}")
+        
+        # Try each port to see if FluidNC responds
+        for port in sorted(possible_ports):  # Sort for consistent ordering
+            try:
+                logger.debug(f"Testing {port} for FluidNC...")
+                
+                # Try to open the port briefly
+                test_serial = serial.Serial(
+                    port=port,
+                    baudrate=self.baud_rate,
+                    timeout=0.5
+                )
+                
+                # Wait a moment for device to be ready
+                time.sleep(0.3)
+                
+                # Clear buffers
+                test_serial.reset_input_buffer()
+                test_serial.reset_output_buffer()
+                
+                # Send status request
+                test_serial.write(b'?\n')
+                test_serial.flush()
+                
+                # Wait for response
+                time.sleep(0.2)
+                
+                # Check for FluidNC-style response
+                response_lines = []
+                while test_serial.in_waiting:
+                    line = test_serial.readline().decode('utf-8', errors='ignore').strip()
+                    if line:
+                        response_lines.append(line)
+                
+                test_serial.close()
+                
+                # Look for FluidNC indicators in response
+                # FluidNC status responses typically start with < and contain position info
+                for line in response_lines:
+                    if line.startswith('<') or 'MPos' in line or 'WPos' in line or 'Grbl' in line:
+                        logger.info(f"✅ FluidNC detected at {port}")
+                        return port
+                
+                logger.debug(f"Port {port} did not respond like FluidNC: {response_lines}")
+                
+            except Exception as e:
+                logger.debug(f"Port {port} test failed: {e}")
+                continue
+        
+        # If no port responded, return the first available port as fallback
+        if possible_ports:
+            fallback = possible_ports[0]
+            logger.warning(f"⚠️ No FluidNC response detected, using first available port: {fallback}")
+            return fallback
+        
+        return None
+    
     def connect(self) -> bool:
-        """Connect to FluidNC controller"""
+        """Connect to FluidNC controller with auto-detection if needed"""
         with self.connection_lock:
             try:
+                # Auto-detect port if set to "auto"
+                if self.port == "auto" or self.port == "/dev/ttyUSB0":  # Also try auto if default fails
+                    detected_port = self._detect_fluidnc_port()
+                    if detected_port:
+                        logger.info(f"🔍 Auto-detected FluidNC at {detected_port}")
+                        self.port = detected_port
+                    elif self.port == "auto":
+                        logger.error("❌ FluidNC auto-detection failed - no suitable USB device found")
+                        return False
+                    # If port was /dev/ttyUSB0 and detection failed, will try original port anyway
+                
                 logger.info(f"🔌 Connecting to FluidNC at {self.port}")
                 
                 # Close existing connection
