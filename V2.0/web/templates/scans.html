@@ -350,6 +350,80 @@
         margin-bottom: 0;
     }
 
+    /* 3D Visualizer - 2 Column Layout */
+    .cylindrical-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        margin-top: 1rem;
+    }
+
+    @media (max-width: 1200px) {
+        .cylindrical-container {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .scan-visualizer-column {
+        position: sticky;
+        top: 1rem;
+        height: fit-content;
+    }
+
+    .visualizer-card {
+        background: white;
+        border-radius: 8px;
+        padding: 1rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .visualizer-card h4 {
+        margin: 0 0 1rem 0;
+        color: var(--text-primary);
+        font-size: 1.1rem;
+    }
+
+    #scan-path-3d-plot {
+        width: 100%;
+        height: 500px;
+        border-radius: 4px;
+        background: #f8f9fa;
+    }
+
+    .visualizer-info {
+        margin-top: 0.75rem;
+        padding: 0.75rem;
+        background: #f8f9fa;
+        border-radius: 4px;
+        font-size: 0.85rem;
+    }
+
+    .visualizer-info-item {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.25rem;
+    }
+
+    .visualizer-info-item:last-child {
+        margin-bottom: 0;
+    }
+
+    .csv-controls {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+
+    .csv-controls .btn {
+        flex: 1;
+        padding: 0.5rem;
+        font-size: 0.85rem;
+    }
+
+    .csv-file-input {
+        display: none;
+    }
+
     .input-row {
         display: flex;
         align-items: center;
@@ -1820,7 +1894,10 @@
                     <h4>🔄 Cylindrical Scan Setup</h4>
                     <p class="config-help">Configure rotation and height parameters for cylindrical objects</p>
                     
-                    <div class="cylindrical-grid">
+                    <!-- 2-Column Layout: Parameters + 3D Visualizer -->
+                    <div class="cylindrical-container">
+                        <!-- LEFT COLUMN: Parameters -->
+                        <div class="cylindrical-grid">
                         <div class="parameter-group">
                             <label for="cylindricalRadius">📐 Camera Distance</label>
                             <input type="number" id="cylindricalRadius" class="parameter-input" min="10" max="100" value="30" step="5">
@@ -1874,6 +1951,48 @@
                             <small class="parameter-help">Y-coordinate to focus servo on during scanning</small>
                         </div>
                     </div>
+                    <!-- END LEFT COLUMN -->
+                    
+                    <!-- RIGHT COLUMN: 3D Visualizer -->
+                    <div class="scan-visualizer-column">
+                        <div class="visualizer-card">
+                            <h4>📊 3D Scan Path Preview</h4>
+                            <div id="scan-path-3d-plot"></div>
+                            <div class="visualizer-info" id="scan-path-info">
+                                <div class="visualizer-info-item">
+                                    <span>Total Points:</span>
+                                    <strong id="total-points-display">-</strong>
+                                </div>
+                                <div class="visualizer-info-item">
+                                    <span>X Range:</span>
+                                    <span id="x-range-display">-</span>
+                                </div>
+                                <div class="visualizer-info-item">
+                                    <span>Y Range:</span>
+                                    <span id="y-range-display">-</span>
+                                </div>
+                                <div class="visualizer-info-item">
+                                    <span>Z Range:</span>
+                                    <span id="z-range-display">-</span>
+                                </div>
+                            </div>
+                            
+                            <!-- CSV Import/Export Controls -->
+                            <div class="csv-controls">
+                                <input type="file" id="csv-file-input" class="csv-file-input" accept=".csv" onchange="handleCSVUpload(event)">
+                                <button class="btn btn-outline" onclick="document.getElementById('csv-file-input').click()">
+                                    📁 Import CSV
+                                </button>
+                                <button class="btn btn-outline" onclick="exportScanCSV()">
+                                    💾 Export CSV
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- END RIGHT COLUMN -->
+                    
+                </div>
+                <!-- END 2-COLUMN CONTAINER -->
                 </div>
             </div>
         </div>
@@ -2181,6 +2300,13 @@ function switchScanType(scanType) {
     if (scanType === 'cylindrical') {
         if (cylindricalParams) cylindricalParams.style.display = 'block';
         if (gridBoundaries) gridBoundaries.style.display = 'none';
+        
+        // Trigger visualization update when cylindrical scan is selected
+        setTimeout(() => {
+            if (typeof updateVisualizerFromConfig === 'function') {
+                updateVisualizerFromConfig();
+            }
+        }, 100);
     } else {
         if (cylindricalParams) cylindricalParams.style.display = 'none';
         if (gridBoundaries) gridBoundaries.style.display = 'block';
@@ -2493,6 +2619,38 @@ function collectScanParameters() {
         let scanPattern;
         
         if (scanType === 'cylindrical') {
+            // Check for custom CSV points first
+            const customPointsJSON = sessionStorage.getItem('customScanPoints');
+            if (customPointsJSON) {
+                try {
+                    const customPoints = JSON.parse(customPointsJSON);
+                    console.log('📁 Using custom CSV points:', customPoints.length);
+                    
+                    // Return custom pattern data
+                    const scanData = {
+                        pattern_type: 'custom_csv',
+                        custom_points: customPoints,
+                        scan_name: scanName,
+                        resolution: resolution,
+                        speed: speed,
+                        camera_count: parseInt(cameraCount)
+                    };
+                    
+                    // Add custom settings if active
+                    if (qualitySettings) {
+                        scanData.quality_settings = qualitySettings;
+                    }
+                    if (speedSettings) {
+                        scanData.speed_settings = speedSettings;
+                    }
+                    
+                    return scanData;
+                } catch (error) {
+                    console.error('Error parsing custom points:', error);
+                    // Fall through to standard cylindrical pattern
+                }
+            }
+            
             // Get cylindrical parameters
             const radius = document.getElementById('cylindricalRadius')?.value || '30';
             const yMin = document.getElementById('cylindricalYMin')?.value || '40';
@@ -2604,6 +2762,282 @@ function collectScanParameters() {
         return null;
     }
 }
+
+// ============================================
+// 3D SCAN PATH VISUALIZER FUNCTIONS
+// ============================================
+
+// Convert cylindrical coordinates to Cartesian for 3D visualization
+function cylindricalToCartesian(x, y, z_rotation) {
+    const z_rad = z_rotation * Math.PI / 180;
+    return {
+        x: x * Math.cos(z_rad),
+        y: y,
+        z: x * Math.sin(z_rad)
+    };
+}
+
+// Visualize scan path in 3D using Plotly
+function visualizeScanPath(points) {
+    if (!points || points.length === 0) {
+        console.warn('No points to visualize');
+        document.getElementById('scan-path-3d-plot').innerHTML = '<div style="text-align: center; padding: 2rem; color: #666;">No points to display</div>';
+        return;
+    }
+
+    // Convert cylindrical to Cartesian coordinates
+    const cartesianPoints = points.map(p => cylindricalToCartesian(p.x, p.y, p.z));
+    
+    // Create color array (blue to red gradient)
+    const colors = points.map((_, i) => i / (points.length - 1));
+    
+    // Extract coordinates
+    const xCoords = cartesianPoints.map(p => p.x);
+    const yCoords = cartesianPoints.map(p => p.y);
+    const zCoords = cartesianPoints.map(p => p.z);
+    
+    // Create hover text
+    const hoverText = points.map((p, i) => 
+        `Point ${i}<br>X: ${p.x.toFixed(1)}mm<br>Y: ${p.y.toFixed(1)}mm<br>Z: ${p.z.toFixed(1)}°<br>C: ${p.c.toFixed(1)}°`
+    );
+    
+    // Create trace
+    const trace = {
+        type: 'scatter3d',
+        mode: 'lines+markers',
+        x: xCoords,
+        y: yCoords,
+        z: zCoords,
+        text: hoverText,
+        hoverinfo: 'text',
+        marker: {
+            size: 4,
+            color: colors,
+            colorscale: 'Portland',
+            showscale: true,
+            colorbar: {
+                title: 'Scan Order',
+                thickness: 15,
+                len: 0.7
+            }
+        },
+        line: {
+            color: colors,
+            colorscale: 'Portland',
+            width: 2
+        }
+    };
+    
+    // Layout configuration
+    const layout = {
+        title: '',
+        scene: {
+            xaxis: { title: 'X (mm)' },
+            yaxis: { title: 'Y (mm)' },
+            zaxis: { title: 'Z (mm)' },
+            camera: {
+                eye: { x: 1.5, y: 1.5, z: 1.3 }
+            }
+        },
+        margin: { l: 0, r: 0, b: 0, t: 0 },
+        showlegend: false
+    };
+    
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        displaylogo: false
+    };
+    
+    Plotly.newPlot('scan-path-3d-plot', [trace], layout, config);
+    
+    // Update info display
+    updateVisualizerInfo(points, xCoords, yCoords, zCoords);
+}
+
+// Update visualizer info panel
+function updateVisualizerInfo(points, xCoords, yCoords, zCoords) {
+    document.getElementById('total-points-display').textContent = points.length;
+    
+    const xMin = Math.min(...xCoords).toFixed(1);
+    const xMax = Math.max(...xCoords).toFixed(1);
+    document.getElementById('x-range-display').textContent = `${xMin} to ${xMax} mm`;
+    
+    const yMin = Math.min(...yCoords).toFixed(1);
+    const yMax = Math.max(...yCoords).toFixed(1);
+    document.getElementById('y-range-display').textContent = `${yMin} to ${yMax} mm`;
+    
+    const zMin = Math.min(...zCoords).toFixed(1);
+    const zMax = Math.max(...zCoords).toFixed(1);
+    document.getElementById('z-range-display').textContent = `${zMin} to ${zMax} mm`;
+}
+
+// Update visualizer from current configuration
+let visualizerUpdateTimeout = null;
+async function updateVisualizerFromConfig() {
+    // Clear any pending update
+    if (visualizerUpdateTimeout) {
+        clearTimeout(visualizerUpdateTimeout);
+    }
+    
+    // Debounce to avoid excessive API calls
+    visualizerUpdateTimeout = setTimeout(async () => {
+        try {
+            // Check if custom CSV points are loaded
+            const customPoints = sessionStorage.getItem('customScanPoints');
+            if (customPoints) {
+                const points = JSON.parse(customPoints);
+                visualizeScanPath(points);
+                console.log('📊 Visualizing custom CSV points:', points.length);
+                return;
+            }
+            
+            // Otherwise, generate preview from current parameters
+            const scanData = collectScanParameters();
+            if (!scanData || scanData.pattern_type !== 'cylindrical') {
+                return;
+            }
+            
+            // Fetch preview points from backend
+            const response = await fetch('/api/scan/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(scanData)
+            });
+            
+            const result = await response.json();
+            
+            if (result.success && result.points) {
+                visualizeScanPath(result.points);
+                console.log('📊 Visualizing generated scan path:', result.points.length, 'points');
+            } else {
+                console.error('Failed to generate preview:', result.error);
+            }
+            
+        } catch (error) {
+            console.error('Error updating visualizer:', error);
+        }
+    }, 500); // 500ms debounce
+}
+
+// Export current scan pattern as CSV
+async function exportScanCSV() {
+    try {
+        const scanData = collectScanParameters();
+        if (!scanData || scanData.pattern_type !== 'cylindrical') {
+            showAlert('Please configure a cylindrical scan pattern first', 'warning');
+            return;
+        }
+        
+        const response = await fetch('/api/scan/export_csv', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(scanData)
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to export CSV');
+        }
+        
+        // Create download
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `scan_pattern_${Date.now()}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        showAlert('Scan pattern exported successfully', 'success');
+        
+    } catch (error) {
+        console.error('Error exporting CSV:', error);
+        showAlert('Failed to export CSV: ' + error.message, 'error');
+    }
+}
+
+// Handle CSV file upload
+async function handleCSVUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const response = await fetch('/api/scan/import_csv', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // Store custom points in session storage
+            sessionStorage.setItem('customScanPoints', JSON.stringify(result.points));
+            
+            // Visualize imported points
+            visualizeScanPath(result.points);
+            
+            showAlert(`CSV imported successfully: ${result.points.length} points loaded`, 'success');
+            console.log('📁 Imported CSV points:', result.points);
+            
+        } else {
+            // Show validation errors
+            let errorMsg = 'CSV validation failed:\\n';
+            if (result.errors && result.errors.length > 0) {
+                errorMsg += result.errors.slice(0, 5).join('\\n');
+                if (result.errors.length > 5) {
+                    errorMsg += `\\n... and ${result.errors.length - 5} more errors`;
+                }
+            }
+            showAlert(errorMsg, 'error');
+        }
+        
+    } catch (error) {
+        console.error('Error importing CSV:', error);
+        showAlert('Failed to import CSV: ' + error.message, 'error');
+    } finally {
+        // Clear file input
+        event.target.value = '';
+    }
+}
+
+// Add event listeners for parameter changes (auto-update visualization)
+document.addEventListener('DOMContentLoaded', function() {
+    const parameterInputs = [
+        'cylindricalRadius',
+        'cylindricalYMin',
+        'cylindricalYMax',
+        'cylindricalHeightSteps',
+        'cylindricalRotationPositions'
+    ];
+    
+    parameterInputs.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.addEventListener('input', () => {
+                // Clear custom points when parameters change
+                sessionStorage.removeItem('customScanPoints');
+                updateVisualizerFromConfig();
+            });
+        }
+    });
+    
+    // Initial visualization when cylindrical scan is selected
+    setTimeout(() => {
+        const cylindricalParams = document.getElementById('cylindrical-parameters');
+        if (cylindricalParams && cylindricalParams.style.display !== 'none') {
+            updateVisualizerFromConfig();
+        }
+    }, 500);
+});
+
+// ============================================
+// END 3D VISUALIZER FUNCTIONS
+// ============================================
 
 function addScanToQueueDisplay(scanData) {
     const container = document.getElementById('scanQueueContainer');
