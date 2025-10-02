@@ -2250,6 +2250,12 @@ class LightingControllerAdapter:
     def __init__(self, lighting_controller):
         self.controller = lighting_controller
         
+        # Expose flash mode configuration from wrapped controller
+        self.flash_mode = getattr(lighting_controller, 'flash_mode', False)
+        self.idle_brightness = getattr(lighting_controller, 'idle_brightness', 0.05)
+        self.capture_brightness = getattr(lighting_controller, 'capture_brightness', 0.30)
+        self.flash_duration_ms = getattr(lighting_controller, 'flash_duration_ms', 650)
+        
     async def initialize(self) -> bool:
         return await self.controller.initialize()
         
