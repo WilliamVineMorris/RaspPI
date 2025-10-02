@@ -2860,8 +2860,8 @@ function visualizeScanPath(points) {
         }
     });
     
-    // Add 24cm diameter turntable disc at base (Z=0)
-    const turntableRadius = 120; // 24cm diameter = 120mm radius
+    // Add 10cm diameter turntable disc at base (Z=0)
+    const turntableRadius = 50; // 10cm diameter = 50mm radius
     const turntablePoints = 50;
     const turntableTheta = Array.from({length: turntablePoints + 1}, (_, i) => i * 2 * Math.PI / turntablePoints);
     const turntableX = turntableTheta.map(t => turntableRadius * Math.cos(t));
@@ -2871,13 +2871,13 @@ function visualizeScanPath(points) {
     traces.push({
         type: 'scatter3d',
         mode: 'lines',
-        name: 'Turntable (24cm)',
+        name: 'Turntable (10cm)',
         x: turntableX,
         y: turntableY,
         z: turntableZ,
         line: {
-            color: 'rgba(100, 100, 100, 0.6)',
-            width: 3
+            color: 'rgba(120, 120, 120, 0.5)',
+            width: 2
         },
         hoverinfo: 'name',
         showlegend: false
@@ -2885,7 +2885,7 @@ function visualizeScanPath(points) {
     
     // Add servo tilt preview lines for each scan point
     // These show the camera tilt direction at each position
-    const tiltLength = 30; // Length of tilt indicator line in mm
+    const tiltLength = 40; // Length of tilt indicator line in mm
     points.forEach((p, i) => {
         const z_rad = p.z * Math.PI / 180;
         const c_rad = p.c * Math.PI / 180;
@@ -2895,15 +2895,17 @@ function visualizeScanPath(points) {
         const baseY = p.x * Math.sin(z_rad);
         const baseZ = p.y;
         
-        // Tilt direction: servo tilts in the radial direction
-        // When C=0°, camera points horizontally
-        // Positive C tilts camera down, negative C tilts camera up
+        // Tilt direction: camera points INWARD toward center of turntable
+        // When C=0°, camera points horizontally toward center
+        // Positive C tilts camera down toward turntable
+        // Negative C tilts camera up
         const tiltEndZ = baseZ - tiltLength * Math.sin(c_rad);
         const radialExtension = tiltLength * Math.cos(c_rad);
-        const tiltEndX = baseX + radialExtension * Math.cos(z_rad);
-        const tiltEndY = baseY + radialExtension * Math.sin(z_rad);
+        // REVERSED: subtract radial extension to point INWARD
+        const tiltEndX = baseX - radialExtension * Math.cos(z_rad);
+        const tiltEndY = baseY - radialExtension * Math.sin(z_rad);
         
-        // Add tilt line
+        // Add tilt line (thicker and brighter for visibility)
         traces.push({
             type: 'scatter3d',
             mode: 'lines',
@@ -2912,8 +2914,8 @@ function visualizeScanPath(points) {
             y: [baseY, tiltEndY],
             z: [baseZ, tiltEndZ],
             line: {
-                color: `rgba(255, 165, 0, ${0.3 + 0.5 * colors[i]})`, // Orange with gradient
-                width: 2
+                color: `rgba(255, 140, 0, ${0.6 + 0.4 * colors[i]})`, // Brighter orange with gradient
+                width: 4  // Thicker for better visibility
             },
             hoverinfo: 'skip',
             showlegend: false
