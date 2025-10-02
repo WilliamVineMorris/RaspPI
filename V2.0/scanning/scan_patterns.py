@@ -642,4 +642,97 @@ class GridScanPattern(ScanPattern):
         return None
 
 
+class CustomCSVPattern(ScanPattern):
+    """
+    Custom scan pattern loaded from CSV file
+    
+    Allows users to define arbitrary scan paths by uploading CSV files
+    with x,y,z,c coordinates. Points are validated against hardware limits.
+    """
+    
+    def __init__(self, custom_points: List[Dict[str, float]], pattern_id: str = "custom_csv"):
+        """
+        Initialize custom CSV pattern
+        
+        Args:
+            custom_points: List of validated point dictionaries from CSV
+                          Format: [{'index': 0, 'x': 150.0, 'y': 80.0, 'z': 0.0, 'c': -25.0}, ...]
+            pattern_id: Unique identifier for this pattern
+        """
+        # Create minimal parameters from point bounds
+        min_x = min(p['x'] for p in custom_points) if custom_points else 0.0
+        max_x = max(p['x'] for p in custom_points) if custom_points else 100.0
+        min_y = min(p['y'] for p in custom_points) if custom_points else 0.0
+        max_y = max(p['y'] for p in custom_points) if custom_points else 100.0
+        min_z = min(p['z'] for p in custom_points) if custom_points else 0.0
+        max_z = max(p['z'] for p in custom_points) if custom_points else 360.0
+        min_c = min(p['c'] for p in custom_points) if custom_points else -90.0
+        max_c = max(p['c'] for p in custom_points) if custom_points else 90.0
+        
+        parameters = PatternParameters(
+            min_x=min_x, max_x=max_x,
+            min_y=min_y, max_y=max_y,
+            min_z=min_z, max_z=max_z,
+            min_c=min_c, max_c=max_c
+        )
+        
+        super().__init__(pattern_id, parameters)
+        self.custom_points = custom_points
+        
+        self.logger.info(f"Custom CSV pattern initialized with {len(custom_points)} points")
+        self.logger.info(f"  X range: [{min_x:.1f}, {max_x:.1f}] mm")
+        self.logger.info(f"  Y range: [{min_y:.1f}, {max_y:.1f}] mm")
+        self.logger.info(f"  Z range: [{min_z:.1f}, {max_z:.1f}]°")
+        self.logger.info(f"  C range: [{min_c:.1f}, {max_c:.1f}]°")
+    
+    @property
+    def pattern_type(self) -> PatternType:
+        """Return custom pattern type"""
+        return PatternType.CUSTOM
+    
+    @property
+    def estimated_duration(self) -> float:
+        """Estimate scan duration (2 seconds per point)"""
+        return len(self.custom_points) * 2.0 / 60.0  # minutes
+    
+    def generate_points(self) -> List[ScanPoint]:
+        """
+        Generate scan points from CSV data
+        
+        Returns:
+            List of ScanPoint objects in the order specified by CSV
+        """
+        scan_points = []
+        
+        for point_dict in self.custom_points:
+            position = Position4D(
+                x=point_dict['x'],
+                y=point_dict['y'],
+                z=point_dict['z'],
+                c=point_dict['c']
+            )
+            
+            scan_point = ScanPoint(
+                position=position,
+                camera_settings=None,  # Use default camera settings
+                lighting_settings=None,  # Use default lighting settings
+                capture_count=1,
+                dwell_time=0.5
+            )
+            
+            scan_points.append(scan_point)
+        
+        self.logger.info(f"Generated {len(scan_points)} scan points from CSV data")
+        return scan_points
+    
+    def get_summary(self) -> str:
+        """Get human-readable summary of custom pattern"""
+        return (f"Custom CSV Pattern: {len(self.custom_points)} points\n"
+                f"X: [{self.parameters.min_x:.1f}, {self.parameters.max_x:.1f}] mm\n"
+                f"Y: [{self.parameters.min_y:.1f}, {self.parameters.max_y:.1f}] mm\n"
+                f"Z: [{self.parameters.min_z:.1f}, {self.parameters.max_z:.1f}]°\n"
+                f"C: [{self.parameters.min_c:.1f}, {self.parameters.max_c:.1f}]°\n"
+                f"Estimated duration: {self.estimated_duration:.1f} minutes")
+
+
 # Additional pattern types can be added here (SpiralScanPattern, etc.)

@@ -1344,6 +1344,123 @@ class ScannerWebInterface:
                 self.logger.error(f"Individual focus API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
+        # CSV Import/Export and Preview Endpoints
+        @self.app.route('/api/scan/preview', methods=['POST'])
+        def api_scan_preview():
+            """Preview scan points without executing (for visualization)"""
+            try:
+                data = request.get_json()
+                if not data:
+                    raise BadRequest("No JSON data provided")
+                
+                # Generate preview points from pattern or CSV
+                preview_points = self._generate_preview_points(data)
+                
+                return jsonify({
+                    'success': True,
+                    'points': preview_points,
+                    'point_count': len(preview_points),
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                self.logger.error(f"Scan preview API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/scan/export_csv', methods=['POST'])
+        def api_scan_export_csv():
+            """Export current scan pattern as CSV file"""
+            try:
+                data = request.get_json()
+                if not data:
+                    raise BadRequest("No JSON data provided")
+                
+                # Generate points from pattern
+                from scanning.csv_validator import ScanPointValidator
+                from scanning.scan_patterns import CylindricalScanPattern, PatternParameters
+                
+                # Create pattern based on configuration
+                pattern = self._create_pattern_from_config(data)
+                scan_points = pattern.generate_points()
+                
+                # Get hardware limits for validator (for future use)
+                config_manager = self.orchestrator.config_manager if self.orchestrator else None
+                axes_config = config_manager.get_axes_config() if config_manager else {}
+                
+                validator = ScanPointValidator(axes_config)
+                csv_content = validator.points_to_csv(scan_points)
+                
+                # Create response with CSV file
+                from flask import make_response
+                response = make_response(csv_content)
+                response.headers['Content-Type'] = 'text/csv'
+                response.headers['Content-Disposition'] = f'attachment; filename=scan_{data.get("scan_name", "export")}_{int(time.time())}.csv'
+                
+                return response
+                
+            except Exception as e:
+                self.logger.error(f"CSV export API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/scan/import_csv', methods=['POST'])
+        def api_scan_import_csv():
+            """Import and validate scan points from CSV file"""
+            try:
+                # Check if file was uploaded
+                if 'csv_file' not in request.files:
+                    raise BadRequest("No CSV file provided")
+                
+                file = request.files['csv_file']
+                if file.filename == '':
+                    raise BadRequest("No file selected")
+                
+                # Read CSV content
+                csv_content = file.read().decode('utf-8')
+                
+                # Get hardware limits for validation
+                config_manager = self.orchestrator.config_manager if self.orchestrator else None
+                axes_config = config_manager.get_axes_config() if config_manager else {}
+                
+                # Validate CSV
+                from scanning.csv_validator import ScanPointValidator
+                validator = ScanPointValidator(axes_config)
+                validation_result = validator.validate_csv_file(csv_content)
+                
+                if not validation_result.success:
+                    # Return validation errors (max 5)
+                    error_list = []
+                    for err in validation_result.errors[:5]:
+                        error_list.append({
+                            'row': err.row,
+                            'column': err.column,
+                            'value': err.value,
+                            'message': err.message
+                        })
+                    
+                    return jsonify({
+                        'success': False,
+                        'errors': error_list,
+                        'error_count': len(validation_result.errors),
+                        'message': f"CSV validation failed with {len(validation_result.errors)} error(s)"
+                    }), 400
+                
+                # Success - return validated points for visualization
+                return jsonify({
+                    'success': True,
+                    'points': validation_result.valid_points,
+                    'point_count': len(validation_result.valid_points),
+                    'warnings': [{'row': w.row, 'message': w.message} for w in validation_result.warnings[:5]],
+                    'warning_count': len(validation_result.warnings),
+                    'timestamp': datetime.now().isoformat()
+                })
+                
+            except BadRequest as e:
+                self.logger.warning(f"CSV import validation failed: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 400
+            except Exception as e:
+                self.logger.error(f"CSV import API error: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
         # Profile Management API Endpoints
         @self.app.route('/api/profiles/list', methods=['GET'])
         def api_list_profiles():
@@ -2833,6 +2950,79 @@ class ScannerWebInterface:
         except Exception as e:
             self.logger.error(f"Scan start execution failed: {e}")
             raise ScannerSystemError(f"Failed to start scan: {e}")
+    
+    def _create_pattern_from_config(self, pattern_data: Dict[str, Any]):
+        """
+        Create scan pattern object from configuration data
+        
+        Args:
+            pattern_data: Pattern configuration from web interface
+            
+        Returns:
+            ScanPattern object (CylindricalScanPattern or CustomCSVPattern)
+        """
+        from scanning.scan_patterns import CylindricalScanPattern, CylindricalPatternParameters
+        
+        pattern_type = pattern_data.get('pattern', 'cylindrical')
+        
+        if pattern_type == 'cylindrical':
+            # Calculate Z rotations from rotation_positions
+            rotation_positions = pattern_data.get('rotation_positions', 6)
+            z_step = 360.0 / rotation_positions if rotation_positions > 0 else 360.0
+            z_rotations = [i * z_step for i in range(rotation_positions)]
+            
+            # Create cylindrical pattern
+            params = CylindricalPatternParameters(
+                x_start=pattern_data.get('radius', 150.0),
+                x_end=pattern_data.get('radius', 150.0),  # Fixed radius
+                y_start=pattern_data.get('y_min', 40.0),
+                y_end=pattern_data.get('y_max', 120.0),
+                y_step=(pattern_data.get('y_max', 120.0) - pattern_data.get('y_min', 40.0)) / max(pattern_data.get('height_steps', 4), 1),
+                z_rotations=z_rotations,
+                c_angles=pattern_data.get('c_angles', [0.0]),
+            )
+            
+            pattern = CylindricalScanPattern(
+                pattern_id=f"cylindrical_{int(time.time())}",
+                parameters=params  # Correct parameter name
+            )
+            
+            return pattern
+        
+        else:
+            raise ValueError(f"Unsupported pattern type: {pattern_type}")
+    
+    def _generate_preview_points(self, pattern_data: Dict[str, Any]) -> List[Dict[str, float]]:
+        """
+        Generate preview points from pattern configuration (for visualization)
+        
+        Args:
+            pattern_data: Pattern configuration from web interface or CSV
+            
+        Returns:
+            List of point dictionaries with x, y, z, c coordinates
+        """
+        # Check if this is a custom CSV pattern or a standard pattern
+        if 'custom_points' in pattern_data:
+            # CSV import - return points directly
+            return pattern_data['custom_points']
+        
+        # Generate from pattern
+        pattern = self._create_pattern_from_config(pattern_data)
+        scan_points = pattern.generate_points()
+        
+        # Convert ScanPoint objects to simple dictionaries
+        preview_points = []
+        for i, point in enumerate(scan_points):
+            preview_points.append({
+                'index': i,
+                'x': point.position.x,
+                'y': point.position.y,
+                'z': point.position.z,
+                'c': point.position.c
+            })
+        
+        return preview_points
     
     def _execute_scan_stop(self) -> Dict[str, Any]:
         """Execute scan stop command - Enhanced for emergency use"""
