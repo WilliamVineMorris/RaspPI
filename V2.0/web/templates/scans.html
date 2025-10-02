@@ -2876,8 +2876,8 @@ function visualizeScanPath(points) {
         y: turntableY,
         z: turntableZ,
         line: {
-            color: 'rgba(120, 120, 120, 0.5)',
-            width: 2
+            color: 'rgba(80, 80, 80, 0.8)',  // Darker gray, more opaque
+            width: 4  // Thicker for better visibility
         },
         hoverinfo: 'name',
         showlegend: false
@@ -2905,7 +2905,7 @@ function visualizeScanPath(points) {
         const tiltEndX = baseX - radialExtension * Math.cos(z_rad);
         const tiltEndY = baseY - radialExtension * Math.sin(z_rad);
         
-        // Add subtle tilt line with dashed style
+        // Add subtle tilt line with black dotted style
         traces.push({
             type: 'scatter3d',
             mode: 'lines',
@@ -2914,8 +2914,8 @@ function visualizeScanPath(points) {
             y: [baseY, tiltEndY],
             z: [baseZ, tiltEndZ],
             line: {
-                color: `rgba(255, 140, 0, ${0.4 + 0.3 * colors[i]})`, // Softer orange with gradient
-                width: 2,  // Thinner for subtlety
+                color: 'rgba(0, 0, 0, 0.5)',  // Black, semi-transparent for subtle visibility
+                width: 2,
                 dash: 'dot'  // Dotted line style
             },
             hoverinfo: 'skip',
