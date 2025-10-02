@@ -8,9 +8,41 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📷</text></svg>">
     
     <!-- Plotly.js for 3D Scan Path Visualization -->
-    <!-- Try CDN first, fallback to local if CDN fails -->
-    <script src="https://cdn.plotly.ly/plotly-2.27.0.min.js" 
-            onerror="this.onerror=null; this.src='{{ url_for('static', filename='js/plotly-2.27.0.min.js') }}'">
+    <!-- Multiple CDN fallbacks + local file -->
+    <script>
+        // Try multiple CDNs in order, fallback to local file
+        var plotlySources = [
+            'https://cdn.plot.ly/plotly-2.27.1.min.js',  // Official CDN (different domain)
+            'https://cdn.jsdelivr.net/npm/plotly.js@2.27.1/dist/plotly.min.js',  // jsDelivr
+            'https://unpkg.com/plotly.js@2.27.1/dist/plotly.min.js',  // unpkg
+            '{{ url_for("static", filename="js/plotly-2.27.0.min.js") }}'  // Local fallback
+        ];
+        
+        var currentSourceIndex = 0;
+        
+        function loadPlotly() {
+            if (currentSourceIndex >= plotlySources.length) {
+                console.error('❌ Failed to load Plotly from all sources');
+                return;
+            }
+            
+            var script = document.createElement('script');
+            script.src = plotlySources[currentSourceIndex];
+            
+            script.onload = function() {
+                console.log('✅ Plotly loaded from:', plotlySources[currentSourceIndex]);
+            };
+            
+            script.onerror = function() {
+                console.warn('⚠️ Failed to load Plotly from:', plotlySources[currentSourceIndex]);
+                currentSourceIndex++;
+                loadPlotly();  // Try next source
+            };
+            
+            document.head.appendChild(script);
+        }
+        
+        loadPlotly();
     </script>
 </head>
 <body>
