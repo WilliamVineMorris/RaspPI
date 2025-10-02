@@ -2968,26 +2968,55 @@ function visualizeScanPath(points) {
             // Using parametric line equation and solving for intersection
             
             // Direction from camera position
-            const dirX = -Math.cos(z_rad) * Math.cos(c_rad); // Inward radially
-            const dirY = -Math.sin(z_rad) * Math.cos(c_rad); // Inward radially
-            const dirZ = -Math.sin(c_rad); // Vertical component
+            // Convention: 0° = horizontal toward center, NEGATIVE = tilted down, POSITIVE = tilted up
+            const dirX = -Math.cos(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
+            const dirY = -Math.sin(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
+            const dirZ = -Math.sin(c_rad); // Vertical component: NEGATIVE angle = down (inverted from standard)
             
-            // Find parameter t where line intersects with center or Z=0 plane
-            // We'll extend it to where it crosses the center axis or turntable
-            const targetZ = (servoTiltMode === 'none' && actualTiltAngle === 0) ? baseZ : 0;
+            // For manual and none modes, target is the turntable base or same height
+            let targetZ;
+            if (actualTiltAngle === 0) {
+                // Horizontal: target at center at same height
+                targetZ = baseZ;
+            } else if (actualTiltAngle < 0) {
+                // NEGATIVE angle = Tilted down: aim for turntable surface (Z=0)
+                targetZ = 0;
+            } else {
+                // POSITIVE angle = Tilted up: extend upward
+                targetZ = baseZ + 100; // Extend 100mm upward for visualization
+            }
             
             // Calculate intersection
             if (Math.abs(dirZ) > 0.001) {
+                // Line has vertical component
                 const t = (targetZ - baseZ) / dirZ;
-                tiltEndX = baseX + t * dirX;
-                tiltEndY = baseY + t * dirY;
-                tiltEndZ = targetZ;
+                if (t > 0) {
+                    // Valid intersection ahead of camera
+                    tiltEndX = baseX + t * dirX;
+                    tiltEndY = baseY + t * dirY;
+                    tiltEndZ = targetZ;
+                } else {
+                    // Extend in opposite direction or horizontally
+                    const extendDist = 60; // 60mm extension
+                    tiltEndX = baseX + extendDist * dirX;
+                    tiltEndY = baseY + extendDist * dirY;
+                    tiltEndZ = baseZ + extendDist * dirZ;
+                }
             } else {
-                // Horizontal line - extend to center at same height
-                const t = p.x / Math.sqrt(dirX*dirX + dirY*dirY);
-                tiltEndX = baseX + t * dirX;
-                tiltEndY = baseY + t * dirY;
-                tiltEndZ = baseZ;
+                // Horizontal line (0°) - extend to center at same height
+                const horizontalDist = Math.sqrt(baseX*baseX + baseY*baseY);
+                if (horizontalDist > 0.1) {
+                    // Normalize and extend to center
+                    const t = horizontalDist / Math.sqrt(dirX*dirX + dirY*dirY);
+                    tiltEndX = baseX + t * dirX;
+                    tiltEndY = baseY + t * dirY;
+                    tiltEndZ = baseZ;
+                } else {
+                    // Already at center, just extend slightly
+                    tiltEndX = baseX - 30;
+                    tiltEndY = baseY;
+                    tiltEndZ = baseZ;
+                }
             }
         }
         
