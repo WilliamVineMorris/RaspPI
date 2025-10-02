@@ -31,10 +31,21 @@ except ImportError:
     Device = None
 
 try:
-    # Try pigpio for precise PWM control (as specified in scanner config)
+    # Try lgpio for Raspberry Pi 5 hardware PWM support
+    # lgpio is the modern replacement for pigpio on Pi 5
+    from gpiozero.pins.lgpio import LGPIOFactory
+    LGPIO_AVAILABLE = True
+    if not GPIOZERO_AVAILABLE:
+        GPIO_LIBRARY = 'lgpio'
+except ImportError:
+    LGPIO_AVAILABLE = False
+    LGPIOFactory = None
+
+try:
+    # Fallback: pigpio (not compatible with Pi 5!)
     import pigpio
     PIGPIO_AVAILABLE = True
-    if not GPIOZERO_AVAILABLE:
+    if not GPIOZERO_AVAILABLE and not LGPIO_AVAILABLE:
         GPIO_LIBRARY = 'pigpio'
 except ImportError:
     PIGPIO_AVAILABLE = False
@@ -296,36 +307,49 @@ class GPIOLEDController(LightingController):
             if self._use_gpiozero:
                 # Initialize gpiozero with appropriate pin factory
                 if GPIOZERO_AVAILABLE:
-                    # Check if we should use pigpio factory for hardware PWM
-                    if self.use_pigpio_factory and PIGPIO_AVAILABLE:
-                        # Use pigpio factory for TRUE hardware PWM on GPIO 12, 13, 18, 19
+                    # Check if we should use lgpio factory for hardware PWM (Pi 5 compatible!)
+                    if self.use_pigpio_factory and LGPIO_AVAILABLE:
+                        # Use lgpio factory for TRUE hardware PWM on GPIO 12, 13, 18, 19
+                        # lgpio is the modern replacement for pigpio and fully supports Pi 5
+                        try:
+                            Device.pin_factory = LGPIOFactory()
+                            logger.info(f"⚡⚡⚡ SUCCESS: Using gpiozero with LGPIO FACTORY (Pi 5 compatible!) ⚡⚡⚡")
+                            logger.info(f"⚡ Hardware PWM enabled on GPIO 12, 13, 18, 19 at {self.pwm_frequency}Hz")
+                            logger.info(f"⚡ TRUE hardware PWM - immune to CPU load, no flickering!")
+                        except Exception as e:
+                            logger.error(f"❌ Failed to initialize lgpio factory: {e}")
+                            logger.warning("⚠️  Falling back to RPi.GPIO factory (SOFTWARE PWM)")
+                            Device.pin_factory = RPiGPIOFactory()
+                    elif self.use_pigpio_factory and PIGPIO_AVAILABLE:
+                        # Fallback to pigpio (won't work on Pi 5!)
                         try:
                             from gpiozero.pins.pigpio import PiGPIOFactory
                             
                             # CRITICAL: Test pigpio daemon connection first
                             test_pi = pigpio.pi()
                             if not test_pi.connected:
-                                logger.error("❌ pigpio daemon not running! Run: sudo pigpiod")
+                                logger.error("❌ pigpio daemon not running OR Pi 5 incompatibility!")
+                                logger.error("❌ pigpio does NOT support Raspberry Pi 5!")
                                 logger.warning("⚠️  Falling back to RPi.GPIO factory (SOFTWARE PWM)")
                                 test_pi.stop()
                                 Device.pin_factory = RPiGPIOFactory()
                             else:
                                 test_pi.stop()
-                                # Create pigpio factory for hardware PWM
+                                # Create pigpio factory
                                 Device.pin_factory = PiGPIOFactory()
-                                logger.info(f"⚡⚡⚡ SUCCESS: Using gpiozero with PIGPIO FACTORY ⚡⚡⚡")
+                                logger.info(f"⚡⚡⚡ Using gpiozero with PIGPIO FACTORY ⚡⚡⚡")
                                 logger.info(f"⚡ Hardware PWM enabled on GPIO 12, 13, 18, 19 at {self.pwm_frequency}Hz")
-                                logger.info(f"⚡ TRUE hardware PWM - immune to CPU load, no flickering!")
                         except Exception as e:
                             logger.error(f"❌ Failed to initialize pigpio factory: {e}")
+                            logger.error(f"❌ On Pi 5, use lgpio instead - set use_pigpio_factory: true")
                             logger.warning("⚠️  Falling back to RPi.GPIO factory (SOFTWARE PWM)")
                             Device.pin_factory = RPiGPIOFactory()
                     else:
                         # Use RPi.GPIO factory (software PWM on all pins)
                         Device.pin_factory = RPiGPIOFactory()
                         logger.warning(f"⚠️  Using gpiozero with RPi.GPIO factory - SOFTWARE PWM only")
-                        logger.warning(f"⚠️  For hardware PWM, set use_pigpio_factory: true in config")
-                        logger.warning(f"⚠️  And ensure pigpio daemon is running: sudo pigpiod")
+                        logger.warning(f"⚠️  For hardware PWM on Pi 5, set use_pigpio_factory: true")
+                        logger.warning(f"⚠️  (lgpio will be used automatically on Pi 5)")
                 else:
                     logger.error("gpiozero requested but not available")
                     raise LEDError("gpiozero library not available")
@@ -383,7 +407,8 @@ class GPIOLEDController(LightingController):
             for pin in zone.gpio_pins:
                 if self._use_gpiozero:
                     # Using gpiozero PWMLED for PWM control
-                    # With pigpio factory: GPIO 12, 13, 18, 19 use HARDWARE PWM (immune to CPU load)
+                    # With lgpio factory (Pi 5): GPIO 12, 13, 18, 19 use HARDWARE PWM (immune to CPU load)
+                    # With pigpio factory (Pi 4 and older): GPIO 12, 13, 18, 19 use HARDWARE PWM
                     # With RPi.GPIO factory: ALL pins use SOFTWARE PWM (affected by CPU load - causes flicker)
                     
                     # Verify hardware PWM capability
@@ -392,15 +417,16 @@ class GPIOLEDController(LightingController):
                     
                     # Check actual pin factory being used
                     factory_name = Device.pin_factory.__class__.__name__ if Device.pin_factory else "None"
-                    is_using_pigpio = "PiGPIO" in factory_name
+                    is_using_hardware_pwm = "LGPIO" in factory_name or "PiGPIO" in factory_name
                     
                     if is_hardware_pwm_pin:
-                        if is_using_pigpio:
-                            logger.info(f"⚡⚡⚡ GPIO {pin} using HARDWARE PWM via pigpio (FLICKER-FREE!)")
+                        if is_using_hardware_pwm:
+                            logger.info(f"⚡⚡⚡ GPIO {pin} using HARDWARE PWM via {factory_name} (FLICKER-FREE!)")
                         else:
                             logger.error(f"❌ GPIO {pin} is hardware PWM capable but using SOFTWARE PWM!")
                             logger.error(f"❌ Current factory: {factory_name} - THIS WILL CAUSE FLICKERING!")
-                            logger.error(f"❌ Solution: Ensure pigpio daemon is running: sudo pigpiod")
+                            logger.error(f"❌ Solution: Set use_pigpio_factory: true in config")
+                            logger.error(f"❌ On Pi 5: lgpio will be used automatically (no daemon needed!)")
                     else:
                         logger.warning(f"⚠️  GPIO {pin} - no hardware PWM available (using software PWM)")
                     
