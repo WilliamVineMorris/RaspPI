@@ -42,11 +42,14 @@ async def test_led_stability():
         print("\n📋 Loading configuration...")
         config_path = Path(__file__).parent / "config" / "scanner_config.yaml"
         config_mgr = ConfigManager(config_path)
-        config = config_mgr.config  # Access config data directly
+        lighting_config = config_mgr.get('lighting', {})
+        
+        if not lighting_config:
+            raise ConfigurationError("No lighting configuration found in config file")
         
         # Initialize LED controller
         print("💡 Initializing LED controller...")
-        led_controller = GPIOLEDController(config['lighting'])
+        led_controller = GPIOLEDController(lighting_config)
         await led_controller.initialize()
         
         print("\n" + "="*70)
