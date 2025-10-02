@@ -2806,7 +2806,15 @@ function visualizeScanPath(points) {
     }
 
     // Convert cylindrical to Cartesian coordinates
-    const cartesianPoints = points.map(p => cylindricalToCartesian(p.x, p.y, p.z));
+    // For visualization: X-Y plane is horizontal (turntable), Z is vertical
+    const cartesianPoints = points.map(p => {
+        const z_rad = p.z * Math.PI / 180;
+        return {
+            x: p.x * Math.cos(z_rad),
+            y: p.x * Math.sin(z_rad),
+            z: p.y  // Y from machine becomes Z (height) in visualization
+        };
+    });
     
     // Create color array (blue to red gradient)
     const colors = points.map((_, i) => i / (points.length - 1));
@@ -2818,13 +2826,17 @@ function visualizeScanPath(points) {
     
     // Create hover text
     const hoverText = points.map((p, i) => 
-        `Point ${i}<br>X: ${p.x.toFixed(1)}mm<br>Y: ${p.y.toFixed(1)}mm<br>Z: ${p.z.toFixed(1)}°<br>C: ${p.c.toFixed(1)}°`
+        `Point ${i}<br>Radius: ${p.x.toFixed(1)}mm<br>Height: ${p.y.toFixed(1)}mm<br>Rotation: ${p.z.toFixed(1)}°<br>Tilt: ${p.c.toFixed(1)}°`
     );
     
-    // Create trace
-    const trace = {
+    // Prepare traces array
+    const traces = [];
+    
+    // Main scan path trace
+    traces.push({
         type: 'scatter3d',
         mode: 'lines+markers',
+        name: 'Scan Path',
         x: xCoords,
         y: yCoords,
         z: zCoords,
@@ -2846,18 +2858,81 @@ function visualizeScanPath(points) {
             colorscale: 'Portland',
             width: 2
         }
-    };
+    });
     
-    // Layout configuration
+    // Add 24cm diameter turntable disc at base (Z=0)
+    const turntableRadius = 120; // 24cm diameter = 120mm radius
+    const turntablePoints = 50;
+    const turntableTheta = Array.from({length: turntablePoints + 1}, (_, i) => i * 2 * Math.PI / turntablePoints);
+    const turntableX = turntableTheta.map(t => turntableRadius * Math.cos(t));
+    const turntableY = turntableTheta.map(t => turntableRadius * Math.sin(t));
+    const turntableZ = Array(turntablePoints + 1).fill(0);
+    
+    traces.push({
+        type: 'scatter3d',
+        mode: 'lines',
+        name: 'Turntable (24cm)',
+        x: turntableX,
+        y: turntableY,
+        z: turntableZ,
+        line: {
+            color: 'rgba(100, 100, 100, 0.6)',
+            width: 3
+        },
+        hoverinfo: 'name',
+        showlegend: false
+    });
+    
+    // Add servo tilt preview lines for each scan point
+    // These show the camera tilt direction at each position
+    const tiltLength = 30; // Length of tilt indicator line in mm
+    points.forEach((p, i) => {
+        const z_rad = p.z * Math.PI / 180;
+        const c_rad = p.c * Math.PI / 180;
+        
+        // Base position (camera mount)
+        const baseX = p.x * Math.cos(z_rad);
+        const baseY = p.x * Math.sin(z_rad);
+        const baseZ = p.y;
+        
+        // Tilt direction: servo tilts in the radial direction
+        // When C=0°, camera points horizontally
+        // Positive C tilts camera down, negative C tilts camera up
+        const tiltEndZ = baseZ - tiltLength * Math.sin(c_rad);
+        const radialExtension = tiltLength * Math.cos(c_rad);
+        const tiltEndX = baseX + radialExtension * Math.cos(z_rad);
+        const tiltEndY = baseY + radialExtension * Math.sin(z_rad);
+        
+        // Add tilt line
+        traces.push({
+            type: 'scatter3d',
+            mode: 'lines',
+            name: `Tilt ${i}`,
+            x: [baseX, tiltEndX],
+            y: [baseY, tiltEndY],
+            z: [baseZ, tiltEndZ],
+            line: {
+                color: `rgba(255, 165, 0, ${0.3 + 0.5 * colors[i]})`, // Orange with gradient
+                width: 2
+            },
+            hoverinfo: 'skip',
+            showlegend: false
+        });
+    });
+    
+    // Layout configuration with Z as vertical axis
     const layout = {
         title: '',
         scene: {
-            xaxis: { title: 'X (mm)' },
-            yaxis: { title: 'Y (mm)' },
-            zaxis: { title: 'Z (mm)' },
+            xaxis: { title: 'X (mm)', showgrid: true, zeroline: true },
+            yaxis: { title: 'Y (mm)', showgrid: true, zeroline: true },
+            zaxis: { title: 'Height (mm)', showgrid: true, zeroline: true },
             camera: {
-                eye: { x: 1.5, y: 1.5, z: 1.3 }
-            }
+                eye: { x: 1.5, y: -1.5, z: 1.0 },  // Better viewing angle with Z vertical
+                up: { x: 0, y: 0, z: 1 }  // Z points up
+            },
+            aspectmode: 'manual',
+            aspectratio: { x: 1, y: 1, z: 0.8 }  // Slightly compressed Z for better view
         },
         margin: { l: 0, r: 0, b: 0, t: 0 },
         showlegend: false
@@ -2866,10 +2941,11 @@ function visualizeScanPath(points) {
     const config = {
         responsive: true,
         displayModeBar: true,
-        displaylogo: false
+        displaylogo: false,
+        modeBarButtonsToRemove: ['toImage']
     };
     
-    Plotly.newPlot('scan-path-3d-plot', [trace], layout, config);
+    Plotly.newPlot('scan-path-3d-plot', traces, layout, config);
     
     // Update info display
     updateVisualizerInfo(points, xCoords, yCoords, zCoords);
