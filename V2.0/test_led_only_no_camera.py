@@ -40,8 +40,9 @@ async def test_led_stability():
     try:
         # Load configuration
         print("\n📋 Loading configuration...")
-        config_mgr = ConfigManager()
-        config = config_mgr.get_config()
+        config_path = Path(__file__).parent / "config" / "scanner_config.yaml"
+        config_mgr = ConfigManager(config_path)
+        config = config_mgr.config  # Access config data directly
         
         # Initialize LED controller
         print("💡 Initializing LED controller...")
