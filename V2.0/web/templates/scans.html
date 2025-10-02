@@ -1940,14 +1940,14 @@
                         <!-- Manual Angle Controls -->
                         <div class="parameter-group" id="servoManualGroup" style="display: none;">
                             <label for="servoManualAngle">🔧 Manual Servo Angle (°)</label>
-                            <input type="number" id="servoManualAngle" class="parameter-input" min="-75" max="75" value="0" step="1">
+                            <input type="number" id="servoManualAngle" class="parameter-input" min="-75" max="75" value="0" step="1" oninput="updateVisualizerFromConfig()">
                             <small class="parameter-help">Set servo to a fixed angle (-75° to +75°)</small>
                         </div>
                         
                         <!-- Focus Point Controls -->
                         <div class="parameter-group" id="servoFocusGroup" style="display: none;">
                             <label for="servoYFocus">🎯 Focus Y Position (mm)</label>
-                            <input type="number" id="servoYFocus" class="parameter-input" min="10" max="200" value="80" step="5">
+                            <input type="number" id="servoYFocus" class="parameter-input" min="10" max="200" value="80" step="5" oninput="updateVisualizerFromConfig()">
                             <small class="parameter-help">Y-coordinate to focus servo on during scanning</small>
                         </div>
                     </div>
@@ -2564,6 +2564,9 @@ function updateServoTiltControls() {
             if (helpText) helpText.textContent = 'Servo will automatically tilt to focus on specified Y coordinate';
             break;
     }
+    
+    // Update visualizer to reflect tilt changes
+    updateVisualizerFromConfig();
 }
 
 function toggleAdvancedSettings() {
@@ -2885,27 +2888,110 @@ function visualizeScanPath(points) {
     
     // Add servo tilt preview lines for each scan point
     // These show the camera tilt direction at each position
-    const tiltLength = 40; // Length of tilt indicator line in mm
+    
+    // Get tilt mode and settings for accurate visualization
+    const servoTiltMode = document.getElementById('servoTiltMode')?.value || 'none';
+    const manualAngle = parseFloat(document.getElementById('servoManualAngle')?.value || 0);
+    const focusYPosition = parseFloat(document.getElementById('servoYFocus')?.value || 80);
+    
+    // Add focus point marker if in focus point mode
+    if (servoTiltMode === 'focus_point') {
+        traces.push({
+            type: 'scatter3d',
+            mode: 'markers',
+            name: 'Focus Point',
+            x: [0],
+            y: [0],
+            z: [focusYPosition],
+            marker: {
+                size: 8,
+                color: 'red',
+                symbol: 'cross'
+            },
+            hovertext: `Focus Target<br>Height: ${focusYPosition.toFixed(1)}mm`,
+            hoverinfo: 'text',
+            showlegend: false
+        });
+    }
+    
     points.forEach((p, i) => {
         const z_rad = p.z * Math.PI / 180;
-        const c_rad = p.c * Math.PI / 180;
         
         // Base position (camera mount)
         const baseX = p.x * Math.cos(z_rad);
         const baseY = p.x * Math.sin(z_rad);
         const baseZ = p.y;
         
-        // Tilt direction: camera points INWARD toward center of turntable
-        // When C=0°, camera points horizontally toward center
-        // Positive C tilts camera down toward turntable
-        // Negative C tilts camera up
-        const tiltEndZ = baseZ - tiltLength * Math.sin(c_rad);
-        const radialExtension = tiltLength * Math.cos(c_rad);
-        // REVERSED: subtract radial extension to point INWARD
-        const tiltEndX = baseX - radialExtension * Math.cos(z_rad);
-        const tiltEndY = baseY - radialExtension * Math.sin(z_rad);
+        // Calculate tilt angle based on mode
+        let actualTiltAngle = p.c; // Default from point data
         
-        // Add subtle tilt line with black dotted style
+        if (servoTiltMode === 'manual') {
+            // Use manual angle
+            actualTiltAngle = manualAngle;
+        } else if (servoTiltMode === 'focus_point') {
+            // Calculate angle to point at focus position (0, 0, focusYPosition)
+            const dx = 0 - baseX;
+            const dy = 0 - baseY;
+            const dz = focusYPosition - baseZ;
+            
+            // Calculate horizontal distance to center
+            const horizontalDist = Math.sqrt(dx*dx + dy*dy);
+            
+            // Calculate tilt angle: arctan(vertical_distance / horizontal_distance)
+            // Positive angle points down, negative points up
+            actualTiltAngle = Math.atan2(dz, horizontalDist) * 180 / Math.PI;
+        } else if (servoTiltMode === 'none') {
+            // Fixed at 0 degrees (horizontal)
+            actualTiltAngle = 0;
+        }
+        
+        const c_rad = actualTiltAngle * Math.PI / 180;
+        
+        // Extend line all the way to the center (0, 0) on the turntable
+        // Calculate intersection with turntable plane or center point
+        
+        // Direction vector from camera to center
+        const centerX = 0;
+        const centerY = 0;
+        const centerZ = focusYPosition; // Target height (focus point or turntable center)
+        
+        // For visualization, draw line from camera position to target point
+        let tiltEndX, tiltEndY, tiltEndZ;
+        
+        if (servoTiltMode === 'focus_point') {
+            // Draw directly to focus point
+            tiltEndX = centerX;
+            tiltEndY = centerY;
+            tiltEndZ = centerZ;
+        } else {
+            // Calculate where the camera line intersects with the turntable plane (Z=0) or focus height
+            // Using parametric line equation and solving for intersection
+            
+            // Direction from camera position
+            const dirX = -Math.cos(z_rad) * Math.cos(c_rad); // Inward radially
+            const dirY = -Math.sin(z_rad) * Math.cos(c_rad); // Inward radially
+            const dirZ = -Math.sin(c_rad); // Vertical component
+            
+            // Find parameter t where line intersects with center or Z=0 plane
+            // We'll extend it to where it crosses the center axis or turntable
+            const targetZ = (servoTiltMode === 'none' && actualTiltAngle === 0) ? baseZ : 0;
+            
+            // Calculate intersection
+            if (Math.abs(dirZ) > 0.001) {
+                const t = (targetZ - baseZ) / dirZ;
+                tiltEndX = baseX + t * dirX;
+                tiltEndY = baseY + t * dirY;
+                tiltEndZ = targetZ;
+            } else {
+                // Horizontal line - extend to center at same height
+                const t = p.x / Math.sqrt(dirX*dirX + dirY*dirY);
+                tiltEndX = baseX + t * dirX;
+                tiltEndY = baseY + t * dirY;
+                tiltEndZ = baseZ;
+            }
+        }
+        
+        // Add tilt line extending to center/focus point
         traces.push({
             type: 'scatter3d',
             mode: 'lines',
@@ -2918,7 +3004,8 @@ function visualizeScanPath(points) {
                 width: 2,
                 dash: 'dot'  // Dotted line style
             },
-            hoverinfo: 'skip',
+            hovertext: `Tilt: ${actualTiltAngle.toFixed(1)}°`,
+            hoverinfo: 'text',
             showlegend: false
         });
     });
