@@ -2976,7 +2976,7 @@ function visualizeScanPath(points) {
             // Hardware Convention: 0° = horizontal toward center, NEGATIVE = tilted down, POSITIVE = tilted up
             const dirX = -Math.cos(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
             const dirY = -Math.sin(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
-            const dirZ = -Math.sin(c_rad); // Vertical component: negative sin for negative-down convention
+            const dirZ = Math.sin(c_rad); // Vertical component: positive sin(negative angle) = downward
             
             // For manual and none modes, target is the turntable base or same height
             let targetZ;
