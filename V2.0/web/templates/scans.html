@@ -3027,6 +3027,9 @@ async function handleCSVUpload(event) {
 
 // Add event listeners for parameter changes (auto-update visualization)
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('📊 Initializing 3D visualizer...');
+    console.log('   Plotly status:', typeof Plotly !== 'undefined' ? 'LOADED ✅' : 'NOT LOADED ❌');
+    
     const parameterInputs = [
         'cylindricalRadius',
         'cylindricalYMin',
