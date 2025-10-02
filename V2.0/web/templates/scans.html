@@ -2787,6 +2787,11 @@ function visualizeScanPath(points) {
         document.getElementById('scan-path-3d-plot').innerHTML = '<div style="text-align: center; padding: 2rem; color: #666;">No points to display</div>';
         return;
     }
+    
+    // Debug: Log first few points to verify data structure
+    console.log('📊 Visualizer - First 3 points:', points.slice(0, 3));
+    console.log('📊 Point structure - x (radius), y (height), z (rotation), c (tilt)');
+
 
     // Check if Plotly is loaded
     if (typeof Plotly === 'undefined') {
@@ -2938,8 +2943,8 @@ function visualizeScanPath(points) {
             const horizontalDist = Math.sqrt(dx*dx + dy*dy);
             
             // Calculate tilt angle: arctan(vertical_distance / horizontal_distance)
-            // Positive angle points down, negative points up
-            actualTiltAngle = Math.atan2(dz, horizontalDist) * 180 / Math.PI;
+            // INVERTED: Negative angle points down, positive points up (hardware convention)
+            actualTiltAngle = -Math.atan2(dz, horizontalDist) * 180 / Math.PI;
         } else if (servoTiltMode === 'none') {
             // Fixed at 0 degrees (horizontal)
             actualTiltAngle = 0;
@@ -2968,10 +2973,10 @@ function visualizeScanPath(points) {
             // Using parametric line equation and solving for intersection
             
             // Direction from camera position
-            // Convention: 0° = horizontal toward center, NEGATIVE = tilted down, POSITIVE = tilted up
+            // Hardware Convention: 0° = horizontal toward center, NEGATIVE = tilted down, POSITIVE = tilted up
             const dirX = -Math.cos(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
             const dirY = -Math.sin(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
-            const dirZ = -Math.sin(c_rad); // Vertical component: NEGATIVE angle = down (inverted from standard)
+            const dirZ = -Math.sin(c_rad); // Vertical component: negative sin for negative-down convention
             
             // For manual and none modes, target is the turntable base or same height
             let targetZ;
