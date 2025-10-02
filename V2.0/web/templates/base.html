@@ -6,6 +6,9 @@
     <title>{% block title %}3D Scanner Control{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/scanner.css') }}">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📷</text></svg>">
+    
+    <!-- Plotly.js for 3D Scan Path Visualization -->
+    <script src="https://cdn.plotly.ly/plotly-2.27.0.min.js"></script>
 </head>
 <body>
     <header class="main-header">
