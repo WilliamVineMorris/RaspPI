@@ -15,6 +15,8 @@ import asyncio
 import logging
 import time
 import subprocess
+import atexit
+import signal
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple, Union
 from pathlib import Path
@@ -328,6 +330,12 @@ class GPIOLEDController(LightingController):
             logger.info(f"Available zones: {list(self.zone_configs.keys())}")
         else:
             logger.warning("No LED zones configured - flash functionality will be disabled")
+        
+        # Register cleanup handlers to turn off LEDs on exit
+        atexit.register(self._cleanup_on_exit)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGINT, self._signal_handler)
+        logger.info("🛡️  Cleanup handlers registered - LEDs will turn off on exit")
     
     def _parse_zone_configs(self, zones_config: Dict[str, Any]) -> Dict[str, LEDZone]:
         """Parse zone configurations from config"""
@@ -1369,6 +1377,83 @@ class GPIOLEDController(LightingController):
         except Exception as e:
             logger.error(f"Failed to turn off all LEDs: {e}")
             return False
+    
+    def _cleanup_on_exit(self) -> None:
+        """
+        Cleanup handler called on normal script exit (atexit).
+        Ensures all LEDs are turned off to prevent them staying on.
+        """
+        if self._shutdown_complete:
+            return  # Already cleaned up
+        
+        try:
+            logger.info("🛡️  Cleanup: Turning off all LEDs before exit...")
+            
+            # Turn off all LEDs using direct PWM control (no async)
+            for zone_id in self.zone_configs:
+                try:
+                    self._set_brightness_direct(zone_id, 0.0)
+                except Exception as e:
+                    logger.error(f"Failed to turn off zone '{zone_id}': {e}")
+            
+            # Cleanup hardware PWM objects
+            if self._use_hardware_pwm:
+                for zone_id, pwm_list in self.hardware_pwm_objects.items():
+                    for pwm in pwm_list:
+                        try:
+                            pwm.change_duty_cycle(0)  # Set to 0% before stopping
+                            pwm.stop()
+                        except Exception as e:
+                            logger.error(f"Failed to stop hardware PWM for zone '{zone_id}': {e}")
+            
+            # Cleanup gpiozero objects
+            elif self._use_gpiozero:
+                for zone_id, pwm_list in self.pwm_controllers.items():
+                    for pwm_obj in pwm_list:
+                        if pwm_obj['type'] == 'gpiozero':
+                            try:
+                                pwm_obj['led'].off()
+                                pwm_obj['led'].close()
+                            except Exception as e:
+                                logger.error(f"Failed to close gpiozero LED: {e}")
+            
+            # Cleanup pigpio
+            elif self._use_pigpio and hasattr(self, 'pi') and self.pi:
+                try:
+                    # Turn off all pins
+                    for zone_id, zone_config in self.zone_configs.items():
+                        for pin in zone_config.gpio_pins:
+                            self.pi.set_PWM_dutycycle(pin, 0)
+                    
+                    # Stop pigpio connection
+                    self.pi.stop()
+                except Exception as e:
+                    logger.error(f"Failed to cleanup pigpio: {e}")
+            
+            # Cleanup RPi.GPIO
+            elif GPIO_AVAILABLE:
+                try:
+                    GPIO.cleanup()
+                except Exception as e:
+                    logger.error(f"Failed to cleanup RPi.GPIO: {e}")
+            
+            self._shutdown_complete = True
+            logger.info("✅ Cleanup complete - all LEDs turned off")
+            
+        except Exception as e:
+            logger.error(f"Error during cleanup: {e}")
+    
+    def _signal_handler(self, signum, frame):
+        """
+        Signal handler for SIGTERM and SIGINT (Ctrl+C).
+        Ensures cleanup happens before the process exits.
+        """
+        logger.info(f"🛡️  Received signal {signum} - cleaning up...")
+        self._cleanup_on_exit()
+        
+        # Re-raise the signal to allow normal termination
+        import sys
+        sys.exit(0)
     
     # Status and Monitoring
     def get_zone_status(self, zone_id: str) -> Optional[Dict[str, Any]]:
