@@ -3446,6 +3446,10 @@ class ScanOrchestrator:
     async def _setup_scan_focus(self):
         """Setup focus for the scan at first scan point - perform object-based autofocus and set consistent focus for both cameras"""
         try:
+            # Get brightness settings for calibration phase
+            calibration_brightness = getattr(self.lighting_controller, 'calibration_brightness', 0.20)
+            idle_brightness = getattr(self.lighting_controller, 'idle_brightness', 0.10)
+            
             if self._focus_mode == 'fixed':
                 self.logger.info("Focus mode is fixed, skipping focus setup")
                 return
@@ -3665,7 +3669,8 @@ class ScanOrchestrator:
             await asyncio.sleep(0.05)
             
             # Reduce LEDs from calibration brightness to idle brightness after focus setup
-            if flash_mode and leds_turned_on:
+            flash_mode = getattr(self.lighting_controller, 'flash_mode', False)
+            if flash_mode and self.lighting_controller:
                 self.logger.info(f"💡 FOCUS COMPLETE: Reducing LEDs from {calibration_brightness*100:.0f}% (calibration) to {idle_brightness*100:.0f}% (idle)")
                 await self.lighting_controller.set_brightness("all", idle_brightness)
                 await asyncio.sleep(0.02)  # Brief settling  # 50ms delay for camera exposure/focus to stabilize
