@@ -16,8 +16,8 @@ echo "Setting GPIO 13 to ALT0 (PWM0_CHAN1)..."
 sudo pinctrl set 13 a0
 echo ""
 
-echo "Setting GPIO 18 to ALT5 (PWM0_CHAN2)..."
-sudo pinctrl set 18 a5
+echo "Setting GPIO 18 to ALT3 (PWM0_CHAN2)..."
+sudo pinctrl set 18 a3
 echo ""
 
 echo "After fix:"

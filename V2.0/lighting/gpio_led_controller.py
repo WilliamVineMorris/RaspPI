@@ -263,9 +263,10 @@ class GPIOLEDController(LightingController):
         
         # GPIO ALT function modes for hardware PWM (Pi 5)
         # These must be set for the GPIO pins to route to PWM hardware
+        # VERIFIED via pinctrl on Pi 5 hardware!
         self.gpio_alt_modes = {
-            18: 'a5',  # GPIO 18 needs ALT5 for PWM0_CHAN2
-            13: 'a0',  # GPIO 13 needs ALT0 for PWM0_CHAN1
+            18: 'a3',  # GPIO 18 needs ALT3 for PWM0_CHAN2 (Pi 5 VERIFIED!)
+            13: 'a0',  # GPIO 13 needs ALT0 for PWM0_CHAN1 (Pi 5 VERIFIED!)
             12: 'a0',  # GPIO 12 needs ALT0 for PWM0_CHAN0
             19: 'a1',  # GPIO 19 needs ALT1 for PWM1_CHAN1
         }

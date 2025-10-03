@@ -1,7 +1,10 @@
 # Hardware PWM GPIO ALT Mode Fix - Complete Solution
 
 ## Problem Discovered
-After implementing hardware PWM support with correct channel mapping (GPIO 18→CHAN2, GPIO 13→CHAN1), the LEDs still didn't light up.
+After implementing hardware PWM support with correct channel mapping (GPIO 18→CHAN2, GPI```bash
+pinctrl get 13  # Should show "a0"
+pinctrl get 18  # Should show "a3"
+```→CHAN1), the LEDs still didn't light up.
 
 **Root Cause**: GPIO pins were stuck in INPUT mode instead of ALT function mode for PWM routing.
 
@@ -16,7 +19,7 @@ $ pinctrl get 13
 **Expected**:
 ```bash
 $ pinctrl get 18
-18: a5 pd | lo // GPIO18 = PWM0_CHAN2  ✅ CORRECT!
+18: a3 pd | lo // GPIO18 = PWM0_CHAN2  ✅ CORRECT!
 
 $ pinctrl get 13
 13: a0 pd | lo // GPIO13 = PWM0_CHAN1  ✅ CORRECT!
@@ -61,7 +64,7 @@ import subprocess
 ```python
 # GPIO ALT function modes for hardware PWM (Pi 5)
 self.gpio_alt_modes = {
-    18: 'a5',  # GPIO 18 needs ALT5 for PWM0_CHAN2
+    18: 'a3',  # GPIO 18 needs ALT3 for PWM0_CHAN2 (Pi 5 VERIFIED!)
     13: 'a0',  # GPIO 13 needs ALT0 for PWM0_CHAN1
     12: 'a0',  # GPIO 12 needs ALT0 for PWM0_CHAN0
     19: 'a1',  # GPIO 19 needs ALT1 for PWM1_CHAN1
@@ -120,8 +123,8 @@ If you need to manually fix GPIO modes:
 echo "Setting GPIO 13 to ALT0 (PWM0_CHAN1)..."
 sudo pinctrl set 13 a0
 
-echo "Setting GPIO 18 to ALT5 (PWM0_CHAN2)..."
-sudo pinctrl set 18 a5
+echo "Setting GPIO 18 to ALT3 (PWM0_CHAN2)..."
+sudo pinctrl set 18 a3
 
 echo "✅ GPIO pins configured for hardware PWM!"
 pinctrl get 13
@@ -133,7 +136,7 @@ pinctrl get 18
 ### Check GPIO Modes
 ```bash
 pinctrl get 13  # Should show "a0" (ALT0) for PWM0_CHAN1
-pinctrl get 18  # Should show "a5" (ALT5) for PWM0_CHAN2
+pinctrl get 18  # Should show "a3" (ALT3) for PWM0_CHAN2
 ```
 
 ### Check Active PWM Channels
@@ -191,7 +194,7 @@ GPIO Pin → Pin Mux (ALT function) → PWM Hardware → PWM Channel
 |------|----------|-------------|------|---------|
 | 12   | ALT0     | PWM0_CHAN0  | 0    | 0       |
 | 13   | ALT0     | PWM0_CHAN1  | 0    | 1       |
-| 18   | ALT5     | PWM0_CHAN2  | 0    | 2       |
+| 18   | ALT3     | PWM0_CHAN2  | 0    | 2       |
 | 19   | ALT1     | PWM1_CHAN1  | 1    | 1       |
 
 **Key Difference from Pi 4**: GPIO 18 uses ALT5 (not ALT0) and maps to CHAN2 (not CHAN0)!
@@ -203,7 +206,7 @@ dtoverlay=pwm-2chan,pin=13,func=4,pin2=18,func2=2
 ```
 
 But `dtoverlay -l` shows "No overlays loaded", meaning it didn't activate at boot. This could be due to:
-- Incorrect `func` values (should be `func=0` for GPIO 13, `func=5` for GPIO 18)
+- Incorrect `func` values (should be `func=0` for GPIO 13, `func=3` for GPIO 18)
 - dtoverlay loading race condition
 - Bootloader configuration issue
 
