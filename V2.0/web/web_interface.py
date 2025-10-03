@@ -38,9 +38,14 @@ from werkzeug.exceptions import BadRequest
 try:
     from core.exceptions import ScannerSystemError, HardwareError
     from core.types import Position4D
+    from core.coordinate_transform import (
+        CoordinateTransformer, CameraRelativePosition, CartesianPosition,
+        calculate_servo_tilt_angle
+    )
     from scanning.scan_patterns import CylindricalScanPattern  # Only cylindrical scanning supported
     from scanning.scan_state import ScanStatus, ScanPhase
     from scanning.scan_orchestrator import ScanOrchestrator
+    from scanning.multi_format_csv import MultiFormatCSVHandler, CoordinateFormat, CSVExportOptions
     SCANNER_MODULES_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Could not import scanner modules: {e}")
@@ -327,6 +332,23 @@ class ScannerWebInterface:
     def __init__(self, orchestrator=None):
         self.orchestrator = orchestrator
         self.logger = logging.getLogger(__name__)
+        
+        # Initialize coordinate transformation system
+        if SCANNER_MODULES_AVAILABLE:
+            try:
+                from core.config_manager import ConfigManager
+                config_path = Path(__file__).parent.parent / 'config' / 'scanner_config.yaml'
+                config_manager = ConfigManager(config_path)
+                self.coord_transformer = CoordinateTransformer(config_manager)
+                self.csv_handler = MultiFormatCSVHandler(self.coord_transformer)
+                self.logger.info("Coordinate transformation system initialized")
+            except Exception as e:
+                self.logger.error(f"Failed to initialize coordinate transformer: {e}")
+                self.coord_transformer = None
+                self.csv_handler = None
+        else:
+            self.coord_transformer = None
+            self.csv_handler = None
         
         # Flask app setup
         self.app = Flask(__name__,
@@ -1393,15 +1415,25 @@ class ScannerWebInterface:
                     first_point = scan_points[0]
                     self.logger.info(f"🔍 First point: pos={first_point.position}, settings={first_point.camera_settings}")
                 
-                # Get hardware limits for validator (for future use)
-                config_manager = self.orchestrator.config_manager if self.orchestrator else None
-                axes_config = config_manager.get_all_axes() if config_manager else {}
-                
-                validator = ScanPointValidator(axes_config)
-                self.logger.info(f"✅ Validator created")
-                
-                csv_content = validator.points_to_csv(scan_points)
-                self.logger.info(f"✅ CSV content generated: {len(csv_content)} chars")
+                # Use multi-format CSV handler for export
+                if self.csv_handler:
+                    # Export in camera-relative format (user-friendly)
+                    export_options = CSVExportOptions(
+                        format=CoordinateFormat.CAMERA_RELATIVE,
+                        include_index=True,
+                        decimal_places=3,
+                        include_header_comments=True
+                    )
+                    csv_content = self.csv_handler.export_to_csv(scan_points, export_options)
+                    self.logger.info(f"✅ CSV exported in CAMERA_RELATIVE format: {len(csv_content)} chars")
+                else:
+                    # Fallback to old method if transformer not available
+                    self.logger.warning("⚠️ Using fallback CSV export (no transformer)")
+                    from scanning.csv_validator import ScanPointValidator
+                    config_manager = self.orchestrator.config_manager if self.orchestrator else None
+                    axes_config = config_manager.get_all_axes() if config_manager else {}
+                    validator = ScanPointValidator(axes_config)
+                    csv_content = validator.points_to_csv(scan_points)
                 
                 # Create response with CSV file
                 from flask import make_response
@@ -3003,6 +3035,14 @@ class ScannerWebInterface:
             servo_y_focus = float(pattern_data.get('servo_y_focus', 80.0))
             radius = float(pattern_data.get('radius', 150.0))
             
+            # Get offsets for proper coordinate transformation
+            if self.coord_transformer:
+                turntable_offset_y = self.coord_transformer.turntable_offset_y
+                camera_offset_y = self.coord_transformer.camera_offset_y
+            else:
+                turntable_offset_y = 0.0
+                camera_offset_y = 0.0
+            
             c_angles = []
             
             # Use explicit y_positions or fallback to calculating them
@@ -3020,38 +3060,85 @@ class ScannerWebInterface:
                                    for i in range(height_steps)]
             
             # Calculate c_angles for each y_position based on tilt mode
+            # Note: y_positions are camera-relative heights (above turntable surface)
             for y_pos in y_positions:
                 if servo_tilt_mode == 'manual':
                     # Manual mode: use fixed angle for all positions
                     c_angles.append(servo_manual_angle)
                     
                 elif servo_tilt_mode == 'focus_point':
-                    # Focus point mode: calculate angle to point at (0, 0, servo_y_focus)
-                    # Camera is at radius distance from center, at height y_pos
-                    horizontal_dist = radius  # Distance from center to camera
-                    vertical_dist = servo_y_focus - y_pos  # Height difference
-                    
-                    # Calculate tilt angle: arctan(vertical_distance / horizontal_distance)
-                    # Hardware Convention: Negative angle points down, positive points up
-                    # When camera is ABOVE focus (y_pos > servo_y_focus): vertical_dist is negative → angle should be negative (down)
-                    # When camera is BELOW focus (y_pos < servo_y_focus): vertical_dist is positive → angle should be positive (up)
-                    tilt_angle = math.atan2(vertical_dist, horizontal_dist) * 180 / math.pi
+                    # Focus point mode: calculate angle with proper offset handling
+                    if SCANNER_MODULES_AVAILABLE:
+                        tilt_angle = calculate_servo_tilt_angle(
+                            camera_radius=radius,
+                            camera_height=y_pos,
+                            focus_height=servo_y_focus,
+                            turntable_offset_y=turntable_offset_y,
+                            camera_offset_y=camera_offset_y
+                        )
+                    else:
+                        # Fallback: simple calculation without offset handling
+                        import math
+                        height_diff = y_pos - servo_y_focus
+                        tilt_angle = math.degrees(math.atan2(height_diff, radius))
                     c_angles.append(tilt_angle)
                     
                 else:  # 'none' or any other mode
                     # No tilt: horizontal
                     c_angles.append(0.0)
             
-            # Create cylindrical pattern with explicit positions
+            # Convert camera-relative coordinates to FluidNC machine coordinates
+            # The pattern generator needs FluidNC coordinates, but we provide camera-relative inputs
+            # and convert them using the coordinate transformer
+            
+            if self.coord_transformer:
+                # Convert first camera position to get FluidNC x_start/x_end
+                # Use rotation=0 as reference point
+                camera_ref = CameraRelativePosition(
+                    radius=radius,
+                    height=y_min,  # Use min height as reference
+                    rotation=0.0,
+                    tilt=0.0  # Tilt doesn't affect X position
+                )
+                fluidnc_ref = self.coord_transformer.camera_to_fluidnc(camera_ref)
+                fluidnc_x = fluidnc_ref.x
+                
+                # Convert y_positions (camera heights) to FluidNC Y coordinates
+                fluidnc_y_positions = []
+                for y_pos in y_positions:
+                    camera_temp = CameraRelativePosition(
+                        radius=radius,
+                        height=y_pos,
+                        rotation=0.0,
+                        tilt=0.0
+                    )
+                    fluidnc_temp = self.coord_transformer.camera_to_fluidnc(camera_temp)
+                    fluidnc_y_positions.append(fluidnc_temp.y)
+                
+                fluidnc_y_min = min(fluidnc_y_positions)
+                fluidnc_y_max = max(fluidnc_y_positions)
+                
+                self.logger.info(f"📐 Coordinate transformation applied:")
+                self.logger.info(f"   Camera: radius={radius}mm, heights={y_positions}")
+                self.logger.info(f"   FluidNC: x={fluidnc_x:.1f}mm, y_positions={[f'{y:.1f}' for y in fluidnc_y_positions]}")
+            else:
+                # Fallback: no transformation (assume camera-relative = FluidNC)
+                self.logger.warning("⚠️ No coordinate transformer - using camera coords directly")
+                fluidnc_x = radius
+                fluidnc_y_positions = y_positions
+                fluidnc_y_min = y_min
+                fluidnc_y_max = y_max
+            
+            # Create cylindrical pattern with FluidNC machine coordinates
             params = CylindricalPatternParameters(
-                x_start=radius,
-                x_end=radius,  # Fixed radius
-                y_start=y_min,
-                y_end=y_max,
-                y_step=(y_max - y_min) / max(len(y_positions) - 1, 1) if len(y_positions) > 1 else (y_max - y_min),
-                y_positions=y_positions,  # 🎯 Use explicit positions
-                z_rotations=z_rotations,
-                c_angles=c_angles,  # 🎯 Use calculated angles
+                x_start=fluidnc_x,
+                x_end=fluidnc_x,  # Fixed radius (same X for all rotations)
+                y_start=fluidnc_y_min,
+                y_end=fluidnc_y_max,
+                y_step=(fluidnc_y_max - fluidnc_y_min) / max(len(fluidnc_y_positions) - 1, 1) if len(fluidnc_y_positions) > 1 else (fluidnc_y_max - fluidnc_y_min),
+                y_positions=fluidnc_y_positions,  # 🎯 Use FluidNC Y positions
+                z_rotations=z_rotations,  # Rotation angles are the same in both systems
+                c_angles=c_angles,  # 🎯 Tilt angles are the same in both systems
             )
             
             pattern = CylindricalScanPattern(
