@@ -3118,20 +3118,13 @@ class ScannerWebInterface:
                     c_angles.append(servo_manual_angle)
                     
                 elif servo_tilt_mode == 'focus_point':
-                    # Focus point mode: calculate angle with proper offset handling
-                    if SCANNER_MODULES_AVAILABLE:
-                        tilt_angle = calculate_servo_tilt_angle(
-                            camera_radius=radius,
-                            camera_height=y_pos,
-                            focus_height=servo_y_focus,
-                            turntable_offset_y=turntable_offset_y,
-                            camera_offset_y=camera_offset_y
-                        )
-                    else:
-                        # Fallback: simple calculation without offset handling
-                        import math
-                        height_diff = y_pos - servo_y_focus
-                        tilt_angle = math.degrees(math.atan2(height_diff, radius))
+                    # Camera-relative tilt calculation (pure geometry, no offsets)
+                    # Camera is at (radius, y_pos), focus point is at (0, servo_y_focus)
+                    import math
+                    height_diff = y_pos - servo_y_focus  # Positive = camera above focus
+                    horizontal_dist = radius  # Distance to turntable center
+                    # Negative sign: camera above focus = look down (negative tilt)
+                    tilt_angle = -math.degrees(math.atan2(height_diff, horizontal_dist))
                     c_angles.append(tilt_angle)
                     
                 else:  # 'none' or any other mode
@@ -3272,9 +3265,12 @@ class ScannerWebInterface:
                 if servo_tilt_mode == 'manual':
                     c_angles.append(servo_manual_angle)
                 elif servo_tilt_mode == 'focus_point':
-                    # Simple focus point calculation
-                    height_diff = y_pos - servo_y_focus
-                    tilt_angle = math.degrees(math.atan2(height_diff, radius))
+                    # Camera-relative tilt calculation (pure geometry, no offsets)
+                    # Camera is at (radius, y_pos), focus point is at (0, servo_y_focus)
+                    height_diff = y_pos - servo_y_focus  # Positive = camera above focus
+                    horizontal_dist = radius  # Distance to turntable center
+                    # Negative sign: camera above focus = look down (negative tilt)
+                    tilt_angle = -math.degrees(math.atan2(height_diff, horizontal_dist))
                     c_angles.append(tilt_angle)
                 else:
                     c_angles.append(0.0)

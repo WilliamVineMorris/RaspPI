@@ -2834,7 +2834,7 @@ function visualizeScanPath(points) {
     
     // Create hover text
     const hoverText = points.map((p, i) => 
-        `Point ${i}<br>Radius: ${p.x.toFixed(1)}mm<br>Height: ${p.y.toFixed(1)}mm<br>Rotation: ${p.z.toFixed(1)}°<br>Tilt: ${(-p.c).toFixed(1)}°`
+        `Point ${i}<br>Radius: ${p.x.toFixed(1)}mm<br>Height: ${p.y.toFixed(1)}mm<br>Rotation: ${p.z.toFixed(1)}°<br>Tilt: ${p.c.toFixed(1)}°`
     );
     
     // Prepare traces array
