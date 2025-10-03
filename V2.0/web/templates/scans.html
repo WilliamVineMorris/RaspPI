@@ -2928,27 +2928,11 @@ function visualizeScanPath(points) {
         const baseZ = p.y;
         
         // Calculate tilt angle based on mode
-        let actualTiltAngle = p.c; // Default from point data
+        let actualTiltAngle = p.c; // Use tilt angle from backend (already calculated correctly)
         
-        if (servoTiltMode === 'manual') {
-            // Use manual angle
-            actualTiltAngle = manualAngle;
-        } else if (servoTiltMode === 'focus_point') {
-            // Calculate angle to point at focus position (0, 0, focusYPosition)
-            const dx = 0 - baseX;
-            const dy = 0 - baseY;
-            const dz = focusYPosition - baseZ;
-            
-            // Calculate horizontal distance to center
-            const horizontalDist = Math.sqrt(dx*dx + dy*dy);
-            
-            // Calculate tilt angle: arctan(vertical_distance / horizontal_distance)
-            // INVERTED: Negative angle points down, positive points up (hardware convention)
-            actualTiltAngle = -Math.atan2(dz, horizontalDist) * 180 / Math.PI;
-        } else if (servoTiltMode === 'none') {
-            // Fixed at 0 degrees (horizontal)
-            actualTiltAngle = 0;
-        }
+        // Note: The backend now calculates c_angles based on servo tilt mode,
+        // so we don't need to recalculate here. The p.c value already contains
+        // the correct angle for the selected mode (manual, focus_point, or none).
         
         const c_rad = actualTiltAngle * Math.PI / 180;
         

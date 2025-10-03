@@ -3012,8 +3012,10 @@ class ScannerWebInterface:
                     vertical_dist = servo_y_focus - y_pos  # Height difference
                     
                     # Calculate tilt angle: arctan(vertical_distance / horizontal_distance)
-                    # INVERTED: Negative angle points down, positive points up (hardware convention)
-                    tilt_angle = -math.atan2(vertical_dist, horizontal_dist) * 180 / math.pi
+                    # Hardware Convention: Negative angle points down, positive points up
+                    # When camera is ABOVE focus (y_pos > servo_y_focus): vertical_dist is negative → angle should be negative (down)
+                    # When camera is BELOW focus (y_pos < servo_y_focus): vertical_dist is positive → angle should be positive (up)
+                    tilt_angle = math.atan2(vertical_dist, horizontal_dist) * 180 / math.pi
                     c_angles.append(tilt_angle)
                     
                 else:  # 'none' or any other mode
