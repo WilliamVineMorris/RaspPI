@@ -110,21 +110,23 @@
         display: grid;
         grid-template-columns: minmax(180px, 200px) minmax(180px, 200px) minmax(300px, 1fr) minmax(300px, 1fr);
         gap: 0.75rem;
-        grid-template-rows: 1fr auto;  /* First row takes available space and stretches all cells equally */
         margin-bottom: 0.75rem;
         width: 100%;
         align-items: stretch;  /* Ensure all grid items stretch to fill their cells */
     }
     
-    /* Make all panels in first row match height */
+    /* Force all first-row panels to have the same height by making them grid items in row 1 */
+    .dashboard-grid > section {
+        display: flex;
+        flex-direction: column;
+    }
+    
+    /* Make all panels in first row match height - they share grid row 1 */
     .status-panel,
     .actions-panel,
     .reserved-panel,
     .camera-panel {
-        min-height: 500px;
-        height: 100%;  /* Fill the grid cell completely */
-        display: flex;
-        flex-direction: column;
+        align-self: stretch;  /* Stretch vertically within the grid cell */
     }
     
     .status-panel .status-grid,
@@ -193,7 +195,7 @@
 <main class="main-content">
 <div class="dashboard-grid">
     <!-- Column 1: System Status Panel (Thin) -->
-    <section class="status-panel" style="grid-row: 1 / 2; grid-column: 1 / 2; background: #f8f9fa; padding: 0.75rem; border-radius: 8px; border: 1px solid #dee2e6;">
+    <section class="status-panel" style="grid-row: 1 / 2; grid-column: 1 / 2; background: #f8f9fa; padding: 0.75rem; border-radius: 8px; border: 1px solid #dee2e6; min-height: 500px;">
         <h2 style="font-size: 1rem; margin-bottom: 0.5rem; margin-top: 0;">System Status</h2>
         <div class="status-grid" style="display: flex; flex-direction: column; gap: 0.5rem;">
             <div class="status-item" style="background: white; padding: 0.5rem; border-radius: 6px; border: 1px solid #e9ecef;">
@@ -259,7 +261,7 @@
     </section>
 
     <!-- Column 2: Quick Actions Panel (Thin) -->
-    <section class="actions-panel" style="grid-row: 1 / 2; grid-column: 2 / 3; background: #f8f9fa; padding: 0.75rem; border-radius: 8px; border: 1px solid #dee2e6;">
+    <section class="actions-panel" style="grid-row: 1 / 2; grid-column: 2 / 3; background: #f8f9fa; padding: 0.75rem; border-radius: 8px; border: 1px solid #dee2e6; min-height: 500px;">
         <h2 style="font-size: 1rem; margin-bottom: 0.5rem; margin-top: 0;">Quick Actions</h2>
         <div class="action-grid" style="display: flex; flex-direction: column; gap: 0.4rem;">
             <button class="action-btn primary" onclick="homeAllAxes()" id="homeAllBtn" style="padding: 0.5rem; font-size: 0.75rem; border-radius: 6px; border: none; cursor: pointer; background: linear-gradient(135deg, #007bff, #0056b3); color: white; font-weight: 600; transition: all 0.2s;">
@@ -308,7 +310,7 @@
     </section>
 
     <!-- Column 4: Live Camera Feed (Wider) -->
-    <section class="camera-panel" style="grid-row: 1 / 2; grid-column: 4 / 5; background: #f8f9fa; padding: 0.75rem; border-radius: 8px; border: 1px solid #dee2e6;">
+    <section class="camera-panel" style="grid-row: 1 / 2; grid-column: 4 / 5; background: #f8f9fa; padding: 0.75rem; border-radius: 8px; border: 1px solid #dee2e6; min-height: 500px;">
         <h2 style="font-size: 1rem; margin-bottom: 0.5rem; margin-top: 0;">Live Camera Feed</h2>
         <div class="camera-grid">
             <div class="camera-container">
