@@ -19,12 +19,22 @@ from typing import Dict, Any, List, Optional, Tuple, Union
 from pathlib import Path
 import json
 
+# Try hardware PWM library first (dtoverlay PWM channels)
+try:
+    from rpi_hardware_pwm import HardwarePWM
+    HARDWARE_PWM_AVAILABLE = True
+    GPIO_LIBRARY = 'rpi_hardware_pwm'
+except ImportError:
+    HARDWARE_PWM_AVAILABLE = False
+    HardwarePWM = None
+
 try:
     # Try gpiozero first for modern PWM control (PWMLED.value and pin frequency)
     from gpiozero import PWMLED, Device
     from gpiozero.pins.rpigpio import RPiGPIOFactory
     GPIOZERO_AVAILABLE = True
-    GPIO_LIBRARY = 'gpiozero'
+    if not HARDWARE_PWM_AVAILABLE:
+        GPIO_LIBRARY = 'gpiozero'
 except ImportError:
     GPIOZERO_AVAILABLE = False
     PWMLED = None
@@ -35,7 +45,7 @@ try:
     # lgpio is the modern replacement for pigpio on Pi 5
     from gpiozero.pins.lgpio import LGPIOFactory
     LGPIO_AVAILABLE = True
-    if not GPIOZERO_AVAILABLE:
+    if not GPIOZERO_AVAILABLE and not HARDWARE_PWM_AVAILABLE:
         GPIO_LIBRARY = 'lgpio'
 except ImportError:
     LGPIO_AVAILABLE = False
@@ -45,7 +55,7 @@ try:
     # Fallback: pigpio (not compatible with Pi 5!)
     import pigpio
     PIGPIO_AVAILABLE = True
-    if not GPIOZERO_AVAILABLE and not LGPIO_AVAILABLE:
+    if not GPIOZERO_AVAILABLE and not LGPIO_AVAILABLE and not HARDWARE_PWM_AVAILABLE:
         GPIO_LIBRARY = 'pigpio'
 except ImportError:
     PIGPIO_AVAILABLE = False
@@ -55,7 +65,7 @@ except ImportError:
 try:
     import RPi.GPIO as GPIO
     GPIO_AVAILABLE = True
-    if not PIGPIO_AVAILABLE and not GPIOZERO_AVAILABLE:
+    if not PIGPIO_AVAILABLE and not GPIOZERO_AVAILABLE and not HARDWARE_PWM_AVAILABLE:
         GPIO_LIBRARY = 'rpi_gpio'
     
     # Monkey patch to suppress PWM cleanup errors
@@ -184,7 +194,7 @@ class GPIOLEDController(LightingController):
     
     Features:
     - Zone-based LED control
-    - PWM brightness control
+    - PWM brightness control (Hardware PWM via dtoverlay when available)
     - Safety duty cycle limits (89% max)
     - Flash synchronization
     - Power monitoring
@@ -226,26 +236,51 @@ class GPIOLEDController(LightingController):
         # GPIO Zero PWMLED objects (if using gpiozero)
         self.gpiozero_leds: Dict[str, List[PWMLED]] = {}
         
-        # Determine which GPIO library to use - prioritize user's config choice
-        if self.gpio_library == 'gpiozero' and GPIOZERO_AVAILABLE:
+        # Hardware PWM objects (if using rpi-hardware-pwm)
+        self.hardware_pwm_objects: Dict[str, List[HardwarePWM]] = {}
+        
+        # Hardware PWM pin mapping (dtoverlay=pwm-2chan configures these)
+        # GPIO 18 -> PWM0 (chip 0, channel 0)
+        # GPIO 13 -> PWM1 (chip 0, channel 1)  
+        # GPIO 12 -> PWM0 (chip 1, channel 0) - alternative
+        # GPIO 19 -> PWM1 (chip 1, channel 1) - alternative
+        self.hardware_pwm_mapping = {
+            18: (0, 0),  # PWM chip 0, channel 0
+            13: (0, 1),  # PWM chip 0, channel 1
+            12: (1, 0),  # PWM chip 1, channel 0
+            19: (1, 1),  # PWM chip 1, channel 1
+        }
+        
+        # Determine which GPIO library to use - prioritize hardware PWM if available
+        if HARDWARE_PWM_AVAILABLE:
+            self._use_hardware_pwm = True
+            self._use_gpiozero = False
+            self._use_pigpio = False
+            logger.info("✅ Using rpi-hardware-pwm library (HARDWARE PWM via dtoverlay)")
+        elif self.gpio_library == 'gpiozero' and GPIOZERO_AVAILABLE:
+            self._use_hardware_pwm = False
             self._use_gpiozero = True
             self._use_pigpio = False
             logger.info("✅ Configured to use gpiozero library (as requested)")
         elif self.gpio_library == 'pigpio' and PIGPIO_AVAILABLE:
+            self._use_hardware_pwm = False
             self._use_gpiozero = False
             self._use_pigpio = True
             logger.info("✅ Configured to use pigpio library (as requested)")
         else:
             # Fallback logic - prefer gpiozero over pigpio for modern Pi systems
             if GPIOZERO_AVAILABLE:
+                self._use_hardware_pwm = False
                 self._use_gpiozero = True
                 self._use_pigpio = False
                 logger.info("✅ Using gpiozero library (fallback - available and modern)")
             elif PIGPIO_AVAILABLE:
+                self._use_hardware_pwm = False
                 self._use_gpiozero = False
                 self._use_pigpio = True
                 logger.info("✅ Using pigpio library (fallback)")
             else:
+                self._use_hardware_pwm = False
                 self._use_gpiozero = False
                 self._use_pigpio = False
                 logger.info("✅ Using RPi.GPIO library (fallback - others unavailable)")
@@ -412,7 +447,32 @@ class GPIOLEDController(LightingController):
             pwm_objects = []
             
             for pin in zone.gpio_pins:
-                if self._use_gpiozero:
+                if self._use_hardware_pwm:
+                    # Using rpi-hardware-pwm library for TRUE HARDWARE PWM via dtoverlay
+                    # This directly accesses /sys/class/pwm/pwmchipX configured by dtoverlay=pwm-2chan
+                    if pin not in self.hardware_pwm_mapping:
+                        logger.error(f"❌ GPIO {pin} does not support hardware PWM!")
+                        logger.error(f"❌ Supported pins: {list(self.hardware_pwm_mapping.keys())}")
+                        raise LEDError(f"Pin {pin} not compatible with hardware PWM")
+                    
+                    chip, channel = self.hardware_pwm_mapping[pin]
+                    logger.info(f"⚡⚡⚡ GPIO {pin} -> PWM CHIP {chip} CHANNEL {channel} (TRUE HARDWARE PWM)")
+                    
+                    # Create HardwarePWM object
+                    # Note: HardwarePWM uses channel index (0 or 1) and frequency
+                    pwm = HardwarePWM(pwm_channel=channel, hz=self.pwm_frequency, chip=chip)
+                    pwm.start(0)  # Start with 0% duty cycle
+                    
+                    # Store hardware PWM object for zone
+                    if zone.zone_id not in self.hardware_pwm_objects:
+                        self.hardware_pwm_objects[zone.zone_id] = []
+                    self.hardware_pwm_objects[zone.zone_id].append(pwm)
+                    
+                    pwm_objects.append({'type': 'hardware_pwm', 'pin': pin, 'pwm': pwm, 'chip': chip, 'channel': channel})
+                    
+                    logger.info(f"✅ HARDWARE PWM initialized on GPIO {pin} (chip {chip}, channel {channel}) at {self.pwm_frequency}Hz")
+                    
+                elif self._use_gpiozero:
                     # Using gpiozero PWMLED for PWM control
                     # With lgpio factory (Pi 5): GPIO 12, 13, 18, 19 use HARDWARE PWM (immune to CPU load)
                     # With pigpio factory (Pi 4 and older): GPIO 12, 13, 18, 19 use HARDWARE PWM
@@ -505,7 +565,12 @@ class GPIOLEDController(LightingController):
             for zone_id, pwm_list in self.pwm_controllers.items():
                 for i, pwm_obj in enumerate(pwm_list):
                     try:
-                        if pwm_obj['type'] == 'gpiozero':
+                        if pwm_obj['type'] == 'hardware_pwm':
+                            # Hardware PWM cleanup - stop and release channel
+                            pwm = pwm_obj['pwm']
+                            pwm.stop()  # Stops PWM and releases channel
+                            logger.debug(f"Stopped hardware PWM on GPIO {pwm_obj['pin']} (chip {pwm_obj['chip']}, channel {pwm_obj['channel']})")
+                        elif pwm_obj['type'] == 'gpiozero':
                             # gpiozero cleanup - turn off and close LED
                             led = pwm_obj['led']
                             led.value = 0.0  # Turn off LED
@@ -523,6 +588,9 @@ class GPIOLEDController(LightingController):
                         logger.debug(f"Stopped PWM {i} for zone '{zone_id}'")
                     except Exception as e:
                         logger.debug(f"PWM {i} stop error (safe to ignore): {e}")
+            
+            # Clear hardware PWM objects
+            self.hardware_pwm_objects.clear()
             
             # Clear gpiozero LED objects
             self.gpiozero_leds.clear()
@@ -1042,7 +1110,12 @@ class GPIOLEDController(LightingController):
                 
                 # Apply to ALL PWM controllers in zone - synchronously, no await
                 for pwm_obj in self.pwm_controllers[zone_id]:
-                    if pwm_obj['type'] == 'gpiozero':
+                    if pwm_obj['type'] == 'hardware_pwm':
+                        # TRUE HARDWARE PWM via rpi-hardware-pwm (dtoverlay channels)
+                        # This is THE FASTEST, most reliable PWM - direct hardware access
+                        pwm = pwm_obj['pwm']
+                        pwm.change_duty_cycle(duty_cycle)  # Direct hardware register write
+                    elif pwm_obj['type'] == 'gpiozero':
                         # Direct gpiozero PWMLED control - hardware PWM, no overhead
                         led = pwm_obj['led']
                         led.value = brightness  # Direct assignment, instant update

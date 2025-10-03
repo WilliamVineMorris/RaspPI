@@ -23,6 +23,7 @@ flask-cors>=3.0.0
 # GPIO control for Pi5
 gpiozero>=1.6.0
 pigpio>=1.78  # For precise PWM timing
+rpi-hardware-pwm>=0.2.0  # Direct hardware PWM access via dtoverlay
 
 # Development and testing
 pytest>=7.0.0
