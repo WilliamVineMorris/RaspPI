@@ -238,6 +238,11 @@ lighting:
   # - Use GPIO 12,13 or other PWM-capable pins
   
   flash_profiles:
+    calibration:
+      pre_flash_ms: 30
+      main_flash_ms: 100
+      intensity_percent: 30.0  # Low intensity for camera calibration
+    
     standard:
       pre_flash_ms: 50
       main_flash_ms: 100

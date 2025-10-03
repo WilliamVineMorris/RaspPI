@@ -881,15 +881,15 @@
         
         async function testLighting() {
             try {
-                console.log('Testing lighting...');
-                showNotification('Testing lighting...', 'info');
+                console.log('Testing lighting with calibration profile (30% intensity)...');
+                showNotification('Testing lighting with calibration profile (30%)...', 'info');
                 
                 const response = await fetch('/api/lighting/flash', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         zone: 'all',
-                        brightness: 0.5,
+                        brightness: 0.3,  // 30% intensity for camera calibration
                         duration: 1000
                     })
                 });
@@ -897,8 +897,8 @@
                 if (response.ok) {
                     const result = await response.json();
                     if (result.success) {
-                        console.log('Lighting test successful');
-                        showNotification('Lighting test successful!', 'success');
+                        console.log('Lighting test successful (30% calibration intensity)');
+                        showNotification('Calibration lighting test successful! (30% intensity)', 'success');
                     } else {
                         console.error('Lighting test failed:', result.error);
                         showNotification('Lighting test failed: ' + (result.error || 'Unknown error'), 'error');

@@ -1877,11 +1877,22 @@ class CameraManagerAdapter:
                     # Convert common controls to Picamera2 format
                     picam_controls = {}
                     
-                    # Autofocus control
+                    # Autofocus control with Macro range for close-up scanning
                     if 'autofocus' in controls_dict:
                         if controls_dict['autofocus']:
-                            picam_controls['AfMode'] = 1  # Auto focus
-                            picam_controls['AfTrigger'] = 0  # Trigger autofocus
+                            # Import libcamera controls for proper enum usage
+                            try:
+                                from libcamera import controls as libcam_controls
+                                picam_controls['AfMode'] = libcam_controls.AfModeEnum.Auto  # Auto mode (triggered)
+                                picam_controls['AfRange'] = libcam_controls.AfRangeEnum.Macro  # Macro range (8cm-1m, closest objects)
+                                picam_controls['AfTrigger'] = 0  # Trigger autofocus cycle
+                                self.logger.info(f"CAMERA: Autofocus set to Auto mode with Macro range (8cm-1m)")
+                            except ImportError:
+                                # Fallback to numeric values if libcamera not available
+                                picam_controls['AfMode'] = 1  # Auto mode
+                                picam_controls['AfRange'] = 1  # Macro range
+                                picam_controls['AfTrigger'] = 0  # Trigger autofocus
+                                self.logger.info(f"CAMERA: Autofocus set to Auto mode with Macro range (numeric fallback)")
                         else:
                             picam_controls['AfMode'] = 0  # Manual focus
                     
