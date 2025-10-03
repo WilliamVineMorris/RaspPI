@@ -3007,7 +3007,22 @@ function visualizeScanPath(points) {
             tiltEndZ = baseZ + t_max * normDirZ;
         }
         
-        // Tilt lines removed - user prefers to check tilt via hover text on scan points
+        // Add tilt line (no hover info - user checks tilt via scan point hover)
+        traces.push({
+            type: 'scatter3d',
+            mode: 'lines',
+            name: `Tilt ${i}`,
+            x: [baseX, tiltEndX],
+            y: [baseY, tiltEndY],
+            z: [baseZ, tiltEndZ],
+            line: {
+                color: 'rgba(0, 0, 0, 0.5)',  // Black, semi-transparent
+                width: 2,
+                dash: 'dot'  // Dotted line style
+            },
+            hoverinfo: 'skip',  // Don't show hover info for tilt lines
+            showlegend: false
+        });
     });
     
     // Layout configuration with Z as vertical axis
