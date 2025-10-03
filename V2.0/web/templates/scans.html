@@ -2690,7 +2690,10 @@ function collectScanParameters() {
             // Get servo tilt parameters
             const servoTiltMode = document.getElementById('servoTiltMode')?.value || 'none';
             const servoManualAngle = parseFloat(document.getElementById('servoManualAngle')?.value) || 0.0;
-            const servoYFocus = parseFloat(document.getElementById('servoYFocus')?.value) || 80.0;
+            const servoYFocusValue = document.getElementById('servoYFocus')?.value;
+            const servoYFocus = servoYFocusValue !== null && servoYFocusValue !== undefined && servoYFocusValue !== '' 
+                ? parseFloat(servoYFocusValue) 
+                : 80.0;
             
             // Return flattened structure expected by backend
             const scanData = {
@@ -2900,7 +2903,10 @@ function visualizeScanPath(points) {
     // Get tilt mode and settings for accurate visualization
     const servoTiltMode = document.getElementById('servoTiltMode')?.value || 'none';
     const manualAngle = parseFloat(document.getElementById('servoManualAngle')?.value || 0);
-    const focusYPosition = parseFloat(document.getElementById('servoYFocus')?.value || 80);
+    const focusYValue = document.getElementById('servoYFocus')?.value;
+    const focusYPosition = focusYValue !== null && focusYValue !== undefined && focusYValue !== '' 
+        ? parseFloat(focusYValue) 
+        : 80;
     
     // Add focus point marker if in focus point mode
     if (servoTiltMode === 'focus_point') {
