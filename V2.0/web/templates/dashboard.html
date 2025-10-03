@@ -966,13 +966,53 @@
                     
                     const stateElement = document.getElementById('lightingState');
                     if (stateElement) {
-                        stateElement.textContent = status.lighting.status;
+                        stateElement.textContent = status.lighting.status || 'Unknown';
                     }
                     
                     const statusElement = document.getElementById('lightingStatus');
                     if (statusElement) {
-                        statusElement.className = 
-                            'status-indicator ' + (status.lighting.zones && status.lighting.zones.length > 0 ? 'ready' : 'error');
+                        const isAvailable = status.lighting.status && status.lighting.status.toLowerCase() === 'available';
+                        statusElement.className = 'status-indicator ' + (isAvailable ? 'ready' : 'error');
+                    }
+                }
+                
+                // Update scan status
+                if (status.scan) {
+                    const progressElement = document.getElementById('scanProgress');
+                    if (progressElement) {
+                        const progress = status.scan.progress || 0;
+                        progressElement.textContent = `${progress.toFixed(1)}%`;
+                    }
+                    
+                    const pointsElement = document.getElementById('scanPoints');
+                    if (pointsElement) {
+                        const current = status.scan.current_point || 0;
+                        const total = status.scan.total_points || 0;
+                        pointsElement.textContent = `${current}/${total}`;
+                    }
+                    
+                    const phaseElement = document.getElementById('scanPhase');
+                    if (phaseElement) {
+                        phaseElement.textContent = status.scan.phase || 'Idle';
+                    }
+                    
+                    const stateElement = document.getElementById('scanState');
+                    if (stateElement) {
+                        stateElement.textContent = status.scan.state || 'Unknown';
+                    }
+                    
+                    const statusElement = document.getElementById('scanStatus');
+                    if (statusElement) {
+                        const isActive = status.scan.state && 
+                                       (status.scan.state.toLowerCase() === 'running' || 
+                                        status.scan.state.toLowerCase() === 'active');
+                        const hasError = status.scan.state && status.scan.state.toLowerCase() === 'error';
+                        
+                        let statusClass = 'idle';
+                        if (isActive) statusClass = 'busy';
+                        else if (hasError) statusClass = 'error';
+                        
+                        statusElement.className = 'status-indicator ' + statusClass;
                     }
                 }
                 
