@@ -2960,69 +2960,54 @@ function visualizeScanPath(points) {
         const centerY = 0;
         const centerZ = focusYPosition; // Target height (focus point or turntable center)
         
-        // For visualization, draw line from camera position to target point
+        // For visualization, draw line from camera position toward origin or max 100mm
         let tiltEndX, tiltEndY, tiltEndZ;
         
-        if (servoTiltMode === 'focus_point') {
-            // Draw directly to focus point
-            tiltEndX = centerX;
-            tiltEndY = centerY;
-            tiltEndZ = centerZ;
+        // Direction from camera position toward origin (0,0,0)
+        // Hardware Convention: 0° = horizontal toward center, NEGATIVE = tilted down, POSITIVE = tilted up
+        const dirX = -Math.cos(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
+        const dirY = -Math.sin(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component  
+        const dirZ = Math.sin(c_rad); // Vertical component
+        
+        // Normalize direction vector
+        const dirLength = Math.sqrt(dirX*dirX + dirY*dirY + dirZ*dirZ);
+        const normDirX = dirX / dirLength;
+        const normDirY = dirY / dirLength;
+        const normDirZ = dirZ / dirLength;
+        
+        // Calculate parametric line: P(t) = camera_pos + t * direction
+        // We want to find where this line intersects the origin (0,0,0)
+        // or stop at 100mm, whichever comes first
+        
+        // Distance from camera to origin
+        const distToOrigin = Math.sqrt(baseX*baseX + baseY*baseY + baseZ*baseZ);
+        
+        // Find parameter t where line is closest to origin
+        // Using dot product: t = -camera_pos · direction
+        const t_closest = -(baseX*normDirX + baseY*normDirY + baseZ*normDirZ);
+        
+        // Calculate closest point on line to origin
+        const closestX = baseX + t_closest * normDirX;
+        const closestY = baseY + t_closest * normDirY;
+        const closestZ = baseZ + t_closest * normDirZ;
+        const distAtClosest = Math.sqrt(closestX*closestX + closestY*closestY + closestZ*closestZ);
+        
+        // Determine line endpoint: either at origin proximity or 100mm max
+        if (t_closest > 0 && t_closest <= 100 && distAtClosest < 5) {
+            // Line passes very close to origin within 100mm - draw to closest point
+            tiltEndX = closestX;
+            tiltEndY = closestY;
+            tiltEndZ = closestZ;
+        } else if (distToOrigin <= 100) {
+            // Origin is within 100mm - draw directly to origin
+            tiltEndX = 0;
+            tiltEndY = 0;
+            tiltEndZ = 0;
         } else {
-            // Calculate where the camera line intersects with the turntable plane (Z=0) or focus height
-            // Using parametric line equation and solving for intersection
-            
-            // Direction from camera position
-            // Hardware Convention: 0° = horizontal toward center, NEGATIVE = tilted down, POSITIVE = tilted up
-            const dirX = -Math.cos(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
-            const dirY = -Math.sin(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
-            const dirZ = Math.sin(c_rad); // Vertical component: positive sin(negative angle) = downward
-            
-            // For manual and none modes, target is the turntable base or same height
-            let targetZ;
-            if (actualTiltAngle === 0) {
-                // Horizontal: target at center at same height
-                targetZ = baseZ;
-            } else if (actualTiltAngle < 0) {
-                // NEGATIVE angle = Tilted down: aim for turntable surface (Z=0)
-                targetZ = 0;
-            } else {
-                // POSITIVE angle = Tilted up: extend upward
-                targetZ = baseZ + 100; // Extend 100mm upward for visualization
-            }
-            
-            // Calculate intersection
-            if (Math.abs(dirZ) > 0.001) {
-                // Line has vertical component
-                const t = (targetZ - baseZ) / dirZ;
-                if (t > 0) {
-                    // Valid intersection ahead of camera
-                    tiltEndX = baseX + t * dirX;
-                    tiltEndY = baseY + t * dirY;
-                    tiltEndZ = targetZ;
-                } else {
-                    // Extend in opposite direction or horizontally
-                    const extendDist = 60; // 60mm extension
-                    tiltEndX = baseX + extendDist * dirX;
-                    tiltEndY = baseY + extendDist * dirY;
-                    tiltEndZ = baseZ + extendDist * dirZ;
-                }
-            } else {
-                // Horizontal line (0°) - extend to center at same height
-                const horizontalDist = Math.sqrt(baseX*baseX + baseY*baseY);
-                if (horizontalDist > 0.1) {
-                    // Normalize and extend to center
-                    const t = horizontalDist / Math.sqrt(dirX*dirX + dirY*dirY);
-                    tiltEndX = baseX + t * dirX;
-                    tiltEndY = baseY + t * dirY;
-                    tiltEndZ = baseZ;
-                } else {
-                    // Already at center, just extend slightly
-                    tiltEndX = baseX - 30;
-                    tiltEndY = baseY;
-                    tiltEndZ = baseZ;
-                }
-            }
+            // Origin is far - draw 100mm in the camera direction
+            tiltEndX = baseX + 100 * normDirX;
+            tiltEndY = baseY + 100 * normDirY;
+            tiltEndZ = baseZ + 100 * normDirZ;
         }
         
         // Add tilt line extending to center/focus point
