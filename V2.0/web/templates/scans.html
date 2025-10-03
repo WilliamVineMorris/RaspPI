@@ -2824,8 +2824,8 @@ function visualizeScanPath(points) {
         };
     });
     
-    // Create color array (blue to red gradient)
-    const colors = points.map((_, i) => i / (points.length - 1));
+    // Create color array using actual point indices (not normalized 0-1)
+    const colors = points.map((_, i) => i);
     
     // Extract coordinates
     const xCoords = cartesianPoints.map(p => p.x);
@@ -2856,9 +2856,12 @@ function visualizeScanPath(points) {
             colorscale: 'Portland',
             showscale: true,
             colorbar: {
-                title: 'Scan Order',
+                title: 'Point Index',
                 thickness: 15,
-                len: 0.7
+                len: 0.7,
+                tickmode: 'linear',
+                tick0: 0,
+                dtick: Math.max(1, Math.floor(points.length / 10))  // Show ~10 ticks
             }
         },
         line: {
