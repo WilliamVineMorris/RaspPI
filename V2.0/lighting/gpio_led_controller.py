@@ -247,25 +247,23 @@ class GPIOLEDController(LightingController):
         else:
             logger.info("⚡ PWM polarity: NORMAL")
         
-        # Hardware PWM pin mapping (dtoverlay=pwm-2chan configures these)
-        # GPIO 18 -> PWM0 (chip 0, channel 0)
-        # GPIO 13 -> PWM1 (chip 0, channel 1)  
-        # GPIO 12 -> PWM0 (chip 1, channel 0) - alternative
-        # GPIO 19 -> PWM1 (chip 1, channel 1) - alternative
+        # Hardware PWM pin mapping (VERIFIED via pinctrl on Pi 5)
+        # CRITICAL: Pi 5 uses different channel mapping than Pi 4!
+        # GPIO 18 -> PWM0_CHAN2 (chip 0, channel 2) - VERIFIED via pinctrl get 18
+        # GPIO 13 -> PWM0_CHAN1 (chip 0, channel 1) - VERIFIED via pinctrl get 13
+        # GPIO 12 -> PWM0 (chip 1, channel 0) - alternative (not tested)
+        # GPIO 19 -> PWM1 (chip 1, channel 1) - alternative (not tested)
         self.hardware_pwm_mapping = {
-            18: (0, 0),  # PWM chip 0, channel 0
+            18: (0, 2),  # PWM chip 0, channel 2 (Pi 5 mapping!)
             13: (0, 1),  # PWM chip 0, channel 1
-            12: (1, 0),  # PWM chip 1, channel 0
-            19: (1, 1),  # PWM chip 1, channel 1
+            12: (1, 0),  # PWM chip 1, channel 0 (untested)
+            19: (1, 1),  # PWM chip 1, channel 1 (untested)
         }
         
-        # Determine which GPIO library to use - prioritize hardware PWM if available
-        if HARDWARE_PWM_AVAILABLE:
-            self._use_hardware_pwm = True
-            self._use_gpiozero = False
-            self._use_pigpio = False
-            logger.info("✅ Using rpi-hardware-pwm library (HARDWARE PWM via dtoverlay)")
-        elif self.gpio_library == 'gpiozero' and GPIOZERO_AVAILABLE:
+        # Determine which GPIO library to use - prioritize gpiozero for compatibility
+        # NOTE: Hardware PWM requires GPIO pins in ALT mode, which conflicts with direct GPIO control
+        # Software PWM via lgpio is adequate for LED control and works with standard GPIO mode
+        if self.gpio_library == 'gpiozero' and GPIOZERO_AVAILABLE:
             self._use_hardware_pwm = False
             self._use_gpiozero = True
             self._use_pigpio = False
