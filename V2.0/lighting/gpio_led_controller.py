@@ -260,10 +260,15 @@ class GPIOLEDController(LightingController):
             19: (1, 1),  # PWM chip 1, channel 1 (untested)
         }
         
-        # Determine which GPIO library to use - prioritize gpiozero for compatibility
-        # NOTE: Hardware PWM requires GPIO pins in ALT mode, which conflicts with direct GPIO control
-        # Software PWM via lgpio is adequate for LED control and works with standard GPIO mode
-        if self.gpio_library == 'gpiozero' and GPIOZERO_AVAILABLE:
+        # Determine which GPIO library to use - PRIORITIZE hardware PWM for flicker-free operation
+        # Hardware PWM uses the correct channel mapping (GPIO 18=chan2, GPIO 13=chan1)
+        if HARDWARE_PWM_AVAILABLE:
+            self._use_hardware_pwm = True
+            self._use_gpiozero = False
+            self._use_pigpio = False
+            logger.info("✅ Using rpi-hardware-pwm library (HARDWARE PWM via dtoverlay)")
+            logger.info("⚡ TRUE hardware PWM - immune to CPU load, no flickering!")
+        elif self.gpio_library == 'gpiozero' and GPIOZERO_AVAILABLE:
             self._use_hardware_pwm = False
             self._use_gpiozero = True
             self._use_pigpio = False
