@@ -1,7 +1,9 @@
 # Coordinate Offset Integration Fix
 
 ## Problem
-FluidNC was receiving camera-relative coordinates instead of offset-corrected machine coordinates during actual scans.
+FluidNC was receiving camera-relative cFluidNC receives offset-corrected coordinates:
+- X: 130mm (radius) + 30mm (turntable X offset) + (-10mm) (camera X offset) = **150mm**
+- Y: 60mm (height) - 10mm (turntable Y offset) + 20mm (camera Y offset) = **70mm**dinates instead of offset-corrected machine coordinates during actual scans.
 
 **Symptom:**
 ```

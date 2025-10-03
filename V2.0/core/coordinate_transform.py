@@ -141,8 +141,8 @@ class CoordinateTransformer:
         """
         # FluidNC X is the radial position (with offsets applied)
         # Camera radius is relative to turntable center
-        # FluidNC X needs camera offset applied
-        fluidnc_x = camera_pos.radius + self.camera_offset_x
+        # Add turntable offset (where turntable is), then add camera offset
+        fluidnc_x = camera_pos.radius + self.turntable_offset_x + self.camera_offset_x
         
         # FluidNC Y is the vertical height (with offsets applied)
         # Camera height is relative to turntable surface
@@ -173,8 +173,9 @@ class CoordinateTransformer:
         Returns:
             CameraRelativePosition: Camera-relative cylindrical coordinates
         """
-        # FluidNC X is already the radial position, just remove camera offset
-        radius = fluidnc_pos.x - self.camera_offset_x
+        # FluidNC X is already the radial position, remove offsets
+        # Remove camera offset first, then turntable offset
+        radius = fluidnc_pos.x - self.camera_offset_x - self.turntable_offset_x
         
         # FluidNC Y is the height with offsets, remove them
         world_height = fluidnc_pos.y - self.camera_offset_y
