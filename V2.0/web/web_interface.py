@@ -1375,20 +1375,33 @@ class ScannerWebInterface:
                 if not data:
                     raise BadRequest("No JSON data provided")
                 
+                self.logger.info(f"📤 CSV Export request with data: {data.keys()}")
+                
                 # Generate points from pattern
                 from scanning.csv_validator import ScanPointValidator
                 from scanning.scan_patterns import CylindricalScanPattern, PatternParameters
                 
                 # Create pattern based on configuration
                 pattern = self._create_pattern_from_config(data)
+                self.logger.info(f"✅ Pattern created: {type(pattern).__name__}")
+                
                 scan_points = pattern.generate_points()
+                self.logger.info(f"✅ Generated {len(scan_points)} scan points")
+                
+                # Debug: Check first point
+                if scan_points:
+                    first_point = scan_points[0]
+                    self.logger.info(f"🔍 First point: pos={first_point.position}, settings={first_point.camera_settings}")
                 
                 # Get hardware limits for validator (for future use)
                 config_manager = self.orchestrator.config_manager if self.orchestrator else None
                 axes_config = config_manager.get_all_axes() if config_manager else {}
                 
                 validator = ScanPointValidator(axes_config)
+                self.logger.info(f"✅ Validator created")
+                
                 csv_content = validator.points_to_csv(scan_points)
+                self.logger.info(f"✅ CSV content generated: {len(csv_content)} chars")
                 
                 # Create response with CSV file
                 from flask import make_response
@@ -1399,7 +1412,7 @@ class ScannerWebInterface:
                 return response
                 
             except Exception as e:
-                self.logger.error(f"CSV export API error: {e}")
+                self.logger.error(f"CSV export API error: {e}", exc_info=True)
                 return jsonify({'success': False, 'error': str(e)}), 500
         
         @self.app.route('/api/scan/import_csv', methods=['POST'])
@@ -2974,14 +2987,21 @@ class ScannerWebInterface:
             
             # 🎯 FIX 1: Use explicit y_positions if provided
             y_positions = pattern_data.get('y_positions')
-            y_min = pattern_data.get('y_min', 40.0)
-            y_max = pattern_data.get('y_max', 120.0)
+            
+            # Handle both y_range (list) and y_min/y_max (individual values)
+            y_range = pattern_data.get('y_range')
+            if y_range and isinstance(y_range, list) and len(y_range) >= 2:
+                y_min = float(y_range[0])
+                y_max = float(y_range[1])
+            else:
+                y_min = float(pattern_data.get('y_min', 40.0))
+                y_max = float(pattern_data.get('y_max', 120.0))
             
             # 🎯 FIX 2: Calculate c_angles based on servo tilt mode
             servo_tilt_mode = pattern_data.get('servo_tilt_mode', 'none')
-            servo_manual_angle = pattern_data.get('servo_manual_angle', 0.0)
-            servo_y_focus = pattern_data.get('servo_y_focus', 80.0)
-            radius = pattern_data.get('radius', 150.0)
+            servo_manual_angle = float(pattern_data.get('servo_manual_angle', 0.0))
+            servo_y_focus = float(pattern_data.get('servo_y_focus', 80.0))
+            radius = float(pattern_data.get('radius', 150.0))
             
             c_angles = []
             

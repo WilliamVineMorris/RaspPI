@@ -272,13 +272,24 @@ class ScanPointValidator:
         
         # Write data
         for i, point in enumerate(points):
-            writer.writerow([
-                i,
-                f"{point.position.x:.3f}",
-                f"{point.position.y:.3f}",
-                f"{point.position.z:.3f}",
-                f"{point.position.c:.3f}"
-            ])
+            try:
+                # Ensure all position values are valid numbers
+                x = point.position.x if point.position.x is not None else 0.0
+                y = point.position.y if point.position.y is not None else 0.0
+                z = point.position.z if point.position.z is not None else 0.0
+                c = point.position.c if point.position.c is not None else 0.0
+                
+                writer.writerow([
+                    i,
+                    f"{x:.3f}",
+                    f"{y:.3f}",
+                    f"{z:.3f}",
+                    f"{c:.3f}"
+                ])
+            except (AttributeError, TypeError) as e:
+                logger.error(f"Error converting point {i} to CSV: {e}")
+                logger.error(f"Point data: {point}")
+                raise ValueError(f"Invalid point at index {i}: {e}")
         
         csv_content = output.getvalue()
         output.close()
