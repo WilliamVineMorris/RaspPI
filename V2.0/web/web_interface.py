@@ -3155,11 +3155,19 @@ class ScannerWebInterface:
         """
         Generate preview points from pattern configuration (for visualization)
         
+        Returns camera-relative coordinates (radius, height, rotation, tilt) for display.
+        The pattern internally uses FluidNC coordinates with offsets, but we convert
+        back to camera-relative for user-friendly visualization.
+        
         Args:
             pattern_data: Pattern configuration from web interface or CSV
             
         Returns:
-            List of point dictionaries with x, y, z, c coordinates
+            List of point dictionaries with camera-relative coordinates:
+            - x, y: Cartesian position from turntable center (for plotting)
+            - z: Height above turntable surface
+            - c: Camera tilt angle
+            - radius, height, rotation: Camera-relative coordinates
         """
         # Check if this is a custom CSV pattern or a standard pattern
         if 'custom_points' in pattern_data:
@@ -3170,16 +3178,39 @@ class ScannerWebInterface:
         pattern = self._create_pattern_from_config(pattern_data)
         scan_points = pattern.generate_points()
         
-        # Convert ScanPoint objects to simple dictionaries
+        # Convert ScanPoint objects to camera-relative coordinates for visualization
         preview_points = []
         for i, point in enumerate(scan_points):
-            preview_points.append({
-                'index': i,
-                'x': point.position.x,
-                'y': point.position.y,
-                'z': point.position.z,
-                'c': point.position.c
-            })
+            # The pattern contains FluidNC coordinates (with offsets applied)
+            # Convert back to camera-relative for display
+            if self.coord_transformer:
+                camera_pos = self.coord_transformer.fluidnc_to_camera(point.position)
+                
+                # Convert cylindrical to Cartesian for Plotly visualization
+                import math
+                x_cart = camera_pos.radius * math.cos(math.radians(camera_pos.rotation))
+                y_cart = camera_pos.radius * math.sin(math.radians(camera_pos.rotation))
+                
+                preview_points.append({
+                    'index': i,
+                    'x': x_cart,  # Cartesian X for plotting
+                    'y': y_cart,  # Cartesian Y for plotting
+                    'z': camera_pos.height,  # Height above turntable
+                    'c': camera_pos.tilt,  # Camera tilt angle
+                    'radius': camera_pos.radius,  # Store for tooltip
+                    'height': camera_pos.height,  # Store for tooltip
+                    'rotation': camera_pos.rotation  # Store for tooltip
+                })
+            else:
+                # Fallback: Use FluidNC coordinates directly (no offset correction)
+                # This will show incorrect positions if offsets are configured
+                preview_points.append({
+                    'index': i,
+                    'x': point.position.x,
+                    'y': point.position.y,
+                    'z': point.position.z,
+                    'c': point.position.c
+                })
         
         return preview_points
     
