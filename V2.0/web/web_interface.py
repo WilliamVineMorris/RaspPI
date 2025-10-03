@@ -3229,24 +3229,19 @@ class ScannerWebInterface:
                     c_angles.append(0.0)
             
             # Generate preview points in camera-relative coordinates
+            # Frontend expects: x=radius, y=height, z=rotation, c=tilt
+            # (Frontend will convert cylindrical to Cartesian for Plotly)
             preview_points = []
             point_index = 0
             
             for height_idx, y_pos in enumerate(y_positions):
                 for rotation in z_rotations:
-                    # Convert cylindrical to Cartesian for visualization
-                    x_cart = radius * math.cos(math.radians(rotation))
-                    y_cart = radius * math.sin(math.radians(rotation))
-                    
                     preview_points.append({
                         'index': point_index,
-                        'x': x_cart,  # Cartesian X from turntable center
-                        'y': y_cart,  # Cartesian Y from turntable center
-                        'z': y_pos,   # Height above turntable (camera-relative)
-                        'c': c_angles[height_idx],  # Camera tilt angle
-                        'radius': radius,  # Store for tooltip
-                        'height': y_pos,   # Store for tooltip
-                        'rotation': rotation  # Store for tooltip
+                        'x': radius,              # Radius (frontend will convert to Cartesian)
+                        'y': y_pos,               # Height above turntable
+                        'z': rotation,            # Rotation angle in degrees
+                        'c': c_angles[height_idx] # Camera tilt angle
                     })
                     point_index += 1
             
