@@ -127,24 +127,28 @@ class CoordinateTransformer:
         """
         Convert camera-relative cylindrical coordinates to FluidNC machine coordinates.
         
+        IMPORTANT: FluidNC uses cylindrical-like coordinates!
+        - FluidNC X = radial camera position (distance from turntable center)
+        - FluidNC Y = vertical camera height
+        - FluidNC Z = turntable rotation angle
+        - FluidNC C = camera tilt angle
+        
         Args:
             camera_pos: Camera-relative position (radius, height, rotation, tilt)
             
         Returns:
             Position4D: FluidNC machine coordinates (x, y, z, c)
         """
-        # Convert cylindrical to cartesian relative to turntable center
-        rotation_rad = math.radians(camera_pos.rotation)
-        camera_x_cyl = camera_pos.radius * math.cos(rotation_rad)
-        camera_y_cyl = camera_pos.radius * math.sin(rotation_rad)
+        # FluidNC X is the radial position (with offsets applied)
+        # Camera radius is relative to turntable center
+        # FluidNC X needs camera offset applied
+        fluidnc_x = camera_pos.radius + self.camera_offset_x
         
-        # Apply turntable offset to get world coordinates
-        world_x = camera_x_cyl + self.turntable_offset_x
-        world_z = camera_pos.height + self.turntable_offset_y
-        
-        # Apply camera offset to get FluidNC coordinates
-        fluidnc_x = world_x - self.camera_offset_x
-        fluidnc_y = world_z - self.camera_offset_y
+        # FluidNC Y is the vertical height (with offsets applied)
+        # Camera height is relative to turntable surface
+        # Add turntable offset, then add camera offset
+        world_height = camera_pos.height + self.turntable_offset_y
+        fluidnc_y = world_height + self.camera_offset_y
         
         return Position4D(
             x=fluidnc_x,
@@ -157,36 +161,28 @@ class CoordinateTransformer:
         """
         Convert FluidNC machine coordinates to camera-relative cylindrical coordinates.
         
+        IMPORTANT: FluidNC uses cylindrical-like coordinates!
+        - FluidNC X = radial camera position (already a radius!)
+        - FluidNC Y = vertical camera height
+        - FluidNC Z = turntable rotation angle
+        - FluidNC C = camera tilt angle
+        
         Args:
             fluidnc_pos: FluidNC machine position (x, y, z, c)
             
         Returns:
             CameraRelativePosition: Camera-relative cylindrical coordinates
         """
-        # Apply camera offset to get world coordinates
-        world_x = fluidnc_pos.x + self.camera_offset_x
-        world_z = fluidnc_pos.y + self.camera_offset_y
+        # FluidNC X is already the radial position, just remove camera offset
+        radius = fluidnc_pos.x - self.camera_offset_x
         
-        # Subtract turntable offset
-        camera_x_cyl = world_x - self.turntable_offset_x
-        camera_z = world_z - self.turntable_offset_y
-        
-        # Reconstruct camera_y_cyl from rotation angle
-        rotation_rad = math.radians(fluidnc_pos.z)
-        
-        # Calculate radius from cylindrical position
-        # We know: camera_x_cyl = radius * cos(rotation)
-        # So: radius = camera_x_cyl / cos(rotation) if cos != 0
-        if abs(math.cos(rotation_rad)) > 0.001:
-            radius = camera_x_cyl / math.cos(rotation_rad)
-        else:
-            # At 90° or 270°, use Y component
-            camera_y_cyl = math.sin(rotation_rad)
-            radius = camera_y_cyl / math.sin(rotation_rad) if abs(math.sin(rotation_rad)) > 0.001 else 0.0
+        # FluidNC Y is the height with offsets, remove them
+        world_height = fluidnc_pos.y - self.camera_offset_y
+        height = world_height - self.turntable_offset_y
         
         return CameraRelativePosition(
-            radius=abs(radius),  # Radius is always positive
-            height=camera_z,
+            radius=radius,
+            height=height,
             rotation=fluidnc_pos.z,
             tilt=fluidnc_pos.c
         )
