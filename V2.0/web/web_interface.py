@@ -3231,11 +3231,14 @@ class ScannerWebInterface:
             # Generate preview points in camera-relative coordinates
             # Frontend expects: x=radius, y=height, z=rotation, c=tilt
             # (Frontend will convert cylindrical to Cartesian for Plotly)
+            # IMPORTANT: Match the actual scan order from CylindricalScanPattern.generate_points()
+            # Order: rotation (outer loop) → height (inner loop) → radius
             preview_points = []
             point_index = 0
             
-            for height_idx, y_pos in enumerate(y_positions):
-                for rotation in z_rotations:
+            # Match actual scan pattern order: rotate first, then height
+            for rotation in z_rotations:
+                for height_idx, y_pos in enumerate(y_positions):
                     preview_points.append({
                         'index': point_index,
                         'x': radius,              # Radius (frontend will convert to Cartesian)
