@@ -1150,6 +1150,52 @@
             // Start camera refresh
             startCameraRefresh();
             
+            // Equalize panel heights in the dashboard grid
+            function equalizePanelHeights() {
+                const panels = document.querySelectorAll('.status-panel, .actions-panel, .reserved-panel, .camera-panel');
+                if (panels.length === 0) return;
+                
+                // Reset heights to auto to get natural heights
+                panels.forEach(panel => {
+                    panel.style.height = 'auto';
+                });
+                
+                // Get the maximum height
+                let maxHeight = 0;
+                panels.forEach(panel => {
+                    const height = panel.offsetHeight;
+                    if (height > maxHeight) {
+                        maxHeight = height;
+                    }
+                });
+                
+                // Set all panels to the maximum height
+                panels.forEach(panel => {
+                    panel.style.height = maxHeight + 'px';
+                });
+                
+                console.log('📏 Equalized panel heights to:', maxHeight + 'px');
+            }
+            
+            // Equalize heights after content loads
+            setTimeout(() => {
+                equalizePanelHeights();
+            }, 500);
+            
+            // Re-equalize when window is resized
+            window.addEventListener('resize', () => {
+                clearTimeout(window.resizeTimer);
+                window.resizeTimer = setTimeout(equalizePanelHeights, 250);
+            });
+            
+            // Re-equalize after camera loads
+            const cameraImg = document.getElementById('camera0Feed');
+            if (cameraImg) {
+                cameraImg.addEventListener('load', () => {
+                    setTimeout(equalizePanelHeights, 100);
+                });
+            }
+            
             // Initial status refresh after a short delay to ensure everything is loaded
             setTimeout(() => {
                 console.log('Triggering initial status refresh...');
