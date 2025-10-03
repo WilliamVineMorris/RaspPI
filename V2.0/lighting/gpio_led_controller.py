@@ -14,6 +14,7 @@ Platform: Raspberry Pi 5
 import asyncio
 import logging
 import time
+import subprocess
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Tuple, Union
 from pathlib import Path
@@ -260,6 +261,15 @@ class GPIOLEDController(LightingController):
             19: (1, 1),  # PWM chip 1, channel 1 (untested)
         }
         
+        # GPIO ALT function modes for hardware PWM (Pi 5)
+        # These must be set for the GPIO pins to route to PWM hardware
+        self.gpio_alt_modes = {
+            18: 'a5',  # GPIO 18 needs ALT5 for PWM0_CHAN2
+            13: 'a0',  # GPIO 13 needs ALT0 for PWM0_CHAN1
+            12: 'a0',  # GPIO 12 needs ALT0 for PWM0_CHAN0
+            19: 'a1',  # GPIO 19 needs ALT1 for PWM1_CHAN1
+        }
+        
         # Determine which GPIO library to use - PRIORITIZE hardware PWM for flicker-free operation
         # Hardware PWM uses the correct channel mapping (GPIO 18=chan2, GPIO 13=chan1)
         if HARDWARE_PWM_AVAILABLE:
@@ -268,6 +278,7 @@ class GPIOLEDController(LightingController):
             self._use_pigpio = False
             logger.info("✅ Using rpi-hardware-pwm library (HARDWARE PWM via dtoverlay)")
             logger.info("⚡ TRUE hardware PWM - immune to CPU load, no flickering!")
+            logger.info("🔧 Will auto-configure GPIO ALT modes for hardware PWM routing")
         elif self.gpio_library == 'gpiozero' and GPIOZERO_AVAILABLE:
             self._use_hardware_pwm = False
             self._use_gpiozero = True
@@ -452,6 +463,71 @@ class GPIOLEDController(LightingController):
             logger.error(f"Failed to initialize GPIO LED controller: {e}")
             raise LEDError(f"Initialization failed: {e}")
     
+    def _configure_gpio_alt_mode(self, pin: int) -> bool:
+        """
+        Configure GPIO pin to ALT function mode for hardware PWM.
+        
+        This is required because the dtoverlay may not load automatically.
+        We use pinctrl to set the correct ALT mode for PWM routing.
+        
+        Args:
+            pin: GPIO pin number
+            
+        Returns:
+            True if configuration succeeded, False otherwise
+        """
+        if pin not in self.gpio_alt_modes:
+            logger.error(f"❌ No ALT mode defined for GPIO {pin}")
+            return False
+        
+        alt_mode = self.gpio_alt_modes[pin]
+        
+        try:
+            # Check current pin mode
+            result = subprocess.run(
+                ['pinctrl', 'get', str(pin)],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            
+            current_mode = result.stdout.strip()
+            logger.info(f"🔍 GPIO {pin} current mode: {current_mode}")
+            
+            # Set to ALT mode if not already configured
+            if alt_mode not in current_mode:
+                logger.info(f"🔧 Setting GPIO {pin} to {alt_mode.upper()} for hardware PWM...")
+                result = subprocess.run(
+                    ['sudo', 'pinctrl', 'set', str(pin), alt_mode],
+                    capture_output=True,
+                    text=True,
+                    timeout=2
+                )
+                
+                if result.returncode == 0:
+                    # Verify the change
+                    verify = subprocess.run(
+                        ['pinctrl', 'get', str(pin)],
+                        capture_output=True,
+                        text=True,
+                        timeout=2
+                    )
+                    logger.info(f"✅ GPIO {pin} configured: {verify.stdout.strip()}")
+                    return True
+                else:
+                    logger.error(f"❌ Failed to set GPIO {pin} ALT mode: {result.stderr}")
+                    return False
+            else:
+                logger.info(f"✅ GPIO {pin} already in correct ALT mode")
+                return True
+                
+        except subprocess.TimeoutExpired:
+            logger.error(f"❌ Timeout setting GPIO {pin} ALT mode")
+            return False
+        except Exception as e:
+            logger.error(f"❌ Error configuring GPIO {pin} ALT mode: {e}")
+            return False
+    
     async def _initialize_zone(self, zone: LEDZone) -> None:
         """Initialize GPIO pins and PWM for a zone"""
         try:
@@ -468,6 +544,12 @@ class GPIOLEDController(LightingController):
                     
                     chip, channel = self.hardware_pwm_mapping[pin]
                     logger.info(f"⚡⚡⚡ GPIO {pin} -> PWM CHIP {chip} CHANNEL {channel} (TRUE HARDWARE PWM)")
+                    
+                    # CRITICAL: Configure GPIO to ALT mode for hardware PWM routing
+                    # The dtoverlay may not load automatically, so we set it manually
+                    if not self._configure_gpio_alt_mode(pin):
+                        logger.warning(f"⚠️  Failed to set GPIO {pin} ALT mode - LEDs may not work!")
+                        logger.warning(f"⚠️  Try running: sudo pinctrl set {pin} {self.gpio_alt_modes.get(pin, 'unknown')}")
                     
                     # Create HardwarePWM object
                     # Note: HardwarePWM uses channel index (0 or 1) and frequency
