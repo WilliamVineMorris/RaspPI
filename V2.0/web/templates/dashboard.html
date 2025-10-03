@@ -115,6 +115,24 @@
         width: 100%;
     }
     
+    /* Make all panels in first row match height */
+    .status-panel,
+    .actions-panel,
+    .reserved-panel,
+    .camera-panel {
+        min-height: 500px;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .status-panel .status-grid,
+    .actions-panel .action-grid {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+    
     /* Ensure main content allows horizontal scrolling on smaller screens */
     .main-content {
         flex: 1;
