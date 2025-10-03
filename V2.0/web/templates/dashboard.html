@@ -919,7 +919,10 @@
             try {
                 console.log('Refreshing status...');
                 const response = await fetch('/api/status');
-                const status = await response.json();
+                const result = await response.json();
+                
+                // API returns {success: true, data: {motion, cameras, lighting, scan}}
+                const status = result.data || result;  // Handle both wrapped and unwrapped formats
                 
                 console.log('Status received:', status);
                 
@@ -930,7 +933,7 @@
                 } else {
                     console.log('Dashboard not available, using fallback');
                     // Fallback to basic updates
-                    updateBasicMotionStatus(status);
+                    updateBasicMotionStatus({data: status});  // Wrap for compatibility
                 }
                 
                 // Update camera status
@@ -959,25 +962,38 @@
                 
                 // Update lighting status
                 if (status.lighting) {
+                    console.log('Lighting status:', status.lighting);
+                    
                     const zonesElement = document.getElementById('lightingZones');
                     if (zonesElement) {
-                        zonesElement.textContent = status.lighting.zones ? status.lighting.zones.length : 0;
+                        const zoneCount = status.lighting.zones ? status.lighting.zones.length : 0;
+                        zonesElement.textContent = zoneCount;
+                        console.log('Lighting zones count:', zoneCount);
                     }
                     
                     const stateElement = document.getElementById('lightingState');
                     if (stateElement) {
-                        stateElement.textContent = status.lighting.status || 'Unknown';
+                        const lightingStatus = status.lighting.status || 'Unknown';
+                        stateElement.textContent = lightingStatus;
+                        console.log('Lighting state:', lightingStatus);
                     }
                     
                     const statusElement = document.getElementById('lightingStatus');
                     if (statusElement) {
-                        const isAvailable = status.lighting.status && status.lighting.status.toLowerCase() === 'available';
+                        // Check if lighting is available/ready
+                        const isAvailable = status.lighting.status && 
+                                          (status.lighting.status.toLowerCase() === 'available' ||
+                                           status.lighting.status.toLowerCase() === 'ready' ||
+                                           status.lighting.zones && status.lighting.zones.length > 0);
                         statusElement.className = 'status-indicator ' + (isAvailable ? 'ready' : 'error');
+                        console.log('Lighting indicator:', isAvailable ? 'ready (green)' : 'error (red)');
                     }
                 }
                 
                 // Update scan status
                 if (status.scan) {
+                    console.log('Scan status:', status.scan);
+                    
                     const progressElement = document.getElementById('scanProgress');
                     if (progressElement) {
                         const progress = status.scan.progress || 0;
@@ -993,26 +1009,30 @@
                     
                     const phaseElement = document.getElementById('scanPhase');
                     if (phaseElement) {
-                        phaseElement.textContent = status.scan.phase || 'Idle';
+                        phaseElement.textContent = status.scan.phase || 'idle';
                     }
                     
                     const stateElement = document.getElementById('scanState');
                     if (stateElement) {
-                        stateElement.textContent = status.scan.state || 'Unknown';
+                        const scanState = status.scan.status || status.scan.state || 'idle';
+                        stateElement.textContent = scanState;
                     }
                     
                     const statusElement = document.getElementById('scanStatus');
                     if (statusElement) {
-                        const isActive = status.scan.state && 
-                                       (status.scan.state.toLowerCase() === 'running' || 
-                                        status.scan.state.toLowerCase() === 'active');
-                        const hasError = status.scan.state && status.scan.state.toLowerCase() === 'error';
+                        const scanActive = status.scan.active || false;
+                        const scanState = (status.scan.status || status.scan.state || 'idle').toLowerCase();
+                        const hasError = scanState === 'error';
                         
                         let statusClass = 'idle';
-                        if (isActive) statusClass = 'busy';
-                        else if (hasError) statusClass = 'error';
+                        if (scanActive || scanState === 'running' || scanState === 'active') {
+                            statusClass = 'busy';
+                        } else if (hasError) {
+                            statusClass = 'error';
+                        }
                         
                         statusElement.className = 'status-indicator ' + statusClass;
+                        console.log('Scan indicator:', statusClass);
                     }
                 }
                 
