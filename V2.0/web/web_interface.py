@@ -2467,16 +2467,58 @@ class ScannerWebInterface:
             if self.orchestrator and hasattr(self.orchestrator, 'current_scan') and self.orchestrator.current_scan:
                 try:
                     scan = self.orchestrator.current_scan
+                    self.logger.info(f"🔍 Getting scan status - scan.status: {scan.status}, scan.phase: {scan.phase}")
+                    
+                    # Get progress data with proper attribute access
+                    progress_pct = 0.0
+                    current_point = 0
+                    total_points = 0
+                    
+                    if hasattr(scan, 'progress'):
+                        progress_pct = getattr(scan.progress, 'completion_percentage', 0.0)
+                        current_point = getattr(scan.progress, 'current_point', 0)
+                        total_points = getattr(scan.progress, 'total_points', 0)
+                        self.logger.info(f"📊 Scan progress: {progress_pct:.1f}% ({current_point}/{total_points})")
+                    else:
+                        self.logger.warning("⚠️  Scan has no progress attribute")
+                    
+                    # Get phase with proper enum handling
+                    phase_str = 'unknown'
+                    if hasattr(scan, 'phase'):
+                        if hasattr(scan.phase, 'value'):
+                            phase_str = scan.phase.value
+                        else:
+                            phase_str = str(scan.phase)
+                    
+                    # Get status with proper enum handling
+                    status_str = 'unknown'
+                    if hasattr(scan, 'status'):
+                        if hasattr(scan.status, 'value'):
+                            status_str = scan.status.value
+                        else:
+                            status_str = str(scan.status)
+                    
                     status['scan'].update({
-                        'active': scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED],
-                        'status': scan.status.value if hasattr(scan.status, 'value') else str(scan.status),
-                        'progress': scan.progress.completion_percentage if hasattr(scan, 'progress') else 0.0,
-                        'current_point': scan.progress.points_completed if hasattr(scan, 'progress') else 0,
-                        'total_points': scan.progress.total_points if hasattr(scan, 'progress') else 0,
-                        'phase': scan.current_phase.value if hasattr(scan, 'current_phase') and hasattr(scan.current_phase, 'value') else 'unknown'
+                        'active': hasattr(scan, 'status') and scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED],
+                        'status': status_str,
+                        'progress': progress_pct,
+                        'current_point': current_point,
+                        'total_points': total_points,
+                        'phase': phase_str
                     })
+                    
+                    self.logger.info(f"✅ Scan status updated: {status_str}, {progress_pct:.1f}%, phase={phase_str}")
+                    
                 except Exception as e:
+                    self.logger.error(f"❌ Scan status error: {e}", exc_info=True)
                     status['system']['errors'].append(f"Scan status error: {e}")
+            else:
+                if not self.orchestrator:
+                    self.logger.debug("No orchestrator available")
+                elif not hasattr(self.orchestrator, 'current_scan'):
+                    self.logger.debug("Orchestrator has no current_scan attribute")
+                elif not self.orchestrator.current_scan:
+                    self.logger.debug("current_scan is None")
             
             status['system']['ready'] = len(status['system']['errors']) == 0
             self.logger.debug(f"Final status being returned: motion.connected={status['motion']['connected']}, cameras.available={status['cameras']['available']}")
