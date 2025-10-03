@@ -2425,25 +2425,38 @@ class ScannerWebInterface:
             if self.orchestrator and hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
                 try:
                     lighting_ctrl = self.orchestrator.lighting_controller
+                    self.logger.info(f"🔍 Checking lighting controller: {lighting_ctrl.__class__.__name__}")
+                    
                     # Use zone_configs property to get available zones
                     if hasattr(lighting_ctrl, 'zone_configs'):
                         zone_ids = list(lighting_ctrl.zone_configs.keys())
+                        self.logger.info(f"💡 Found {len(zone_ids)} lighting zones: {zone_ids}")
+                        
                         # Check if lighting is initialized and available
-                        is_available = hasattr(lighting_ctrl, 'status') and lighting_ctrl.status != 'error'
+                        # The controller might not have a 'status' attribute yet, so just check if zones exist
+                        is_available = len(zone_ids) > 0
+                        
                         status['lighting'].update({
                             'zones': zone_ids,
-                            'status': 'available' if is_available and zone_ids else 'no_zones_configured'
+                            'status': 'available' if is_available else 'no_zones_configured'
                         })
-                        self.logger.debug(f"Lighting status: zones={zone_ids}, available={is_available}")
+                        self.logger.info(f"💡 Lighting status updated: zones={zone_ids}, status={'available' if is_available else 'no_zones_configured'}")
                     else:
+                        self.logger.warning(f"⚠️  Lighting controller has no zone_configs attribute")
                         # Fallback if zone_configs not available
                         status['lighting'].update({
                             'zones': [],
-                            'status': 'unknown'
+                            'status': 'no_zone_configs_attr'
                         })
                 except Exception as e:
-                    self.logger.error(f"Lighting status error: {e}")
+                    self.logger.error(f"❌ Lighting status error: {e}", exc_info=True)
                     status['system']['errors'].append(f"Lighting controller error: {e}")
+                    status['lighting'].update({
+                        'zones': [],
+                        'status': f'error: {str(e)}'
+                    })
+            else:
+                self.logger.warning(f"⚠️  Lighting controller not available in orchestrator")
             
             # Get scan status
             if self.orchestrator and hasattr(self.orchestrator, 'current_scan') and self.orchestrator.current_scan:
