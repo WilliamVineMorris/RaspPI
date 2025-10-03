@@ -2424,20 +2424,25 @@ class ScannerWebInterface:
             # Get lighting status
             if self.orchestrator and hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
                 try:
-                    # Use synchronous status method if available
-                    if hasattr(self.orchestrator.lighting_controller, 'get_sync_status'):
-                        lighting_status = self.orchestrator.lighting_controller.get_sync_status()
+                    lighting_ctrl = self.orchestrator.lighting_controller
+                    # Use zone_configs property to get available zones
+                    if hasattr(lighting_ctrl, 'zone_configs'):
+                        zone_ids = list(lighting_ctrl.zone_configs.keys())
+                        # Check if lighting is initialized and available
+                        is_available = hasattr(lighting_ctrl, 'status') and lighting_ctrl.status != 'error'
                         status['lighting'].update({
-                            'zones': list(lighting_status.get('zones', {}).keys()),
-                            'status': lighting_status.get('status', 'unknown')
+                            'zones': zone_ids,
+                            'status': 'available' if is_available and zone_ids else 'no_zones_configured'
                         })
+                        self.logger.debug(f"Lighting status: zones={zone_ids}, available={is_available}")
                     else:
-                        # Fallback for other lighting controllers
+                        # Fallback if zone_configs not available
                         status['lighting'].update({
                             'zones': [],
-                            'status': 'sync_method_unavailable'
+                            'status': 'unknown'
                         })
                 except Exception as e:
+                    self.logger.error(f"Lighting status error: {e}")
                     status['system']['errors'].append(f"Lighting controller error: {e}")
             
             # Get scan status
