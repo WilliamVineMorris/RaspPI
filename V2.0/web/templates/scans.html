@@ -2963,7 +2963,7 @@ function visualizeScanPath(points) {
             // Hardware Convention: 0° = horizontal toward center, NEGATIVE = tilted down, POSITIVE = tilted up
             const dirX = -Math.cos(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
             const dirY = -Math.sin(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component  
-            const dirZ = Math.sin(c_rad); // Vertical component
+            const dirZ = -Math.sin(c_rad); // Vertical component (negative sign: negative tilt = down)
             
             // Normalize direction vector
             const dirLength = Math.sqrt(dirX*dirX + dirY*dirY + dirZ*dirZ);
