@@ -239,6 +239,14 @@ class GPIOLEDController(LightingController):
         # Hardware PWM objects (if using rpi-hardware-pwm)
         self.hardware_pwm_objects: Dict[str, List[HardwarePWM]] = {}
         
+        # Hardware PWM configuration
+        # Check if inverted polarity is needed (for N-channel MOSFETs or inverted drivers)
+        self.pwm_polarity_inverted = config.get('pwm_polarity_inverted', False)
+        if self.pwm_polarity_inverted:
+            logger.info("⚡ PWM polarity: INVERTED (for N-channel MOSFET/inverted drivers)")
+        else:
+            logger.info("⚡ PWM polarity: NORMAL")
+        
         # Hardware PWM pin mapping (dtoverlay=pwm-2chan configures these)
         # GPIO 18 -> PWM0 (chip 0, channel 0)
         # GPIO 13 -> PWM1 (chip 0, channel 1)  
@@ -462,6 +470,18 @@ class GPIOLEDController(LightingController):
                     # Note: HardwarePWM uses channel index (0 or 1) and frequency
                     pwm = HardwarePWM(pwm_channel=channel, hz=self.pwm_frequency, chip=chip)
                     pwm.start(0)  # Start with 0% duty cycle
+                    
+                    # Set polarity if inverted (for N-channel MOSFETs or inverted drivers)
+                    if self.pwm_polarity_inverted:
+                        try:
+                            # Access sysfs directly to set polarity
+                            polarity_path = f'/sys/class/pwm/pwmchip{chip}/pwm{channel}/polarity'
+                            with open(polarity_path, 'w') as f:
+                                f.write('inversed')
+                            logger.info(f"⚡ GPIO {pin} polarity set to INVERTED")
+                        except Exception as e:
+                            logger.warning(f"⚠️  Could not set inverted polarity on GPIO {pin}: {e}")
+                            logger.warning(f"⚠️  LEDs may not light up - try running with sudo or check permissions")
                     
                     # Store hardware PWM object for zone
                     if zone.zone_id not in self.hardware_pwm_objects:
