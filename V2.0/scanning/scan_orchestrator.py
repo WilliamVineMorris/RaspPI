@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 from core.config_manager import ConfigManager
 from core.events import EventBus, EventPriority
 from core.exceptions import ScannerSystemError, HardwareError, ConfigurationError
+from core.coordinate_transform import CoordinateTransformer, CameraRelativePosition
 
 from .scan_patterns import ScanPattern, ScanPoint, GridScanPattern
 from .scan_state import ScanState, ScanStatus, ScanPhase
@@ -2427,6 +2428,10 @@ class ScanOrchestrator:
                 self.storage_manager = MockStorageManager(config_manager)
         self.event_bus = EventBus()
         
+        # Initialize coordinate transformer for camera-relative to FluidNC conversion
+        self.coord_transformer = CoordinateTransformer(config_manager)
+        self.logger.info("✅ Coordinate transformer initialized for offset compensation")
+        
         # Active scan state
         self.current_scan: Optional[ScanState] = None
         self.current_pattern: Optional[ScanPattern] = None
@@ -3752,7 +3757,17 @@ class ScanOrchestrator:
         if self.current_scan:
             self.current_scan.set_phase(ScanPhase.POSITIONING)
         
-        self.logger.info(f"📐 Moving to scan point: X={point.position.x:.1f}, Y={point.position.y:.1f}, Z={point.position.z:.1f}°, C={point.position.c:.1f}°")
+        # Convert camera-relative coordinates to FluidNC machine coordinates
+        camera_pos = CameraRelativePosition(
+            radius=point.position.x,
+            height=point.position.y,
+            rotation=point.position.z,
+            tilt=point.position.c
+        )
+        fluidnc_pos = self.coord_transformer.camera_to_fluidnc(camera_pos)
+        
+        self.logger.info(f"📐 Camera position: radius={camera_pos.radius:.1f}mm, height={camera_pos.height:.1f}mm, rotation={camera_pos.rotation:.1f}°, tilt={camera_pos.tilt:.1f}°")
+        self.logger.info(f"🔧 FluidNC position: X={fluidnc_pos.x:.1f}, Y={fluidnc_pos.y:.1f}, Z={fluidnc_pos.z:.1f}°, C={fluidnc_pos.c:.1f}°")
         
         # OPTIMIZED: Move to full 4D position with optional servo tilt calculation
         # Servo tilt is now configurable per scan, not applied by default
@@ -3760,10 +3775,10 @@ class ScanOrchestrator:
             # Convert core.types.Position4D to motion.base.Position4D if needed
             from motion.base import Position4D as MotionPosition4D
             motion_pos = MotionPosition4D(
-                x=point.position.x, 
-                y=point.position.y, 
-                z=point.position.z, 
-                c=point.position.c
+                x=fluidnc_pos.x, 
+                y=fluidnc_pos.y, 
+                z=fluidnc_pos.z, 
+                c=fluidnc_pos.c
             )
             
             # Check if servo tilt is enabled for this specific scan
