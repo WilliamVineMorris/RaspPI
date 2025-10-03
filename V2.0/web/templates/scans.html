@@ -2960,55 +2960,65 @@ function visualizeScanPath(points) {
         const centerY = 0;
         const centerZ = focusYPosition; // Target height (focus point or turntable center)
         
-        // For visualization, draw line in camera direction but stop at central axis or 100mm max
+        // For visualization, draw line based on servo tilt mode
         let tiltEndX, tiltEndY, tiltEndZ;
         
-        // Direction from camera position based on tilt angle
-        // Hardware Convention: 0° = horizontal toward center, NEGATIVE = tilted down, POSITIVE = tilted up
-        const dirX = -Math.cos(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
-        const dirY = -Math.sin(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component  
-        const dirZ = Math.sin(c_rad); // Vertical component
-        
-        // Normalize direction vector
-        const dirLength = Math.sqrt(dirX*dirX + dirY*dirY + dirZ*dirZ);
-        const normDirX = dirX / dirLength;
-        const normDirY = dirY / dirLength;
-        const normDirZ = dirZ / dirLength;
-        
-        // Find where line would cross the central axis (X=0, Y=0 plane)
-        // Parametric line: P(t) = camera_pos + t * direction
-        // For central axis crossing: baseX + t*normDirX = 0 AND baseY + t*normDirY = 0
-        // We need the point where horizontal distance from axis is minimized
-        
-        // Calculate parameter t where line is closest to central axis (X=0, Y=0)
-        // Minimize: (baseX + t*normDirX)² + (baseY + t*normDirY)²
-        // Taking derivative and solving: t = -(baseX*normDirX + baseY*normDirY) / (normDirX² + normDirY²)
-        const horizontalDirSq = normDirX*normDirX + normDirY*normDirY;
-        
-        let t_max = 100; // Default: draw 100mm max
-        
-        if (horizontalDirSq > 0.001) {
-            // Line has horizontal component - check if it crosses central axis
-            const t_axis = -(baseX*normDirX + baseY*normDirY) / horizontalDirSq;
+        // Check servo tilt mode to determine line endpoint
+        if (servoTiltMode === 'focus_point') {
+            // Focus Point Targeting mode - point directly at focus point
+            tiltEndX = centerX;  // 0
+            tiltEndY = centerY;  // 0
+            tiltEndZ = centerZ;  // focusYPosition (20mm default)
+        } else {
+            // Direction Matching mode - draw line in camera direction but stop at central axis or 100mm max
             
-            if (t_axis > 0 && t_axis < 100) {
-                // Line would cross axis within 100mm - stop just before
-                // Calculate horizontal distance from axis at this point
-                const axisX = baseX + t_axis * normDirX;
-                const axisY = baseY + t_axis * normDirY;
-                const distFromAxis = Math.sqrt(axisX*axisX + axisY*axisY);
+            // Direction from camera position based on tilt angle
+            // Hardware Convention: 0° = horizontal toward center, NEGATIVE = tilted down, POSITIVE = tilted up
+            const dirX = -Math.cos(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
+            const dirY = -Math.sin(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component  
+            const dirZ = Math.sin(c_rad); // Vertical component
+            
+            // Normalize direction vector
+            const dirLength = Math.sqrt(dirX*dirX + dirY*dirY + dirZ*dirZ);
+            const normDirX = dirX / dirLength;
+            const normDirY = dirY / dirLength;
+            const normDirZ = dirZ / dirLength;
+            
+            // Find where line would cross the central axis (X=0, Y=0 plane)
+            // Parametric line: P(t) = camera_pos + t * direction
+            // For central axis crossing: baseX + t*normDirX = 0 AND baseY + t*normDirY = 0
+            // We need the point where horizontal distance from axis is minimized
+            
+            // Calculate parameter t where line is closest to central axis (X=0, Y=0)
+            // Minimize: (baseX + t*normDirX)² + (baseY + t*normDirY)²
+            // Taking derivative and solving: t = -(baseX*normDirX + baseY*normDirY) / (normDirX² + normDirY²)
+            const horizontalDirSq = normDirX*normDirX + normDirY*normDirY;
+            
+            let t_max = 100; // Default: draw 100mm max
+            
+            if (horizontalDirSq > 0.001) {
+                // Line has horizontal component - check if it crosses central axis
+                const t_axis = -(baseX*normDirX + baseY*normDirY) / horizontalDirSq;
                 
-                if (distFromAxis < 2) {
-                    // Very close to axis - stop here
-                    t_max = t_axis;
+                if (t_axis > 0 && t_axis < 100) {
+                    // Line would cross axis within 100mm - stop just before
+                    // Calculate horizontal distance from axis at this point
+                    const axisX = baseX + t_axis * normDirX;
+                    const axisY = baseY + t_axis * normDirY;
+                    const distFromAxis = Math.sqrt(axisX*axisX + axisY*axisY);
+                    
+                    if (distFromAxis < 2) {
+                        // Very close to axis - stop here
+                        t_max = t_axis;
+                    }
                 }
             }
+            
+            // Draw line for calculated distance
+            tiltEndX = baseX + t_max * normDirX;
+            tiltEndY = baseY + t_max * normDirY;
+            tiltEndZ = baseZ + t_max * normDirZ;
         }
-        
-        // Draw line for calculated distance
-        tiltEndX = baseX + t_max * normDirX;
-        tiltEndY = baseY + t_max * normDirY;
-        tiltEndZ = baseZ + t_max * normDirZ;
         
         // Add tilt line extending to center/focus point
         traces.push({
@@ -3040,7 +3050,7 @@ function visualizeScanPath(points) {
                 eye: { x: 1.5, y: -1.5, z: 1.0 },  // Better viewing angle with Z vertical
                 up: { x: 0, y: 0, z: 1 }  // Z points up
             },
-            aspectmode: 'manual',
+            aspectmode: 'data',  // Equal scale for X and Y axes
             aspectratio: { x: 1, y: 1, z: 0.8 }  // Slightly compressed Z for better view
         },
         margin: { l: 0, r: 0, b: 0, t: 0 },
