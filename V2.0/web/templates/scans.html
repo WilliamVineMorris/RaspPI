@@ -2960,10 +2960,10 @@ function visualizeScanPath(points) {
         const centerY = 0;
         const centerZ = focusYPosition; // Target height (focus point or turntable center)
         
-        // For visualization, draw line from camera position toward origin or max 100mm
+        // For visualization, draw line in camera direction but stop at central axis or 100mm max
         let tiltEndX, tiltEndY, tiltEndZ;
         
-        // Direction from camera position toward origin (0,0,0)
+        // Direction from camera position based on tilt angle
         // Hardware Convention: 0° = horizontal toward center, NEGATIVE = tilted down, POSITIVE = tilted up
         const dirX = -Math.cos(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
         const dirY = -Math.sin(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component  
@@ -2975,40 +2975,40 @@ function visualizeScanPath(points) {
         const normDirY = dirY / dirLength;
         const normDirZ = dirZ / dirLength;
         
-        // Calculate parametric line: P(t) = camera_pos + t * direction
-        // We want to find where this line intersects the origin (0,0,0)
-        // or stop at 100mm, whichever comes first
+        // Find where line would cross the central axis (X=0, Y=0 plane)
+        // Parametric line: P(t) = camera_pos + t * direction
+        // For central axis crossing: baseX + t*normDirX = 0 AND baseY + t*normDirY = 0
+        // We need the point where horizontal distance from axis is minimized
         
-        // Distance from camera to origin
-        const distToOrigin = Math.sqrt(baseX*baseX + baseY*baseY + baseZ*baseZ);
+        // Calculate parameter t where line is closest to central axis (X=0, Y=0)
+        // Minimize: (baseX + t*normDirX)² + (baseY + t*normDirY)²
+        // Taking derivative and solving: t = -(baseX*normDirX + baseY*normDirY) / (normDirX² + normDirY²)
+        const horizontalDirSq = normDirX*normDirX + normDirY*normDirY;
         
-        // Find parameter t where line is closest to origin
-        // Using dot product: t = -camera_pos · direction
-        const t_closest = -(baseX*normDirX + baseY*normDirY + baseZ*normDirZ);
+        let t_max = 100; // Default: draw 100mm max
         
-        // Calculate closest point on line to origin
-        const closestX = baseX + t_closest * normDirX;
-        const closestY = baseY + t_closest * normDirY;
-        const closestZ = baseZ + t_closest * normDirZ;
-        const distAtClosest = Math.sqrt(closestX*closestX + closestY*closestY + closestZ*closestZ);
-        
-        // Determine line endpoint: either at origin proximity or 100mm max
-        if (t_closest > 0 && t_closest <= 100 && distAtClosest < 5) {
-            // Line passes very close to origin within 100mm - draw to closest point
-            tiltEndX = closestX;
-            tiltEndY = closestY;
-            tiltEndZ = closestZ;
-        } else if (distToOrigin <= 100) {
-            // Origin is within 100mm - draw directly to origin
-            tiltEndX = 0;
-            tiltEndY = 0;
-            tiltEndZ = 0;
-        } else {
-            // Origin is far - draw 100mm in the camera direction
-            tiltEndX = baseX + 100 * normDirX;
-            tiltEndY = baseY + 100 * normDirY;
-            tiltEndZ = baseZ + 100 * normDirZ;
+        if (horizontalDirSq > 0.001) {
+            // Line has horizontal component - check if it crosses central axis
+            const t_axis = -(baseX*normDirX + baseY*normDirY) / horizontalDirSq;
+            
+            if (t_axis > 0 && t_axis < 100) {
+                // Line would cross axis within 100mm - stop just before
+                // Calculate horizontal distance from axis at this point
+                const axisX = baseX + t_axis * normDirX;
+                const axisY = baseY + t_axis * normDirY;
+                const distFromAxis = Math.sqrt(axisX*axisX + axisY*axisY);
+                
+                if (distFromAxis < 2) {
+                    // Very close to axis - stop here
+                    t_max = t_axis;
+                }
+            }
         }
+        
+        // Draw line for calculated distance
+        tiltEndX = baseX + t_max * normDirX;
+        tiltEndY = baseY + t_max * normDirY;
+        tiltEndZ = baseZ + t_max * normDirZ;
         
         // Add tilt line extending to center/focus point
         traces.push({
