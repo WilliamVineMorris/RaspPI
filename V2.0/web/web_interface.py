@@ -2427,13 +2427,18 @@ class ScannerWebInterface:
                     lighting_ctrl = self.orchestrator.lighting_controller
                     self.logger.info(f"🔍 Checking lighting controller: {lighting_ctrl.__class__.__name__}")
                     
+                    # Handle LightingControllerAdapter - access the wrapped controller
+                    actual_controller = lighting_ctrl
+                    if hasattr(lighting_ctrl, 'controller'):
+                        actual_controller = lighting_ctrl.controller
+                        self.logger.info(f"🔍 Found wrapped controller: {actual_controller.__class__.__name__}")
+                    
                     # Use zone_configs property to get available zones
-                    if hasattr(lighting_ctrl, 'zone_configs'):
-                        zone_ids = list(lighting_ctrl.zone_configs.keys())
+                    if hasattr(actual_controller, 'zone_configs'):
+                        zone_ids = list(actual_controller.zone_configs.keys())
                         self.logger.info(f"💡 Found {len(zone_ids)} lighting zones: {zone_ids}")
                         
                         # Check if lighting is initialized and available
-                        # The controller might not have a 'status' attribute yet, so just check if zones exist
                         is_available = len(zone_ids) > 0
                         
                         status['lighting'].update({
