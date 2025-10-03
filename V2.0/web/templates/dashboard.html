@@ -110,9 +110,10 @@
         display: grid;
         grid-template-columns: minmax(180px, 200px) minmax(180px, 200px) minmax(300px, 1fr) minmax(300px, 1fr);
         gap: 0.75rem;
-        grid-template-rows: auto auto;
+        grid-template-rows: 1fr auto;  /* First row takes available space and stretches all cells equally */
         margin-bottom: 0.75rem;
         width: 100%;
+        align-items: stretch;  /* Ensure all grid items stretch to fill their cells */
     }
     
     /* Make all panels in first row match height */
@@ -121,6 +122,7 @@
     .reserved-panel,
     .camera-panel {
         min-height: 500px;
+        height: 100%;  /* Fill the grid cell completely */
         display: flex;
         flex-direction: column;
     }
