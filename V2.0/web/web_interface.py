@@ -3155,9 +3155,9 @@ class ScannerWebInterface:
         """
         Generate preview points from pattern configuration (for visualization)
         
-        Returns camera-relative coordinates (radius, height, rotation, tilt) for display.
-        The pattern internally uses FluidNC coordinates with offsets, but we convert
-        back to camera-relative for user-friendly visualization.
+        Returns camera-relative coordinates directly from user input for display.
+        The pattern generation converts to FluidNC internally, but preview shows
+        what the user configured (camera-relative coordinates).
         
         Args:
             pattern_data: Pattern configuration from web interface or CSV
@@ -3165,45 +3165,100 @@ class ScannerWebInterface:
         Returns:
             List of point dictionaries with camera-relative coordinates:
             - x, y: Cartesian position from turntable center (for plotting)
-            - z: Height above turntable surface
+            - z: Height above turntable surface (camera-relative)
             - c: Camera tilt angle
-            - radius, height, rotation: Camera-relative coordinates
+            - radius, height, rotation: Camera-relative coordinates (for tooltips)
         """
         # Check if this is a custom CSV pattern or a standard pattern
         if 'custom_points' in pattern_data:
             # CSV import - return points directly
             return pattern_data['custom_points']
         
-        # Generate from pattern
-        pattern = self._create_pattern_from_config(pattern_data)
-        scan_points = pattern.generate_points()
+        # For cylindrical patterns, generate preview directly from user input
+        # This shows what the user configured, not the FluidNC coordinates
+        import math
         
-        # Convert ScanPoint objects to camera-relative coordinates for visualization
-        preview_points = []
-        for i, point in enumerate(scan_points):
-            # The pattern contains FluidNC coordinates (with offsets applied)
-            # Convert back to camera-relative for display
-            if self.coord_transformer:
-                camera_pos = self.coord_transformer.fluidnc_to_camera(point.position)
+        pattern_type = pattern_data.get('pattern_type', pattern_data.get('pattern', 'cylindrical'))
+        
+        if pattern_type == 'cylindrical':
+            # Extract user-configured parameters
+            radius = float(pattern_data.get('radius', 150.0))
+            
+            # Get y_positions or calculate from range
+            y_positions = pattern_data.get('y_positions')
+            if y_positions is None or len(y_positions) == 0:
+                y_range = pattern_data.get('y_range')
+                if y_range and isinstance(y_range, list) and len(y_range) >= 2:
+                    y_min = float(y_range[0])
+                    y_max = float(y_range[1])
+                else:
+                    y_min = float(pattern_data.get('y_min', 40.0))
+                    y_max = float(pattern_data.get('y_max', 120.0))
                 
-                # Convert cylindrical to Cartesian for Plotly visualization
-                import math
-                x_cart = camera_pos.radius * math.cos(math.radians(camera_pos.rotation))
-                y_cart = camera_pos.radius * math.sin(math.radians(camera_pos.rotation))
-                
-                preview_points.append({
-                    'index': i,
-                    'x': x_cart,  # Cartesian X for plotting
-                    'y': y_cart,  # Cartesian Y for plotting
-                    'z': camera_pos.height,  # Height above turntable
-                    'c': camera_pos.tilt,  # Camera tilt angle
-                    'radius': camera_pos.radius,  # Store for tooltip
-                    'height': camera_pos.height,  # Store for tooltip
-                    'rotation': camera_pos.rotation  # Store for tooltip
-                })
-            else:
-                # Fallback: Use FluidNC coordinates directly (no offset correction)
-                # This will show incorrect positions if offsets are configured
+                height_steps = int(pattern_data.get('height_steps', 4))
+                if height_steps <= 1:
+                    y_positions = [y_min]
+                else:
+                    y_step = (y_max - y_min) / (height_steps - 1)
+                    y_positions = [y_min + i * y_step for i in range(height_steps)]
+            
+            # Get rotation positions
+            rotation_positions = int(pattern_data.get('rotation_positions', 6))
+            if rotation_positions <= 0:
+                rotation_positions = 1
+            
+            rotation_step = 360.0 / rotation_positions
+            z_rotations = [i * rotation_step for i in range(rotation_positions)]
+            
+            # Get tilt angles (these are already calculated in the pattern_data)
+            servo_tilt_mode = pattern_data.get('servo_tilt_mode', 'none')
+            servo_manual_angle = float(pattern_data.get('servo_manual_angle', 0.0))
+            servo_y_focus = float(pattern_data.get('servo_y_focus', 80.0))
+            
+            # Calculate c_angles for each height
+            c_angles = []
+            for y_pos in y_positions:
+                if servo_tilt_mode == 'manual':
+                    c_angles.append(servo_manual_angle)
+                elif servo_tilt_mode == 'focus_point':
+                    # Simple focus point calculation
+                    height_diff = y_pos - servo_y_focus
+                    tilt_angle = math.degrees(math.atan2(height_diff, radius))
+                    c_angles.append(tilt_angle)
+                else:
+                    c_angles.append(0.0)
+            
+            # Generate preview points in camera-relative coordinates
+            preview_points = []
+            point_index = 0
+            
+            for height_idx, y_pos in enumerate(y_positions):
+                for rotation in z_rotations:
+                    # Convert cylindrical to Cartesian for visualization
+                    x_cart = radius * math.cos(math.radians(rotation))
+                    y_cart = radius * math.sin(math.radians(rotation))
+                    
+                    preview_points.append({
+                        'index': point_index,
+                        'x': x_cart,  # Cartesian X from turntable center
+                        'y': y_cart,  # Cartesian Y from turntable center
+                        'z': y_pos,   # Height above turntable (camera-relative)
+                        'c': c_angles[height_idx],  # Camera tilt angle
+                        'radius': radius,  # Store for tooltip
+                        'height': y_pos,   # Store for tooltip
+                        'rotation': rotation  # Store for tooltip
+                    })
+                    point_index += 1
+            
+            return preview_points
+        
+        else:
+            # For other pattern types, fall back to generating from pattern
+            pattern = self._create_pattern_from_config(pattern_data)
+            scan_points = pattern.generate_points()
+            
+            preview_points = []
+            for i, point in enumerate(scan_points):
                 preview_points.append({
                     'index': i,
                     'x': point.position.x,
@@ -3211,8 +3266,8 @@ class ScannerWebInterface:
                     'z': point.position.z,
                     'c': point.position.c
                 })
-        
-        return preview_points
+            
+            return preview_points
     
     def _execute_scan_stop(self) -> Dict[str, Any]:
         """Execute scan stop command - Enhanced for emergency use"""
