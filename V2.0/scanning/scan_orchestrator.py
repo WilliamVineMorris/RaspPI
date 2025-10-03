@@ -3493,8 +3493,8 @@ class ScanOrchestrator:
                             }
                             self.logger.info(f"🔄 CALIBRATION: Backing up custom exposure settings: {custom_exposure_backup}")
                     
-                    # 🔥 V5.1: DO NOT turn LEDs on - scan-level lighting already has them on at 30%
-                    self.logger.info("💡 CALIBRATION: Using scan-level lighting (already on at 30%)")
+                    # 🔥 V5.1: DO NOT turn LEDs on - scan-level lighting already has them on at calibration brightness
+                    self.logger.info(f"💡 CALIBRATION: Using scan-level lighting (already on at {calibration_brightness*100:.0f}%)")
                     
                     try:
                         calibration_result = await self.camera_manager.controller.auto_calibrate_camera(primary_camera)
@@ -3542,10 +3542,10 @@ class ScanOrchestrator:
                                 self.logger.warning(f"📋 Failed to update positions file with calibration: {pos_update_error}")
                         
                         # Apply the same focus value to all other cameras (but let them auto-expose independently)
-                        # 🔥 V5.1: DO NOT turn LEDs on - scan-level lighting already has them on at 30%
+                        # 🔥 V5.1: DO NOT turn LEDs on - scan-level lighting already has them on at calibration brightness
                         secondary_cameras = [cam for cam in available_cameras if cam != primary_camera]
                         if secondary_cameras:
-                            self.logger.info(f"💡 CALIBRATION: Secondary cameras using scan-level lighting (already on at 30%)")
+                            self.logger.info(f"💡 CALIBRATION: Secondary cameras using scan-level lighting (already on at {calibration_brightness*100:.0f}%)")
                             
                             try:
                                 for camera_id in secondary_cameras:
@@ -3579,8 +3579,8 @@ class ScanOrchestrator:
                     focus_timeout = 40.0  # Maximum time for all cameras to calibrate (15s per camera + buffer)
                     focus_start_time = asyncio.get_event_loop().time()
                     
-                    # 🔥 V5.1: DO NOT turn LEDs on - scan-level lighting already has them on at 30%
-                    self.logger.info(f"💡 CALIBRATION: All cameras using scan-level lighting (already on at 30%)")
+                    # 🔥 V5.1: DO NOT turn LEDs on - scan-level lighting already has them on at calibration brightness
+                    self.logger.info(f"💡 CALIBRATION: All cameras using scan-level lighting (already on at {calibration_brightness*100:.0f}%)")
                     
                     try:
                         for camera_id in available_cameras:
@@ -3660,9 +3660,15 @@ class ScanOrchestrator:
                 focus_summary = ", ".join([f"{cam}: {val:.3f}" for cam, val in self._scan_focus_values.items()])
                 self.logger.info(f"Focus setup completed. Mode: {self._focus_mode}, Sync: disabled, Values: {focus_summary}")
             
-            # 🔥 V5.1: Add settling delay after calibration (LEDs remain on from scan-level control)
-            self.logger.info("⏱️ V5.1: Waiting 50ms for camera settling (LEDs remain on at 30%)...")
-            await asyncio.sleep(0.05)  # 50ms delay for camera exposure/focus to stabilize
+            # 🔥 V5.1: Add settling delay after calibration, then reduce to idle brightness
+            self.logger.info(f"⏱️ V5.1: Waiting 50ms for camera settling (LEDs at {calibration_brightness*100:.0f}% calibration brightness)...")
+            await asyncio.sleep(0.05)
+            
+            # Reduce LEDs from calibration brightness to idle brightness after focus setup
+            if flash_mode and leds_turned_on:
+                self.logger.info(f"💡 FOCUS COMPLETE: Reducing LEDs from {calibration_brightness*100:.0f}% (calibration) to {idle_brightness*100:.0f}% (idle)")
+                await self.lighting_controller.set_brightness("all", idle_brightness)
+                await asyncio.sleep(0.02)  # Brief settling  # 50ms delay for camera exposure/focus to stabilize
             
         except Exception as e:
             self.logger.error(f"Focus setup failed: {e}")
@@ -3685,15 +3691,16 @@ class ScanOrchestrator:
         
         # Flash mode or constant lighting based on configuration
         flash_mode = getattr(self.lighting_controller, 'flash_mode', False)
-        idle_brightness = getattr(self.lighting_controller, 'idle_brightness', 0.05)
+        idle_brightness = getattr(self.lighting_controller, 'idle_brightness', 0.10)
+        calibration_brightness = getattr(self.lighting_controller, 'calibration_brightness', 0.20)
         capture_brightness = getattr(self.lighting_controller, 'capture_brightness', 0.30)
         flash_duration_ms = getattr(self.lighting_controller, 'flash_duration_ms', 650)
         
         leds_turned_on = False
         try:
             if flash_mode:
-                self.logger.info(f"💡 SCAN: Flash mode enabled - LEDs at {idle_brightness*100:.0f}% during idle/movement")
-                await self.lighting_controller.set_brightness("all", idle_brightness)
+                self.logger.info(f"💡 SCAN: Flash mode enabled - LEDs at {calibration_brightness*100:.0f}% for calibration, {idle_brightness*100:.0f}% during movement")
+                await self.lighting_controller.set_brightness("all", calibration_brightness)
                 leds_turned_on = True
                 self.logger.info(f"💡 SCAN: Will flash to {capture_brightness*100:.0f}% for {flash_duration_ms}ms during capture")
             else:
