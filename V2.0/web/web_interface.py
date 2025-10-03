@@ -4588,23 +4588,33 @@ class ScannerWebInterface:
     def _execute_lighting_flash(self, zone: str, brightness: float, duration: int) -> Dict[str, Any]:
         """Execute lighting flash command"""
         try:
+            self.logger.info(f"🔍 FLASH REQUEST: zone={zone}, brightness={brightness}, duration={duration}ms")
+            
             if not self.orchestrator or not hasattr(self.orchestrator, 'lighting_controller') or not self.orchestrator.lighting_controller:
                 raise HardwareError("Lighting controller not available")
             
             # Execute flash
             from lighting.base import LightingSettings
             flash_settings = LightingSettings(brightness=brightness, duration_ms=duration)
+            
+            self.logger.info(f"💡 LightingSettings created: brightness={flash_settings.brightness}, duration_ms={flash_settings.duration_ms}, constant_mode={flash_settings.constant_mode}")
+            
             # Execute flash using synchronous wrapper
             try:
                 import asyncio
                 
                 async def execute_flash():
+                    self.logger.info(f"⚡ Executing flash for zone: {zone}")
                     if zone == 'all':
                         # Flash both inner and outer zones
-                        return await self.orchestrator.lighting_controller.flash(['inner', 'outer'], flash_settings)
+                        result = await self.orchestrator.lighting_controller.flash(['inner', 'outer'], flash_settings)
+                        self.logger.info(f"✅ Flash result (all zones): success={result.success}, zones={result.zones_activated}, brightness={result.actual_brightness}")
+                        return result
                     else:
                         # Flash specific zone (inner or outer)
-                        return await self.orchestrator.lighting_controller.flash([zone], flash_settings)
+                        result = await self.orchestrator.lighting_controller.flash([zone], flash_settings)
+                        self.logger.info(f"✅ Flash result ({zone}): success={result.success}, zones={result.zones_activated}, brightness={result.actual_brightness}")
+                        return result
                 
                 # Execute flash in async context
                 loop = asyncio.new_event_loop()
@@ -4614,9 +4624,9 @@ class ScannerWebInterface:
                 finally:
                     loop.close()
                     
-                self.logger.info(f"Lighting flash executed: Zone {zone}, Brightness {brightness}")
+                self.logger.info(f"🎯 Lighting flash completed: Zone {zone}, Brightness {brightness}, Success={result.success}")
             except Exception as e:
-                self.logger.error(f"Flash execution failed: {e}")
+                self.logger.error(f"❌ Flash execution failed: {e}", exc_info=True)
                 raise HardwareError(f"Failed to execute lighting flash: {e}")
             
             return {
@@ -4627,7 +4637,7 @@ class ScannerWebInterface:
             }
             
         except Exception as e:
-            self.logger.error(f"Lighting flash execution failed: {e}")
+            self.logger.error(f"❌ Lighting flash execution failed: {e}", exc_info=True)
             raise HardwareError(f"Failed to execute lighting flash: {e}")
     
     def _create_fallback_frame(self, message: str):
