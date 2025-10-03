@@ -1462,48 +1462,99 @@ class ScannerWebInterface:
                 # Read CSV content
                 csv_content = file.read().decode('utf-8')
                 
-                # Get hardware limits for validation
-                config_manager = self.orchestrator.config_manager if self.orchestrator else None
-                axes_config = config_manager.get_all_axes() if config_manager else {}
-                
-                # Validate CSV
-                from scanning.csv_validator import ScanPointValidator
-                validator = ScanPointValidator(axes_config)
-                validation_result = validator.validate_csv_file(csv_content)
-                
-                if not validation_result.success:
-                    # Return validation errors (max 5)
-                    error_list = []
-                    for err in validation_result.errors[:5]:
-                        error_list.append({
-                            'row': err.row,
-                            'column': err.column,
-                            'value': err.value,
-                            'message': err.message
-                        })
+                # Use multi-format CSV handler for import (auto-detects format)
+                if self.csv_handler:
+                    import_result = self.csv_handler.import_from_csv(csv_content)
                     
+                    if not import_result.success:
+                        # Return errors from multi-format handler
+                        return jsonify({
+                            'success': False,
+                            'errors': import_result.errors,
+                            'error_count': len(import_result.errors),
+                            'message': f"CSV import failed: {'; '.join(import_result.errors[:3])}"
+                        }), 400
+                    
+                    # Convert ScanPoints to preview format (camera-relative coordinates)
+                    # The format expected by frontend: x=radius, y=height, z=rotation, c=tilt
+                    preview_points = []
+                    for i, scan_point in enumerate(import_result.points):
+                        # Convert FluidNC coordinates back to camera-relative for preview
+                        if self.coord_transformer:
+                            camera_pos = self.coord_transformer.fluidnc_to_camera(scan_point.position)
+                            
+                            preview_points.append({
+                                'index': i,
+                                'x': camera_pos.radius,      # Frontend expects x=radius
+                                'y': camera_pos.height,      # Frontend expects y=height
+                                'z': camera_pos.rotation,    # Frontend expects z=rotation
+                                'c': camera_pos.tilt         # Frontend expects c=tilt
+                            })
+                        else:
+                            # Fallback: use FluidNC coords directly (will be wrong but better than crashing)
+                            preview_points.append({
+                                'index': i,
+                                'x': scan_point.position.x,
+                                'y': scan_point.position.y,
+                                'z': scan_point.position.z,
+                                'c': scan_point.position.c
+                            })
+                    
+                    # Success - return converted points for visualization
                     return jsonify({
-                        'success': False,
-                        'errors': error_list,
-                        'error_count': len(validation_result.errors),
-                        'message': f"CSV validation failed with {len(validation_result.errors)} error(s)"
-                    }), 400
+                        'success': True,
+                        'points': preview_points,
+                        'point_count': len(preview_points),
+                        'warnings': import_result.warnings[:5] if import_result.warnings else [],
+                        'warning_count': len(import_result.warnings) if import_result.warnings else 0,
+                        'format_detected': import_result.format_detected.value if import_result.format_detected else 'unknown',
+                        'timestamp': datetime.now().isoformat()
+                    })
                 
-                # Success - return validated points for visualization
-                return jsonify({
-                    'success': True,
-                    'points': validation_result.valid_points,
-                    'point_count': len(validation_result.valid_points),
-                    'warnings': [{'row': w.row, 'message': w.message} for w in validation_result.warnings[:5]],
-                    'warning_count': len(validation_result.warnings),
-                    'timestamp': datetime.now().isoformat()
-                })
+                else:
+                    # Fallback to old validator if transformer not available
+                    self.logger.warning("⚠️ Using fallback CSV import (no multi-format handler)")
+                    
+                    config_manager = self.orchestrator.config_manager if self.orchestrator else None
+                    axes_config = config_manager.get_all_axes() if config_manager else {}
+                    
+                    from scanning.csv_validator import ScanPointValidator
+                    validator = ScanPointValidator(axes_config)
+                    validation_result = validator.validate_csv_file(csv_content)
+                    
+                    if not validation_result.success:
+                        # Return validation errors (max 5)
+                        error_list = []
+                        for err in validation_result.errors[:5]:
+                            error_list.append({
+                                'row': err.row,
+                                'column': err.column,
+                                'value': err.value,
+                                'message': err.message
+                            })
+                        
+                        return jsonify({
+                            'success': False,
+                            'errors': error_list,
+                            'error_count': len(validation_result.errors),
+                            'message': f"CSV validation failed with {len(validation_result.errors)} error(s)"
+                        }), 400
+                    
+                    # Success - return validated points for visualization
+                    return jsonify({
+                        'success': True,
+                        'points': validation_result.valid_points,
+                        'point_count': len(validation_result.valid_points),
+                        'warnings': [{'row': w.row, 'message': w.message} for w in validation_result.warnings[:5]],
+                        'warning_count': len(validation_result.warnings),
+                        'timestamp': datetime.now().isoformat()
+                    })
                 
             except BadRequest as e:
                 self.logger.warning(f"CSV import validation failed: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 400
             except Exception as e:
-                self.logger.error(f"CSV import API error: {e}")
+                self.logger.error(f"CSV import API error: {e}", exc_info=True)
                 return jsonify({'success': False, 'error': str(e)}), 500
         
         # Profile Management API Endpoints
