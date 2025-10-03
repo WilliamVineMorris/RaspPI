@@ -2963,7 +2963,7 @@ function visualizeScanPath(points) {
             // Hardware Convention: 0° = horizontal toward center, NEGATIVE = tilted down, POSITIVE = tilted up
             const dirX = -Math.cos(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
             const dirY = -Math.sin(z_rad) * Math.cos(c_rad); // Inward radially, scaled by horizontal component  
-            const dirZ = -Math.sin(c_rad); // Vertical component (negative sign: negative tilt = down)
+            const dirZ = Math.sin(c_rad); // Vertical component
             
             // Normalize direction vector
             const dirLength = Math.sqrt(dirX*dirX + dirY*dirY + dirZ*dirZ);
@@ -3007,23 +3007,7 @@ function visualizeScanPath(points) {
             tiltEndZ = baseZ + t_max * normDirZ;
         }
         
-        // Add tilt line extending to center/focus point
-        traces.push({
-            type: 'scatter3d',
-            mode: 'lines',
-            name: `Tilt ${i}`,
-            x: [baseX, tiltEndX],
-            y: [baseY, tiltEndY],
-            z: [baseZ, tiltEndZ],
-            line: {
-                color: 'rgba(0, 0, 0, 0.5)',  // Black, semi-transparent for subtle visibility
-                width: 2,
-                dash: 'dot'  // Dotted line style
-            },
-            hovertext: `Tilt: ${actualTiltAngle.toFixed(1)}°`,
-            hoverinfo: 'text',
-            showlegend: false
-        });
+        // Tilt lines removed - user prefers to check tilt via hover text on scan points
     });
     
     // Layout configuration with Z as vertical axis
