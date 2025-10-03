@@ -2962,8 +2962,9 @@ class ScannerWebInterface:
             ScanPattern object (CylindricalScanPattern or CustomCSVPattern)
         """
         from scanning.scan_patterns import CylindricalScanPattern, CylindricalPatternParameters
+        import math
         
-        pattern_type = pattern_data.get('pattern', 'cylindrical')
+        pattern_type = pattern_data.get('pattern_type', pattern_data.get('pattern', 'cylindrical'))
         
         if pattern_type == 'cylindrical':
             # Calculate Z rotations from rotation_positions
@@ -2971,15 +2972,64 @@ class ScannerWebInterface:
             z_step = 360.0 / rotation_positions if rotation_positions > 0 else 360.0
             z_rotations = [i * z_step for i in range(rotation_positions)]
             
-            # Create cylindrical pattern
+            # 🎯 FIX 1: Use explicit y_positions if provided
+            y_positions = pattern_data.get('y_positions')
+            y_min = pattern_data.get('y_min', 40.0)
+            y_max = pattern_data.get('y_max', 120.0)
+            
+            # 🎯 FIX 2: Calculate c_angles based on servo tilt mode
+            servo_tilt_mode = pattern_data.get('servo_tilt_mode', 'none')
+            servo_manual_angle = pattern_data.get('servo_manual_angle', 0.0)
+            servo_y_focus = pattern_data.get('servo_y_focus', 80.0)
+            radius = pattern_data.get('radius', 150.0)
+            
+            c_angles = []
+            
+            # Use explicit y_positions or fallback to calculating them
+            if y_positions is None or len(y_positions) == 0:
+                # Fallback: Calculate from height_steps
+                height_steps = pattern_data.get('height_steps', 4)
+                if height_steps <= 0:
+                    y_positions = []
+                elif height_steps == 1:
+                    y_positions = [y_min]
+                elif height_steps == 2:
+                    y_positions = [y_min, y_max]
+                else:
+                    y_positions = [y_min + (y_max - y_min) * (i / (height_steps - 1)) 
+                                   for i in range(height_steps)]
+            
+            # Calculate c_angles for each y_position based on tilt mode
+            for y_pos in y_positions:
+                if servo_tilt_mode == 'manual':
+                    # Manual mode: use fixed angle for all positions
+                    c_angles.append(servo_manual_angle)
+                    
+                elif servo_tilt_mode == 'focus_point':
+                    # Focus point mode: calculate angle to point at (0, 0, servo_y_focus)
+                    # Camera is at radius distance from center, at height y_pos
+                    horizontal_dist = radius  # Distance from center to camera
+                    vertical_dist = servo_y_focus - y_pos  # Height difference
+                    
+                    # Calculate tilt angle: arctan(vertical_distance / horizontal_distance)
+                    # INVERTED: Negative angle points down, positive points up (hardware convention)
+                    tilt_angle = -math.atan2(vertical_dist, horizontal_dist) * 180 / math.pi
+                    c_angles.append(tilt_angle)
+                    
+                else:  # 'none' or any other mode
+                    # No tilt: horizontal
+                    c_angles.append(0.0)
+            
+            # Create cylindrical pattern with explicit positions
             params = CylindricalPatternParameters(
-                x_start=pattern_data.get('radius', 150.0),
-                x_end=pattern_data.get('radius', 150.0),  # Fixed radius
-                y_start=pattern_data.get('y_min', 40.0),
-                y_end=pattern_data.get('y_max', 120.0),
-                y_step=(pattern_data.get('y_max', 120.0) - pattern_data.get('y_min', 40.0)) / max(pattern_data.get('height_steps', 4), 1),
+                x_start=radius,
+                x_end=radius,  # Fixed radius
+                y_start=y_min,
+                y_end=y_max,
+                y_step=(y_max - y_min) / max(len(y_positions) - 1, 1) if len(y_positions) > 1 else (y_max - y_min),
+                y_positions=y_positions,  # 🎯 Use explicit positions
                 z_rotations=z_rotations,
-                c_angles=pattern_data.get('c_angles', [0.0]),
+                c_angles=c_angles,  # 🎯 Use calculated angles
             )
             
             pattern = CylindricalScanPattern(
