@@ -325,12 +325,12 @@ body {
 
 .status-panel { 
     grid-area: status; 
-    max-height: 400px;
+    max-height: none;  /* Allow panel to grow to match other panels */
     overflow-y: auto;
 }
 .actions-panel { 
     grid-area: actions; 
-    max-height: 400px;
+    max-height: none;  /* Allow panel to grow to match other panels */
     overflow-y: auto;
 }
 .camera-panel { 
