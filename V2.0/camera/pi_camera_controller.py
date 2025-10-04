@@ -1714,6 +1714,10 @@ class PiCameraController(CameraController):
                     "AwbEnable": True,              # Auto white balance for proper colors
                     "AeEnable": True,               # Auto exposure for proper brightness
                     
+                    # LED Flicker Reduction - Synchronized with 250Hz PWM LEDs
+                    "AeFlickerMode": "FlickerManual",  # Manual flicker period (avoids LED banding)
+                    "AeFlickerPeriod": 4000,        # 250Hz PWM = 4000μs period (1/250s = 0.004s)
+                    
                     # Exposure settings optimized for livestream responsiveness  
                     "AeExposureMode": 0,            # Normal exposure mode
                     "AeMeteringMode": 0,            # CentreWeighted metering
