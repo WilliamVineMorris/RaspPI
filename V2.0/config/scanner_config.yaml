@@ -159,14 +159,14 @@ cameras:
   focus_zone:
     enabled: true  # Use focus/metering windows for turntable center
     
-    # Camera 0: Offset LEFT (viewing from left side of turntable)
+    # Camera 0: Offset Right (viewing from left side of turntable)
     camera_0:
       # Zone defined as fraction of image (0.0-1.0)
       # Format: [x_start, y_start, width, height]
       window: [0.40, 0.25, 0.5, 0.5]  # Right-shifted: starts at 35%, same vertical
       description: "Left camera - focus zone shifted left for left-side viewing angle"
     
-    # Camera 1: Offset RIGHT (viewing from right side of turntable) - MIRRORED
+    # Camera 1: Offset Left (viewing from right side of turntable) - MIRRORED
     camera_1:
       window: [0.10, 0.25, 0.5, 0.5]  # Left-shifted: starts at 15%, same vertical
       description: "Right camera - focus zone shifted right (mirrored) for right-side viewing angle"
