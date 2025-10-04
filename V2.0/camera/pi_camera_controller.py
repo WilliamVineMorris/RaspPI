@@ -1719,7 +1719,9 @@ class PiCameraController(CameraController):
                     "AeFlickerMode": 1,             # Manual flicker period mode (avoids LED banding)
                     "AeFlickerPeriod": 4000,        # 250Hz PWM = 4000μs period (1/250s = 0.004s)
                     
-                    # Exposure settings optimized for livestream responsiveness  
+                    # Exposure settings optimized for livestream responsiveness
+                    # AeConstraintMode: 0=Normal, 1=Highlight, 2=Shadows, 3=Custom
+                    "AeConstraintMode": 1,          # Highlight metering (better for bright objects)
                     "AeExposureMode": 0,            # Normal exposure mode
                     "AeMeteringMode": 0,            # CentreWeighted metering
                     "ExposureValue": 0.0,           # No exposure compensation initially

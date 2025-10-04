@@ -202,7 +202,7 @@ lighting:
   # Flash-based lighting control (energy efficient)
   flash_mode: true                  # Use flash mode instead of constant lighting
   idle_brightness: 0.10             # 10% brightness during idle/movement (between scan points)
-  calibration_brightness: 0.20      # 20% brightness during autofocus calibration (better for AF)
+  calibration_brightness: 0.30      # 30% brightness during autofocus calibration (better for AF)
   capture_brightness: 0.30          # 30% brightness during photo capture (both cameras)
   flash_duration_ms: 650            # Flash duration in milliseconds (covers both camera captures)
   
