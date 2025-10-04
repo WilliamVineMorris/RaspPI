@@ -144,6 +144,15 @@ cameras:
       x: 30.0    # mm - Horizontal offset of turntable center from origin
       y: -10.0   # mm - Vertical offset of turntable surface from origin (negative)
   
+  # Stereo camera array configuration (for photogrammetry exports)
+  stereo:
+    enabled: true
+    baseline_mm: 140.0          # mm - Distance between camera centers (stereo baseline)
+    convergence_angle_deg: 10.0 # degrees - Inward rotation angle of each camera (toe-in)
+    # Cameras are horizontally spaced from central capture point
+    # Both aligned with tilt axis center (position independent of tilt)
+    # Facing toward turntable origin with convergence angle
+  
   camera_1:
     port: 0
     name: "Primary Camera"

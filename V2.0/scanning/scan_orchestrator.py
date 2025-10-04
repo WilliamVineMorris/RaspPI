@@ -26,6 +26,7 @@ from core.config_manager import ConfigManager
 from core.events import EventBus, EventPriority
 from core.exceptions import ScannerSystemError, HardwareError, ConfigurationError
 from core.coordinate_transform import CoordinateTransformer, CameraRelativePosition
+from core.stereo_camera_position import StereoCameraPositionCalculator, CameraPosition3D
 
 from .scan_patterns import ScanPattern, ScanPoint, GridScanPattern
 from .scan_state import ScanState, ScanStatus, ScanPhase
@@ -2443,6 +2444,11 @@ class ScanOrchestrator:
         self.coord_transformer = CoordinateTransformer(config_manager)
         self.logger.info("✅ Coordinate transformer initialized for offset compensation")
         
+        # Initialize stereo camera position calculator for photogrammetry exports
+        self.stereo_position_calc = StereoCameraPositionCalculator(config_manager)
+        self.camera_positions_for_export = {}  # Store {image_name: {camera_id: CameraPosition3D}}
+        self.logger.info("✅ Stereo camera position calculator initialized for photogrammetry support")
+        
         # Active scan state
         self.current_scan: Optional[ScanState] = None
         self.current_pattern: Optional[ScanPattern] = None
@@ -3356,6 +3362,10 @@ class ScanOrchestrator:
             if not self._stop_requested and not self._emergency_stop:
                 self.current_scan.complete()
                 self.logger.info(f"Scan {self.current_scan.scan_id} completed successfully")
+                
+                # Export camera positions for photogrammetry software
+                await self._export_camera_positions_file(self.current_scan.scan_id)
+                
                 # Add completion notification
                 scan_name = self.current_scan.scan_parameters.get('scan_name', self.current_scan.scan_id)
                 self._add_notification(
@@ -4236,10 +4246,27 @@ class ScanOrchestrator:
                 # Standard values (same as web interface)
                 exif_dict["Exif"][piexif.ExifIFD.MeteringMode] = 5  # Pattern
                 
-                # Position data in GPS fields (creative use)
-                exif_dict["GPS"][piexif.GPSIFD.GPSLatitude] = self._float_to_rational(point.position.x)
-                exif_dict["GPS"][piexif.GPSIFD.GPSLongitude] = self._float_to_rational(point.position.y)
-                exif_dict["GPS"][piexif.GPSIFD.GPSAltitude] = self._float_to_rational(point.position.z)
+                # ✨ NEW: Stereo camera position in GPS fields for photogrammetry
+                # Calculate actual 3D camera position (stereo-corrected)
+                camera_3d_pos = self.stereo_position_calc.calculate_single_camera_position(
+                    point.position, camera_id
+                )
+                
+                # Store for external camera file export
+                image_basename = f"scan_point_{point_index:03d}_cam{camera_id}.jpg"
+                if image_basename not in self.camera_positions_for_export:
+                    self.camera_positions_for_export[image_basename] = {}
+                self.camera_positions_for_export[image_basename][camera_id] = camera_3d_pos
+                
+                # Embed in GPS EXIF (Cartesian coordinates in mm)
+                gps_lat, gps_lon, gps_alt = self.stereo_position_calc.format_for_gps_exif(camera_3d_pos)
+                exif_dict["GPS"][piexif.GPSIFD.GPSLatitude] = gps_lat
+                exif_dict["GPS"][piexif.GPSIFD.GPSLongitude] = gps_lon
+                exif_dict["GPS"][piexif.GPSIFD.GPSAltitude] = gps_alt
+                
+                # Add camera orientation to UserComment for advanced photogrammetry
+                orientation_comment = f"Stereo Cam{camera_id} Orient: ω={camera_3d_pos.omega:.2f}° φ={camera_3d_pos.phi:.2f}° κ={camera_3d_pos.kappa:.2f}°"
+                exif_dict["Exif"][piexif.ExifIFD.UserComment] = orientation_comment.encode('utf-8')
                 
                 # Convert EXIF dict to bytes
                 exif_bytes = piexif.dump(exif_dict)
@@ -4376,6 +4403,74 @@ class ScanOrchestrator:
             return int(gain * 100)  # Same conversion as web interface
         
         return 100  # fallback
+    
+    async def _export_camera_positions_file(self, scan_id: str):
+        """
+        Export camera positions to text files for photogrammetry software.
+        Creates both RealityCapture and Meshroom compatible formats.
+        """
+        try:
+            if not self.camera_positions_for_export:
+                self.logger.info("No camera positions to export")
+                return
+            
+            # Determine output directory (same as scan images)
+            if hasattr(self.storage_manager, 'base_storage_path'):
+                output_dir = self.storage_manager.base_storage_path / 'sessions' / scan_id
+            else:
+                output_dir = Path.cwd() / 'sessions' / scan_id
+            
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Export RealityCapture format (with orientation)
+            rc_file = output_dir / 'camera_positions_realitycapture.txt'
+            success_rc = self.stereo_position_calc.export_camera_positions_txt(
+                self.camera_positions_for_export,
+                str(rc_file),
+                format_type="realitycapture"
+            )
+            
+            if success_rc:
+                self.logger.info(f"📐 Exported RealityCapture camera positions: {rc_file}")
+            
+            # Export Meshroom format (position only)
+            meshroom_file = output_dir / 'camera_positions_meshroom.txt'
+            success_meshroom = self.stereo_position_calc.export_camera_positions_txt(
+                self.camera_positions_for_export,
+                str(meshroom_file),
+                format_type="meshroom"
+            )
+            
+            if success_meshroom:
+                self.logger.info(f"📐 Exported Meshroom camera positions: {meshroom_file}")
+            
+            # Export JSON format for archival/debugging
+            json_file = output_dir / 'camera_positions_full.json'
+            try:
+                import json
+                json_data = {
+                    img_name: {
+                        cam_id: pos.to_dict()
+                        for cam_id, pos in cameras.items()
+                    }
+                    for img_name, cameras in self.camera_positions_for_export.items()
+                }
+                
+                with open(json_file, 'w') as f:
+                    json.dump(json_data, f, indent=2)
+                
+                self.logger.info(f"📐 Exported JSON camera positions: {json_file}")
+                
+            except Exception as json_error:
+                self.logger.warning(f"Failed to export JSON camera positions: {json_error}")
+            
+            # Clear the positions dict for next scan
+            self.camera_positions_for_export.clear()
+            
+        except Exception as e:
+            self.logger.error(f"Failed to export camera positions: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
     
     async def _handle_pause(self):
         """Handle pause requests"""
