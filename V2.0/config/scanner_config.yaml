@@ -153,6 +153,23 @@ cameras:
     # Both aligned with tilt axis center (position independent of tilt)
     # Facing toward turntable origin with convergence angle
   
+  # Focus and Metering Zones (for turntable-centered scanning)
+  focus_zone:
+    enabled: true  # Use focus/metering windows for turntable center
+    # Zone defined as fraction of image (0.0-1.0)
+    # Format: [x_start, y_start, width, height]
+    # Default: Center 50% of image (where turntable object is)
+    window: [0.25, 0.25, 0.5, 0.5]  # Center 50% box
+    
+    # Alternative presets (comment/uncomment to switch):
+    # window: [0.3, 0.3, 0.4, 0.4]    # Center 40% (tighter focus)
+    # window: [0.35, 0.35, 0.3, 0.3]  # Center 30% (very tight, small objects)
+    # window: [0.2, 0.3, 0.6, 0.4]    # Wider horizontal (for elongated objects)
+    
+    # ScalerCrop for digital zoom to focus area (optional, reduces resolution)
+    use_crop: false  # Set true to zoom into focus zone (reduces image size)
+    crop_margin: 0.1  # Extra margin around focus zone if cropping enabled
+  
   camera_1:
     port: 0
     name: "Primary Camera"

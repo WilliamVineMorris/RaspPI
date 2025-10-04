@@ -966,24 +966,84 @@ class PiCameraController(CameraController):
                 logger.error(f"❌ Camera {camera_id} state check failed: {state_error}")
                 return {'focus': 0.5, 'exposure_time': 33000, 'analogue_gain': 1.0}
             
-            # Step 1: Enable auto-exposure and auto-white-balance
+            # Step 1: Enable auto-exposure, auto-white-balance, and focus/metering zones
             logger.info(f"📷 Camera {camera_id} enabling auto-exposure controls...")
             try:
                 from libcamera import controls
                 
-                # Set automatic exposure and AWB
-                picamera2.set_controls({
+                # Get focus zone configuration from config dict
+                focus_zone_config = self.config.get('focus_zone', {})
+                focus_zone_enabled = focus_zone_config.get('enabled', False)
+                
+                # Prepare control dictionary
+                control_dict = {
                     "AeEnable": True,           # Enable auto-exposure
                     "AwbEnable": True,          # Enable auto white balance
                     "AeMeteringMode": controls.AeMeteringModeEnum.CentreWeighted,  # Focus on center
                     "AeExposureMode": controls.AeExposureModeEnum.Normal,         # Normal exposure
-                })
+                }
+                
+                # Add focus/metering windows if enabled
+                if focus_zone_enabled:
+                    focus_window = focus_zone_config.get('window', [0.25, 0.25, 0.5, 0.5])
+                    
+                    # CRITICAL: AfWindows uses absolute pixel coordinates relative to ScalerCropMaximum
+                    # NOT percentages! Get the maximum scaler crop window size.
+                    try:
+                        # ScalerCropMaximum = (x_offset, y_offset, width, height) of maximum crop window
+                        scaler_crop_max = picamera2.camera_properties.get('ScalerCropMaximum')
+                        if scaler_crop_max:
+                            # Use ScalerCropMaximum dimensions as reference
+                            max_width = scaler_crop_max[2]   # Width of maximum crop window
+                            max_height = scaler_crop_max[3]  # Height of maximum crop window
+                            logger.debug(f"📷 Camera {camera_id} ScalerCropMaximum: {scaler_crop_max}, using {max_width}×{max_height}")
+                        else:
+                            # Fallback to PixelArraySize if ScalerCropMaximum not available
+                            pixel_array = picamera2.camera_properties.get('PixelArraySize', (1920, 1080))
+                            max_width = pixel_array[0]
+                            max_height = pixel_array[1]
+                            logger.warning(f"⚠️ Camera {camera_id} ScalerCropMaximum not found, using PixelArraySize: {pixel_array}")
+                    except Exception as e:
+                        # Ultimate fallback
+                        max_width = 1920
+                        max_height = 1080
+                        logger.warning(f"⚠️ Camera {camera_id} could not get sensor size: {e}, using default 1920×1080")
+                    
+                    # Convert fractional coordinates to absolute pixel coordinates
+                    # AfWindows format: (x_offset, y_offset, width, height) in pixels relative to ScalerCropMaximum
+                    x_px = int(focus_window[0] * max_width)
+                    y_px = int(focus_window[1] * max_height)
+                    w_px = int(focus_window[2] * max_width)
+                    h_px = int(focus_window[3] * max_height)
+                    
+                    # AfMetering windows for autofocus region
+                    # Format: list of (x_offset, y_offset, width, height) tuples in absolute pixels
+                    control_dict["AfMetering"] = controls.AfMeteringEnum.Windows
+                    control_dict["AfWindows"] = [(x_px, y_px, w_px, h_px)]
+                    
+                    # Optional: ScalerCrop for digital zoom to focus area
+                    if focus_zone_config.get('use_crop', False):
+                        crop_margin = focus_zone_config.get('crop_margin', 0.1)
+                        crop_x = max(0, int((focus_window[0] - crop_margin) * max_width))
+                        crop_y = max(0, int((focus_window[1] - crop_margin) * max_height))
+                        crop_w = min(max_width, int((focus_window[2] + 2 * crop_margin) * max_width))
+                        crop_h = min(max_height, int((focus_window[3] + 2 * crop_margin) * max_height))
+                        control_dict["ScalerCrop"] = (crop_x, crop_y, crop_w, crop_h)
+                        logger.debug(f"📷 Camera {camera_id} ScalerCrop: ({crop_x}, {crop_y}, {crop_w}, {crop_h})")
+                    
+                    logger.info(f"📷 Camera {camera_id} focus zone: AfWindows=[({x_px}, {y_px}, {w_px}, {h_px})] relative to ScalerCropMaximum {max_width}×{max_height}")
+                else:
+                    logger.info(f"📷 Camera {camera_id} using default full-frame metering (focus_zone disabled)")
+                
+                # Set all controls
+                picamera2.set_controls(control_dict)
                 
                 # Allow time for auto-exposure to settle
                 await asyncio.sleep(1.0)
                 
             except ImportError:
                 # Fallback for older libcamera versions
+                logger.warning(f"⚠️ Camera {camera_id} older libcamera version - using basic auto-exposure")
                 picamera2.set_controls({
                     "AeEnable": True,
                     "AwbEnable": True,
