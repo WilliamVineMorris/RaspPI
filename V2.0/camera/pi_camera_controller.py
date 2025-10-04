@@ -985,7 +985,18 @@ class PiCameraController(CameraController):
                 
                 # Add focus/metering windows if enabled
                 if focus_zone_enabled:
-                    focus_window = focus_zone_config.get('window', [0.25, 0.25, 0.5, 0.5])
+                    # Check for camera-specific focus zone configuration
+                    camera_key = f'camera_{camera_id}'
+                    if camera_key in focus_zone_config:
+                        # Use camera-specific window (e.g., camera_0 or camera_1)
+                        camera_specific_config = focus_zone_config[camera_key]
+                        focus_window = camera_specific_config.get('window', [0.25, 0.25, 0.5, 0.5])
+                        logger.debug(f"📷 Camera {camera_id} using camera-specific focus zone from config.{camera_key}")
+                    else:
+                        # Fallback to global window setting (backward compatibility)
+                        focus_window = focus_zone_config.get('window', [0.25, 0.25, 0.5, 0.5])
+                        logger.debug(f"📷 Camera {camera_id} using global focus zone window (no camera-specific config)")
+                    
                     
                     # CRITICAL: AfWindows uses absolute pixel coordinates relative to ScalerCropMaximum
                     # NOT percentages! Get the maximum scaler crop window size.

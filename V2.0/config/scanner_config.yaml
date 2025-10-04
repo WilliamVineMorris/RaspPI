@@ -154,17 +154,36 @@ cameras:
     # Facing toward turntable origin with convergence angle
   
   # Focus and Metering Zones (for turntable-centered scanning)
+  # Camera-specific focus zones for dual-camera turntable scanning
+  # Horizontal offset allows each camera to focus on its viewing angle
   focus_zone:
     enabled: true  # Use focus/metering windows for turntable center
-    # Zone defined as fraction of image (0.0-1.0)
-    # Format: [x_start, y_start, width, height]
-    # Default: Center 50% of image (where turntable object is)
-    window: [0.25, 0.25, 0.5, 0.5]  # Center 50% box
     
-    # Alternative presets (comment/uncomment to switch):
-    # window: [0.3, 0.3, 0.4, 0.4]    # Center 40% (tighter focus)
-    # window: [0.35, 0.35, 0.3, 0.3]  # Center 30% (very tight, small objects)
-    # window: [0.2, 0.3, 0.6, 0.4]    # Wider horizontal (for elongated objects)
+    # Camera 0: Offset LEFT (viewing from left side of turntable)
+    camera_0:
+      # Zone defined as fraction of image (0.0-1.0)
+      # Format: [x_start, y_start, width, height]
+      window: [0.40, 0.25, 0.5, 0.5]  # Right-shifted: starts at 35%, same vertical
+      description: "Left camera - focus zone shifted left for left-side viewing angle"
+    
+    # Camera 1: Offset RIGHT (viewing from right side of turntable) - MIRRORED
+    camera_1:
+      window: [0.10, 0.25, 0.5, 0.5]  # Left-shifted: starts at 15%, same vertical
+      description: "Right camera - focus zone shifted right (mirrored) for right-side viewing angle"
+    
+    # Alternative: Adjust horizontal_offset to taste
+    # horizontal_offset: 0.10 means camera_0 starts at (0.25 - 0.10) = 0.15
+    #                         and camera_1 starts at (0.25 + 0.10) = 0.35
+    # Current offset: 0.10 (10% of image width shifted left/right)
+    
+    # Alternative presets for both cameras (uncomment and adjust as needed):
+    # Tighter focus (40% box):
+    # camera_0: { window: [0.20, 0.30, 0.4, 0.4] }  # Left-shifted 40% box
+    # camera_1: { window: [0.40, 0.30, 0.4, 0.4] }  # Right-shifted 40% box (mirrored)
+    
+    # Very tight focus (30% box):
+    # camera_0: { window: [0.25, 0.35, 0.3, 0.3] }  # Left-shifted 30% box
+    # camera_1: { window: [0.45, 0.35, 0.3, 0.3] }  # Right-shifted 30% box (mirrored)
     
     # ScalerCrop for digital zoom to focus area (optional, reduces resolution)
     use_crop: false  # Set true to zoom into focus zone (reduces image size)
