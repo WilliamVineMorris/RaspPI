@@ -185,23 +185,32 @@ class StereoCameraPositionCalculator:
         positions = self.calculate_stereo_camera_positions(fluidnc_pos, camera_id)
         return positions[camera_id]
     
-    def format_for_gps_exif(self, position: CameraPosition3D) -> Tuple[tuple, tuple, tuple]:
+    def format_for_gps_exif(self, position: CameraPosition3D) -> Tuple[tuple, tuple, tuple, str, str, int]:
         """
         Format camera position for GPS EXIF tags.
         
-        Converts mm to a GPS-compatible rational format. Note: This is a creative
-        use of GPS tags for photogrammetry, not actual geographic coordinates.
+        Converts mm coordinates to GPS-compatible rational format with proper reference fields.
+        This is a creative use of GPS tags for photogrammetry, not actual geographic coordinates.
         
         Args:
             position: CameraPosition3D to convert
             
         Returns:
-            Tuple of (latitude_rational, longitude_rational, altitude_rational)
+            Tuple of (latitude_rational, longitude_rational, altitude_rational, 
+                     latitude_ref, longitude_ref, altitude_ref)
         """
+        # Determine reference directions based on coordinate signs
+        lat_ref = 'N' if position.x >= 0 else 'S'
+        lon_ref = 'E' if position.y >= 0 else 'W'
+        alt_ref = 0 if position.z >= 0 else 1  # 0 = above reference, 1 = below
+        
         return (
             self._float_to_gps_rational(position.x),
             self._float_to_gps_rational(position.y),
-            self._float_to_gps_rational(position.z)
+            self._float_to_gps_rational(position.z),
+            lat_ref,
+            lon_ref,
+            alt_ref
         )
     
     def _float_to_gps_rational(self, value: float) -> tuple:
@@ -209,29 +218,34 @@ class StereoCameraPositionCalculator:
         Convert float coordinate to GPS rational format.
         
         GPS EXIF expects (degrees, minutes, seconds) as rational tuples.
-        We repurpose this to store millimeter coordinates.
+        We repurpose this to store millimeter coordinates with high precision.
+        
+        Strategy: Store absolute value in degrees field with micro-precision.
+        - Degrees: Whole millimeters
+        - Minutes: 0 (unused)
+        - Seconds: Fractional mm * 10000 (0.0001mm precision)
         
         Args:
-            value: Coordinate value in mm
+            value: Coordinate value in mm (can be negative, caller handles sign)
             
         Returns:
-            Tuple in GPS format: ((degrees, 1), (minutes, 1), (seconds, 100))
+            Tuple in GPS format: ((degrees, 1), (0, 1), (fractional_microns, 10000))
         """
-        # Handle negative values
+        # Work with absolute value (reference fields handle sign)
         abs_value = abs(value)
         
         # Split into whole and fractional parts
-        degrees = int(abs_value)
-        fractional = abs_value - degrees
+        whole_mm = int(abs_value)
+        fractional_mm = abs_value - whole_mm
         
-        # Convert fractional to "minutes" (0-60)
-        minutes = int(fractional * 60)
+        # Store fractional part as "seconds" with 0.0001mm precision
+        fractional_microns = int(fractional_mm * 10000)
         
-        # Remaining fraction to "seconds" (0-60)
-        seconds_fractional = (fractional * 60 - minutes) * 60
-        seconds = int(seconds_fractional * 100)  # Store to 0.01 precision
-        
-        return ((degrees, 1), (minutes, 1), (seconds, 100))
+        return (
+            (whole_mm, 1),           # Degrees: whole millimeters
+            (0, 1),                  # Minutes: unused
+            (fractional_microns, 10000)  # Seconds: 0.0001mm precision
+        )
     
     def export_camera_positions_txt(
         self,

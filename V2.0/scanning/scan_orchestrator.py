@@ -4259,14 +4259,35 @@ class ScanOrchestrator:
                 self.camera_positions_for_export[image_basename][camera_id] = camera_3d_pos
                 
                 # Embed in GPS EXIF (Cartesian coordinates in mm)
-                gps_lat, gps_lon, gps_alt = self.stereo_position_calc.format_for_gps_exif(camera_3d_pos)
-                exif_dict["GPS"][piexif.GPSIFD.GPSLatitude] = gps_lat
-                exif_dict["GPS"][piexif.GPSIFD.GPSLongitude] = gps_lon
-                exif_dict["GPS"][piexif.GPSIFD.GPSAltitude] = gps_alt
+                # Get formatted GPS values with reference fields
+                gps_lat, gps_lon, gps_alt, lat_ref, lon_ref, alt_ref = self.stereo_position_calc.format_for_gps_exif(camera_3d_pos)
                 
-                # Add camera orientation to UserComment for advanced photogrammetry
-                orientation_comment = f"Stereo Cam{camera_id} Orient: ω={camera_3d_pos.omega:.2f}° φ={camera_3d_pos.phi:.2f}° κ={camera_3d_pos.kappa:.2f}°"
+                # Set GPS coordinates (X→Latitude, Y→Longitude, Z→Altitude)
+                exif_dict["GPS"][piexif.GPSIFD.GPSLatitude] = gps_lat
+                exif_dict["GPS"][piexif.GPSIFD.GPSLatitudeRef] = lat_ref.encode('utf-8')
+                exif_dict["GPS"][piexif.GPSIFD.GPSLongitude] = gps_lon
+                exif_dict["GPS"][piexif.GPSIFD.GPSLongitudeRef] = lon_ref.encode('utf-8')
+                exif_dict["GPS"][piexif.GPSIFD.GPSAltitude] = gps_alt
+                exif_dict["GPS"][piexif.GPSIFD.GPSAltitudeRef] = alt_ref
+                
+                # Set camera orientation using GPS direction fields
+                # GPSImgDirection: Camera heading/yaw (kappa angle, 0-360°)
+                kappa_normalized = camera_3d_pos.kappa % 360  # Normalize to 0-360
+                exif_dict["GPS"][piexif.GPSIFD.GPSImgDirection] = (int(kappa_normalized * 100), 100)
+                exif_dict["GPS"][piexif.GPSIFD.GPSImgDirectionRef] = b'T'  # True north reference
+                
+                # GPSDestBearing: Camera pitch/tilt (phi angle, repurposed)
+                # Store as absolute value with sign in comment
+                exif_dict["GPS"][piexif.GPSIFD.GPSDestBearing] = (int(abs(camera_3d_pos.phi) * 100), 100)
+                
+                # Add complete orientation to UserComment (human-readable + fallback)
+                # Format: omega,phi,kappa for easy machine parsing
+                orientation_comment = f"Cam{camera_id}|Orient:omega={camera_3d_pos.omega:.4f},phi={camera_3d_pos.phi:.4f},kappa={camera_3d_pos.kappa:.4f}"
                 exif_dict["Exif"][piexif.ExifIFD.UserComment] = orientation_comment.encode('utf-8')
+                
+                # Add machine-readable orientation to MakerNote (if software supports it)
+                maker_note = f"SCANNER_POSE|X:{camera_3d_pos.x:.4f}|Y:{camera_3d_pos.y:.4f}|Z:{camera_3d_pos.z:.4f}|O:{camera_3d_pos.omega:.4f}|P:{camera_3d_pos.phi:.4f}|K:{camera_3d_pos.kappa:.4f}|CAM:{camera_id}"
+                exif_dict["Exif"][piexif.ExifIFD.MakerNote] = maker_note.encode('utf-8')
                 
                 # Convert EXIF dict to bytes
                 exif_bytes = piexif.dump(exif_dict)
