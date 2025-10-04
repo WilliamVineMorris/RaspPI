@@ -4465,6 +4465,17 @@ class ScanOrchestrator:
             if success_meshroom:
                 self.logger.info(f"📐 Exported Meshroom camera positions: {meshroom_file}")
             
+            # Export XMP sidecar files to separate directory
+            xmp_dir = output_dir / 'xmp_sidecar_files'
+            success_xmp = self.stereo_position_calc.export_xmp_sidecar_files(
+                self.camera_positions_for_export,
+                str(xmp_dir)
+            )
+            
+            if success_xmp:
+                self.logger.info(f"📐 Exported XMP sidecar files to: {xmp_dir}")
+                self.logger.info(f"💡 Copy XMP files into images folder for RealityScan auto-detection")
+            
             # Export JSON format for archival/debugging
             json_file = output_dir / 'camera_positions_full.json'
             try:

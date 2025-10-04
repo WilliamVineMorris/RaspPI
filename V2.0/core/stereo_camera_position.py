@@ -62,6 +62,55 @@ class CameraPosition3D:
         """Format as Meshroom geolocation line"""
         # Meshroom format: filename X Y Z (simpler, no orientation)
         return f"{image_name} {self.x:.6f} {self.y:.6f} {self.z:.6f}"
+    
+    def to_xmp_content(self) -> str:
+        """
+        Generate XMP sidecar file content for RealityScan/RealityCapture.
+        
+        XMP format stores camera position and orientation in Adobe XMP standard
+        with RealityCapture extensions for photogrammetry.
+        
+        Returns:
+            Complete XMP file content as string
+        """
+        # XMP template with camera position and orientation
+        xmp_content = f'''<?xml version="1.0" encoding="UTF-8"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Scanner System v2.0">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+        xmlns:xcr="http://www.capturingreality.com/ns/xcr/1.1#"
+        xmlns:Camera="http://www.capturingreality.com/ns/Camera/1.0#">
+      
+      <!-- Camera Position (Euclidean coordinates in millimeters) -->
+      <xcr:Position>
+        <rdf:Seq>
+          <rdf:li>{self.x:.6f}</rdf:li>
+          <rdf:li>{self.y:.6f}</rdf:li>
+          <rdf:li>{self.z:.6f}</rdf:li>
+        </rdf:Seq>
+      </xcr:Position>
+      
+      <!-- Camera Orientation (Euler angles in degrees: omega, phi, kappa) -->
+      <xcr:Rotation>
+        <rdf:Seq>
+          <rdf:li>{self.omega:.6f}</rdf:li>
+          <rdf:li>{self.phi:.6f}</rdf:li>
+          <rdf:li>{self.kappa:.6f}</rdf:li>
+        </rdf:Seq>
+      </xcr:Rotation>
+      
+      <!-- Coordinate System Metadata -->
+      <xcr:CoordinateSystem>local</xcr:CoordinateSystem>
+      <xcr:DistanceUnit>millimeter</xcr:DistanceUnit>
+      <xcr:AngularUnit>degree</xcr:AngularUnit>
+      
+      <!-- Camera Identifier -->
+      <Camera:CameraID>{self.camera_id}</Camera:CameraID>
+      
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>'''
+        return xmp_content
 
 
 class StereoCameraPositionCalculator:
@@ -292,6 +341,56 @@ class StereoCameraPositionCalculator:
             print(f"Failed to export camera positions: {e}")
             return False
 
+
+    def export_xmp_sidecar_files(
+        self,
+        positions_dict: Dict[str, Dict[int, CameraPosition3D]],
+        output_dir: str
+    ) -> bool:
+        """
+        Export XMP sidecar files for each image with camera position metadata.
+        
+        Creates one .xmp file per image in a separate directory for manual copying.
+        XMP files have the same basename as their corresponding images.
+        
+        Args:
+            positions_dict: Dict mapping image_name to {camera_id: CameraPosition3D}
+            output_dir: Directory to create XMP files in (separate from images)
+            
+        Returns:
+            True if export successful
+        """
+        try:
+            import os
+            from pathlib import Path
+            
+            # Create output directory
+            output_path = Path(output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+            
+            exported_count = 0
+            
+            # Create XMP file for each image
+            for image_name, cameras in sorted(positions_dict.items()):
+                for cam_id in sorted(cameras.keys()):
+                    pos = cameras[cam_id]
+                    
+                    # Generate XMP filename (same basename as image, .xmp extension)
+                    xmp_filename = Path(image_name).stem + '.xmp'
+                    xmp_path = output_path / xmp_filename
+                    
+                    # Write XMP content
+                    with open(xmp_path, 'w', encoding='utf-8') as f:
+                        f.write(pos.to_xmp_content())
+                    
+                    exported_count += 1
+            
+            print(f"✅ Exported {exported_count} XMP sidecar files to: {output_dir}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Failed to export XMP sidecar files: {e}")
+            return False
 
 def create_stereo_position_calculator(config_manager: ConfigManager) -> StereoCameraPositionCalculator:
     """
