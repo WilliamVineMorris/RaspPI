@@ -1,0 +1,140 @@
+2025-10-04 13:24:56,138 - web_interface - INFO - Starting camera stream generation for mapped ID: camera_0
+2025-10-04 13:24:56,138 - web_interface - INFO - 🔍 Getting scan status - scan.status: ScanStatus.RUNNING, scan.phase: ScanPhase.CAPTURING
+2025-10-04 13:24:56,139 - web_interface - INFO - 📊 Scan progress: 82.2% (74/90)
+2025-10-04 13:24:56,139 - web_interface - INFO - ✅ Scan status updated: running, 82.2%, phase=capturing
+2025-10-04 13:24:56,183 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:24:56,281 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:24:56,323 - scanning.scan_orchestrator - INFO - 🔐 Camera 0: LOCKED calibrated exposure after restart: 15548μs, gain: 1.50
+2025-10-04 13:24:56,326 - scanning.scan_orchestrator - INFO - CAMERA: Camera 0 switched to capture mode
+2025-10-04 13:24:56,326 - scanning.scan_orchestrator - INFO - 🔄 Camera 1: Preserving calibrated exposure settings during mode switch
+2025-10-04 13:24:56,372 - picamera2.picamera2 - INFO - Camera stopped
+[0:20:35.641027505] [2104]  INFO Camera camera.cpp:1215 configuring streams: (0) 4624x3472-RGB888/sRGB
+[0:20:35.660611558] [2095]  INFO RPI pisp.cpp:1484 Sensor: /base/axi/pcie@1000120000/rp1/i2c@80000/arducam_64mp@1a - Selected sensor format: 4624x3472-SRGGB10_1X10/RAW - Selected CFE format: 4624x3472-PC1R/RAW
+2025-10-04 13:24:56,789 - picamera2.picamera2 - INFO - Configuration successful!
+2025-10-04 13:24:57,276 - werkzeug - INFO - 192.168.1.42 - - [04/Oct/2025 13:24:57] "GET /camera/0?t=1759577095225 HTTP/1.1" 200 -
+2025-10-04 13:24:57,277 - picamera2.picamera2 - INFO - Camera started
+2025-10-04 13:24:57,316 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:24:57,480 - scanning.scan_orchestrator - INFO - 🔐 Camera 1: LOCKED calibrated exposure after restart: 13618μs, gain: 1.50
+2025-10-04 13:24:57,485 - scanning.scan_orchestrator - INFO - CAMERA: Camera 1 switched to capture mode
+2025-10-04 13:24:57,486 - scanning.scan_orchestrator - INFO - CAMERA: Switched to capture mode
+2025-10-04 13:24:57,486 - scanning.scan_orchestrator - INFO - CAMERA: Both cameras prepared for simultaneous capture
+2025-10-04 13:24:57,487 - scanning.scan_orchestrator - INFO - CAMERA: Using resolution-aware ISP-managed dual camera capture...
+2025-10-04 13:24:57,488 - scanning.scan_orchestrator - INFO - CAMERA: Using quality settings resolution: (4624, 3472)
+2025-10-04 13:24:57,608 - camera.pi_camera_controller - INFO - 📷 Using provided target resolution: (4624, 3472)
+2025-10-04 13:24:57,609 - camera.pi_camera_controller - INFO - 📷 Camera preparation: Target resolution (4624, 3472), High-res mode: False, Reconfiguration needed: True
+2025-10-04 13:24:57,609 - camera.pi_camera_controller - INFO - 📷 STANDARD MODE: Reconfiguring for moderate resolution
+2025-10-04 13:24:57,689 - picamera2.picamera2 - INFO - Camera stopped
+[0:20:36.567683489] [2104]  INFO Camera camera.cpp:1215 configuring streams: (0) 4624x3472-RGB888/sRGB
+[0:20:36.578706880] [2095]  INFO RPI pisp.cpp:1484 Sensor: /base/axi/pcie@1000120000/rp1/i2c@88000/arducam_64mp@1a - Selected sensor format: 4624x3472-SRGGB10_1X10/RAW - Selected CFE format: 4624x3472-PC1R/RAW
+2025-10-04 13:24:57,704 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:24:57,704 - picamera2.picamera2 - INFO - Configuration successful!
+2025-10-04 13:24:58,145 - web_interface - INFO - 🔌 Final connection status for web UI: True
+2025-10-04 13:24:58,146 - web_interface - INFO - 🔍 Direct protocol status: Idle, homed: True
+2025-10-04 13:24:58,146 - picamera2.picamera2 - INFO - Camera started
+2025-10-04 13:24:58,147 - camera.pi_camera_controller - INFO - 📷 Camera 0: Standard resolution reconfiguration applied
+2025-10-04 13:24:58,146 - web_interface - INFO - ✅ Showing IDLE status in web UI - system ready (raw: idle)
+2025-10-04 13:24:58,147 - scanning.scan_orchestrator - INFO - Camera status (scanning mode): {'cameras': ['camera_0', 'camera_1'], 'active_cameras': ['camera_0', 'camera_1'], 'initialized': True}
+2025-10-04 13:24:58,147 - web_interface - INFO - 🔍 Checking lighting controller: LightingControllerAdapter
+2025-10-04 13:24:58,147 - web_interface - INFO - 🔍 Found wrapped controller: GPIOLEDController
+2025-10-04 13:24:58,147 - web_interface - INFO - 💡 Found 2 lighting zones: ['inner', 'outer']
+2025-10-04 13:24:58,147 - web_interface - INFO - 💡 Lighting status updated: zones=['inner', 'outer'], status=available
+2025-10-04 13:24:58,147 - web_interface - INFO - 🔍 Getting scan status - scan.status: ScanStatus.RUNNING, scan.phase: ScanPhase.CAPTURING
+2025-10-04 13:24:58,147 - web_interface - INFO - 📊 Scan progress: 82.2% (74/90)
+2025-10-04 13:24:58,147 - web_interface - INFO - ✅ Scan status updated: running, 82.2%, phase=capturing
+2025-10-04 13:24:58,150 - picamera2.picamera2 - INFO - Camera stopped
+[0:20:37.027639872] [2104]  INFO Camera camera.cpp:1215 configuring streams: (0) 4624x3472-RGB888/sRGB
+[0:20:37.037499993] [2095]  INFO RPI pisp.cpp:1484 Sensor: /base/axi/pcie@1000120000/rp1/i2c@80000/arducam_64mp@1a - Selected sensor format: 4624x3472-SRGGB10_1X10/RAW - Selected CFE format: 4624x3472-PC1R/RAW
+2025-10-04 13:24:58,162 - picamera2.picamera2 - INFO - Configuration successful!
+2025-10-04 13:24:58,543 - picamera2.picamera2 - INFO - Camera started
+2025-10-04 13:24:58,579 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:00,147 - web_interface - INFO - 🔌 Final connection status for web UI: True
+2025-10-04 13:25:01,097 - web_interface - INFO - Camera stream request for camera 0
+2025-10-04 13:25:01,763 - camera.pi_camera_controller - INFO - 📷 Camera 1: Standard resolution reconfiguration applied
+2025-10-04 13:25:01,763 - camera.pi_camera_controller - INFO - Camera preparation complete: 2 cameras ready for standard resolution simultaneous capture
+2025-10-04 13:25:01,763 - scanning.scan_orchestrator - INFO - CAMERA: Using resolution-aware capture for (4624, 3472)
+2025-10-04 13:25:01,763 - camera.pi_camera_controller - INFO - 📷 Resolution-aware capture: (4624, 3472), Strategy: Simultaneous
+2025-10-04 13:25:01,764 - web_interface - INFO - 🔍 Direct protocol status: Idle, homed: True
+2025-10-04 13:25:01,766 - scanning.scan_orchestrator - INFO - Camera status (scanning mode): {'cameras': ['camera_0', 'camera_1'], 'active_cameras': ['camera_0', 'camera_1'], 'initialized': True}
+2025-10-04 13:25:01,767 - camera.pi_camera_controller - INFO - 🔧 STANDARD SIMULTANEOUS: Capturing 2 cameras simultaneously at (4624, 3472)
+2025-10-04 13:25:01,768 - web_interface - INFO - ✅ Showing IDLE status in web UI - system ready (raw: idle)
+2025-10-04 13:25:01,768 - web_interface - INFO - Available cameras for mapping: ['camera_0', 'camera_1']
+2025-10-04 13:25:01,841 - scanning.scan_orchestrator - INFO - Camera status (scanning mode): {'cameras': ['camera_0', 'camera_1'], 'active_cameras': ['camera_0', 'camera_1'], 'initialized': True}
+2025-10-04 13:25:01,842 - web_interface - INFO - 🔍 Checking lighting controller: LightingControllerAdapter
+2025-10-04 13:25:01,842 - web_interface - INFO - 🔍 Found wrapped controller: GPIOLEDController
+2025-10-04 13:25:01,843 - web_interface - INFO - 💡 Found 2 lighting zones: ['inner', 'outer']
+2025-10-04 13:25:01,843 - web_interface - INFO - 💡 Lighting status updated: zones=['inner', 'outer'], status=available
+2025-10-04 13:25:01,843 - web_interface - INFO - 🔍 Getting scan status - scan.status: ScanStatus.RUNNING, scan.phase: ScanPhase.CAPTURING
+2025-10-04 13:25:01,841 - web_interface - INFO - Mapped camera ID 0 to camera_0
+2025-10-04 13:25:01,843 - web_interface - INFO - 📊 Scan progress: 82.2% (74/90)
+2025-10-04 13:25:01,844 - web_interface - INFO - ✅ Scan status updated: running, 82.2%, phase=capturing
+2025-10-04 13:25:01,844 - web_interface - INFO - Starting camera stream generation for mapped ID: camera_0
+2025-10-04 13:25:01,940 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:02,173 - camera.pi_camera_controller - INFO - ISP-managed capture successful for camera 0
+2025-10-04 13:25:02,174 - camera.pi_camera_controller - INFO - Sequential ISP capture successful: camera_0 -> (3472, 4624, 3)
+2025-10-04 13:25:02,715 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:03,393 - werkzeug - INFO - 192.168.1.42 - - [04/Oct/2025 13:25:03] "GET /camera/0?t=1759577100221 HTTP/1.1" 200 -
+2025-10-04 13:25:03,491 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:03,845 - web_interface - INFO - 🔌 Final connection status for web UI: True
+2025-10-04 13:25:03,845 - web_interface - INFO - 🔍 Direct protocol status: Idle, homed: True
+2025-10-04 13:25:03,847 - web_interface - INFO - ✅ Showing IDLE status in web UI - system ready (raw: idle)
+2025-10-04 13:25:03,847 - scanning.scan_orchestrator - INFO - Camera status (scanning mode): {'cameras': ['camera_0', 'camera_1'], 'active_cameras': ['camera_0', 'camera_1'], 'initialized': True}
+2025-10-04 13:25:03,847 - web_interface - INFO - 🔍 Checking lighting controller: LightingControllerAdapter
+2025-10-04 13:25:03,847 - web_interface - INFO - 🔍 Found wrapped controller: GPIOLEDController
+2025-10-04 13:25:03,847 - web_interface - INFO - 💡 Found 2 lighting zones: ['inner', 'outer']
+2025-10-04 13:25:03,847 - web_interface - INFO - 💡 Lighting status updated: zones=['inner', 'outer'], status=available
+2025-10-04 13:25:03,847 - web_interface - INFO - 🔍 Getting scan status - scan.status: ScanStatus.RUNNING, scan.phase: ScanPhase.CAPTURING
+2025-10-04 13:25:03,847 - web_interface - INFO - 📊 Scan progress: 82.2% (74/90)
+2025-10-04 13:25:03,847 - web_interface - INFO - ✅ Scan status updated: running, 82.2%, phase=capturing
+2025-10-04 13:25:03,916 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:04,204 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:04,702 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:05,497 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:05,849 - web_interface - INFO - 🔌 Final connection status for web UI: True
+2025-10-04 13:25:05,849 - web_interface - INFO - 🔍 Direct protocol status: Idle, homed: True
+2025-10-04 13:25:05,849 - web_interface - INFO - ✅ Showing IDLE status in web UI - system ready (raw: idle)
+2025-10-04 13:25:05,849 - scanning.scan_orchestrator - INFO - Camera status (scanning mode): {'cameras': ['camera_0', 'camera_1'], 'active_cameras': ['camera_0', 'camera_1'], 'initialized': True}
+2025-10-04 13:25:05,849 - web_interface - INFO - 🔍 Checking lighting controller: LightingControllerAdapter
+2025-10-04 13:25:05,849 - web_interface - INFO - 🔍 Found wrapped controller: GPIOLEDController
+2025-10-04 13:25:05,850 - web_interface - INFO - 💡 Found 2 lighting zones: ['inner', 'outer']
+2025-10-04 13:25:05,850 - web_interface - INFO - 💡 Lighting status updated: zones=['inner', 'outer'], status=available
+2025-10-04 13:25:05,850 - web_interface - INFO - 🔍 Getting scan status - scan.status: ScanStatus.RUNNING, scan.phase: ScanPhase.CAPTURING
+2025-10-04 13:25:05,850 - web_interface - INFO - 📊 Scan progress: 82.2% (74/90)
+2025-10-04 13:25:05,850 - web_interface - INFO - ✅ Scan status updated: running, 82.2%, phase=capturing
+2025-10-04 13:25:06,303 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:06,952 - scanning.scan_orchestrator - INFO - CAMERA: Native preview frame requested for camera_0 -> camera 0
+2025-10-04 13:25:07,000 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:07,063 - scanning.scan_orchestrator - INFO - CAMERA: Native frame processed: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:07,793 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:07,851 - web_interface - INFO - 🔌 Final connection status for web UI: True
+2025-10-04 13:25:07,853 - web_interface - INFO - 🔍 Direct protocol status: Idle, homed: True
+2025-10-04 13:25:07,853 - web_interface - INFO - ✅ Showing IDLE status in web UI - system ready (raw: idle)
+2025-10-04 13:25:07,854 - scanning.scan_orchestrator - INFO - Camera status (scanning mode): {'cameras': ['camera_0', 'camera_1'], 'active_cameras': ['camera_0', 'camera_1'], 'initialized': True}
+2025-10-04 13:25:07,854 - web_interface - INFO - 🔍 Checking lighting controller: LightingControllerAdapter
+2025-10-04 13:25:07,854 - web_interface - INFO - 🔍 Found wrapped controller: GPIOLEDController
+2025-10-04 13:25:07,854 - web_interface - INFO - 💡 Found 2 lighting zones: ['inner', 'outer']
+2025-10-04 13:25:07,854 - web_interface - INFO - 💡 Lighting status updated: zones=['inner', 'outer'], status=available
+2025-10-04 13:25:07,854 - web_interface - INFO - 🔍 Getting scan status - scan.status: ScanStatus.RUNNING, scan.phase: ScanPhase.CAPTURING
+2025-10-04 13:25:07,854 - web_interface - INFO - 📊 Scan progress: 82.2% (74/90)
+2025-10-04 13:25:07,855 - web_interface - INFO - ✅ Scan status updated: running, 82.2%, phase=capturing
+2025-10-04 13:25:08,493 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:09,192 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:09,855 - web_interface - INFO - 🔌 Final connection status for web UI: True
+2025-10-04 13:25:09,855 - web_interface - INFO - 🔍 Direct protocol status: Idle, homed: True
+2025-10-04 13:25:09,855 - web_interface - INFO - ✅ Showing IDLE status in web UI - system ready (raw: idle)
+2025-10-04 13:25:09,855 - scanning.scan_orchestrator - INFO - Camera status (scanning mode): {'cameras': ['camera_0', 'camera_1'], 'active_cameras': ['camera_0', 'camera_1'], 'initialized': True}
+2025-10-04 13:25:09,855 - web_interface - INFO - 🔍 Checking lighting controller: LightingControllerAdapter
+2025-10-04 13:25:09,855 - web_interface - INFO - 🔍 Found wrapped controller: GPIOLEDController
+2025-10-04 13:25:09,855 - web_interface - INFO - 💡 Found 2 lighting zones: ['inner', 'outer']
+2025-10-04 13:25:09,855 - web_interface - INFO - 💡 Lighting status updated: zones=['inner', 'outer'], status=available
+2025-10-04 13:25:09,855 - web_interface - INFO - 🔍 Getting scan status - scan.status: ScanStatus.RUNNING, scan.phase: ScanPhase.CAPTURING
+2025-10-04 13:25:09,855 - web_interface - INFO - 📊 Scan progress: 82.2% (74/90)
+2025-10-04 13:25:09,855 - web_interface - INFO - ✅ Scan status updated: running, 82.2%, phase=capturing
+2025-10-04 13:25:09,896 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:10,612 - web_interface - INFO - Camera stream request for camera 0
+2025-10-04 13:25:10,612 - scanning.scan_orchestrator - INFO - Camera status (scanning mode): {'cameras': ['camera_0', 'camera_1'], 'active_cameras': ['camera_0', 'camera_1'], 'initialized': True}
+2025-10-04 13:25:10,612 - web_interface - INFO - Available cameras for mapping: ['camera_0', 'camera_1']
+2025-10-04 13:25:10,612 - web_interface - INFO - Mapped camera ID 0 to camera_0
+2025-10-04 13:25:10,612 - web_interface - INFO - Starting camera stream generation for mapped ID: camera_0
+2025-10-04 13:25:10,692 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:10,801 - scanning.scan_orchestrator - INFO - CAMERA: Raw frame captured: (3472, 4624, 3), dtype: uint8
+2025-10-04 13:25:11,255 - werkzeug - INFO - 192.168.1.4
