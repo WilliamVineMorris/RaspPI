@@ -4,7 +4,10 @@ Simple LED Strobe Script - Quick Test
 Usage: python simple_led_strobe.py [pattern] [duration]
 
 Patterns:
-  fast    - Fast strobe (10Hz)
+  fast    - Fast str    try:
+        await led_ctrl.initialize()
+        print(f"✅ LED Controller ready")
+        print(f"📏 Zones: {list(led_ctrl.led_objects.keys())}\n")(10Hz)
   medium  - Medium strobe (5Hz) 
   slow    - Slow strobe (2Hz)
   pulse   - Double pulse pattern
@@ -33,9 +36,9 @@ async def fast_strobe(led_ctrl, duration=5.0):
     print("⚡ Fast strobe (10Hz)...")
     start = time.time()
     while time.time() - start < duration:
-        await led_ctrl.set_all_brightness(0.9)
+        await led_ctrl.set_all_zones_intensity(0.9)
         await asyncio.sleep(0.05)
-        await led_ctrl.set_all_brightness(0.0)
+        await led_ctrl.set_all_zones_intensity(0.0)
         await asyncio.sleep(0.05)
 
 
@@ -44,9 +47,9 @@ async def medium_strobe(led_ctrl, duration=5.0):
     print("⚡ Medium strobe (5Hz)...")
     start = time.time()
     while time.time() - start < duration:
-        await led_ctrl.set_all_brightness(0.9)
+        await led_ctrl.set_all_zones_intensity(0.9)
         await asyncio.sleep(0.1)
-        await led_ctrl.set_all_brightness(0.0)
+        await led_ctrl.set_all_zones_intensity(0.0)
         await asyncio.sleep(0.1)
 
 
@@ -55,9 +58,9 @@ async def slow_strobe(led_ctrl, duration=5.0):
     print("⚡ Slow strobe (2Hz)...")
     start = time.time()
     while time.time() - start < duration:
-        await led_ctrl.set_all_brightness(0.9)
+        await led_ctrl.set_all_zones_intensity(0.9)
         await asyncio.sleep(0.25)
-        await led_ctrl.set_all_brightness(0.0)
+        await led_ctrl.set_all_zones_intensity(0.0)
         await asyncio.sleep(0.25)
 
 
@@ -66,13 +69,13 @@ async def double_pulse(led_ctrl, duration=5.0):
     print("⚡ Double pulse...")
     start = time.time()
     while time.time() - start < duration:
-        await led_ctrl.set_all_brightness(0.9)
+        await led_ctrl.set_all_zones_intensity(0.9)
         await asyncio.sleep(0.05)
-        await led_ctrl.set_all_brightness(0.0)
+        await led_ctrl.set_all_zones_intensity(0.0)
         await asyncio.sleep(0.05)
-        await led_ctrl.set_all_brightness(0.9)
+        await led_ctrl.set_all_zones_intensity(0.9)
         await asyncio.sleep(0.05)
-        await led_ctrl.set_all_brightness(0.0)
+        await led_ctrl.set_all_zones_intensity(0.0)
         await asyncio.sleep(0.35)
 
 
@@ -83,18 +86,18 @@ async def fade_pulse(led_ctrl, duration=5.0):
     while time.time() - start < duration:
         # Fade up
         for b in range(0, 91, 10):
-            await led_ctrl.set_all_brightness(b / 100.0)
+            await led_ctrl.set_all_zones_intensity(b / 100.0)
             await asyncio.sleep(0.02)
         # Fade down
         for b in range(90, -1, -10):
-            await led_ctrl.set_all_brightness(b / 100.0)
+            await led_ctrl.set_all_zones_intensity(b / 100.0)
             await asyncio.sleep(0.02)
 
 
 async def alternating_zones(led_ctrl, duration=5.0):
     """Alternate inner/outer zones"""
     print("⚡ Alternating zones...")
-    zones = led_ctrl.get_zones()
+    zones = list(led_ctrl.led_objects.keys())
     if len(zones) < 2:
         print("   ⚠️ Need 2 zones for this pattern, using all instead")
         await fast_strobe(led_ctrl, duration)
@@ -102,13 +105,13 @@ async def alternating_zones(led_ctrl, duration=5.0):
     
     start = time.time()
     while time.time() - start < duration:
-        await led_ctrl.set_zone_brightness(zones[0], 0.9)
-        await led_ctrl.set_zone_brightness(zones[1], 0.0)
+        await led_ctrl.set_zone_intensity(zones[0], 0.9)
+        await led_ctrl.set_zone_intensity(zones[1], 0.0)
         await asyncio.sleep(0.1)
-        await led_ctrl.set_zone_brightness(zones[0], 0.0)
-        await led_ctrl.set_zone_brightness(zones[1], 0.9)
+        await led_ctrl.set_zone_intensity(zones[0], 0.0)
+        await led_ctrl.set_zone_intensity(zones[1], 0.9)
         await asyncio.sleep(0.1)
-    await led_ctrl.set_all_off()
+    await led_ctrl.set_all_zones_intensity(0.0)
 
 
 async def synchronized_flash(led_ctrl, duration=5.0):
@@ -116,9 +119,9 @@ async def synchronized_flash(led_ctrl, duration=5.0):
     print("⚡ Synchronized flash...")
     start = time.time()
     while time.time() - start < duration:
-        await led_ctrl.set_all_brightness(0.9)
+        await led_ctrl.set_all_zones_intensity(0.9)
         await asyncio.sleep(0.1)
-        await led_ctrl.set_all_brightness(0.0)
+        await led_ctrl.set_all_zones_intensity(0.0)
         await asyncio.sleep(0.1)
 
 
@@ -130,15 +133,15 @@ async def camera_scan_simulation(led_ctrl, duration=10.0):
     
     while time.time() - start < duration:
         # Idle at 10%
-        await led_ctrl.set_all_brightness(0.1)
+        await led_ctrl.set_all_zones_intensity(0.1)
         await asyncio.sleep(0.5)
         
         # Flash at 30% for 650ms (camera capture)
-        await led_ctrl.set_all_brightness(0.3)
+        await led_ctrl.set_all_zones_intensity(0.3)
         await asyncio.sleep(0.65)
         
         # Back to idle
-        await led_ctrl.set_all_brightness(0.1)
+        await led_ctrl.set_all_zones_intensity(0.1)
         await asyncio.sleep(0.3)
         
         cycle += 1
@@ -152,14 +155,14 @@ async def run_pattern(pattern_name, duration=5.0):
     print(f"{'=' * 60}\n")
     
     # Initialize
-    config = ConfigManager("config/scanner_config.yaml")
-    event_bus = EventBus()
-    led_ctrl = GPIOZeroLEDController(config, event_bus)
+    config_mgr = ConfigManager("config/scanner_config.yaml")
+    lighting_config = config_mgr.get('lighting', {})
+    led_ctrl = GPIOZeroLEDController(lighting_config)
     
     try:
         await led_ctrl.initialize()
         print(f"✅ LED Controller ready")
-        print(f"📍 Zones: {led_ctrl.get_zones()}\n")
+        print(f"📍 Zones: {list(led_ctrl.led_objects.keys())}\n")
         
         # Run selected pattern
         patterns = {
@@ -198,7 +201,7 @@ async def run_pattern(pattern_name, duration=5.0):
         import traceback
         traceback.print_exc()
     finally:
-        await led_ctrl.set_all_off()
+        await led_ctrl.set_all_zones_intensity(0.0)
         await led_ctrl.shutdown()
         print("🔌 LEDs off, controller shutdown\n")
 

@@ -36,8 +36,8 @@ except ImportError:
 
 from core.exceptions import (
     HardwareError, 
-    LightingError, 
-    SafetyViolationError,
+    LEDError, 
+    LEDSafetyError,
     ConfigurationError
 )
 from lighting.base import LightingController, LightingZone
@@ -120,14 +120,14 @@ class GPIOZeroLEDController(LightingController):
         except Exception as e:
             logger.error(f"Failed to initialize GPIO Zero LED controller: {e}")
             await self.cleanup()
-            raise LightingError(f"LED initialization failed: {e}")
+            raise LEDError(f"LED initialization failed: {e}")
     
     async def set_zone_intensity(self, zone_id: str, intensity: float) -> bool:
         """Set LED intensity for a specific zone using LED.value"""
         try:
             # Validate zone
             if zone_id not in self.led_objects:
-                raise LightingError(f"Zone '{zone_id}' not found")
+                raise LEDError(f"Zone '{zone_id}' not found")
             
             # Validate and clamp intensity (0.0 to 1.0)
             intensity = max(0.0, min(1.0, intensity))
@@ -147,7 +147,7 @@ class GPIOZeroLEDController(LightingController):
             
         except Exception as e:
             logger.error(f"Failed to set zone '{zone_id}' intensity: {e}")
-            raise LightingError(f"Zone intensity control failed: {e}")
+            raise LEDError(f"Zone intensity control failed: {e}")
     
     async def set_all_zones_intensity(self, intensity: float) -> bool:
         """Set intensity for all zones"""
@@ -162,7 +162,7 @@ class GPIOZeroLEDController(LightingController):
             
         except Exception as e:
             logger.error(f"Failed to set all zones intensity: {e}")
-            raise LightingError(f"All zones intensity control failed: {e}")
+            raise LEDError(f"All zones intensity control failed: {e}")
     
     async def flash_zone(self, zone_id: str, intensity: float = 1.0, 
                         duration_ms: int = 50) -> bool:
@@ -182,7 +182,7 @@ class GPIOZeroLEDController(LightingController):
             
         except Exception as e:
             logger.error(f"Failed to flash zone '{zone_id}': {e}")
-            raise LightingError(f"Zone flash failed: {e}")
+            raise LEDError(f"Zone flash failed: {e}")
     
     async def flash_all_zones(self, intensity: float = 1.0, 
                              duration_ms: int = 50) -> bool:
@@ -202,7 +202,7 @@ class GPIOZeroLEDController(LightingController):
             
         except Exception as e:
             logger.error(f"Failed to flash all zones: {e}")
-            raise LightingError(f"All zones flash failed: {e}")
+            raise LEDError(f"All zones flash failed: {e}")
     
     async def emergency_shutdown(self) -> bool:
         """Emergency LED shutdown - turn off all LEDs immediately"""
