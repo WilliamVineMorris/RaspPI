@@ -159,8 +159,8 @@ cameras:
   focus_zone:
     enabled: true  # Use focus/metering windows for turntable center
     
-    # Focus zone mode: 'static' or 'yolo_detect'
-    mode: 'yolo_detect'  # Options: 'static', 'yolo_detect'
+    # Focus zone mode: 'static', 'yolo_detect', or 'edge_detect'
+    mode: 'edge_detect'  # Options: 'static', 'yolo_detect', 'edge_detect'
     
     # Camera 0: Offset Right (viewing from left side of turntable)
     camera_0:
@@ -195,6 +195,32 @@ cameras:
       
       # Output directory for detection visualizations
       detection_output_dir: 'calibration/focus_detection'
+      
+      # Fallback behavior
+      fallback_to_static: true    # Use static window if detection fails
+    
+    # Edge Detection Configuration (used when mode='edge_detect')
+    # Detects object with most edges/contrast in center region (no AI needed)
+    edge_detection:
+      enabled: true
+      
+      # Search region (fraction of image to analyze)
+      search_region: 0.7          # Analyze center 70% of image (ignore turntable edges)
+      
+      # Edge detection parameters
+      gaussian_blur: 5            # Blur kernel size (reduce noise)
+      canny_threshold1: 50        # Canny edge detection lower threshold
+      canny_threshold2: 150       # Canny edge detection upper threshold
+      
+      # Object selection
+      min_contour_area: 0.01      # Minimum object size (1% of image)
+      max_contour_area: 0.5       # Maximum object size (50% of image)
+      
+      # Focus window adjustment
+      padding: 0.2                # Add 20% padding around detected edges
+      
+      # Output directory for detection visualizations
+      detection_output_dir: 'calibration/edge_detection'
       
       # Fallback behavior
       fallback_to_static: true    # Use static window if detection fails

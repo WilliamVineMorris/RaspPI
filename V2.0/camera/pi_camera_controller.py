@@ -150,10 +150,15 @@ class PiCameraController(CameraController):
         # Scanning mode tracking
         self.scanning_mode = False
         
-        # Initialize YOLO detector if configured
+        # Initialize detection modules based on focus_zone mode
         self.yolo_detector = None
+        self.edge_detector = None
+        
         focus_zone_config = self.config.get('focus_zone', {})
-        if focus_zone_config.get('mode') == 'yolo_detect':
+        focus_mode = focus_zone_config.get('mode', 'static')
+        
+        # Initialize YOLO detector if configured
+        if focus_mode == 'yolo_detect':
             yolo_config = focus_zone_config.get('yolo_detection', {})
             if yolo_config.get('enabled', False):
                 try:
@@ -165,8 +170,22 @@ class PiCameraController(CameraController):
                 except Exception as e:
                     logger.error(f"❌ Failed to initialize YOLO detector: {e}")
         
+        # Initialize Edge detector if configured
+        elif focus_mode == 'edge_detect':
+            edge_config = focus_zone_config.get('edge_detection', {})
+            if edge_config.get('enabled', False):
+                try:
+                    from camera.edge_detector import EdgeDetector
+                    self.edge_detector = EdgeDetector(edge_config)
+                    logger.info("🔍 Edge-based object detection enabled for autofocus windows")
+                except ImportError as e:
+                    logger.warning(f"⚠️ Edge detector not available: {e}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to initialize edge detector: {e}")
+        
         # Initialize camera information
         self._initialize_camera_info()
+
     
     def _parse_image_format(self, format_str: str) -> ImageFormat:
         """Parse image format string to ImageFormat enum"""
@@ -1018,6 +1037,42 @@ class PiCameraController(CameraController):
                 logger.error(f"❌ Camera {camera_id} no fallback configured, using default center window")
                 return [0.25, 0.25, 0.5, 0.5], 'fallback'
         
+        # Edge detection mode
+        elif mode == 'edge_detect' and self.edge_detector:
+            logger.info(f"🔍 Camera {camera_id} attempting edge-based object detection for focus window...")
+            
+            try:
+                # Capture a preview frame for detection
+                logger.debug(f"📷 Capturing preview frame for edge detection...")
+                
+                # Use main stream for detection (RGB format)
+                preview_array = picamera2.capture_array("main")
+                
+                # Run edge detection
+                detected_window = self.edge_detector.get_focus_window_normalized(preview_array, camera_id)
+                
+                if detected_window:
+                    logger.info(f"✅ Camera {camera_id} Edge detection successful: {detected_window}")
+                    return list(detected_window), 'edge_detected'
+                else:
+                    logger.warning(f"⚠️ Camera {camera_id} Edge detection failed")
+                    
+            except Exception as e:
+                logger.error(f"❌ Camera {camera_id} Edge detection error: {e}")
+            
+            # Fallback to static window if detection fails
+            edge_config = focus_zone_config.get('edge_detection', {})
+            if edge_config.get('fallback_to_static', True):
+                logger.info(f"🔄 Camera {camera_id} falling back to static window")
+                if camera_key in focus_zone_config:
+                    focus_window = focus_zone_config[camera_key].get('window', [0.25, 0.25, 0.5, 0.5])
+                else:
+                    focus_window = focus_zone_config.get('window', [0.25, 0.25, 0.5, 0.5])
+                return focus_window, 'fallback'
+            else:
+                logger.error(f"❌ Camera {camera_id} no fallback configured, using default center window")
+                return [0.25, 0.25, 0.5, 0.5], 'fallback'
+        
         # Default fallback
         logger.warning(f"⚠️ Camera {camera_id} unknown focus mode '{mode}', using default")
         return [0.25, 0.25, 0.5, 0.5], 'fallback'
@@ -1203,56 +1258,109 @@ class PiCameraController(CameraController):
                     logger.warning(f"⚠️ Camera {camera_id} autofocus failed: {focus_error}")
                     focus_value = 0.5
             
-            # Step 3.5: TWO-PASS YOLO CALIBRATION - Now that image is sharp, run YOLO detection
-            if focus_zone_enabled and mode == 'yolo_detect' and self.yolo_detector and window_source == 'static_prefocus':
-                logger.info(f"🎯 Camera {camera_id} YOLO PASS 2: Image now sharp, running object detection...")
+            # Step 3.5: TWO-PASS DETECTION CALIBRATION - Now that image is sharp, run object detection
+            if focus_zone_enabled and window_source == 'static_prefocus':
+                # YOLO Pass 2
+                if mode == 'yolo_detect' and self.yolo_detector:
+                    logger.info(f"🎯 Camera {camera_id} YOLO PASS 2: Image now sharp, running object detection...")
+                    
+                    try:
+                        # Capture sharp image for YOLO detection
+                        preview_array = picamera2.capture_array("main")
+                        
+                        # Run YOLO detection on sharp image
+                        detected_window = self.yolo_detector.detect_object(preview_array, camera_id)
+                        
+                        if detected_window:
+                            logger.info(f"✅ Camera {camera_id} YOLO detection successful on sharp image!")
+                            focus_window = list(detected_window)
+                            window_source = 'yolo_detected'
+                            
+                            # Update AfWindows with YOLO-detected window
+                            x_px = int(focus_window[0] * max_width)
+                            y_px = int(focus_window[1] * max_height)
+                            w_px = int(focus_window[2] * max_width)
+                            h_px = int(focus_window[3] * max_height)
+                            
+                            picamera2.set_controls({
+                                "AfMetering": controls.AfMeteringEnum.Windows,
+                                "AfWindows": [(x_px, y_px, w_px, h_px)]
+                            })
+                            
+                            logger.info(f"📷 Camera {camera_id} refined focus window: AfWindows=[({x_px}, {y_px}, {w_px}, {h_px})]")
+                            
+                            # Re-run autofocus with refined window
+                            logger.info(f"📷 Camera {camera_id} performing refined autofocus on detected object...")
+                            await asyncio.sleep(0.5)  # Let new window settle
+                            
+                            try:
+                                refined_focus = await asyncio.wait_for(
+                                    self.auto_focus_and_get_value(camera_id),
+                                    timeout=5.0
+                                )
+                                if refined_focus is not None:
+                                    focus_value = refined_focus
+                                    logger.info(f"✅ Camera {camera_id} refined focus value: {focus_value:.3f}")
+                            except Exception as refine_error:
+                                logger.warning(f"⚠️ Camera {camera_id} refined autofocus failed: {refine_error}")
+                                # Keep initial focus value
+                        else:
+                            logger.warning(f"⚠️ Camera {camera_id} YOLO detection failed on sharp image - keeping static window")
+                            
+                    except Exception as yolo_error:
+                        logger.warning(f"⚠️ Camera {camera_id} YOLO pass 2 failed: {yolo_error}")
+                        # Keep initial focus settings
                 
-                try:
-                    # Capture sharp image for YOLO detection
-                    preview_array = picamera2.capture_array("main")
+                # Edge Detection Pass 2
+                elif mode == 'edge_detect' and self.edge_detector:
+                    logger.info(f"🔍 Camera {camera_id} EDGE PASS 2: Image now sharp, running edge detection...")
                     
-                    # Run YOLO detection on sharp image
-                    detected_window = self.yolo_detector.detect_object(preview_array, camera_id)
-                    
-                    if detected_window:
-                        logger.info(f"✅ Camera {camera_id} YOLO detection successful on sharp image!")
-                        focus_window = list(detected_window)
-                        window_source = 'yolo_detected'
+                    try:
+                        # Capture sharp image for edge detection
+                        preview_array = picamera2.capture_array("main")
                         
-                        # Update AfWindows with YOLO-detected window
-                        x_px = int(focus_window[0] * max_width)
-                        y_px = int(focus_window[1] * max_height)
-                        w_px = int(focus_window[2] * max_width)
-                        h_px = int(focus_window[3] * max_height)
+                        # Run edge detection on sharp image
+                        detected_window = self.edge_detector.get_focus_window_normalized(preview_array, camera_id)
                         
-                        picamera2.set_controls({
-                            "AfMetering": controls.AfMeteringEnum.Windows,
-                            "AfWindows": [(x_px, y_px, w_px, h_px)]
-                        })
-                        
-                        logger.info(f"📷 Camera {camera_id} refined focus window: AfWindows=[({x_px}, {y_px}, {w_px}, {h_px})]")
-                        
-                        # Re-run autofocus with refined window
-                        logger.info(f"📷 Camera {camera_id} performing refined autofocus on detected object...")
-                        await asyncio.sleep(0.5)  # Let new window settle
-                        
-                        try:
-                            refined_focus = await asyncio.wait_for(
-                                self.auto_focus_and_get_value(camera_id),
-                                timeout=5.0
-                            )
-                            if refined_focus is not None:
-                                focus_value = refined_focus
-                                logger.info(f"✅ Camera {camera_id} refined focus value: {focus_value:.3f}")
-                        except Exception as refine_error:
-                            logger.warning(f"⚠️ Camera {camera_id} refined autofocus failed: {refine_error}")
-                            # Keep initial focus value
-                    else:
-                        logger.warning(f"⚠️ Camera {camera_id} YOLO detection failed on sharp image - keeping static window")
-                        
-                except Exception as yolo_error:
-                    logger.warning(f"⚠️ Camera {camera_id} YOLO pass 2 failed: {yolo_error}")
-                    # Keep initial focus settings
+                        if detected_window:
+                            logger.info(f"✅ Camera {camera_id} Edge detection successful on sharp image!")
+                            focus_window = list(detected_window)
+                            window_source = 'edge_detected'
+                            
+                            # Update AfWindows with edge-detected window
+                            x_px = int(focus_window[0] * max_width)
+                            y_px = int(focus_window[1] * max_height)
+                            w_px = int(focus_window[2] * max_width)
+                            h_px = int(focus_window[3] * max_height)
+                            
+                            picamera2.set_controls({
+                                "AfMetering": controls.AfMeteringEnum.Windows,
+                                "AfWindows": [(x_px, y_px, w_px, h_px)]
+                            })
+                            
+                            logger.info(f"📷 Camera {camera_id} refined focus window: AfWindows=[({x_px}, {y_px}, {w_px}, {h_px})]")
+                            
+                            # Re-run autofocus with refined window
+                            logger.info(f"📷 Camera {camera_id} performing refined autofocus on detected edges...")
+                            await asyncio.sleep(0.5)  # Let new window settle
+                            
+                            try:
+                                refined_focus = await asyncio.wait_for(
+                                    self.auto_focus_and_get_value(camera_id),
+                                    timeout=5.0
+                                )
+                                if refined_focus is not None:
+                                    focus_value = refined_focus
+                                    logger.info(f"✅ Camera {camera_id} refined focus value: {focus_value:.3f}")
+                            except Exception as refine_error:
+                                logger.warning(f"⚠️ Camera {camera_id} refined autofocus failed: {refine_error}")
+                                # Keep initial focus value
+                        else:
+                            logger.warning(f"⚠️ Camera {camera_id} Edge detection failed on sharp image - keeping static window")
+                            
+                    except Exception as edge_error:
+                        logger.warning(f"⚠️ Camera {camera_id} Edge pass 2 failed: {edge_error}")
+                        # Keep initial focus settings
             
             # Step 4: Capture final calibration metadata with timeout protection
             logger.info(f"📷 Camera {camera_id} capturing final calibration values...")
