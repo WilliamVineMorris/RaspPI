@@ -885,14 +885,19 @@ class ScannerWebInterface:
                 if self.orchestrator and hasattr(self.orchestrator, 'current_scan') and self.orchestrator.current_scan:
                     scan = self.orchestrator.current_scan
                     
+                    self.logger.debug(f"📊 Viz API - Found current_scan with status: {scan.status if hasattr(scan, 'status') else 'unknown'}")
+                    
                     # Check if scan is actually running
                     if hasattr(scan, 'status') and scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED]:
                         visualization_data['mode'] = 'scanning'
+                        
+                        self.logger.debug(f"📊 Viz API - Scan is active, checking for pattern...")
                         
                         # Get all scan points from pattern
                         if hasattr(self.orchestrator, 'current_pattern') and self.orchestrator.current_pattern:
                             try:
                                 scan_points = self.orchestrator.current_pattern.generate_points()
+                                self.logger.info(f"📊 Viz API - Generated {len(scan_points)} scan points from pattern")
                                 
                                 # Convert scan points to visualization format
                                 for point in scan_points:
@@ -940,8 +945,12 @@ class ScannerWebInterface:
                                                 'tilt': fluidnc_pos['c']
                                             }
                                         })
+                                
+                                self.logger.info(f"📊 Viz API - Converted {len(visualization_data['scan_points'])} points for visualization")
                             except Exception as e:
-                                self.logger.warning(f"Failed to get scan points from pattern: {e}")
+                                self.logger.warning(f"Failed to get scan points from pattern: {e}", exc_info=True)
+                        else:
+                            self.logger.warning(f"📊 Viz API - No current_pattern found (has_attr: {hasattr(self.orchestrator, 'current_pattern')}, value: {self.orchestrator.current_pattern if hasattr(self.orchestrator, 'current_pattern') else 'N/A'})")
                         
                         # Get current progress
                         if hasattr(scan, 'progress'):

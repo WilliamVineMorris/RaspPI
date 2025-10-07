@@ -1326,6 +1326,14 @@
                     return;
                 }
                 
+                // DEBUG: Log received data
+                console.log('📊 Visualization data:', {
+                    mode: data.mode,
+                    scan_points: data.scan_points?.length || 0,
+                    has_current_position: !!data.current_position,
+                    progress: data.progress
+                });
+                
                 // Update mode indicator
                 const modeIndicator = document.getElementById('viz-mode-indicator');
                 if (data.mode === 'scanning') {
