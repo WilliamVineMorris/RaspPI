@@ -292,19 +292,27 @@
     </section>
 
     <!-- Column 3: Reserved Space (Wider) -->
-    <section class="reserved-panel" style="grid-row: 1 / 2; grid-column: 3 / 4; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #f1f5f9 100%); border: 3px dashed #cbd5e1; display: flex; align-items: center; justify-content: center; min-height: 500px; position: relative; overflow: hidden; border-radius: 8px; padding: 0.75rem;">
-        <!-- Background pattern -->
-        <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; opacity: 0.1; background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, #64748b 10px, #64748b 20px);"></div>
+    <section class="reserved-panel" style="grid-row: 1 / 2; grid-column: 3 / 4; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #f1f5f9 100%); border: 2px solid #cbd5e1; display: flex; flex-direction: column; min-height: 500px; position: relative; overflow: hidden; border-radius: 8px; padding: 0.75rem;">
+        <!-- Header -->
+        <div style="margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 2px solid #cbd5e1;">
+            <h2 style="font-size: 1rem; margin: 0; color: #475569; font-weight: 700;">📊 Real-Time Position Monitor</h2>
+            <p id="viz-mode-indicator" style="font-size: 0.75rem; margin: 0.25rem 0 0 0; color: #64748b;">Idle Mode</p>
+        </div>
         
-        <!-- Content -->
-        <div style="text-align: center; color: #64748b; z-index: 1; max-width: 80%;">
-            <div style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.7;">📊📈📉</div>
-            <div style="font-weight: 700; margin-bottom: 0.5rem; font-size: 1.4rem; color: #475569;">Reserved Visualization Space</div>
-            <div style="font-size: 1rem; margin-bottom: 1rem; line-height: 1.4;">
-                This area is reserved for future data visualization, charts, 3D previews, or monitoring dashboards
-            </div>
-            <div style="font-size: 0.85rem; background: rgba(255, 255, 255, 0.8); padding: 0.5rem 1rem; border-radius: 0.5rem; display: inline-block; color: #64748b;">
-                <strong>Dimensions:</strong> Flexible • <strong>Purpose:</strong> Analytics & Visualization
+        <!-- 3D Visualization Canvas -->
+        <div id="dashboard-3d-plot" style="flex: 1; min-height: 400px; background: white; border-radius: 4px; border: 1px solid #e2e8f0;"></div>
+        
+        <!-- Info Panel -->
+        <div id="viz-info-panel" style="margin-top: 0.5rem; padding: 0.5rem; background: rgba(255, 255, 255, 0.9); border-radius: 4px; font-size: 0.75rem; color: #64748b;">
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem;">
+                <div>
+                    <strong>Current Position:</strong>
+                    <span id="viz-current-pos">--</span>
+                </div>
+                <div>
+                    <strong>Scan Progress:</strong>
+                    <span id="viz-scan-progress">--</span>
+                </div>
             </div>
         </div>
     </section>
@@ -1265,6 +1273,262 @@
             setTimeout(() => {
                 triggerAutofocus();
             }, 2000); // Wait 2 seconds for camera to initialize
+            
+            // Initialize 3D visualization
+            initializeVisualization();
+        });
+        
+        // ==================== 3D VISUALIZATION ====================
+        
+        let visualizationUpdateInterval = null;
+        let lastVisualizationData = null;
+        
+        function initializeVisualization() {
+            console.log('📊 Initializing dashboard 3D visualization...');
+            
+            // Check if Plotly is loaded
+            if (typeof Plotly === 'undefined') {
+                console.error('⚠️ Plotly.js not loaded - visualization disabled');
+                document.getElementById('dashboard-3d-plot').innerHTML = `
+                    <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #d63031;">
+                        <div style="text-align: center;">
+                            <h4>⚠️ Plotly.js Not Loaded</h4>
+                            <p style="font-size: 0.85rem;">3D visualization requires Plotly.js library</p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Initial fetch and render
+            updateVisualization();
+            
+            // Set up periodic updates (every 1 second)
+            visualizationUpdateInterval = setInterval(updateVisualization, 1000);
+            
+            console.log('✅ Dashboard visualization initialized');
+        }
+        
+        async function updateVisualization() {
+            try {
+                const response = await fetch('/api/visualization_data');
+                const data = await response.json();
+                
+                if (!data.success) {
+                    console.error('Visualization data error:', data.error);
+                    return;
+                }
+                
+                // Update mode indicator
+                const modeIndicator = document.getElementById('viz-mode-indicator');
+                if (data.mode === 'scanning') {
+                    modeIndicator.textContent = `🔄 Scanning (${data.progress.current_point}/${data.progress.total_points})`;
+                    modeIndicator.style.color = '#2ecc71';
+                } else {
+                    modeIndicator.textContent = '📍 Idle - Live Position';
+                    modeIndicator.style.color = '#64748b';
+                }
+                
+                // Update info panel
+                updateVisualizationInfo(data);
+                
+                // Render 3D plot
+                renderVisualization(data);
+                
+                lastVisualizationData = data;
+                
+            } catch (error) {
+                console.error('Failed to update visualization:', error);
+            }
+        }
+        
+        function updateVisualizationInfo(data) {
+            const currentPosEl = document.getElementById('viz-current-pos');
+            const scanProgressEl = document.getElementById('viz-scan-progress');
+            
+            if (data.current_position && data.current_position.camera) {
+                const cam = data.current_position.camera;
+                currentPosEl.textContent = `R:${cam.radius.toFixed(1)}mm H:${cam.height.toFixed(1)}mm θ:${cam.rotation.toFixed(1)}° T:${cam.tilt.toFixed(1)}°`;
+            } else {
+                currentPosEl.textContent = 'Unknown';
+            }
+            
+            if (data.mode === 'scanning') {
+                scanProgressEl.textContent = `${data.progress.current_point}/${data.progress.total_points} (${data.progress.percentage.toFixed(1)}%)`;
+            } else {
+                scanProgressEl.textContent = 'No active scan';
+            }
+        }
+        
+        function renderVisualization(data) {
+            const plotDiv = document.getElementById('dashboard-3d-plot');
+            
+            if (!plotDiv) {
+                console.error('Plot div not found');
+                return;
+            }
+            
+            const traces = [];
+            
+            // Add turntable (10cm diameter = 100mm)
+            const turntableRadius = 50; // 50mm radius
+            const turntablePoints = 50;
+            const turntableTheta = Array.from({length: turntablePoints + 1}, (_, i) => i * 2 * Math.PI / turntablePoints);
+            const turntableX = turntableTheta.map(t => turntableRadius * Math.cos(t));
+            const turntableY = turntableTheta.map(t => turntableRadius * Math.sin(t));
+            const turntableZ = Array(turntablePoints + 1).fill(0);
+            
+            traces.push({
+                type: 'scatter3d',
+                mode: 'lines',
+                name: 'Turntable',
+                x: turntableX,
+                y: turntableY,
+                z: turntableZ,
+                line: {
+                    color: 'rgba(80, 80, 80, 0.8)',
+                    width: 4
+                },
+                hoverinfo: 'name',
+                showlegend: false
+            });
+            
+            // SCANNING MODE: Show all scan points
+            if (data.mode === 'scanning' && data.scan_points.length > 0) {
+                const scanPoints = data.scan_points;
+                
+                // Convert to Cartesian coordinates
+                const cartesianPoints = scanPoints.map(p => {
+                    const z_rad = p.camera.rotation * Math.PI / 180;
+                    return {
+                        x: p.camera.radius * Math.cos(z_rad),
+                        y: p.camera.radius * Math.sin(z_rad),
+                        z: p.camera.height
+                    };
+                });
+                
+                const xCoords = cartesianPoints.map(p => p.x);
+                const yCoords = cartesianPoints.map(p => p.y);
+                const zCoords = cartesianPoints.map(p => p.z);
+                
+                // Create color array (gradient through scan path)
+                const colors = scanPoints.map((_, i) => i);
+                
+                // Hover text
+                const hoverText = scanPoints.map((p, i) => 
+                    `Point ${i}<br>Radius: ${p.camera.radius.toFixed(1)}mm<br>Height: ${p.camera.height.toFixed(1)}mm<br>Rotation: ${p.camera.rotation.toFixed(1)}°<br>Tilt: ${p.camera.tilt.toFixed(1)}°`
+                );
+                
+                // Scan path trace
+                traces.push({
+                    type: 'scatter3d',
+                    mode: 'lines+markers',
+                    name: 'Scan Path',
+                    x: xCoords,
+                    y: yCoords,
+                    z: zCoords,
+                    text: hoverText,
+                    hoverinfo: 'text',
+                    marker: {
+                        size: 4,
+                        color: colors,
+                        colorscale: 'Portland',
+                        showscale: false
+                    },
+                    line: {
+                        color: colors,
+                        colorscale: 'Portland',
+                        width: 2
+                    },
+                    showlegend: false
+                });
+                
+                // Highlight current position in scan
+                if (data.current_position && data.current_position.camera) {
+                    const cam = data.current_position.camera;
+                    const z_rad = cam.rotation * Math.PI / 180;
+                    
+                    traces.push({
+                        type: 'scatter3d',
+                        mode: 'markers',
+                        name: 'Current Position',
+                        x: [cam.radius * Math.cos(z_rad)],
+                        y: [cam.radius * Math.sin(z_rad)],
+                        z: [cam.height],
+                        marker: {
+                            size: 10,
+                            color: '#e74c3c',
+                            symbol: 'diamond',
+                            line: {
+                                color: 'white',
+                                width: 2
+                            }
+                        },
+                        hovertext: `CURRENT<br>R:${cam.radius.toFixed(1)}mm<br>H:${cam.height.toFixed(1)}mm<br>θ:${cam.rotation.toFixed(1)}°<br>T:${cam.tilt.toFixed(1)}°`,
+                        hoverinfo: 'text',
+                        showlegend: false
+                    });
+                }
+            }
+            // IDLE MODE: Show only current position
+            else if (data.current_position && data.current_position.camera) {
+                const cam = data.current_position.camera;
+                const z_rad = cam.rotation * Math.PI / 180;
+                
+                traces.push({
+                    type: 'scatter3d',
+                    mode: 'markers',
+                    name: 'Camera Position',
+                    x: [cam.radius * Math.cos(z_rad)],
+                    y: [cam.radius * Math.sin(z_rad)],
+                    z: [cam.height],
+                    marker: {
+                        size: 12,
+                        color: '#3498db',
+                        symbol: 'diamond',
+                        line: {
+                            color: 'white',
+                            width: 2
+                        }
+                    },
+                    hovertext: `Camera<br>R:${cam.radius.toFixed(1)}mm<br>H:${cam.height.toFixed(1)}mm<br>θ:${cam.rotation.toFixed(1)}°<br>T:${cam.tilt.toFixed(1)}°`,
+                    hoverinfo: 'text',
+                    showlegend: false
+                });
+            }
+            
+            // Layout
+            const layout = {
+                scene: {
+                    xaxis: { title: 'X (mm)', showgrid: true, zeroline: true },
+                    yaxis: { title: 'Y (mm)', showgrid: true, zeroline: true },
+                    zaxis: { title: 'Height (mm)', showgrid: true, zeroline: true },
+                    camera: {
+                        eye: { x: 1.5, y: -1.5, z: 1.0 },
+                        up: { x: 0, y: 0, z: 1 }
+                    },
+                    aspectmode: 'data',
+                    aspectratio: { x: 1, y: 1, z: 0.8 }
+                },
+                margin: { l: 0, r: 0, b: 0, t: 0 },
+                showlegend: false,
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)'
+            };
+            
+            const config = {
+                responsive: true,
+                displayModeBar: false
+            };
+            
+            Plotly.newPlot(plotDiv, traces, layout, config);
+        }
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (visualizationUpdateInterval) {
+                clearInterval(visualizationUpdateInterval);
+            }
         });
     </script>
 </div>

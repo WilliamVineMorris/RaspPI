@@ -859,6 +859,153 @@ class ScannerWebInterface:
                 self.logger.error(f"Restart monitor API error: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
+        @self.app.route('/api/visualization_data')
+        def api_visualization_data():
+            """Get data for real-time 3D visualization on dashboard
+            
+            Returns:
+                - ACTIVE SCAN: All scan points + current position + progress
+                - IDLE: Current camera position based on FluidNC coordinates
+            """
+            try:
+                visualization_data = {
+                    'success': True,
+                    'timestamp': datetime.now().isoformat(),
+                    'mode': 'idle',  # 'idle' or 'scanning'
+                    'scan_points': [],
+                    'current_position': None,
+                    'progress': {
+                        'current_point': 0,
+                        'total_points': 0,
+                        'percentage': 0.0
+                    }
+                }
+                
+                # Check if scan is active
+                if self.orchestrator and hasattr(self.orchestrator, 'current_scan') and self.orchestrator.current_scan:
+                    scan = self.orchestrator.current_scan
+                    
+                    # Check if scan is actually running
+                    if hasattr(scan, 'status') and scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED]:
+                        visualization_data['mode'] = 'scanning'
+                        
+                        # Get all scan points
+                        if hasattr(scan, 'scan_points') and scan.scan_points:
+                            # Convert scan points to visualization format
+                            for point in scan.scan_points:
+                                if hasattr(point, 'position'):
+                                    # Get FluidNC coordinates
+                                    fluidnc_pos = {
+                                        'x': point.position.x,
+                                        'y': point.position.y,
+                                        'z': point.position.z,
+                                        'c': point.position.c
+                                    }
+                                    
+                                    # Convert to camera coordinates if transformer available
+                                    if self.coord_transformer:
+                                        try:
+                                            camera_pos = self.coord_transformer.fluidnc_to_camera(point.position)
+                                            visualization_data['scan_points'].append({
+                                                'fluidnc': fluidnc_pos,
+                                                'camera': {
+                                                    'radius': camera_pos.radius,
+                                                    'height': camera_pos.height,
+                                                    'rotation': camera_pos.rotation,
+                                                    'tilt': camera_pos.tilt
+                                                }
+                                            })
+                                        except Exception as e:
+                                            self.logger.warning(f"Failed to convert point to camera coords: {e}")
+                                            # Fallback: use FluidNC as camera (for visualization)
+                                            visualization_data['scan_points'].append({
+                                                'fluidnc': fluidnc_pos,
+                                                'camera': {
+                                                    'radius': fluidnc_pos['x'],
+                                                    'height': fluidnc_pos['y'],
+                                                    'rotation': fluidnc_pos['z'],
+                                                    'tilt': fluidnc_pos['c']
+                                                }
+                                            })
+                                    else:
+                                        # No transformer - use FluidNC coords directly
+                                        visualization_data['scan_points'].append({
+                                            'fluidnc': fluidnc_pos,
+                                            'camera': {
+                                                'radius': fluidnc_pos['x'],
+                                                'height': fluidnc_pos['y'],
+                                                'rotation': fluidnc_pos['z'],
+                                                'tilt': fluidnc_pos['c']
+                                            }
+                                        })
+                        
+                        # Get current progress
+                        if hasattr(scan, 'progress'):
+                            visualization_data['progress'] = {
+                                'current_point': getattr(scan.progress, 'current_point', 0),
+                                'total_points': getattr(scan.progress, 'total_points', 0),
+                                'percentage': getattr(scan.progress, 'completion_percentage', 0.0)
+                            }
+                
+                # Get current position (for idle mode or to highlight current position in scan)
+                if self.orchestrator and hasattr(self.orchestrator, 'motion_controller') and self.orchestrator.motion_controller:
+                    try:
+                        motion_controller = self.orchestrator.motion_controller
+                        current_pos = motion_controller.current_position
+                        
+                        if current_pos:
+                            fluidnc_current = {
+                                'x': current_pos.x,
+                                'y': current_pos.y,
+                                'z': current_pos.z,
+                                'c': current_pos.c
+                            }
+                            
+                            # Convert to camera coordinates
+                            if self.coord_transformer:
+                                try:
+                                    camera_current = self.coord_transformer.fluidnc_to_camera(current_pos)
+                                    visualization_data['current_position'] = {
+                                        'fluidnc': fluidnc_current,
+                                        'camera': {
+                                            'radius': camera_current.radius,
+                                            'height': camera_current.height,
+                                            'rotation': camera_current.rotation,
+                                            'tilt': camera_current.tilt
+                                        }
+                                    }
+                                except Exception as e:
+                                    self.logger.warning(f"Failed to convert current position: {e}")
+                                    # Fallback
+                                    visualization_data['current_position'] = {
+                                        'fluidnc': fluidnc_current,
+                                        'camera': {
+                                            'radius': fluidnc_current['x'],
+                                            'height': fluidnc_current['y'],
+                                            'rotation': fluidnc_current['z'],
+                                            'tilt': fluidnc_current['c']
+                                        }
+                                    }
+                            else:
+                                # No transformer
+                                visualization_data['current_position'] = {
+                                    'fluidnc': fluidnc_current,
+                                    'camera': {
+                                        'radius': fluidnc_current['x'],
+                                        'height': fluidnc_current['y'],
+                                        'rotation': fluidnc_current['z'],
+                                        'tilt': fluidnc_current['c']
+                                    }
+                                }
+                    except Exception as e:
+                        self.logger.warning(f"Failed to get current position: {e}")
+                
+                return jsonify(visualization_data)
+                
+            except Exception as e:
+                self.logger.error(f"Visualization data API error: {e}", exc_info=True)
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
         @self.app.route('/api/jog', methods=['POST'])
         def api_jog():
             """Handle jog movement commands"""
