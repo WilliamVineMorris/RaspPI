@@ -167,26 +167,34 @@ def create_mock_orchestrator():
             
         def move_relative(self, axis, distance):
             self._position[axis] += distance
-            # Update current_position to match
-            self.current_position = Position4D(
-                x=self._position['x'], 
-                y=self._position['y'], 
-                z=self._position['z'], 
-                c=self._position['c']
-            )
-            print(f"Mock: Moving {axis} by {distance}mm to {self._position[axis]}")
+            # Update current_position to match - properly handles both dict and Position4D
+            if isinstance(self._position, dict):
+                self.current_position = Position4D(
+                    x=self._position['x'], 
+                    y=self._position['y'], 
+                    z=self._position['z'], 
+                    c=self._position['c']
+                )
+            print(f"Mock: Moving {axis} by {distance}mm to {self._position[axis]}, C-axis now at {self.current_position.c}°")
             return True
             
         def move_to_position(self, position):
-            self._position.update(position)
-            # Update current_position to match
-            self.current_position = Position4D(
-                x=self._position['x'], 
-                y=self._position['y'], 
-                z=self._position['z'], 
-                c=self._position['c']
-            )
-            print(f"Mock: Moving to position {position}")
+            # Handle both dict and Position4D input
+            if isinstance(position, Position4D):
+                self._position['x'] = position.x
+                self._position['y'] = position.y
+                self._position['z'] = position.z
+                self._position['c'] = position.c
+                self.current_position = position
+            else:
+                self._position.update(position)
+                self.current_position = Position4D(
+                    x=self._position.get('x', 0.0), 
+                    y=self._position.get('y', 0.0), 
+                    z=self._position.get('z', 0.0), 
+                    c=self._position.get('c', 0.0)
+                )
+            print(f"Mock: Moving to position x={self.current_position.x}, y={self.current_position.y}, z={self.current_position.z}, c={self.current_position.c}°")
             return True
             
         def home_axes(self, axes):
