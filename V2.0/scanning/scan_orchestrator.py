@@ -3483,6 +3483,33 @@ class ScanOrchestrator:
             calibration_brightness = getattr(self.lighting_controller, 'calibration_brightness', 0.20)
             idle_brightness = getattr(self.lighting_controller, 'idle_brightness', 0.10)
             
+            # 🔥 PRIORITY CHECK: Web UI focus settings override legacy focus mode
+            if self._web_focus_mode == 'manual' and self._web_focus_position is not None:
+                self.logger.info(f"📸 Web UI manual focus mode: Skipping autofocus calibration, using position {self._web_focus_position}")
+                
+                # Get available cameras
+                available_cameras = []
+                if hasattr(self.camera_manager, 'controller') and self.camera_manager.controller:
+                    if hasattr(self.camera_manager.controller, 'cameras'):
+                        for cam_id in self.camera_manager.controller.cameras.keys():
+                            available_cameras.append(f"camera{cam_id}")
+                    else:
+                        available_cameras = ["camera0", "camera1"]
+                else:
+                    self.logger.warning("No camera controller available, skipping focus setup")
+                    return
+                
+                # Apply manual focus to all cameras
+                for camera_id in available_cameras:
+                    success = await self.camera_manager.controller.set_focus_value(camera_id, self._web_focus_position)
+                    if success:
+                        self._scan_focus_values[camera_id] = self._web_focus_position
+                        self.logger.info(f"✅ Set web UI manual focus for {camera_id}: {self._web_focus_position:.3f}")
+                    else:
+                        self.logger.warning(f"❌ Failed to set manual focus for {camera_id}")
+                
+                return  # Skip all autofocus calibration
+            
             if self._focus_mode == 'fixed':
                 self.logger.info("Focus mode is fixed, skipping focus setup")
                 return

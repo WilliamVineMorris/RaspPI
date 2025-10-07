@@ -1751,80 +1751,6 @@
                                            min="0" max="10" value="2"
                                            oninput="updateSharpeningDisplay(this.value)">
                                 </div>
-                                
-                                <!-- Focus Control Settings -->
-                                <div class="parameter-group mb-3" style="border-top: 2px solid #e2e8f0; padding-top: 1rem; margin-top: 1rem;">
-                                    <h6 class="text-muted mb-3 text-uppercase fw-bold" style="font-size: 0.75rem; letter-spacing: 1px; color: #64748b !important;">
-                                        <i class="bi bi-bullseye me-1"></i> 📸 Focus Control
-                                    </h6>
-                                    
-                                    <label class="form-label">Focus Mode</label>
-                                    <select class="form-select mb-3" id="customFocusMode" onchange="toggleFocusSettings()">
-                                        <option value="autofocus_initial">Autofocus Initial (Calibration)</option>
-                                        <option value="continuous">Continuous Autofocus</option>
-                                        <option value="manual" selected>Manual Focus</option>
-                                        <option value="manual_stack">Manual Focus Stacking</option>
-                                    </select>
-                                    <small class="text-muted d-block mb-3">
-                                        <strong>Autofocus Initial:</strong> Autofocus once at start, use for all points<br>
-                                        <strong>Continuous:</strong> Autofocus before every capture<br>
-                                        <strong>Manual:</strong> Fixed lens position for all captures<br>
-                                        <strong>Focus Stacking:</strong> Multiple captures at different focus per point
-                                    </small>
-                                </div>
-                                
-                                <!-- Manual Focus Controls -->
-                                <div id="manualFocusSettings">
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">Manual Focus Position: <span id="focusPositionDisplay">8.0</span></label>
-                                        <input type="range" class="form-range" id="customFocusPosition" 
-                                               min="0" max="15" step="0.1" value="8.0"
-                                               oninput="updateFocusPositionDisplay(this.value)">
-                                        <div class="d-flex justify-content-between mt-1">
-                                            <small class="text-muted fw-500">0.0 (∞)</small>
-                                            <small class="text-muted fw-500">15.0 (Close)</small>
-                                        </div>
-                                        <small class="text-muted d-block">Lens position: 0.0 = infinity, 6-10 = macro, 15.0 = extreme close-up</small>
-                                    </div>
-                                </div>
-                                
-                                <!-- Focus Stacking Controls -->
-                                <div id="focusStackSettings" style="display: none;">
-                                    <div class="parameter-group mb-3">
-                                        <label class="form-label">Focus Stack Steps: <span id="focusStackStepsDisplay">1</span></label>
-                                        <input type="range" class="form-range" id="customFocusStackSteps" 
-                                               min="1" max="10" value="1"
-                                               oninput="updateFocusStackDisplay()">
-                                        <small class="text-muted d-block mb-2">
-                                            Steps: 1 = 2 levels (min+max), 2 = 3 levels (min+mid+max), etc.
-                                        </small>
-                                        <div class="alert alert-info py-2 px-3 mb-2" style="font-size: 0.85rem;">
-                                            <strong>Focus Levels: <span id="focusLevelsCount">2</span></strong>
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="row g-2 mb-3">
-                                        <div class="col-6">
-                                            <label class="form-label">Min Focus</label>
-                                            <input type="number" class="form-control" id="customFocusMin" 
-                                                   min="0" max="15" step="0.1" value="6.0" 
-                                                   oninput="updateFocusStackDisplay()">
-                                        </div>
-                                        <div class="col-6">
-                                            <label class="form-label">Max Focus</label>
-                                            <input type="number" class="form-control" id="customFocusMax" 
-                                                   min="0" max="15" step="0.1" value="10.0"
-                                                   oninput="updateFocusStackDisplay()">
-                                        </div>
-                                    </div>
-                                    
-                                    <div class="alert alert-primary py-2 px-3" style="font-size: 0.85rem;">
-                                        <strong>📸 Focus Positions:</strong> <span id="focusPositionsList">6.0, 10.0</span>
-                                    </div>
-                                    <small class="text-muted d-block">
-                                        Each scan point will capture <strong><span id="capturesPerPoint">2</span></strong> images at different focus positions
-                                    </small>
-                                </div>
                             </div>
                         </div>
                         
@@ -3932,26 +3858,25 @@ function updateSettlingDisplay(value) {
     document.getElementById('settlingDisplay').textContent = value;
 }
 
-// Focus control display updates
-function updateFocusPositionDisplay(value) {
-    document.getElementById('focusPositionDisplay').textContent = parseFloat(value).toFixed(1);
+// Focus control display updates (for standalone Camera Focus Control section)
+function updateManualFocusDisplay(value) {
+    document.getElementById('manualFocusValue').textContent = parseFloat(value).toFixed(1);
 }
 
 function updateFocusStackDisplay() {
-    const steps = parseInt(document.getElementById('customFocusStackSteps').value) || 1;
-    const minFocus = parseFloat(document.getElementById('customFocusMin').value) || 6.0;
-    const maxFocus = parseFloat(document.getElementById('customFocusMax').value) || 10.0;
+    const steps = parseInt(document.getElementById('focusStackSteps').value) || 1;
+    const minFocus = parseFloat(document.getElementById('focusMin').value) || 6.0;
+    const maxFocus = parseFloat(document.getElementById('focusMax').value) || 10.0;
     
     // Calculate focus levels (steps + 1)
     const levels = steps + 1;
-    document.getElementById('focusStackStepsDisplay').textContent = steps;
-    document.getElementById('focusLevelsCount').textContent = levels;
-    document.getElementById('capturesPerPoint').textContent = levels;
+    const stepsDisplay = document.getElementById('focusStackStepsValue');
+    if (stepsDisplay) stepsDisplay.textContent = steps;
     
     // Calculate focus positions
     const positions = [];
     if (levels === 1) {
-        positions.push(minFocus);
+        positions.push(minFocus.toFixed(1));
     } else {
         for (let i = 0; i < levels; i++) {
             const position = minFocus + (maxFocus - minFocus) * (i / (levels - 1));
@@ -3959,25 +3884,36 @@ function updateFocusStackDisplay() {
         }
     }
     
-    document.getElementById('focusPositionsList').textContent = positions.join(', ');
+    const positionsList = document.getElementById('focusPositionsList');
+    if (positionsList) positionsList.textContent = positions.join(', ');
+    
+    const capturesPerPoint = document.getElementById('capturesPerPoint');
+    if (capturesPerPoint) capturesPerPoint.textContent = levels;
 }
 
-// Toggle focus settings visibility
-function toggleFocusSettings() {
-    const focusMode = document.getElementById('customFocusMode').value;
-    const manualSettings = document.getElementById('manualFocusSettings');
-    const stackSettings = document.getElementById('focusStackSettings');
+// Update focus mode UI based on selection
+function updateFocusModeUI() {
+    const focusMode = document.getElementById('focusMode').value;
+    const description = document.getElementById('focusModeDescription');
+    const manualControls = document.getElementById('manualFocusControls');
+    const stackControls = document.getElementById('focusStackControls');
     
-    // Hide all first
-    manualSettings.style.display = 'none';
-    stackSettings.style.display = 'none';
+    // Hide all controls first
+    if (manualControls) manualControls.style.display = 'none';
+    if (stackControls) stackControls.style.display = 'none';
     
-    // Show appropriate settings
-    if (focusMode === 'manual') {
-        manualSettings.style.display = 'block';
+    // Update description and show appropriate controls
+    if (focusMode === 'autofocus_initial') {
+        if (description) description.textContent = 'Autofocus once at start, use for all points (calibration/setup)';
+    } else if (focusMode === 'continuous') {
+        if (description) description.textContent = 'Autofocus before every capture (slower but adapts to varying distances)';
+    } else if (focusMode === 'manual') {
+        if (description) description.textContent = 'Set manual focus position for all scan points';
+        if (manualControls) manualControls.style.display = 'block';
     } else if (focusMode === 'manual_stack') {
-        stackSettings.style.display = 'block';
-        updateFocusStackDisplay();  // Update display when showing
+        if (description) description.textContent = 'Multiple captures at different focus positions per point';
+        if (stackControls) stackControls.style.display = 'block';
+        updateFocusStackDisplay();
     }
 }
 
@@ -4135,13 +4071,6 @@ function resetToDefaults() {
     document.getElementById('customDenoiseLevel').value = '2';
     document.getElementById('customSharpeningLevel').value = '2';
     
-    // Focus settings defaults
-    document.getElementById('customFocusMode').value = 'manual';
-    document.getElementById('customFocusPosition').value = '8.0';
-    document.getElementById('customFocusStackSteps').value = '1';
-    document.getElementById('customFocusMin').value = '6.0';
-    document.getElementById('customFocusMax').value = '10.0';
-    
     // Speed settings defaults
     document.getElementById('customFeedrateMultiplier').value = '1.0';
     document.getElementById('customSettlingDelay').value = '2.0';
@@ -4154,32 +4083,30 @@ function resetToDefaults() {
     updateTimeoutDisplay('2.0');
     updateDenoiseDisplay('2');
     updateSharpeningDisplay('2');
-    updateFocusPositionDisplay('8.0');
     updateFeedrateDisplay('1.0');
     updateSettlingDisplay('2.0');
 
     
-    // Hide manual exposure settings and update focus visibility
+    // Hide manual exposure settings
     toggleManualExposureSettings();
-    toggleFocusSettings();
     
     showAlert('Settings reset to defaults', 'info', 2000);
 }
 
 // Collect current custom quality settings
 function collectCustomQualitySettings() {
-    // Collect focus settings
-    const focusMode = document.getElementById('customFocusMode').value;
+    // Collect focus settings from standalone Camera Focus Control section
+    const focusMode = document.getElementById('focusMode').value;
     const focusSettings = {
         mode: focusMode
     };
     
     if (focusMode === 'manual') {
-        focusSettings.position = parseFloat(document.getElementById('customFocusPosition').value);
+        focusSettings.position = parseFloat(document.getElementById('manualFocusPosition').value);
     } else if (focusMode === 'manual_stack') {
-        const steps = parseInt(document.getElementById('customFocusStackSteps').value);
-        const minFocus = parseFloat(document.getElementById('customFocusMin').value);
-        const maxFocus = parseFloat(document.getElementById('customFocusMax').value);
+        const steps = parseInt(document.getElementById('focusStackSteps').value);
+        const minFocus = parseFloat(document.getElementById('focusMin').value);
+        const maxFocus = parseFloat(document.getElementById('focusMax').value);
         
         focusSettings.stack_steps = steps;
         focusSettings.min_focus = minFocus;
@@ -4286,35 +4213,14 @@ function populateQualitySettings(settings) {
         if (settings.denoise_level !== undefined) document.getElementById('customDenoiseLevel').value = settings.denoise_level;
         if (settings.sharpening_level !== undefined) document.getElementById('customSharpeningLevel').value = settings.sharpening_level;
         
-        // Populate focus settings
-        if (settings.focus) {
-            if (settings.focus.mode) {
-                document.getElementById('customFocusMode').value = settings.focus.mode;
-            }
-            if (settings.focus.position !== undefined) {
-                document.getElementById('customFocusPosition').value = settings.focus.position;
-                updateFocusPositionDisplay(settings.focus.position);
-            }
-            if (settings.focus.stack_steps !== undefined) {
-                document.getElementById('customFocusStackSteps').value = settings.focus.stack_steps;
-            }
-            if (settings.focus.min_focus !== undefined) {
-                document.getElementById('customFocusMin').value = settings.focus.min_focus;
-            }
-            if (settings.focus.max_focus !== undefined) {
-                document.getElementById('customFocusMax').value = settings.focus.max_focus;
-            }
-        }
-        
         // Update displays
         if (settings.jpeg_quality !== undefined) updateQualityDisplay(settings.jpeg_quality);
         if (settings.capture_timeout !== undefined) updateTimeoutDisplay(settings.capture_timeout);
         if (settings.denoise_level !== undefined) updateDenoiseDisplay(settings.denoise_level);
         if (settings.sharpening_level !== undefined) updateSharpeningDisplay(settings.sharpening_level);
         
-        // Update visibility for manual exposure and focus controls
+        // Update visibility for manual exposure controls
         toggleManualExposureSettings();
-        toggleFocusSettings();
         
     } catch (error) {
         console.error('❌ Error populating quality settings:', error);
