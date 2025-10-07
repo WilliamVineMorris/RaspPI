@@ -905,7 +905,9 @@ class ScannerWebInterface:
                                     # ScanPoint objects have a 'position' attribute containing Position4D
                                     pos = point.position if hasattr(point, 'position') else point
                                     
-                                    # Get FluidNC coordinates
+                                    # Scan points are already in FluidNC coordinates
+                                    # Convert directly to camera-relative cylindrical for visualization
+                                    # WITHOUT applying coordinate transformer offsets
                                     fluidnc_pos = {
                                         'x': pos.x,
                                         'y': pos.y,
@@ -913,45 +915,21 @@ class ScannerWebInterface:
                                         'c': pos.c
                                     }
                                     
-                                    # Convert to camera coordinates if transformer available
-                                    if self.coord_transformer:
-                                        try:
-                                            camera_pos = self.coord_transformer.fluidnc_to_camera(pos)
-                                            if point_count == 0:  # Log first point for debugging
-                                                self.logger.debug(f"📊 Scan point[0] - FluidNC: X={pos.x:.1f}, Y={pos.y:.1f}, Z={pos.z:.1f}° → Camera: R={camera_pos.radius:.1f}, H={camera_pos.height:.1f}, θ={camera_pos.rotation:.1f}°")
-                                            visualization_data['scan_points'].append({
-                                                'fluidnc': fluidnc_pos,
-                                                'camera': {
-                                                    'radius': camera_pos.radius,
-                                                    'height': camera_pos.height,
-                                                    'rotation': camera_pos.rotation,
-                                                    'tilt': camera_pos.tilt
-                                                }
-                                            })
-                                            point_count += 1
-                                        except Exception as e:
-                                            self.logger.warning(f"Failed to convert point to camera coords: {e}")
-                                            # Fallback: use FluidNC as camera (for visualization)
-                                            visualization_data['scan_points'].append({
-                                                'fluidnc': fluidnc_pos,
-                                                'camera': {
-                                                    'radius': fluidnc_pos['x'],
-                                                    'height': fluidnc_pos['y'],
-                                                    'rotation': fluidnc_pos['z'],
-                                                    'tilt': fluidnc_pos['c']
-                                                }
-                                            })
-                                    else:
-                                        # No transformer - use FluidNC coords directly
-                                        visualization_data['scan_points'].append({
-                                            'fluidnc': fluidnc_pos,
-                                            'camera': {
-                                                'radius': fluidnc_pos['x'],
-                                                'height': fluidnc_pos['y'],
-                                                'rotation': fluidnc_pos['z'],
-                                                'tilt': fluidnc_pos['c']
-                                            }
-                                        })
+                                    # Direct mapping: FluidNC → Camera coordinates (no transformation)
+                                    # X (linear) = radius, Y (height) = height, Z (rotation) = rotation
+                                    visualization_data['scan_points'].append({
+                                        'fluidnc': fluidnc_pos,
+                                        'camera': {
+                                            'radius': pos.x,      # FluidNC X → Camera radius
+                                            'height': pos.y,      # FluidNC Y → Camera height
+                                            'rotation': pos.z,    # FluidNC Z → Camera rotation
+                                            'tilt': pos.c         # FluidNC C → Camera tilt
+                                        }
+                                    })
+                                    point_count += 1
+                                    
+                                    if point_count == 1:  # Log first point for debugging
+                                        self.logger.debug(f"📊 Scan point[0] - FluidNC: X={pos.x:.1f}, Y={pos.y:.1f}, Z={pos.z:.1f}° → Direct Camera: R={pos.x:.1f}, H={pos.y:.1f}, θ={pos.z:.1f}°")
                                 
                                 self.logger.info(f"📊 Viz API - Converted {len(visualization_data['scan_points'])} points for visualization")
                             except Exception as e:
