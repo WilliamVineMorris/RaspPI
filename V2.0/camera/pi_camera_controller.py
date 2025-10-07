@@ -2422,9 +2422,21 @@ class PiCameraController(CameraController):
                     # ISP stabilization for high-resolution
                     await asyncio.sleep(0.1 + (attempt * 0.1))  # Progressive delay
                     
-                    # Capture with buffer management
+                    # Capture with buffer management and TIMEOUT PROTECTION
                     logger.debug(f"ISP capture attempt {attempt + 1} for camera {camera_id}")
-                    image_array = camera.capture_array(stream_name)
+                    
+                    # Run blocking capture_array() in executor with timeout
+                    # This prevents indefinite blocking when ISP gets stuck
+                    loop = asyncio.get_event_loop()
+                    capture_timeout = 10.0  # 10 second timeout per attempt
+                    
+                    try:
+                        image_array = await asyncio.wait_for(
+                            loop.run_in_executor(None, camera.capture_array, stream_name),
+                            timeout=capture_timeout
+                        )
+                    except asyncio.TimeoutError:
+                        raise Exception(f"Capture timeout after {capture_timeout}s (ISP may be stuck)")
                     
                     # Clear buffers immediately after successful capture
                     gc.collect()
@@ -2436,9 +2448,16 @@ class PiCameraController(CameraController):
                     error_msg = str(capture_error)
                     logger.warning(f"ISP capture attempt {attempt + 1} failed for camera {camera_id}: {error_msg}")
                     
-                    # Handle specific ISP buffer issues
-                    if "Failed to queue buffer" in error_msg or "Invalid argument" in error_msg:
-                        logger.info(f"ISP buffer issue detected, attempting recovery...")
+                    # Handle specific ISP issues requiring camera restart
+                    needs_camera_restart = (
+                        "Failed to queue buffer" in error_msg or 
+                        "Invalid argument" in error_msg or
+                        "timeout" in error_msg.lower() or
+                        "ISP may be stuck" in error_msg
+                    )
+                    
+                    if needs_camera_restart:
+                        logger.info(f"ISP issue detected (timeout/buffer), attempting camera restart...")
                         
                         # ISP recovery: Stop and restart camera with delay
                         try:
