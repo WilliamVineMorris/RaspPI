@@ -186,6 +186,7 @@ class YOLO11nDetector:
                 continue
             
             candidates.append({
+                'index': i,  # Add index for comparison
                 'bbox': bbox,
                 'confidence': conf,
                 'class_id': class_id,
@@ -202,7 +203,7 @@ class YOLO11nDetector:
         
         logger.info(f"🎯 YOLO detection found {len(candidates)} suitable object(s)")
         for i, cand in enumerate(candidates, 1):
-            marker = "→" if cand == best else " "
+            marker = "→" if cand['index'] == best['index'] else " "
             logger.info(f"   {marker} {i}. {cand['class_name']} (conf={cand['confidence']:.2f}, area={cand['area_fraction']*100:.1f}%)")
         
         return best
