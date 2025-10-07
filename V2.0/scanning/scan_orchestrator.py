@@ -3485,7 +3485,7 @@ class ScanOrchestrator:
             
             # 🔥 PRIORITY CHECK: Web UI focus settings override legacy focus mode
             if self._web_focus_mode == 'manual' and self._web_focus_position is not None:
-                self.logger.info(f"📸 Web UI manual focus mode: Skipping autofocus calibration, using position {self._web_focus_position}")
+                self.logger.info(f"📸 Web UI manual focus mode: Using position {self._web_focus_position}, will still calibrate exposure")
                 
                 # Get available cameras
                 available_cameras = []
@@ -3499,16 +3499,49 @@ class ScanOrchestrator:
                     self.logger.warning("No camera controller available, skipping focus setup")
                     return
                 
-                # Apply manual focus to all cameras
-                for camera_id in available_cameras:
-                    success = await self.camera_manager.controller.set_focus_value(camera_id, self._web_focus_position)
-                    if success:
-                        self._scan_focus_values[camera_id] = self._web_focus_position
-                        self.logger.info(f"✅ Set web UI manual focus for {camera_id}: {self._web_focus_position:.3f}")
-                    else:
-                        self.logger.warning(f"❌ Failed to set manual focus for {camera_id}")
+                # Convert web UI focus value (6.0-10.0 range) to camera controller range (0.0-1.0)
+                # ArduCam: 6.0 = near, 10.0 = far
+                # Camera controller: 0.0 = near, 1.0 = far
+                focus_normalized = (self._web_focus_position - 6.0) / 4.0  # Convert 6-10 to 0-1
+                focus_normalized = max(0.0, min(1.0, focus_normalized))  # Clamp to valid range
+                self.logger.info(f"📸 Converted focus {self._web_focus_position} to normalized {focus_normalized:.3f}")
                 
-                return  # Skip all autofocus calibration
+                # Turn on LEDs for calibration
+                self.logger.info(f"💡 CALIBRATION: Turning on LEDs at {calibration_brightness*100:.0f}% for exposure calibration")
+                try:
+                    await self.lighting_controller.set_brightness("all", calibration_brightness)
+                    
+                    # Apply manual focus and calibrate exposure for each camera
+                    for camera_id in available_cameras:
+                        # Set manual focus first
+                        success = await self.camera_manager.controller.set_focus_value(camera_id, focus_normalized)
+                        if success:
+                            self._scan_focus_values[camera_id] = self._web_focus_position  # Store original value
+                            self.logger.info(f"✅ Set web UI manual focus for {camera_id}: {self._web_focus_position:.3f} (normalized: {focus_normalized:.3f})")
+                        else:
+                            self.logger.warning(f"❌ Failed to set manual focus for {camera_id}")
+                            continue
+                        
+                        # Now perform exposure-only calibration with fixed focus
+                        try:
+                            self.logger.info(f"📸 Performing exposure calibration for {camera_id} (focus locked at {self._web_focus_position})")
+                            calibration_result = await self.camera_manager.controller.auto_calibrate_camera(camera_id)
+                            
+                            if calibration_result:
+                                exposure = calibration_result.get('exposure_time', 0)
+                                gain = calibration_result.get('analogue_gain', 1.0)
+                                self.logger.info(f"✅ {camera_id} exposure calibrated: {exposure/1000:.1f}ms, gain: {gain:.2f}")
+                            else:
+                                self.logger.warning(f"⚠️ {camera_id} exposure calibration failed, will use auto settings")
+                        except Exception as calib_error:
+                            self.logger.warning(f"⚠️ {camera_id} exposure calibration error: {calib_error}")
+                    
+                finally:
+                    # Reduce LEDs to idle brightness
+                    await self.lighting_controller.set_brightness("all", idle_brightness)
+                    self.logger.info(f"💡 CALIBRATION: Reduced LEDs to idle {idle_brightness*100:.0f}% after calibration")
+                
+                return  # Skip autofocus calibration (focus already set manually)
             
             if self._focus_mode == 'fixed':
                 self.logger.info("Focus mode is fixed, skipping focus setup")
