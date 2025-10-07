@@ -1504,12 +1504,12 @@
                 });
             }
             
-            // Layout with symmetrical axes (cube mode for accurate physical proportions)
+            // Layout with fixed ranges based on scanner limits (X: ±200mm, Y: ±200mm, Z: 0-200mm)
             const layout = {
                 scene: {
-                    xaxis: { title: 'X (mm)', showgrid: true, zeroline: true },
-                    yaxis: { title: 'Y (mm)', showgrid: true, zeroline: true },
-                    zaxis: { title: 'Height (mm)', showgrid: true, zeroline: true },
+                    xaxis: { title: 'X (mm)', showgrid: true, zeroline: true, range: [-200, 200] },
+                    yaxis: { title: 'Y (mm)', showgrid: true, zeroline: true, range: [-200, 200] },
+                    zaxis: { title: 'Height (mm)', showgrid: true, zeroline: true, range: [0, 200] },
                     camera: {
                         eye: { x: 1.5, y: -1.5, z: 1.0 },
                         up: { x: 0, y: 0, z: 1 }
