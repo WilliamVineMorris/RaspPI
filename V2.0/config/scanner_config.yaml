@@ -160,7 +160,7 @@ cameras:
     enabled: true  # Use focus/metering windows for turntable center
     
     # Focus zone mode: 'static', 'yolo_detect', or 'edge_detect'
-    mode: 'edge_detect'  # Options: 'static', 'yolo_detect', 'edge_detect'
+    mode: 'static'  # Options: 'static', 'yolo_detect', 'edge_detect'
     
     # Camera 0: Offset Right (viewing from left side of turntable)
     camera_0:
