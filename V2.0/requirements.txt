@@ -17,13 +17,8 @@ opencv-python>=4.5.0
 pillow>=8.0.0
 
 # YOLO11n Object Detection (Optional - only for auto focus window detection)
-# Ultralytics for YOLO11n model and NCNN export
-ultralytics>=8.0.0  # For YOLO11n model loading and NCNN conversion
-
-# NCNN for optimized inference on Raspberry Pi
-# Install from source for best performance: https://github.com/Tencent/ncnn/tree/master/python
-# Or use: pip install ncnn (may not have ARM optimizations)
-# ncnn>=1.0.0  # Uncomment if installing via pip
+# Ultralytics for YOLO11n model (PyTorch-based, simpler than NCNN)
+ultralytics>=8.0.0  # For YOLO11n object detection
 
 # Web interface
 flask>=2.0.0

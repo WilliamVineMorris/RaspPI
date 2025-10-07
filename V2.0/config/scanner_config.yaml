@@ -160,7 +160,7 @@ cameras:
     enabled: true  # Use focus/metering windows for turntable center
     
     # Focus zone mode: 'static' or 'yolo_detect'
-    mode: 'static'  # Options: 'static', 'yolo_detect'
+    mode: 'yolo_detect'  # Options: 'static', 'yolo_detect'
     
     # Camera 0: Offset Right (viewing from left side of turntable)
     camera_0:
@@ -177,10 +177,8 @@ cameras:
     # YOLO11n Object Detection Configuration (used when mode='yolo_detect')
     yolo_detection:
       enabled: true
-      # NCNN model paths (optimized for Raspberry Pi)
-      # Convert with: python3 convert_yolo_to_ncnn.py
-      model_param: 'models/yolo11n_ncnn_model/model.ncnn.param'  # NCNN param file
-      model_bin: 'models/yolo11n_ncnn_model/model.ncnn.bin'      # NCNN bin file
+      # PyTorch model path (simpler, no NCNN conversion needed)
+      model_path: 'models/yolo11n.pt'  # YOLO11n PyTorch model
       
       # Detection parameters
       confidence_threshold: 0.30  # Minimum detection confidence (0.0-1.0)

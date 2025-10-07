@@ -157,11 +157,11 @@ class PiCameraController(CameraController):
             yolo_config = focus_zone_config.get('yolo_detection', {})
             if yolo_config.get('enabled', False):
                 try:
-                    from camera.yolo11n_ncnn_detector import YOLO11nNCNNDetector
-                    self.yolo_detector = YOLO11nNCNNDetector(yolo_config)
-                    logger.info("🎯 YOLO11n NCNN object detection enabled for autofocus windows")
+                    from camera.yolo11n_detector import YOLO11nDetector
+                    self.yolo_detector = YOLO11nDetector(yolo_config)
+                    logger.info("🎯 YOLO11n object detection enabled for autofocus windows")
                 except ImportError as e:
-                    logger.warning(f"⚠️ YOLO11n NCNN detector not available: {e}")
+                    logger.warning(f"⚠️ YOLO11n detector not available: {e}")
                 except Exception as e:
                     logger.error(f"❌ Failed to initialize YOLO detector: {e}")
         
