@@ -3507,7 +3507,7 @@ class ScanOrchestrator:
             
             # 🔥 PRIORITY CHECK: Web UI focus settings override legacy focus mode
             if self._web_focus_mode == 'manual' and self._web_focus_position is not None:
-                self.logger.info(f"📸 Web UI manual focus mode: Using position {self._web_focus_position}, will still calibrate exposure")
+                self.logger.info(f"📸 Web UI manual focus mode: Using position {self._web_focus_position} diopters")
                 
                 # Get available cameras
                 available_cameras = []
@@ -3521,12 +3521,10 @@ class ScanOrchestrator:
                     self.logger.warning("No camera controller available, skipping focus setup")
                     return
                 
-                # Convert web UI focus value (6.0-10.0 range) to camera controller range (0.0-1.0)
-                # ArduCam: 6.0 = near, 10.0 = far
-                # Camera controller: 0.0 = near, 1.0 = far
-                focus_normalized = (self._web_focus_position - 6.0) / 4.0  # Convert 6-10 to 0-1
-                focus_normalized = max(0.0, min(1.0, focus_normalized))  # Clamp to valid range
-                self.logger.info(f"📸 Converted focus {self._web_focus_position} to normalized {focus_normalized:.3f}")
+                # Web UI sends diopters directly (6-10 range, typical working range)
+                # No conversion needed - pass directly to camera controller
+                focus_diopters = max(0.0, min(15.0, self._web_focus_position))  # Clamp to valid diopter range
+                self.logger.info(f"📸 Using focus {focus_diopters:.1f} diopters (higher = closer focus)")
                 
                 # SIMPLE APPROACH: Just set manual focus like dashboard does
                 # Don't calibrate exposure - it interferes with manual focus due to ArduCam firmware bug
@@ -3539,11 +3537,11 @@ class ScanOrchestrator:
                 
                 # Apply manual focus for each camera (simple, like dashboard)
                 for camera_id in available_cameras:
-                    # Set manual focus using the same method as dashboard
-                    success = await self.camera_manager.controller.set_focus_value(camera_id, focus_normalized)
+                    # Set manual focus - value is already in diopters (0-15 range)
+                    success = await self.camera_manager.controller.set_focus_value(camera_id, focus_diopters)
                     if success:
-                        self._scan_focus_values[camera_id] = self._web_focus_position  # Store original value
-                        self.logger.info(f"✅ Set web UI manual focus for {camera_id}: {self._web_focus_position:.3f}mm (normalized: {focus_normalized:.3f})")
+                        self._scan_focus_values[camera_id] = focus_diopters  # Store diopters value
+                        self.logger.info(f"✅ Set web UI manual focus for {camera_id}: {focus_diopters:.1f} diopters")
                         self.logger.info(f"📸 {camera_id} will use auto-exposure during scan (manual focus locked)")
                     else:
                         self.logger.warning(f"❌ Failed to set manual focus for {camera_id}")
@@ -3731,15 +3729,15 @@ class ScanOrchestrator:
                                     }
                                 else:
                                     self.logger.warning(f"⚠️ Camera calibration returned no values for {camera_id}, using defaults")
-                                    # Set a reasonable default focus value (middle range)
-                                    self._scan_focus_values[camera_id] = 0.5
+                                    # Set a reasonable default focus value (middle of diopter range)
+                                    self._scan_focus_values[camera_id] = 8.0  # Middle of typical 0-15 diopter range
                                     
                             except asyncio.TimeoutError:
                                 self.logger.warning(f"⏱️ Camera calibration timeout for {camera_id}, using defaults")
-                                self._scan_focus_values[camera_id] = 0.5  # Default focus
+                                self._scan_focus_values[camera_id] = 8.0  # Default focus (middle diopters)
                             except Exception as e:
                                 self.logger.warning(f"❌ Camera calibration error for {camera_id}: {e}, using defaults")
-                                self._scan_focus_values[camera_id] = 0.5  # Default focus
+                                self._scan_focus_values[camera_id] = 8.0  # Default focus (middle diopters)
                     
                     finally:
                         # 🔥 V5.1: DO NOT turn off LEDs here - scan-level lighting manages LED state
@@ -3750,7 +3748,7 @@ class ScanOrchestrator:
                     for camera_id in available_cameras:
                         if camera_id not in self._scan_focus_values:
                             self.logger.info(f"🔧 Setting default focus for {camera_id}")
-                            self._scan_focus_values[camera_id] = 0.5
+                            self._scan_focus_values[camera_id] = 8.0  # Middle of diopter range
                     
                     # Log summary of focus values
                     if self._scan_focus_values:
