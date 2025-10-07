@@ -901,18 +901,21 @@ class ScannerWebInterface:
                                 
                                 # Convert scan points to visualization format
                                 for point in scan_points:
-                                    # Get FluidNC coordinates (points are Position4D objects)
+                                    # ScanPoint objects have a 'position' attribute containing Position4D
+                                    pos = point.position if hasattr(point, 'position') else point
+                                    
+                                    # Get FluidNC coordinates
                                     fluidnc_pos = {
-                                        'x': point.x,
-                                        'y': point.y,
-                                        'z': point.z,
-                                        'c': point.c
+                                        'x': pos.x,
+                                        'y': pos.y,
+                                        'z': pos.z,
+                                        'c': pos.c
                                     }
                                     
                                     # Convert to camera coordinates if transformer available
                                     if self.coord_transformer:
                                         try:
-                                            camera_pos = self.coord_transformer.fluidnc_to_camera(point)
+                                            camera_pos = self.coord_transformer.fluidnc_to_camera(pos)
                                             visualization_data['scan_points'].append({
                                                 'fluidnc': fluidnc_pos,
                                                 'camera': {
