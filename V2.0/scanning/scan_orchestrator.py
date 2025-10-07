@@ -4311,6 +4311,20 @@ class ScanOrchestrator:
                 if capture_metadata and isinstance(capture_metadata, dict):
                     self.logger.info(f"📷 Using actual Picamera2 metadata: {list(capture_metadata.keys())}")
                     
+                    # 🔍 CRITICAL: Log actual lens position value for debugging
+                    if 'LensPosition' in capture_metadata:
+                        actual_lens_pos = capture_metadata['LensPosition']
+                        # Convert lens position (0-1023) to normalized focus (0-1)
+                        # Lens is inverted: 1023=near, 0=far → Focus: 0=near, 1=far
+                        focus_normalized = 1.0 - (actual_lens_pos / 1023.0)
+                        # Convert to ArduCam range (6-10mm)
+                        focus_mm = 6.0 + (focus_normalized * 4.0)
+                        self.logger.info(f"🔍 ACTUAL LENS POSITION: {actual_lens_pos} → Focus: {focus_normalized:.3f} ({focus_mm:.1f}mm)")
+                        
+                        # Store in ImageDescription for easy viewing
+                        scan_desc = exif_dict["0th"].get(piexif.ImageIFD.ImageDescription, "")
+                        exif_dict["0th"][piexif.ImageIFD.ImageDescription] = f"{scan_desc} | Focus: {focus_mm:.1f}mm (lens {actual_lens_pos})"
+                    
                     # Extract real values from Picamera2 metadata (same as web interface)
                     if 'ExposureTime' in capture_metadata:
                         exposure_us = capture_metadata['ExposureTime']
