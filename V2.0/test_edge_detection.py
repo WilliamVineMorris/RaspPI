@@ -104,27 +104,82 @@ def test_edge_detection():
         
         import time
         
-        # CRITICAL: Run autofocus first to get sharp image
-        print("🔍 Running autofocus to get sharp image...")
+        # CRITICAL: ArduCam cameras need manual focus control (not libcamera AF API)
+        print("🔍 Running ArduCam autofocus to get sharp image...")
         try:
-            from libcamera import controls
+            # Import ArduCam focus control
+            import os
+            import subprocess
             
-            # Enable autofocus
-            picam2.set_controls({
-                "AfMode": controls.AfModeEnum.Continuous,
-                "AfTrigger": controls.AfTriggerEnum.Start
-            })
+            # Check if running on actual hardware with ArduCam
+            has_arducam = os.path.exists('/dev/v4l-subdev0') or os.path.exists('/dev/v4l-subdev2')
             
-            time.sleep(2)  # Let autofocus settle
-            
-            # Check autofocus state
-            metadata = picam2.capture_metadata()
-            af_state = metadata.get("AfState", "unknown")
-            lens_position = metadata.get("LensPosition", "unknown")
-            print(f"   Autofocus state: {af_state}, lens: {lens_position}")
-            
+            if has_arducam:
+                print("   Detected ArduCam hardware - using manual focus control")
+                
+                # ArduCam autofocus: Sweep through focus range and find sharpest
+                best_sharpness = 0
+                best_focus = 5.0  # Default middle position
+                
+                # Quick focus sweep (0-10 range for ArduCam)
+                for focus_pos in [2.0, 4.0, 6.0, 8.0, 10.0]:
+                    # Set focus position via v4l2-ctl
+                    try:
+                        subprocess.run(
+                            ['v4l2-ctl', '-d', '/dev/v4l-subdev0', '-c', f'focus_absolute={int(focus_pos * 100)}'],
+                            capture_output=True, timeout=1
+                        )
+                    except:
+                        pass  # v4l2-ctl might not be available
+                    
+                    time.sleep(0.3)
+                    
+                    # Capture frame and measure sharpness
+                    try:
+                        test_frame = picam2.capture_array("main")
+                        # Simple sharpness metric: variance of Laplacian
+                        gray = cv2.cvtColor(test_frame, cv2.COLOR_RGB2GRAY)
+                        sharpness = cv2.Laplacian(gray, cv2.CV_64F).var()
+                        
+                        print(f"   Focus {focus_pos:.1f}: sharpness={sharpness:.0f}")
+                        
+                        if sharpness > best_sharpness:
+                            best_sharpness = sharpness
+                            best_focus = focus_pos
+                    except Exception as e:
+                        print(f"   Warning: Sharpness test failed at {focus_pos}: {e}")
+                
+                # Set best focus position
+                print(f"   ✅ Best focus: {best_focus:.1f} (sharpness={best_sharpness:.0f})")
+                try:
+                    subprocess.run(
+                        ['v4l2-ctl', '-d', '/dev/v4l-subdev0', '-c', f'focus_absolute={int(best_focus * 100)}'],
+                        capture_output=True, timeout=1
+                    )
+                except:
+                    pass
+                
+                time.sleep(0.5)  # Let focus settle
+            else:
+                print("   No ArduCam detected - using standard libcamera autofocus")
+                from libcamera import controls
+                
+                # Standard libcamera autofocus
+                picam2.set_controls({
+                    "AfMode": controls.AfModeEnum.Continuous,
+                    "AfTrigger": controls.AfTriggerEnum.Start
+                })
+                
+                time.sleep(2)
+                
+                metadata = picam2.capture_metadata()
+                af_state = metadata.get("AfState", "unknown")
+                lens_position = metadata.get("LensPosition", "unknown")
+                print(f"   Autofocus state: {af_state}, lens: {lens_position}")
+                
         except Exception as af_error:
-            print(f"   ⚠️ Autofocus not available: {af_error}")
+            print(f"   ⚠️ Autofocus failed: {af_error}")
+            print(f"   Continuing with default focus position...")
             time.sleep(2)  # Let camera warm up anyway
         
         image = picam2.capture_array("main")
