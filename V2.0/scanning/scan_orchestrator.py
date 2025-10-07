@@ -2697,14 +2697,19 @@ class ScanOrchestrator:
             if quality_settings:
                 self.logger.info(f"🎯 Creating temporary custom quality profile with settings: {quality_settings}")
                 try:
+                    # Create a COPY of quality_settings and remove 'focus' key (focus handled separately)
+                    quality_settings_for_profile = quality_settings.copy()
+                    if 'focus' in quality_settings_for_profile:
+                        del quality_settings_for_profile['focus']  # QualityProfile doesn't accept 'focus' parameter
+                    
                     # Create a temporary custom quality profile
                     custom_quality_profile = self.profile_manager.create_custom_quality_profile(
                         base_profile='medium',  # Use medium as base
-                        modifications=quality_settings,
+                        modifications=quality_settings_for_profile,  # Pass settings without 'focus'
                         custom_name='temp_custom_quality'
                     )
                     quality_profile_name = 'temp_custom_quality'
-                    applied_settings['camera_settings'] = quality_settings.copy()
+                    applied_settings['camera_settings'] = quality_settings.copy()  # Store original with focus
                 except Exception as e:
                     self.logger.warning(f"Failed to create custom quality profile: {e}")
                     quality_profile_name = 'medium'  # Fallback
@@ -3525,7 +3530,10 @@ class ScanOrchestrator:
                         # Now perform exposure-only calibration with fixed focus
                         try:
                             self.logger.info(f"📸 Performing exposure calibration for {camera_id} (focus locked at {self._web_focus_position})")
-                            calibration_result = await self.camera_manager.controller.auto_calibrate_camera(camera_id)
+                            calibration_result = await self.camera_manager.controller.auto_calibrate_camera(
+                                camera_id,
+                                skip_autofocus=True  # CRITICAL: Skip autofocus, only calibrate exposure
+                            )
                             
                             if calibration_result:
                                 exposure = calibration_result.get('exposure_time', 0)

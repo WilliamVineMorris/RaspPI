@@ -1129,12 +1129,18 @@ class PiCameraController(CameraController):
         logger.warning(f"⚠️ Camera {camera_id} unknown focus mode '{mode}', using default")
         return [0.25, 0.25, 0.5, 0.5], 'fallback'
 
-    async def auto_calibrate_camera(self, camera_id: str) -> Dict[str, float]:
-        """Perform comprehensive auto-calibration: autofocus + auto-exposure optimization"""
+    async def auto_calibrate_camera(self, camera_id: str, skip_autofocus: bool = False) -> Dict[str, float]:
+        """Perform comprehensive auto-calibration: autofocus + auto-exposure optimization
+        
+        Args:
+            camera_id: Camera identifier (e.g., "camera0")
+            skip_autofocus: If True, skip autofocus and only calibrate exposure (for manual focus mode)
+        """
         calibration_timeout = 15.0  # Maximum time for entire calibration
         calibration_start = time.time()
         
-        logger.info(f"🔧 CALIBRATION: Starting auto-calibration for {camera_id} (timeout: {calibration_timeout}s)")
+        mode_desc = "exposure-only" if skip_autofocus else "full (focus+exposure)"
+        logger.info(f"🔧 CALIBRATION: Starting {mode_desc} calibration for {camera_id} (timeout: {calibration_timeout}s)")
         
         try:
             cam_id = int(camera_id.replace('camera', ''))
@@ -1291,7 +1297,11 @@ class PiCameraController(CameraController):
                 # Continue calibration with defaults
             
             # Step 3: Perform autofocus (reuse existing method) with timeout check
-            if time.time() - calibration_start > calibration_timeout:
+            # SKIP if manual focus mode (skip_autofocus=True)
+            if skip_autofocus:
+                logger.info(f"📷 Camera {camera_id} SKIPPING autofocus - manual focus mode, keeping current lens position")
+                focus_value = None  # Will be read from current camera state below
+            elif time.time() - calibration_start > calibration_timeout:
                 logger.warning(f"⚠️ Camera {camera_id} calibration timeout - using defaults")
                 focus_value = 0.5
             else:
@@ -1311,7 +1321,8 @@ class PiCameraController(CameraController):
                     focus_value = 0.5
             
             # Step 3.5: TWO-PASS DETECTION CALIBRATION - Now that image is sharp, run object detection
-            if focus_zone_enabled and window_source == 'static_prefocus':
+            # ONLY run detection if autofocus was performed (not in manual focus mode)
+            if not skip_autofocus and focus_zone_enabled and window_source == 'static_prefocus':
                 # YOLO Pass 2
                 if mode == 'yolo_detect' and self.yolo_detector:
                     logger.info(f"🎯 Camera {camera_id} YOLO PASS 2: Image now sharp, running object detection...")
@@ -1426,6 +1437,20 @@ class PiCameraController(CameraController):
                     'AnalogueGain': 1.0,
                     'Lux': None
                 }
+            
+            # If autofocus was skipped (manual mode), read current lens position from metadata
+            if skip_autofocus and focus_value is None:
+                lens_position_raw = final_metadata.get('LensPosition', None)
+                if lens_position_raw is not None:
+                    # Convert lens position (0-1023) back to normalized focus value (0-1)
+                    # Lens position is inverted: 1023=near, 0=far
+                    # Normalized focus: 0=near, 1=far
+                    focus_value = 1.0 - (lens_position_raw / 1023.0)
+                    logger.info(f"📷 Camera {camera_id} read current manual focus from metadata: {focus_value:.3f} (lens position: {lens_position_raw})")
+                else:
+                    # Fallback if lens position not available
+                    focus_value = 0.5
+                    logger.warning(f"⚠️ Camera {camera_id} could not read lens position from metadata, using default 0.5")
             
             # Extract optimized exposure settings with fallbacks
             final_exposure = final_metadata.get('ExposureTime', 33000)  # microseconds
