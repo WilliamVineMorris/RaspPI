@@ -292,7 +292,7 @@
     </section>
 
     <!-- Column 3: Reserved Space (Wider) -->
-    <section class="reserved-panel" style="grid-row: 1 / 2; grid-column: 3 / 4; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #f1f5f9 100%); border: 2px solid #cbd5e1; display: flex; flex-direction: column; min-height: 500px; position: relative; overflow: hidden; border-radius: 8px; padding: 0.75rem;">
+    <section class="reserved-panel" style="grid-row: 1 / 2; grid-column: 3 / 4; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #f1f5f9 100%); border: 2px solid #cbd5e1; display: flex; flex-direction: column; min-height: 500px; height: 100%; position: relative; overflow: hidden; border-radius: 8px; padding: 0.75rem;">
         <!-- Header -->
         <div style="margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 2px solid #cbd5e1;">
             <h2 style="font-size: 1rem; margin: 0; color: #475569; font-weight: 700;">📊 Real-Time Position Monitor</h2>
@@ -300,10 +300,10 @@
         </div>
         
         <!-- 3D Visualization Canvas -->
-        <div id="dashboard-3d-plot" style="flex: 1; min-height: 400px; background: white; border-radius: 4px; border: 1px solid #e2e8f0;"></div>
+        <div id="dashboard-3d-plot" style="flex: 1; width: 100%; height: 100%; min-height: 400px; background: white; border-radius: 4px; border: 1px solid #e2e8f0;"></div>
         
         <!-- Info Panel -->
-        <div id="viz-info-panel" style="margin-top: 0.5rem; padding: 0.5rem; background: rgba(255, 255, 255, 0.9); border-radius: 4px; font-size: 0.75rem; color: #64748b;">
+        <div id="viz-info-panel" style="margin-top: 0.5rem; padding: 0.5rem; background: rgba(255, 255, 255, 0.9); border-radius: 4px; font-size: 0.75rem; color: #64748b; flex-shrink: 0;">
             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem;">
                 <div>
                     <strong>Current Position:</strong>
@@ -1537,8 +1537,25 @@
                 displayModeBar: false
             };
             
-            Plotly.newPlot(plotDiv, traces, layout, config);
+            Plotly.newPlot(plotDiv, traces, layout, config).then(() => {
+                // Force Plotly to resize to fill container after initial render
+                setTimeout(() => {
+                    Plotly.Plots.resize(plotDiv);
+                }, 100);
+            });
         }
+        
+        // Handle window resize to ensure plot fills container
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+                const plotDiv = document.getElementById('dashboard-3d-plot');
+                if (plotDiv && typeof Plotly !== 'undefined') {
+                    Plotly.Plots.resize(plotDiv);
+                }
+            }, 250);
+        });
         
         // Cleanup on page unload
         window.addEventListener('beforeunload', () => {
