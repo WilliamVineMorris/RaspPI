@@ -109,10 +109,11 @@
     .dashboard-grid {
         display: grid;
         grid-template-columns: minmax(180px, 200px) minmax(180px, 200px) minmax(300px, 1fr) minmax(300px, 1fr);
+        grid-template-rows: minmax(600px, 1fr) auto;  /* Increase first row height, activity log auto-sized */
         gap: 0.75rem;
         margin-bottom: 0.75rem;
         width: 100%;
-        align-items: stretch;  /* Ensure all grid items stretch to fill their cells */
+        align-items: stretch;
     }
     
     /* Force all first-row panels to have the same height by making them grid items in row 1 */
@@ -433,9 +434,9 @@
 
     <!-- Activity Log Panel - Full Width Bottom (spans all 4 columns) -->
     <section class="log-panel" style="grid-column: 1 / 5; grid-row: 2 / 3;">
-        <h2 style="font-size: 0.9rem; margin-bottom: 0.5rem;">Activity Log</h2>
-        <div class="log-container" style="max-height: 120px; background: white; padding: 0.5rem; border-radius: 6px; border: 1px solid #e9ecef;">
-            <div id="activityLog" class="log-content" style="font-size: 0.75rem; max-height: 90px; overflow-y: auto;">
+        <h2 style="font-size: 0.85rem; margin-bottom: 0.4rem;">Activity Log</h2>
+        <div class="log-container" style="max-height: 80px; background: white; padding: 0.4rem; border-radius: 6px; border: 1px solid #e9ecef;">
+            <div id="activityLog" class="log-content" style="font-size: 0.7rem; max-height: 60px; overflow-y: auto;">
                 <div class="log-entry info">
                     <span class="log-timestamp">{{ status.timestamp[:19] if status.timestamp else '--:--:--' }}</span>
                     <span class="log-message">Web interface initialized</span>
@@ -1506,7 +1507,7 @@
                 });
             }
             
-            // Layout with fixed axis ranges for stable visualization
+            // Layout with auto-scaling (matches scan path preview settings)
             const layout = {
                 scene: {
                     xaxis: { 
@@ -1515,7 +1516,6 @@
                         zeroline: true,
                         gridcolor: '#cbd5e1',
                         gridwidth: 1,
-                        range: [-250, 250],
                         backgroundcolor: 'rgba(248, 250, 252, 0.5)'
                     },
                     yaxis: { 
@@ -1524,7 +1524,6 @@
                         zeroline: true,
                         gridcolor: '#cbd5e1',
                         gridwidth: 1,
-                        range: [-250, 250],
                         backgroundcolor: 'rgba(248, 250, 252, 0.5)'
                     },
                     zaxis: { 
@@ -1533,7 +1532,6 @@
                         zeroline: true,
                         gridcolor: '#cbd5e1',
                         gridwidth: 1,
-                        range: [0, 250],
                         backgroundcolor: 'rgba(248, 250, 252, 0.5)'
                     },
                     camera: {
@@ -1541,11 +1539,11 @@
                         up: { x: 0, y: 0, z: 1 }
                         // Camera is now freely rotatable - no lock!
                     },
-                    aspectmode: 'manual',
-                    aspectratio: { x: 1, y: 1, z: 0.5 },
+                    aspectmode: 'data',
+                    aspectratio: { x: 1, y: 1, z: 0.8 },
                     bgcolor: 'rgba(248, 250, 252, 0.3)'
                 },
-                margin: { l: 10, r: 10, b: 10, t: 10 },
+                margin: { l: 0, r: 0, b: 0, t: 0 },
                 showlegend: false,
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
