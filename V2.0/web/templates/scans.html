@@ -2701,10 +2701,32 @@ function collectScanParameters() {
         let qualitySettings = null;
         let speedSettings = null;
         
+        // ALWAYS collect focus settings (independent of quality profile)
+        const focusMode = document.getElementById('focusMode').value;
+        const focusSettings = {
+            mode: focusMode
+        };
+        
+        if (focusMode === 'manual') {
+            focusSettings.position = parseFloat(document.getElementById('manualFocusPosition').value);
+        } else if (focusMode === 'manual_stack') {
+            const steps = parseInt(document.getElementById('focusStackSteps').value);
+            const minFocus = parseFloat(document.getElementById('focusMin').value);
+            const maxFocus = parseFloat(document.getElementById('focusMax').value);
+            
+            focusSettings.stack_steps = steps;
+            focusSettings.min_focus = minFocus;
+            focusSettings.max_focus = maxFocus;
+        }
+        
         // Check if custom quality settings are active
         if (resolution === 'custom_active') {
             qualitySettings = collectCustomQualitySettings();
             console.log('🎯 Using custom quality settings:', qualitySettings);
+        } else {
+            // Even with standard profile, include focus settings
+            qualitySettings = { focus: focusSettings };
+            console.log('🎯 Using standard quality profile with custom focus:', focusSettings);
         }
         
         // Check if custom speed settings are active
