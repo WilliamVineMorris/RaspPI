@@ -588,21 +588,26 @@ class PiCameraController(CameraController):
                 try:
                     from libcamera import controls
                     af_mode_auto = controls.AfModeEnum.Auto
-                    af_range_macro = controls.AfRangeEnum.Macro
+                    # Use Macro range for close objects (<40cm)
+                    # Macro: 8cm to 1m (perfect for close-up object scanning)
+                    # User confirmed objects always <40cm away
+                    af_range_setting = controls.AfRangeEnum.Macro
+                    range_description = "Macro (8cm-1m, close object scanning)"
                     logger.debug(f"📷 Camera {camera_id} using libcamera controls enum")
                 except ImportError:
                     # Fallback to numeric mode if libcamera not available
                     af_mode_auto = 1  # Auto mode
-                    af_range_macro = 1  # Macro range
+                    af_range_setting = 1  # Macro range
+                    range_description = "Macro (numeric fallback)"
                     logger.debug(f"📷 Camera {camera_id} using numeric AF mode (fallback)")
                 
-                # Set Auto mode for controlled autofocus with Macro range (closest objects)
-                # Macro range focuses on 8cm-1m, excluding infinity/far distances
+                # Set Auto mode for controlled autofocus with Macro range
+                # Macro range focuses on 8cm-1m, perfect for objects <40cm away
                 picamera2.set_controls({
                     "AfMode": af_mode_auto,
-                    "AfRange": af_range_macro
+                    "AfRange": af_range_setting
                 })
-                logger.info(f"📷 Camera {camera_id} AF range set to Macro (8cm-1m, closest objects only)")
+                logger.info(f"📷 Camera {camera_id} AF range set to {range_description}")
                 await asyncio.sleep(0.2)  # Let mode change take effect
                 
                 # Use official autofocus_cycle() helper function (recommended approach)

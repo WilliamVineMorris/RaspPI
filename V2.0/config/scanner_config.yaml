@@ -160,19 +160,20 @@ cameras:
     enabled: true  # Use focus/metering windows for turntable center
     
     # Focus zone mode: 'static', 'yolo_detect', or 'edge_detect'
-    mode: 'static'  # Options: 'static', 'yolo_detect', 'edge_detect'
+    mode: 'yolo_detect'  # CHANGED: Use YOLO to automatically detect and focus on the object
     
-    # Camera 0: Offset Right (viewing from left side of turntable)
+    # Camera 0: Object appears SLIGHTLY LEFT in view (stereo left camera)
     camera_0:
       # Zone defined as fraction of image (0.0-1.0)
       # Format: [x_start, y_start, width, height]
-      window: [0.30, 0.25, 0.5, 0.5]  # Slightly right: 30-80% horizontal, 25-75% vertical
-      description: "Camera 0 - focus zone slightly right for object positioning (mirrored with Camera 1)"
+      # OFFSET LEFT to match where dragon appears in screenshot
+      window: [0.25, 0.30, 0.35, 0.35]  # Left-shifted: 25-60% horizontal, 30-65% vertical (35% square)
+      description: "Camera 0 - LEFT-shifted focus zone for stereo left camera (object slightly left in view)"
     
-    # Camera 1: Offset Left (viewing from right side of turntable) - MIRRORED
+    # Camera 1: Object appears SLIGHTLY RIGHT in view (stereo right camera) - HORIZONTALLY MIRRORED
     camera_1:
-      window: [0.20, 0.25, 0.5, 0.5]  # Slightly left (mirrored): 20-70% horizontal, 25-75% vertical
-      description: "Camera 1 - focus zone slightly left for object positioning (mirrored with Camera 0)"
+      window: [0.40, 0.30, 0.35, 0.35]  # Right-shifted: 40-75% horizontal, 30-65% vertical (35% square)
+      description: "Camera 1 - RIGHT-shifted focus zone for stereo right camera (mirrored from Camera 0)"
     
     # YOLO11n Object Detection Configuration (used when mode='yolo_detect')
     yolo_detection:
