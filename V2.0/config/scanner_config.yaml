@@ -185,6 +185,10 @@ cameras:
       iou_threshold: 0.45         # IoU threshold for NMS
       target_class: null          # null = accept ANY object class
       
+      # Turntable filtering - ignore the platform itself
+      exclude_classes: ['bed', 'dining table', 'table']  # Filter out turntable detections
+      center_bias: 0.7            # Prefer objects in center 70% of image (avoid turntable edges)
+      
       # Focus window adjustment
       padding: 0.15               # Add 15% padding around detected object
       min_area: 0.03              # Lower minimum (3% vs 5%) to catch smaller objects

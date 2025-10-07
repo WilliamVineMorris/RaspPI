@@ -39,6 +39,10 @@ class YOLO11nDetector:
         self.min_area = config.get('min_area', 0.05)
         self.iou_threshold = config.get('iou_threshold', 0.45)
         
+        # Turntable filtering
+        self.exclude_classes = config.get('exclude_classes', [])
+        self.center_bias = config.get('center_bias', 0.0)  # 0.7 = prefer center 70% of image
+        
         # Model path
         self.model_path = config.get('model_path', 'models/yolo11n.pt')
         
@@ -46,7 +50,8 @@ class YOLO11nDetector:
         self.output_dir = Path(config.get('detection_output_dir', 'calibration/focus_detection'))
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        logger.info(f"🎯 YOLO11n Detector initialized: confidence={self.confidence_threshold}, padding={self.padding}")
+        exclude_msg = f", excluding={self.exclude_classes}" if self.exclude_classes else ""
+        logger.info(f"🎯 YOLO11n Detector initialized: confidence={self.confidence_threshold}, padding={self.padding}{exclude_msg}")
     
     def load_model(self) -> bool:
         """
@@ -191,6 +196,11 @@ class YOLO11nDetector:
                 logger.debug(f"   ✂️ Filtered {class_name}: area {area_fraction:.3f} < min {self.min_area}")
                 continue
             
+            # Filter out excluded classes (e.g., turntable = 'bed', 'table')
+            if class_name in self.exclude_classes:
+                logger.debug(f"   ✂️ Filtered {class_name}: in exclude_classes list")
+                continue
+            
             # Filter by target class if specified (null = accept all)
             if self.target_class is not None and class_name != self.target_class:
                 logger.debug(f"   ✂️ Filtered {class_name}: not target class '{self.target_class}'")
@@ -201,6 +211,17 @@ class YOLO11nDetector:
                 logger.debug(f"   ✂️ Filtered {class_name}: confidence {conf:.3f} < threshold {self.confidence_threshold}")
                 continue
             
+            # Calculate center distance (0=center, 1=edge)
+            cx = (bbox[0] + bbox[2]) / 2
+            cy = (bbox[1] + bbox[3]) / 2
+            center_x = w / 2
+            center_y = h / 2
+            dist_from_center = np.sqrt(((cx - center_x) / center_x)**2 + ((cy - center_y) / center_y)**2)
+            
+            # Center bias: objects in center get higher score
+            center_score = 1.0 - (dist_from_center * self.center_bias)
+            center_score = max(0.1, center_score)  # Minimum 10% score even at edges
+            
             candidates.append({
                 'index': i,  # Add index for comparison
                 'bbox': bbox,
@@ -208,15 +229,17 @@ class YOLO11nDetector:
                 'class_id': class_id,
                 'class_name': class_name,
                 'area': area,
-                'area_fraction': area_fraction
+                'area_fraction': area_fraction,
+                'center_score': center_score,
+                'dist_from_center': dist_from_center
             })
         
         if not candidates:
             logger.warning(f"⚠️ No objects passed filtering (confidence>{self.confidence_threshold}, area>{self.min_area*100:.1f}%)")
             return None
         
-        # Select best: highest confidence * area
-        best = max(candidates, key=lambda x: x['confidence'] * x['area_fraction'])
+        # Select best: confidence * area * center_score
+        best = max(candidates, key=lambda x: x['confidence'] * x['area_fraction'] * x['center_score'])
         
         logger.info(f"🎯 {len(candidates)} object(s) passed filtering:")
         for i, cand in enumerate(candidates, 1):
