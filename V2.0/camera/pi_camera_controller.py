@@ -1131,22 +1131,22 @@ class PiCameraController(CameraController):
                     "AeExposureMode": controls.AeExposureModeEnum.Normal,         # Normal exposure
                 }
                 
-                # 🎯 TWO-PASS CALIBRATION for YOLO mode:
+                # 🎯 TWO-PASS CALIBRATION for detection modes:
                 # Pass 1: Quick autofocus with static center window (to get sharp image)
-                # Pass 2: YOLO detection on sharp image → final autofocus on detected object
+                # Pass 2: Detection (YOLO/Edge) on sharp image → final autofocus on detected object
                 
                 focus_window = None
                 window_source = 'none'
                 
                 if focus_zone_enabled:
-                    # For YOLO mode, start with static window first
-                    if mode == 'yolo_detect' and self.yolo_detector:
-                        logger.info(f"🎯 Camera {camera_id} YOLO mode: Starting with static center window for initial focus...")
+                    # For detection modes, start with static window first
+                    if (mode == 'yolo_detect' and self.yolo_detector) or (mode == 'edge_detect' and self.edge_detector):
+                        logger.info(f"🎯 Camera {camera_id} {mode.upper()} mode: Starting with static center window for initial focus...")
                         # Use center window for initial autofocus
                         focus_window = [0.25, 0.25, 0.5, 0.5]
                         window_source = 'static_prefocus'
                     else:
-                        # Static mode or no YOLO detector - get window directly
+                        # Static mode or no detector - get window directly
                         focus_window, window_source = self._get_focus_window_for_camera(camera_id, picamera2)
                     
                     # CRITICAL: AfWindows uses absolute pixel coordinates relative to ScalerCropMaximum
