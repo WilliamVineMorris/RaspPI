@@ -1507,44 +1507,18 @@
             // Layout with auto-scaling (matches scan path preview settings)
             const layout = {
                 scene: {
-                    xaxis: { 
-                        title: { text: 'X (mm)', font: { size: 12, color: '#475569' } },
-                        showgrid: true, 
-                        zeroline: true,
-                        gridcolor: '#cbd5e1',
-                        gridwidth: 1,
-                        backgroundcolor: 'rgba(248, 250, 252, 0.5)'
-                    },
-                    yaxis: { 
-                        title: { text: 'Y (mm)', font: { size: 12, color: '#475569' } },
-                        showgrid: true, 
-                        zeroline: true,
-                        gridcolor: '#cbd5e1',
-                        gridwidth: 1,
-                        backgroundcolor: 'rgba(248, 250, 252, 0.5)'
-                    },
-                    zaxis: { 
-                        title: { text: 'Height (mm)', font: { size: 12, color: '#475569' } },
-                        showgrid: true, 
-                        zeroline: true,
-                        gridcolor: '#cbd5e1',
-                        gridwidth: 1,
-                        backgroundcolor: 'rgba(248, 250, 252, 0.5)'
-                    },
+                    xaxis: { title: 'X (mm)', showgrid: true, zeroline: true },
+                    yaxis: { title: 'Y (mm)', showgrid: true, zeroline: true },
+                    zaxis: { title: 'Height (mm)', showgrid: true, zeroline: true },
                     camera: {
-                        eye: { x: 1.5, y: -1.5, z: 1.0 },  // Initial view angle
+                        eye: { x: 1.5, y: -1.5, z: 1.0 },
                         up: { x: 0, y: 0, z: 1 }
-                        // Camera is now freely rotatable - no lock!
                     },
                     aspectmode: 'data',
-                    aspectratio: { x: 1, y: 1, z: 0.8 },
-                    bgcolor: 'rgba(248, 250, 252, 0.3)'
+                    aspectratio: { x: 1, y: 1, z: 0.8 }
                 },
                 margin: { l: 0, r: 0, b: 0, t: 0 },
-                showlegend: false,
-                paper_bgcolor: 'rgba(0,0,0,0)',
-                plot_bgcolor: 'rgba(0,0,0,0)',
-                autosize: true
+                showlegend: false
             };
             
             const config = {
@@ -1554,7 +1528,8 @@
                 modeBarButtonsToRemove: ['toImage']
             };
             
-            Plotly.newPlot(plotDiv, traces, layout, config).then(() => {
+            // Use Plotly.react() to update without resetting camera position
+            Plotly.react(plotDiv, traces, layout, config).then(() => {
                 // Force Plotly to resize to fill container after initial render
                 setTimeout(() => {
                     Plotly.Plots.resize(plotDiv);
