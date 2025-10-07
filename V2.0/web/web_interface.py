@@ -2251,7 +2251,7 @@ class ScannerWebInterface:
         def camera_stream(camera_id):
             """MJPEG camera stream with proper ID mapping"""
             try:
-                self.logger.info(f"Camera stream request for camera {camera_id}")
+                self.logger.debug(f"Camera stream request for camera {camera_id}")
                 
                 # Map frontend camera IDs (0, 1) to backend camera IDs
                 # Frontend: Camera 0, Camera 1
@@ -2266,21 +2266,21 @@ class ScannerWebInterface:
                     try:
                         status = self.orchestrator.get_camera_status()
                         available_cameras = status.get('cameras', [])
-                        self.logger.info(f"Available cameras for mapping: {available_cameras}")
+                        self.logger.debug(f"Available cameras for mapping: {available_cameras}")
                         
                         # If backend uses string IDs like 'camera_0', 'camera_1'
                         if available_cameras and isinstance(available_cameras[0], str):
                             if 'camera_' in str(available_cameras[0]):
                                 # Map 0 -> 'camera_0', 1 -> 'camera_1', etc.
                                 mapped_id = f'camera_{camera_id}'
-                                self.logger.info(f"Mapped camera ID {camera_id} to {mapped_id}")
+                                self.logger.debug(f"Mapped camera ID {camera_id} to {mapped_id}")
                         
                     except Exception as mapping_error:
                         self.logger.warning(f"Camera ID mapping error: {mapping_error}")
                         # Use original ID if mapping fails
                         pass
                 
-                self.logger.info(f"Starting camera stream generation for mapped ID: {mapped_id}")
+                self.logger.debug(f"Starting camera stream generation for mapped ID: {mapped_id}")
                 return Response(
                     self._generate_camera_stream(mapped_id),
                     mimetype='multipart/x-mixed-replace; boundary=frame'
@@ -2411,7 +2411,7 @@ class ScannerWebInterface:
                             except Exception as e:
                                 self.logger.error(f"Connection refresh failed: {e}")
                     
-                    self.logger.info(f"🔌 Final connection status for web UI: {connected}")
+                    self.logger.debug(f"🔌 Final connection status for web UI: {connected}")
                     
                     # FORCE CONNECTION TO TRUE if we know it's working based on debug results
                     # This addresses the inconsistency where debug shows connected but UI shows disconnected
@@ -2433,11 +2433,11 @@ class ScannerWebInterface:
                             current_status = protocol_status.state if protocol_status else 'unknown'
                             # Get homed status from protocol - check if position indicates homing complete
                             homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
-                            self.logger.info(f"🔍 Direct protocol status: {current_status}, homed: {homed}")
+                            self.logger.debug(f"🔍 Direct protocol status: {current_status}, homed: {homed}")
                         else:
                             current_status = motion_controller.status if hasattr(motion_controller, 'status') else 'unknown'
                             homed = motion_controller.is_homed if hasattr(motion_controller, 'is_homed') else False
-                            self.logger.info(f"🔍 Controller cached status: {current_status}, homed: {homed}")
+                            self.logger.debug(f"🔍 Controller cached status: {current_status}, homed: {homed}")
                     except Exception as status_err:
                         self.logger.warning(f"Status retrieval error: {status_err}")
                         current_status = 'unknown'
@@ -2491,11 +2491,11 @@ class ScannerWebInterface:
                     
                     # USE REAL PROTOCOL STATUS - properly mapped for frontend
                     if status_str == 'homing':
-                        self.logger.info(f"🏠 Showing HOMING status in web UI - homing in progress (raw: {raw_status})")
+                        self.logger.debug(f"🏠 Showing HOMING status in web UI - homing in progress (raw: {raw_status})")
                     elif status_str == 'idle':
-                        self.logger.info(f"✅ Showing IDLE status in web UI - system ready (raw: {raw_status})")
+                        self.logger.debug(f"✅ Showing IDLE status in web UI - system ready (raw: {raw_status})")
                     else:
-                        self.logger.info(f"📊 Showing {status_str.upper()} status in web UI (raw: {raw_status})")
+                        self.logger.debug(f"📊 Showing {status_str.upper()} status in web UI (raw: {raw_status})")
                     
                     # Get alarm state information
                     alarm_info = {
@@ -2572,18 +2572,18 @@ class ScannerWebInterface:
             if self.orchestrator and hasattr(self.orchestrator, 'lighting_controller') and self.orchestrator.lighting_controller:
                 try:
                     lighting_ctrl = self.orchestrator.lighting_controller
-                    self.logger.info(f"🔍 Checking lighting controller: {lighting_ctrl.__class__.__name__}")
+                    self.logger.debug(f"🔍 Checking lighting controller: {lighting_ctrl.__class__.__name__}")
                     
                     # Handle LightingControllerAdapter - access the wrapped controller
                     actual_controller = lighting_ctrl
                     if hasattr(lighting_ctrl, 'controller'):
                         actual_controller = lighting_ctrl.controller
-                        self.logger.info(f"🔍 Found wrapped controller: {actual_controller.__class__.__name__}")
+                        self.logger.debug(f"🔍 Found wrapped controller: {actual_controller.__class__.__name__}")
                     
                     # Use zone_configs property to get available zones
                     if hasattr(actual_controller, 'zone_configs'):
                         zone_ids = list(actual_controller.zone_configs.keys())
-                        self.logger.info(f"💡 Found {len(zone_ids)} lighting zones: {zone_ids}")
+                        self.logger.debug(f"💡 Found {len(zone_ids)} lighting zones: {zone_ids}")
                         
                         # Check if lighting is initialized and available
                         is_available = len(zone_ids) > 0
@@ -2592,7 +2592,7 @@ class ScannerWebInterface:
                             'zones': zone_ids,
                             'status': 'available' if is_available else 'no_zones_configured'
                         })
-                        self.logger.info(f"💡 Lighting status updated: zones={zone_ids}, status={'available' if is_available else 'no_zones_configured'}")
+                        self.logger.debug(f"💡 Lighting status updated: zones={zone_ids}, status={'available' if is_available else 'no_zones_configured'}")
                     else:
                         self.logger.warning(f"⚠️  Lighting controller has no zone_configs attribute")
                         # Fallback if zone_configs not available

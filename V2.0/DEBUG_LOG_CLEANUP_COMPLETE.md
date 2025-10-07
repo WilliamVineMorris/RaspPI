@@ -1,6 +1,6 @@
 # Debug Log Cleanup - Complete
 
-**Date**: 2025-01-XX  
+**Date**: 2025-10-07  
 **Status**: ✅ Complete  
 **Purpose**: Remove verbose debug logging added during C-axis troubleshooting
 
@@ -8,7 +8,9 @@
 
 ## Summary
 
-Successfully cleaned up verbose debug logs that were added to track the C-axis position bug. The logs served their purpose in identifying the root cause (callback using wrong dictionary key), and have now been removed to provide cleaner production output.
+Successfully cleaned up verbose debug logs that were added to track the C-axis position bug, plus additional repetitive status API logs that were spamming the console. The logs served their purpose in identifying the root cause (callback using wrong dictionary key), and have now been removed to provide cleaner production output.
+
+All verbose INFO-level logs that repeat multiple times per second have been changed to DEBUG level.
 
 ---
 
@@ -49,29 +51,76 @@ Successfully cleaned up verbose debug logs that were added to track the C-axis p
 
 ### 2. `web/web_interface.py`
 
-**Lines Cleaned:**
-- **Line ~2382**: Removed C-axis value debug log
+**Lines Cleaned (Status API - runs every ~300ms):**
+- **Line ~2414**: Changed connection status log from INFO to DEBUG
   ```python
-  # REMOVED: self.logger.info(f"🔍 STATUS API: Sending C-axis to web UI: {c_value}° (full position: {position})")
+  # Changed from: self.logger.info(f"🔌 Final connection status for web UI: {connected}")
+  # Changed to:   self.logger.debug(f"🔌 Final connection status for web UI: {connected}")
   ```
 
-- **Lines ~2386-2390**: Removed data staleness debug logs
+- **Line ~2436**: Changed protocol status log from INFO to DEBUG
   ```python
-  # REMOVED: Position age warning/success logs
-  # These were checking if position data was stale during debugging
+  # Changed from: self.logger.info(f"🔍 Direct protocol status: {current_status}, homed: {homed}")
+  # Changed to:   self.logger.debug(f"🔍 Direct protocol status: {current_status}, homed: {homed}")
   ```
 
-- **Line ~2461**: Removed extracted values debug log
+- **Line ~2440**: Changed cached status log from INFO to DEBUG
   ```python
-  # REMOVED: self.logger.info(f"🔍 STATUS API: Extracted position values - X:{x_val}, Y:{y_val}, Z:{z_val}, C:{c_val}")
+  # Changed from: self.logger.info(f"🔍 Controller cached status: {current_status}, homed: {homed}")
+  # Changed to:   self.logger.debug(f"🔍 Controller cached status: {current_status}, homed: {homed}")
   ```
 
-- **Line ~2471**: Removed final position dict debug log
+- **Lines ~2494-2498**: Changed status display logs from INFO to DEBUG
   ```python
-  # REMOVED: self.logger.info(f"🔍 STATUS API: Final position_dict being sent: {position_dict}")
+  # Changed from: self.logger.info(f"🏠 Showing HOMING status in web UI...")
+  # Changed to:   self.logger.debug(f"🏠 Showing HOMING status in web UI...")
+  # Changed from: self.logger.info(f"✅ Showing IDLE status in web UI...")
+  # Changed to:   self.logger.debug(f"✅ Showing IDLE status in web UI...")
+  # Changed from: self.logger.info(f"📊 Showing {status_str.upper()} status in web UI...")
+  # Changed to:   self.logger.debug(f"📊 Showing {status_str.upper()} status in web UI...")
   ```
 
-**Impact**: Cleaner status API logs, position updates no longer spam console
+- **Lines ~2575-2595**: Changed lighting controller status logs from INFO to DEBUG
+  ```python
+  # Changed from: self.logger.info(f"🔍 Checking lighting controller: {lighting_ctrl.__class__.__name__}")
+  # Changed to:   self.logger.debug(f"🔍 Checking lighting controller: {lighting_ctrl.__class__.__name__}")
+  # Changed from: self.logger.info(f"🔍 Found wrapped controller: {actual_controller.__class__.__name__}")
+  # Changed to:   self.logger.debug(f"🔍 Found wrapped controller: {actual_controller.__class__.__name__}")
+  # Changed from: self.logger.info(f"💡 Found {len(zone_ids)} lighting zones: {zone_ids}")
+  # Changed to:   self.logger.debug(f"💡 Found {len(zone_ids)} lighting zones: {zone_ids}")
+  # Changed from: self.logger.info(f"💡 Lighting status updated: zones={zone_ids}...")
+  # Changed to:   self.logger.debug(f"💡 Lighting status updated: zones={zone_ids}...")
+  ```
+
+**Lines Cleaned (Camera Stream - runs on every frame request):**
+- **Line ~2254**: Changed camera stream request log from INFO to DEBUG
+  ```python
+  # Changed from: self.logger.info(f"Camera stream request for camera {camera_id}")
+  # Changed to:   self.logger.debug(f"Camera stream request for camera {camera_id}")
+  ```
+
+- **Line ~2269**: Changed available cameras log from INFO to DEBUG
+  ```python
+  # Changed from: self.logger.info(f"Available cameras for mapping: {available_cameras}")
+  # Changed to:   self.logger.debug(f"Available cameras for mapping: {available_cameras}")
+  ```
+
+- **Line ~2276**: Changed camera ID mapping log from INFO to DEBUG
+  ```python
+  # Changed from: self.logger.info(f"Mapped camera ID {camera_id} to {mapped_id}")
+  # Changed to:   self.logger.debug(f"Mapped camera ID {camera_id} to {mapped_id}")
+  ```
+
+- **Line ~2283**: Changed stream generation log from INFO to DEBUG
+  ```python
+  # Changed from: self.logger.info(f"Starting camera stream generation for mapped ID: {mapped_id}")
+  # Changed to:   self.logger.debug(f"Starting camera stream generation for mapped ID: {mapped_id}")
+  ```
+
+**Impact**: 
+- Status API polled every ~300ms was generating 6 INFO logs per request (18 logs/second!)
+- Camera stream requests generated 4 INFO logs per frame (added another 60+ logs/second with dual cameras)
+- All changed to DEBUG level - console now clean during normal operation
 
 ---
 
@@ -129,20 +178,39 @@ The following debug logs were kept as they serve ongoing diagnostic purposes:
 📤 PROTOCOL DEBUG: Command written and flushed
 📥 PROTOCOL DEBUG: Waiting for response...
 📥 PROTOCOL DEBUG: FluidNC immediate response: 'ok'
-🔍 STATUS API: Sending C-axis to web UI: -25.0°
-🔍 STATUS API: Extracted position values - X:200.0, Y:137.5, Z:0.0, C:-25.0
-🔍 STATUS API: Final position_dict being sent: {'x': 200.0, 'y': 137.5, 'z': 0.0, 'c': -25.0, ...}
+� Final connection status for web UI: True
+🔍 Direct protocol status: Idle, homed: False
+✅ Showing IDLE status in web UI - system ready (raw: idle)
+🔍 Checking lighting controller: LightingControllerAdapter
+🔍 Found wrapped controller: GPIOLEDController
+💡 Found 2 lighting zones: ['inner', 'outer']
+💡 Lighting status updated: zones=['inner', 'outer'], status=available
+🔌 Final connection status for web UI: True
+🔍 Direct protocol status: Idle, homed: False
+✅ Showing IDLE status in web UI - system ready (raw: idle)
+🔍 Checking lighting controller: LightingControllerAdapter
+🔍 Found wrapped controller: GPIOLEDController
+💡 Found 2 lighting zones: ['inner', 'outer']
+💡 Lighting status updated: zones=['inner', 'outer'], status=available
+Camera stream request for camera 0
+Available cameras for mapping: ['camera_0', 'camera_1']
+Mapped camera ID 0 to camera_0
+Starting camera stream generation for mapped ID: camera_0
 CAMERA: Raw frame captured: (1080, 1920, 3), dtype: uint8
 CAMERA: Raw frame captured: (1080, 1920, 3), dtype: uint8
 CAMERA: Raw frame captured: (1080, 1920, 3), dtype: uint8
-... (repeated ~15 times per second)
+... (repeated ~6 status logs every 300ms + 15 camera logs per second = ~35 logs/second!)
 ```
 
 **After Cleanup:**
 ```
-(Clean execution - errors and warnings still visible)
-(Camera frame logs only visible with DEBUG level enabled)
+192.168.1.42 - - [07/Oct/2025 17:50:33] "GET /api/status HTTP/1.1" 200 -
+192.168.1.42 - - [07/Oct/2025 17:50:33] "GET /api/notifications HTTP/1.1" 200 -
+192.168.1.42 - - [07/Oct/2025 17:50:37] "GET /camera/0?t=1759852234310 HTTP/1.1" 200 -
+(Clean execution - only HTTP request logs visible, errors and warnings still shown)
 ```
+
+**Log Reduction**: From ~35 INFO logs/second → ~0 INFO logs/second (only HTTP access logs)
 
 ---
 
@@ -156,22 +224,32 @@ To verify the cleanup was successful:
    python main.py
    ```
 
-2. **Execute jog commands** via web UI
+2. **Access the web UI** and let it run idle
 
 3. **Check logs** - Should see:
    - ✅ No "🔍 RAW FluidNC MPos" messages
    - ✅ No "🔍 PARSED" coordinate dumps
    - ✅ No "📤 PROTOCOL DEBUG" send/receive logs
-   - ✅ No "🔍 STATUS API" position extraction logs
-   - ✅ No repeated "CAMERA: Raw frame captured" messages (unless DEBUG level)
-   - ✅ Errors and warnings still visible
-   - ✅ Initialization messages still visible
+   - ✅ No "� Final connection status" messages repeating
+   - ✅ No "�🔍 Direct protocol status" messages repeating
+   - ✅ No "✅ Showing IDLE status" messages repeating
+   - ✅ No "🔍 Checking lighting controller" messages repeating
+   - ✅ No "💡 Found 2 lighting zones" messages repeating
+   - ✅ No "💡 Lighting status updated" messages repeating
+   - ✅ No "Camera stream request" messages repeating
+   - ✅ No repeated "CAMERA: Raw frame captured" messages
+   - ✅ Only werkzeug HTTP request logs visible
+   - ✅ Errors and warnings still visible when they occur
+   - ✅ Initialization messages still visible at startup
 
-4. **Verify functionality**:
+4. **Execute jog commands** via web UI - should see command confirmation but not verbose protocol debug
+
+5. **Verify functionality**:
    - C-axis position updates correctly ✅
    - No reset to 0 behavior ✅
    - 3D visualization updates in real-time ✅
    - Camera streaming works ✅
+   - Lighting controls work ✅
 
 ---
 
@@ -215,10 +293,16 @@ logging.basicConfig(level=logging.DEBUG)
 ## Conclusion
 
 ✅ **FluidNC protocol logs**: Cleaned (removed verbose send/receive debug)  
-✅ **Web interface status API**: Cleaned (removed position extraction debug)  
+✅ **Web interface status API**: Cleaned (changed INFO → DEBUG for repetitive logs)  
+✅ **Web interface camera stream**: Cleaned (changed INFO → DEBUG for frame requests)  
 ✅ **Camera capture logs**: Cleaned (changed INFO → DEBUG level)  
+✅ **Lighting status logs**: Cleaned (changed INFO → DEBUG level)  
 ✅ **Error reporting**: Preserved (still shows warnings and errors)  
 ✅ **Initialization logs**: Preserved (useful for diagnostics)  
 ✅ **Functionality**: Unchanged (C-axis fix still working)
 
 **Production Ready**: The codebase now has clean, informative logs suitable for deployment on Raspberry Pi hardware.
+
+**Log Volume Reduction**: From ~35 INFO logs/second during idle operation → Only HTTP access logs (2-3/second)
+
+**Key Principle**: Changed repetitive polling/status logs from INFO to DEBUG level, while preserving error reporting and one-time initialization messages.
