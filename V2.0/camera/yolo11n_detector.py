@@ -156,6 +156,21 @@ class YOLO11nDetector:
         h, w = image_shape[:2]
         image_area = h * w
         
+        # Log ALL detections first for debugging
+        logger.info(f"🔍 YOLO found {len(detections)} total detection(s) before filtering:")
+        for i, det in enumerate(detections):
+            bbox = det.xyxy[0].cpu().numpy()
+            conf = float(det.conf[0])
+            class_id = int(det.cls[0])
+            class_name = self.model.names[class_id]
+            
+            box_w = bbox[2] - bbox[0]
+            box_h = bbox[3] - bbox[1]
+            area = box_w * box_h
+            area_fraction = area / image_area
+            
+            logger.info(f"   {i+1}. {class_name} (conf={conf:.3f}, area={area_fraction*100:.1f}%)")
+        
         candidates = []
         
         for i, det in enumerate(detections):
@@ -173,16 +188,17 @@ class YOLO11nDetector:
             
             # Filter by minimum area
             if area_fraction < self.min_area:
-                logger.debug(f"   Skipping {class_name} (area={area_fraction:.3f} < min={self.min_area})")
+                logger.debug(f"   ✂️ Filtered {class_name}: area {area_fraction:.3f} < min {self.min_area}")
                 continue
             
-            # Filter by target class if specified
+            # Filter by target class if specified (null = accept all)
             if self.target_class is not None and class_name != self.target_class:
-                logger.debug(f"   Skipping {class_name} (not target class '{self.target_class}')")
+                logger.debug(f"   ✂️ Filtered {class_name}: not target class '{self.target_class}'")
                 continue
             
             # Filter by confidence
             if conf < self.confidence_threshold:
+                logger.debug(f"   ✂️ Filtered {class_name}: confidence {conf:.3f} < threshold {self.confidence_threshold}")
                 continue
             
             candidates.append({
@@ -196,12 +212,13 @@ class YOLO11nDetector:
             })
         
         if not candidates:
+            logger.warning(f"⚠️ No objects passed filtering (confidence>{self.confidence_threshold}, area>{self.min_area*100:.1f}%)")
             return None
         
         # Select best: highest confidence * area
         best = max(candidates, key=lambda x: x['confidence'] * x['area_fraction'])
         
-        logger.info(f"🎯 YOLO detection found {len(candidates)} suitable object(s)")
+        logger.info(f"🎯 {len(candidates)} object(s) passed filtering:")
         for i, cand in enumerate(candidates, 1):
             marker = "→" if cand['index'] == best['index'] else " "
             logger.info(f"   {marker} {i}. {cand['class_name']} (conf={cand['confidence']:.2f}, area={cand['area_fraction']*100:.1f}%)")

@@ -180,14 +180,14 @@ cameras:
       # PyTorch model path (simpler, no NCNN conversion needed)
       model_path: 'models/yolo11n.pt'  # YOLO11n PyTorch model
       
-      # Detection parameters
-      confidence_threshold: 0.30  # Minimum detection confidence (0.0-1.0)
+      # Detection parameters - PERMISSIVE for general object detection
+      confidence_threshold: 0.15  # Low threshold to detect any object (was 0.30)
       iou_threshold: 0.45         # IoU threshold for NMS
-      target_class: null          # null = any object, or specific class name like 'bottle', 'vase', etc.
+      target_class: null          # null = accept ANY object class
       
       # Focus window adjustment
       padding: 0.15               # Add 15% padding around detected object
-      min_area: 0.05              # Minimum object area (5% of image) to be valid
+      min_area: 0.03              # Lower minimum (3% vs 5%) to catch smaller objects
       
       # Output directory for detection visualizations
       detection_output_dir: 'calibration/focus_detection'
