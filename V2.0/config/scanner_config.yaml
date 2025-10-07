@@ -166,13 +166,13 @@ cameras:
     camera_0:
       # Zone defined as fraction of image (0.0-1.0)
       # Format: [x_start, y_start, width, height]
-      window: [0.40, 0.25, 0.5, 0.5]  # Right-shifted: starts at 35%, same vertical
-      description: "Left camera - focus zone shifted left for left-side viewing angle"
+      window: [0.30, 0.25, 0.5, 0.5]  # Slightly right: 30-80% horizontal, 25-75% vertical
+      description: "Camera 0 - focus zone slightly right for object positioning (mirrored with Camera 1)"
     
     # Camera 1: Offset Left (viewing from right side of turntable) - MIRRORED
     camera_1:
-      window: [0.10, 0.25, 0.5, 0.5]  # Left-shifted: starts at 15%, same vertical
-      description: "Right camera - focus zone shifted right (mirrored) for right-side viewing angle"
+      window: [0.20, 0.25, 0.5, 0.5]  # Slightly left (mirrored): 20-70% horizontal, 25-75% vertical
+      description: "Camera 1 - focus zone slightly left for object positioning (mirrored with Camera 0)"
     
     # YOLO11n Object Detection Configuration (used when mode='yolo_detect')
     yolo_detection:
