@@ -2445,6 +2445,7 @@ if (cylindricalCard) cylindricalCard.classList.add('selected');
 // Scan control functions
 async function startScanNow() {
     try {
+        console.log('🚀 SCAN START - Using focus fix version 2024-10-07 v2.0');
         // Collect scan parameters
         const scanData = collectScanParameters();
         if (!scanData) return;
@@ -2702,6 +2703,7 @@ function collectScanParameters() {
         let speedSettings = null;
         
         // ALWAYS collect focus settings (independent of quality profile)
+        console.log('🔧 FOCUS FIX VERSION: 2024-10-07 v2.0 - Always transmit focus settings');
         const focusMode = document.getElementById('focusMode').value;
         const focusSettings = {
             mode: focusMode
