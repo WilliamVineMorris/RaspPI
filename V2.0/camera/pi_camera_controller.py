@@ -150,6 +150,21 @@ class PiCameraController(CameraController):
         # Scanning mode tracking
         self.scanning_mode = False
         
+        # Initialize YOLO detector if configured
+        self.yolo_detector = None
+        focus_zone_config = self.config.get('focus_zone', {})
+        if focus_zone_config.get('mode') == 'yolo_detect':
+            yolo_config = focus_zone_config.get('yolo_detection', {})
+            if yolo_config.get('enabled', False):
+                try:
+                    from camera.yolo11n_ncnn_detector import YOLO11nNCNNDetector
+                    self.yolo_detector = YOLO11nNCNNDetector(yolo_config)
+                    logger.info("🎯 YOLO11n NCNN object detection enabled for autofocus windows")
+                except ImportError as e:
+                    logger.warning(f"⚠️ YOLO11n NCNN detector not available: {e}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to initialize YOLO detector: {e}")
+        
         # Initialize camera information
         self._initialize_camera_info()
     
@@ -250,6 +265,11 @@ class PiCameraController(CameraController):
         """Shutdown camera controller"""
         try:
             logger.info("Shutting down camera controller...")
+            
+            # Unload YOLO model if loaded
+            if self.yolo_detector:
+                self.yolo_detector.unload_model()
+                logger.info("🗑️ YOLO detector cleaned up")
             
             # Stop camera thread first
             if self.camera_thread and self.camera_thread.is_alive():
@@ -930,6 +950,78 @@ class PiCameraController(CameraController):
             logger.info(f"🔍 EXIT: auto_focus_and_get_value({camera_id}) returning default 0.5 (exception)")
             return 0.5  # Return default instead of None to prevent scan failure
 
+    def _get_focus_window_for_camera(self, camera_id: str, picamera2) -> Tuple[List[float], str]:
+        """
+        Get focus window for camera - either static or YOLO-detected
+        
+        Args:
+            camera_id: Camera identifier (e.g., 'camera0')
+            picamera2: Picamera2 instance for capturing detection image
+        
+        Returns:
+            Tuple of (focus_window, source) where:
+                focus_window = [x_start, y_start, width, height] as fractions
+                source = 'static', 'yolo_detected', or 'fallback'
+        """
+        focus_zone_config = self.config.get('focus_zone', {})
+        mode = focus_zone_config.get('mode', 'static')
+        
+        # Extract camera ID number
+        cam_id = int(camera_id.replace('camera', ''))
+        camera_key = f'camera_{cam_id}'
+        
+        # Static mode - use configured windows
+        if mode == 'static':
+            if camera_key in focus_zone_config:
+                focus_window = focus_zone_config[camera_key].get('window', [0.25, 0.25, 0.5, 0.5])
+                logger.info(f"📍 Camera {camera_id} using static focus window: {focus_window}")
+                return focus_window, 'static'
+            else:
+                # Fallback to global window
+                focus_window = focus_zone_config.get('window', [0.25, 0.25, 0.5, 0.5])
+                logger.warning(f"⚠️ Camera {camera_id} using global static window (no camera-specific config)")
+                return focus_window, 'static'
+        
+        # YOLO detection mode
+        elif mode == 'yolo_detect' and self.yolo_detector:
+            logger.info(f"🎯 Camera {camera_id} attempting YOLO object detection for focus window...")
+            
+            try:
+                # Capture a preview frame for detection
+                logger.debug(f"📷 Capturing preview frame for object detection...")
+                
+                # Use main stream for detection (RGB format)
+                preview_array = picamera2.capture_array("main")
+                
+                # Run YOLO detection
+                detected_window = self.yolo_detector.detect_object(preview_array, camera_id)
+                
+                if detected_window:
+                    logger.info(f"✅ Camera {camera_id} YOLO detection successful: {detected_window}")
+                    return list(detected_window), 'yolo_detected'
+                else:
+                    logger.warning(f"⚠️ Camera {camera_id} YOLO detection failed")
+                    
+            except Exception as e:
+                logger.error(f"❌ Camera {camera_id} YOLO detection error: {e}")
+            
+            # Fallback to static window if detection fails
+            yolo_config = focus_zone_config.get('yolo_detection', {})
+            if yolo_config.get('fallback_to_static', True):
+                logger.info(f"🔄 Camera {camera_id} falling back to static window")
+                if camera_key in focus_zone_config:
+                    focus_window = focus_zone_config[camera_key].get('window', [0.25, 0.25, 0.5, 0.5])
+                else:
+                    focus_window = focus_zone_config.get('window', [0.25, 0.25, 0.5, 0.5])
+                return focus_window, 'fallback'
+            else:
+                logger.error(f"❌ Camera {camera_id} no fallback configured, using default center window")
+                return [0.25, 0.25, 0.5, 0.5], 'fallback'
+        
+        # Default fallback
+        logger.warning(f"⚠️ Camera {camera_id} unknown focus mode '{mode}', using default")
+        return [0.25, 0.25, 0.5, 0.5], 'fallback'
+
     async def auto_calibrate_camera(self, camera_id: str) -> Dict[str, float]:
         """Perform comprehensive auto-calibration: autofocus + auto-exposure optimization"""
         calibration_timeout = 15.0  # Maximum time for entire calibration
@@ -985,18 +1077,8 @@ class PiCameraController(CameraController):
                 
                 # Add focus/metering windows if enabled
                 if focus_zone_enabled:
-                    # Check for camera-specific focus zone configuration
-                    # NOTE: cam_id is already an integer extracted from camera_id string
-                    camera_key = f'camera_{cam_id}'  # Use integer cam_id, not string camera_id
-                    if camera_key in focus_zone_config:
-                        # Use camera-specific window (e.g., camera_0 or camera_1)
-                        camera_specific_config = focus_zone_config[camera_key]
-                        focus_window = camera_specific_config.get('window', [0.25, 0.25, 0.5, 0.5])
-                        logger.info(f"✅ Camera {camera_id} using camera-specific focus zone from config.{camera_key}: {focus_window}")
-                    else:
-                        # Fallback to global window setting (backward compatibility)
-                        focus_window = focus_zone_config.get('window', [0.25, 0.25, 0.5, 0.5])
-                        logger.warning(f"⚠️ Camera {camera_id} using global focus zone window (no camera-specific config found for '{camera_key}')")
+                    # 🎯 NEW: Get focus window (static or YOLO-detected)
+                    focus_window, window_source = self._get_focus_window_for_camera(camera_id, picamera2)
                     
                     
                     # CRITICAL: AfWindows uses absolute pixel coordinates relative to ScalerCropMaximum
@@ -1043,7 +1125,7 @@ class PiCameraController(CameraController):
                         control_dict["ScalerCrop"] = (crop_x, crop_y, crop_w, crop_h)
                         logger.debug(f"📷 Camera {camera_id} ScalerCrop: ({crop_x}, {crop_y}, {crop_w}, {crop_h})")
                     
-                    logger.info(f"📷 Camera {camera_id} focus zone: AfWindows=[({x_px}, {y_px}, {w_px}, {h_px})] relative to ScalerCropMaximum {max_width}×{max_height}")
+                    logger.info(f"📷 Camera {camera_id} focus window ({window_source}): AfWindows=[({x_px}, {y_px}, {w_px}, {h_px})] relative to ScalerCropMaximum {max_width}×{max_height}")
                 else:
                     logger.info(f"📷 Camera {camera_id} using default full-frame metering (focus_zone disabled)")
                 
