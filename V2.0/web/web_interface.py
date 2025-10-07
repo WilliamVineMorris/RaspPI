@@ -900,6 +900,7 @@ class ScannerWebInterface:
                                 self.logger.info(f"📊 Viz API - Generated {len(scan_points)} scan points from pattern")
                                 
                                 # Convert scan points to visualization format
+                                point_count = 0
                                 for point in scan_points:
                                     # ScanPoint objects have a 'position' attribute containing Position4D
                                     pos = point.position if hasattr(point, 'position') else point
@@ -916,6 +917,8 @@ class ScannerWebInterface:
                                     if self.coord_transformer:
                                         try:
                                             camera_pos = self.coord_transformer.fluidnc_to_camera(pos)
+                                            if point_count == 0:  # Log first point for debugging
+                                                self.logger.debug(f"📊 Scan point[0] - FluidNC: X={pos.x:.1f}, Y={pos.y:.1f}, Z={pos.z:.1f}° → Camera: R={camera_pos.radius:.1f}, H={camera_pos.height:.1f}, θ={camera_pos.rotation:.1f}°")
                                             visualization_data['scan_points'].append({
                                                 'fluidnc': fluidnc_pos,
                                                 'camera': {
@@ -925,6 +928,7 @@ class ScannerWebInterface:
                                                     'tilt': camera_pos.tilt
                                                 }
                                             })
+                                            point_count += 1
                                         except Exception as e:
                                             self.logger.warning(f"Failed to convert point to camera coords: {e}")
                                             # Fallback: use FluidNC as camera (for visualization)
@@ -981,6 +985,7 @@ class ScannerWebInterface:
                             if self.coord_transformer:
                                 try:
                                     camera_current = self.coord_transformer.fluidnc_to_camera(current_pos)
+                                    self.logger.debug(f"📊 Current pos converted - FluidNC: {fluidnc_current} → Camera: R={camera_current.radius:.1f}, H={camera_current.height:.1f}, θ={camera_current.rotation:.1f}°")
                                     visualization_data['current_position'] = {
                                         'fluidnc': fluidnc_current,
                                         'camera': {
@@ -991,8 +996,9 @@ class ScannerWebInterface:
                                         }
                                     }
                                 except Exception as e:
-                                    self.logger.warning(f"Failed to convert current position: {e}")
+                                    self.logger.warning(f"Failed to convert current position: {e}", exc_info=True)
                                     # Fallback
+                                    self.logger.warning(f"📊 Using fallback coords for current position - X={fluidnc_current['x']}, Y={fluidnc_current['y']}, Z={fluidnc_current['z']}°")
                                     visualization_data['current_position'] = {
                                         'fluidnc': fluidnc_current,
                                         'camera': {
