@@ -1066,6 +1066,7 @@ class PiCameraController(CameraController):
                 # Get focus zone configuration from config dict
                 focus_zone_config = self.config.get('focus_zone', {})
                 focus_zone_enabled = focus_zone_config.get('enabled', False)
+                mode = focus_zone_config.get('mode', 'static')
                 
                 # Prepare control dictionary
                 control_dict = {
@@ -1075,11 +1076,23 @@ class PiCameraController(CameraController):
                     "AeExposureMode": controls.AeExposureModeEnum.Normal,         # Normal exposure
                 }
                 
-                # Add focus/metering windows if enabled
+                # 🎯 TWO-PASS CALIBRATION for YOLO mode:
+                # Pass 1: Quick autofocus with static center window (to get sharp image)
+                # Pass 2: YOLO detection on sharp image → final autofocus on detected object
+                
+                focus_window = None
+                window_source = 'none'
+                
                 if focus_zone_enabled:
-                    # 🎯 NEW: Get focus window (static or YOLO-detected)
-                    focus_window, window_source = self._get_focus_window_for_camera(camera_id, picamera2)
-                    
+                    # For YOLO mode, start with static window first
+                    if mode == 'yolo_detect' and self.yolo_detector:
+                        logger.info(f"🎯 Camera {camera_id} YOLO mode: Starting with static center window for initial focus...")
+                        # Use center window for initial autofocus
+                        focus_window = [0.25, 0.25, 0.5, 0.5]
+                        window_source = 'static_prefocus'
+                    else:
+                        # Static mode or no YOLO detector - get window directly
+                        focus_window, window_source = self._get_focus_window_for_camera(camera_id, picamera2)
                     
                     # CRITICAL: AfWindows uses absolute pixel coordinates relative to ScalerCropMaximum
                     # NOT percentages! Get the maximum scaler crop window size.
@@ -1175,7 +1188,7 @@ class PiCameraController(CameraController):
                 logger.warning(f"⚠️ Camera {camera_id} calibration timeout - using defaults")
                 focus_value = 0.5
             else:
-                logger.info(f"📷 Camera {camera_id} performing autofocus...")
+                logger.info(f"📷 Camera {camera_id} performing initial autofocus...")
                 try:
                     focus_value = await asyncio.wait_for(
                         self.auto_focus_and_get_value(camera_id), 
@@ -1189,6 +1202,57 @@ class PiCameraController(CameraController):
                 except Exception as focus_error:
                     logger.warning(f"⚠️ Camera {camera_id} autofocus failed: {focus_error}")
                     focus_value = 0.5
+            
+            # Step 3.5: TWO-PASS YOLO CALIBRATION - Now that image is sharp, run YOLO detection
+            if focus_zone_enabled and mode == 'yolo_detect' and self.yolo_detector and window_source == 'static_prefocus':
+                logger.info(f"🎯 Camera {camera_id} YOLO PASS 2: Image now sharp, running object detection...")
+                
+                try:
+                    # Capture sharp image for YOLO detection
+                    preview_array = picamera2.capture_array("main")
+                    
+                    # Run YOLO detection on sharp image
+                    detected_window = self.yolo_detector.detect_object(preview_array, camera_id)
+                    
+                    if detected_window:
+                        logger.info(f"✅ Camera {camera_id} YOLO detection successful on sharp image!")
+                        focus_window = list(detected_window)
+                        window_source = 'yolo_detected'
+                        
+                        # Update AfWindows with YOLO-detected window
+                        x_px = int(focus_window[0] * max_width)
+                        y_px = int(focus_window[1] * max_height)
+                        w_px = int(focus_window[2] * max_width)
+                        h_px = int(focus_window[3] * max_height)
+                        
+                        picamera2.set_controls({
+                            "AfMetering": controls.AfMeteringEnum.Windows,
+                            "AfWindows": [(x_px, y_px, w_px, h_px)]
+                        })
+                        
+                        logger.info(f"📷 Camera {camera_id} refined focus window: AfWindows=[({x_px}, {y_px}, {w_px}, {h_px})]")
+                        
+                        # Re-run autofocus with refined window
+                        logger.info(f"📷 Camera {camera_id} performing refined autofocus on detected object...")
+                        await asyncio.sleep(0.5)  # Let new window settle
+                        
+                        try:
+                            refined_focus = await asyncio.wait_for(
+                                self.auto_focus_and_get_value(camera_id),
+                                timeout=5.0
+                            )
+                            if refined_focus is not None:
+                                focus_value = refined_focus
+                                logger.info(f"✅ Camera {camera_id} refined focus value: {focus_value:.3f}")
+                        except Exception as refine_error:
+                            logger.warning(f"⚠️ Camera {camera_id} refined autofocus failed: {refine_error}")
+                            # Keep initial focus value
+                    else:
+                        logger.warning(f"⚠️ Camera {camera_id} YOLO detection failed on sharp image - keeping static window")
+                        
+                except Exception as yolo_error:
+                    logger.warning(f"⚠️ Camera {camera_id} YOLO pass 2 failed: {yolo_error}")
+                    # Keep initial focus settings
             
             # Step 4: Capture final calibration metadata with timeout protection
             logger.info(f"📷 Camera {camera_id} capturing final calibration values...")
