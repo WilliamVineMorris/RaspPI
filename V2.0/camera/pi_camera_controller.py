@@ -839,20 +839,32 @@ class PiCameraController(CameraController):
             logger.error(f"Failed to set focus value for {camera_id}: {e}")
             return False
     
-    async def _reapply_focus_after_reconfiguration(self, camera_id: str) -> bool:
-        """Reapply focus value after camera reconfiguration (focus resets on camera.start())"""
+    async def _reapply_focus_after_reconfiguration(self, camera_id) -> bool:
+        """Reapply focus value after camera reconfiguration (focus resets on camera.start())
+        
+        Args:
+            camera_id: Can be either int (0, 1) or str ("camera0", "camera1")
+        """
         try:
-            cam_id = int(camera_id.replace('camera', ''))
+            # Handle both int and str camera_id formats
+            if isinstance(camera_id, int):
+                cam_id = camera_id
+                cam_id_str = f"camera{camera_id}"
+            else:
+                cam_id = int(camera_id.replace('camera', ''))
+                cam_id_str = camera_id
+            
             if cam_id not in self.cameras or not self.cameras[cam_id]:
                 return False
             
             # Check if we have a stored focus value (set during scan setup)
-            if hasattr(self, '_stored_focus_values') and camera_id in self._stored_focus_values:
-                focus_value = self._stored_focus_values[camera_id]
-                logger.info(f"🔄 Reapplying stored focus {focus_value:.3f} for {camera_id} after reconfiguration")
+            # Storage uses string format "camera0", "camera1"
+            if hasattr(self, '_stored_focus_values') and cam_id_str in self._stored_focus_values:
+                focus_value = self._stored_focus_values[cam_id_str]
+                logger.info(f"🔄 Reapplying stored focus {focus_value:.3f} for {cam_id_str} after reconfiguration")
                 
                 if not self._supports_autofocus(cam_id):
-                    logger.debug(f"Camera {camera_id} does not support manual focus")
+                    logger.debug(f"Camera {cam_id_str} does not support manual focus")
                     return False
                 
                 # Clamp focus value to valid range
@@ -867,13 +879,13 @@ class PiCameraController(CameraController):
                     "LensPosition": lens_position
                 })
                 
-                logger.info(f"✅ Restored focus {focus_value:.3f} (lens position {lens_position}) for {camera_id}")
+                logger.info(f"✅ Restored focus {focus_value:.3f} (lens position {lens_position}) for {cam_id_str}")
                 
                 # Give camera time to adjust focus
                 await asyncio.sleep(0.1)
                 return True
             else:
-                logger.debug(f"No stored focus value for {camera_id}, skipping reapplication")
+                logger.debug(f"No stored focus value for {cam_id_str}, skipping reapplication")
                 return False
                 
         except Exception as e:
