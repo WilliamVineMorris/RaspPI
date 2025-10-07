@@ -26,7 +26,7 @@ from core.coordinate_transform import (
     CameraRelativePosition,
     CartesianPosition
 )
-from scanning.scan_patterns import ScanPoint, CameraSettings
+from scanning.scan_patterns import ScanPoint, CameraSettings, FocusMode
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ class CSVExportOptions:
     """Options for CSV export"""
     format: CoordinateFormat = CoordinateFormat.CAMERA_RELATIVE
     include_index: bool = True
+    include_focus_columns: bool = True  # Include FocusMode and FocusValues columns
     decimal_places: int = 3
     include_header_comments: bool = True
     
@@ -98,7 +99,7 @@ class MultiFormatCSVHandler:
         writer = csv.writer(output)
         
         # Write column headers
-        headers = self._get_headers(options.format, options.include_index)
+        headers = self._get_headers(options.format, options.include_index, options.include_focus_columns)
         writer.writerow(headers)
         
         # Write data rows
@@ -108,6 +109,7 @@ class MultiFormatCSVHandler:
                 i, 
                 options.format,
                 options.include_index,
+                options.include_focus_columns,
                 options.decimal_places
             )
             writer.writerow(row)
@@ -219,7 +221,7 @@ class MultiFormatCSVHandler:
         
         output.write("#\n")
     
-    def _get_headers(self, format_type: CoordinateFormat, include_index: bool) -> List[str]:
+    def _get_headers(self, format_type: CoordinateFormat, include_index: bool, include_focus: bool = True) -> List[str]:
         """Get CSV column headers for format"""
         if format_type == CoordinateFormat.CAMERA_RELATIVE:
             headers = ['radius', 'height', 'rotation', 'tilt']
@@ -230,6 +232,9 @@ class MultiFormatCSVHandler:
         
         if include_index:
             headers = ['index'] + headers
+        
+        if include_focus:
+            headers = headers + ['FocusMode', 'FocusValues']
         
         return headers
     
@@ -268,6 +273,7 @@ class MultiFormatCSVHandler:
         index: int,
         format_type: CoordinateFormat,
         include_index: bool,
+        include_focus: bool,
         decimal_places: int
     ) -> List[str]:
         """
@@ -278,6 +284,7 @@ class MultiFormatCSVHandler:
             index: Point index number
             format_type: Target coordinate format
             include_index: Whether to include index column
+            include_focus: Whether to include focus columns
             decimal_places: Number of decimal places for formatting
             
         Returns:
@@ -318,6 +325,29 @@ class MultiFormatCSVHandler:
         if include_index:
             values = [str(index)] + values
         
+        if include_focus:
+            # Add focus mode
+            focus_mode_str = ''
+            if point.focus_mode:
+                if point.focus_mode == FocusMode.MANUAL:
+                    focus_mode_str = 'manual'
+                elif point.focus_mode == FocusMode.AUTOFOCUS_ONCE:
+                    focus_mode_str = 'af'
+                elif point.focus_mode == FocusMode.CONTINUOUS_AF:
+                    focus_mode_str = 'ca'
+                elif point.focus_mode == FocusMode.DEFAULT:
+                    focus_mode_str = 'default'
+            
+            # Add focus values
+            focus_values_str = ''
+            if point.focus_values is not None:
+                if isinstance(point.focus_values, list):
+                    focus_values_str = ';'.join(f"{v:.1f}" for v in point.focus_values)
+                else:
+                    focus_values_str = f"{point.focus_values:.1f}"
+            
+            values = values + [focus_mode_str, focus_values_str]
+        
         return values
     
     def _convert_row_to_point(
@@ -333,7 +363,7 @@ class MultiFormatCSVHandler:
             format_type: Source coordinate format
             
         Returns:
-            ScanPoint object with FluidNC coordinates
+            ScanPoint object with FluidNC coordinates and focus parameters
         """
         try:
             if format_type == CoordinateFormat.FLUIDNC:
@@ -365,7 +395,36 @@ class MultiFormatCSVHandler:
                 )
                 fluidnc_pos = self.transformer.cartesian_to_fluidnc(cart_pos)
             
-            # Create ScanPoint with default camera settings
+            # Parse focus mode (optional)
+            focus_mode = None
+            focus_mode_str = row.get('FocusMode', '').strip().lower()
+            if focus_mode_str:
+                if focus_mode_str == 'manual':
+                    focus_mode = FocusMode.MANUAL
+                elif focus_mode_str == 'af':
+                    focus_mode = FocusMode.AUTOFOCUS_ONCE
+                elif focus_mode_str == 'ca':
+                    focus_mode = FocusMode.CONTINUOUS_AF
+                elif focus_mode_str == 'default':
+                    focus_mode = FocusMode.DEFAULT
+            
+            # Parse focus values (optional)
+            focus_values = None
+            focus_values_str = row.get('FocusValues', '').strip()
+            if focus_values_str:
+                if ';' in focus_values_str:
+                    # Multiple values (focus stacking)
+                    focus_values = [float(v.strip()) for v in focus_values_str.split(';')]
+                else:
+                    # Single value
+                    focus_values = float(focus_values_str)
+            
+            # Adjust capture_count for focus stacking
+            capture_count = 1
+            if isinstance(focus_values, list):
+                capture_count = len(focus_values)
+            
+            # Create ScanPoint with focus parameters
             scan_point = ScanPoint(
                 position=fluidnc_pos,
                 camera_settings=CameraSettings(
@@ -374,7 +433,9 @@ class MultiFormatCSVHandler:
                     capture_format="JPEG",
                     resolution=(4624, 3472)
                 ),
-                capture_count=1,
+                focus_mode=focus_mode,
+                focus_values=focus_values,
+                capture_count=capture_count,
                 dwell_time=0.2
             )
             

@@ -2471,6 +2471,11 @@ class ScanOrchestrator:
         self._focus_mode = 'auto'  # 'auto', 'manual', or 'fixed'
         self._focus_sync_enabled = False  # Independent focus by default for best camera performance
         
+        # Web UI focus settings (applied to all scan points)
+        self._web_focus_mode: Optional[str] = None  # 'manual', 'autofocus_initial', 'continuous', 'manual_stack'
+        self._web_focus_position: Optional[float] = None  # For manual mode
+        self._web_focus_stack_settings: Optional[Dict[str, Any]] = None  # For manual_stack mode
+        
         # Performance tracking
         self._timing_stats = {
             'movement_time': 0.0,
@@ -2665,6 +2670,24 @@ class ScanOrchestrator:
         """
         try:
             applied_settings = {'camera_settings': {}, 'motion_settings': {}}
+            
+            # Extract and store focus settings from quality_settings
+            if quality_settings and 'focus' in quality_settings:
+                focus_config = quality_settings['focus']
+                self._web_focus_mode = focus_config.get('mode', 'manual')
+                self._web_focus_position = focus_config.get('position')
+                
+                if self._web_focus_mode == 'manual_stack':
+                    self._web_focus_stack_settings = {
+                        'steps': focus_config.get('stack_steps', 1),
+                        'min_focus': focus_config.get('min_focus', 6.0),
+                        'max_focus': focus_config.get('max_focus', 10.0)
+                    }
+                else:
+                    self._web_focus_stack_settings = None
+                
+                self.logger.info(f"📸 Applied web UI focus settings: mode={self._web_focus_mode}, position={self._web_focus_position}, stack={self._web_focus_stack_settings}")
+                applied_settings['focus_settings'] = focus_config.copy()
             
             # Create temporary custom profiles and apply them through the existing system
             quality_profile_name = 'custom_active'
@@ -3874,7 +3897,15 @@ class ScanOrchestrator:
         self._timing_stats['movement_time'] += time.time() - move_start
     
     async def _capture_at_point(self, point: ScanPoint, point_index: int) -> int:
-        """Capture images at a scan point"""
+        """
+        Capture images at a scan point with support for:
+        - Single capture (standard)
+        - Focus stacking (multiple lens positions)
+        - Autofocus modes (once or continuous)
+        
+        Returns:
+            Number of images captured
+        """
         capture_start = time.time()
         images_captured = 0
         
@@ -3882,9 +3913,36 @@ class ScanOrchestrator:
             self.current_scan.set_phase(ScanPhase.CAPTURING)
         
         try:
-            # Generate filename for this point
+            # Generate filename base for this point
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename_base = f"scan_{self.current_scan.scan_id if self.current_scan else 'unknown'}_point_{point_index:04d}_{timestamp}"
+            
+            # Determine focus mode and positions
+            from scanning.scan_patterns import FocusMode
+            
+            focus_positions = []
+            focus_mode_str = None
+            
+            if point.focus_mode == FocusMode.AUTOFOCUS_ONCE:
+                focus_mode_str = 'af'
+                focus_positions = [None]  # Single capture with autofocus
+                self.logger.info(f"🎯 Point {point_index}: Using AUTOFOCUS ONCE")
+            elif point.focus_mode == FocusMode.CONTINUOUS_AF:
+                focus_mode_str = 'ca'
+                focus_positions = [None]  # Single capture with continuous AF
+                self.logger.warning(f"⚠️ Point {point_index}: Using CONTINUOUS AUTOFOCUS (not recommended)")
+            elif point.focus_values is not None:
+                focus_mode_str = 'manual'
+                focus_positions = point.get_focus_positions()
+                if len(focus_positions) > 1:
+                    self.logger.info(f"📚 Point {point_index}: FOCUS STACKING with {len(focus_positions)} positions: {focus_positions}")
+                else:
+                    self.logger.info(f"🎯 Point {point_index}: Manual focus at lens position {focus_positions[0]}")
+            else:
+                # Use global default from config
+                focus_mode_str = None  # Will use camera controller's default
+                focus_positions = [None]  # Single capture
+                self.logger.debug(f"📷 Point {point_index}: Using global config focus setting")
             
             # Apply lighting if configured and available
             lighting_applied = False
@@ -3916,138 +3974,141 @@ class ScanOrchestrator:
             if lighting_applied:
                 await asyncio.sleep(0.02)  # 20ms stabilization delay
             
-            # ⚡ FLASH coordination with PROPER SYNCHRONIZATION
-            flash_result = None
-            try:
-                if hasattr(self, 'lighting_controller') and self.lighting_controller:
-                    from lighting.base import LightingSettings
-                    
-                    # Use constant lighting mode (30% brightness) for resolution-independent timing
-                    # This ensures proper lighting regardless of camera resolution/timing variations
-                    flash_settings = LightingSettings(
-                        brightness=0.3,      # 30% constant lighting during capture
-                        duration_ms=0,       # 0 = constant mode (not timed flash)
-                        constant_mode=True   # Explicit constant mode flag
-                    )
-                    
-                    # Use both inner and outer zones for maximum illumination
-                    zones_to_flash = ['inner', 'outer']
-                    
-                    # Flash mode: Increase brightness for capture, then reduce
-                    # Constant mode: LEDs already at capture brightness
-                    flash_mode = getattr(self.lighting_controller, 'flash_mode', False)
-                    
-                    if flash_mode:
-                        # Flash mode: Increase to capture brightness
-                        capture_brightness = getattr(self.lighting_controller, 'capture_brightness', 0.30)
-                        flash_duration_ms = getattr(self.lighting_controller, 'flash_duration_ms', 650)
-                        
-                        self.logger.info(f"⚡ FLASH MODE: Increasing LEDs to {capture_brightness*100:.0f}% for capture...")
-                        await self.lighting_controller.set_brightness("all", capture_brightness)
-                        await asyncio.sleep(0.05)  # 50ms LED settling
-                        
-                        # Capture with both cameras
-                        camera_data_dict = None
-                        if hasattr(self, 'camera_manager') and self.camera_manager:
-                            camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
-                            self.logger.info("✅ FLASH: Camera capture successful")
-                        else:
-                            raise Exception("Camera manager not available")
-                        
-                        # Reduce back to idle brightness
-                        idle_brightness = getattr(self.lighting_controller, 'idle_brightness', 0.05)
-                        self.logger.info(f"💡 FLASH: Reducing LEDs back to {idle_brightness*100:.0f}% idle brightness")
-                        await self.lighting_controller.set_brightness("all", idle_brightness)
-                    else:
-                        # Constant mode: LEDs already at correct brightness
-                        self.logger.info("📸 CONSTANT MODE: Capturing with constant lighting...")
-                        camera_data_dict = None
-                        if hasattr(self, 'camera_manager') and self.camera_manager:
-                            camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
-                            self.logger.info("✅ CONSTANT: Camera capture successful")
-                        else:
-                            raise Exception("Camera manager not available")
-                    
-            except Exception as capture_error:
-                self.logger.error(f"❌ V5: Camera capture failed: {capture_error}")
-                raise Exception(f"Camera capture failed: {capture_error}")
-            
-            # Convert result to expected format (for both flash and non-flash cases)
-            capture_results = []
-            if camera_data_dict and isinstance(camera_data_dict, dict):
-                # Camera manager returns: {'camera_0': {'image': array, 'metadata': {}}, 'camera_1': {...}}
-                for camera_id in ['camera_0', 'camera_1']:
-                    camera_result = camera_data_dict.get(camera_id)
-                    
-                    if camera_result and isinstance(camera_result, dict) and 'image' in camera_result:
-                        # Extract image data and metadata from nested structure
-                        image_data = camera_result['image']
-                        camera_metadata = camera_result.get('metadata', {})
-                        
-                        capture_results.append({
-                            'camera_id': camera_id,
-                            'success': True,
-                            'image_data': image_data,
-                            'metadata': {
-                                'scan_point': point_index, 
-                                'timestamp': timestamp,
-                                **camera_metadata  # Include camera capture metadata
-                            },
-                            'error': None
-                        })
-                        
-                        # Log successful capture with shape
-                        if hasattr(image_data, 'shape'):
-                            self.logger.info(f"✅ Successfully captured from {camera_id}: shape {image_data.shape}")
-                        else:
-                            self.logger.info(f"✅ Successfully captured from {camera_id}: {type(image_data)}")
-                            
-                    else:
-                        capture_results.append({
-                            'camera_id': camera_id,
-                            'success': False,
-                            'image_data': None,
-                            'metadata': {},
-                            'error': 'No image data in camera result'
-                        })
-                        self.logger.warning(f"❌ Failed to capture from {camera_id}: invalid result structure")
+            # ===== FOCUS STACKING LOOP =====
+            # Capture at each focus position (1 for standard, multiple for focus stacking)
+            for stack_index, lens_pos in enumerate(focus_positions):
                 
-                # Log capture summary
-                successful_captures = len([r for r in capture_results if r['success']])
-                self.logger.info(f"📸 Captured from {successful_captures}/{len(capture_results)} cameras at scan point {point_index}")
-                
-            else:
-                self.logger.error("Camera manager returned invalid result format")
-                capture_results = [
-                    {'camera_id': 'camera_0', 'success': False, 'error': 'Invalid capture result format'},
-                    {'camera_id': 'camera_1', 'success': False, 'error': 'Invalid capture result format'}
-                ]
-            
-            images_captured = len([r for r in capture_results if r['success']])
-            
-            # Log any capture failures
-            for result in capture_results:
-                if not result['success'] and self.current_scan:
-                    self.current_scan.add_error(
-                        "capture_error",
-                        f"Failed to capture from camera {result['camera_id']}: {result.get('error', 'Unknown error')}",
-                        result,
-                        recoverable=True
-                    )
-            
-            # 💾 SAVE CAPTURED IMAGES TO STORAGE
-            if images_captured > 0:
-                try:
-                    await self._save_captured_images(capture_results, point, point_index)
-                except Exception as storage_error:
-                    self.logger.error(f"❌ Failed to save images to storage: {storage_error}")
-                    if self.current_scan:
-                        self.current_scan.add_error(
-                            "storage_error",
-                            f"Failed to save images at point {point_index}: {storage_error}",
-                            {'point_index': point_index, 'images_captured': images_captured},
-                            recoverable=True
+                # Set focus for this capture
+                if focus_mode_str or lens_pos is not None:
+                    self.logger.info(f"🔍 Setting focus for capture {stack_index + 1}/{len(focus_positions)}")
+                    
+                    # Set focus on both cameras
+                    focus_tasks = []
+                    for cam_id in self.camera_ids:
+                        focus_task = self.camera_controller.auto_focus(
+                            cam_id, 
+                            focus_mode=focus_mode_str,
+                            lens_position=lens_pos
                         )
+                        focus_tasks.append(focus_task)
+                    
+                    # Wait for both cameras to set focus
+                    focus_results = await asyncio.gather(*focus_tasks, return_exceptions=True)
+                    
+                    # Check if focus was successful
+                    if not all(focus_results):
+                        self.logger.warning(f"⚠️ Focus setting failed for stack position {stack_index + 1}")
+                
+                # Small delay for lens to settle (especially important for focus stacking)
+                if lens_pos is not None:
+                    await asyncio.sleep(0.15)  # 150ms lens settle time
+                
+                # ⚡ CAPTURE WITH LIGHTING SYNCHRONIZATION
+                flash_result = None
+                try:
+                    if hasattr(self, 'lighting_controller') and self.lighting_controller:
+                        from lighting.base import LightingSettings
+                        
+                        # Use constant lighting mode (30% brightness)
+                        flash_settings = LightingSettings(
+                            brightness=0.3,
+                            duration_ms=0,
+                            constant_mode=True
+                        )
+                        
+                        zones_to_flash = ['inner', 'outer']
+                        flash_mode = getattr(self.lighting_controller, 'flash_mode', False)
+                        
+                        if flash_mode:
+                            # Flash mode: Increase to capture brightness
+                            capture_brightness = getattr(self.lighting_controller, 'capture_brightness', 0.30)
+                            
+                            self.logger.info(f"⚡ FLASH MODE: Increasing LEDs to {capture_brightness*100:.0f}% for capture {stack_index + 1}/{len(focus_positions)}...")
+                            await self.lighting_controller.set_brightness("all", capture_brightness)
+                            await asyncio.sleep(0.05)  # 50ms LED settling
+                            
+                            # Capture with both cameras
+                            if hasattr(self, 'camera_manager') and self.camera_manager:
+                                camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
+                                self.logger.info("✅ FLASH: Camera capture successful")
+                            else:
+                                raise Exception("Camera manager not available")
+                            
+                            # Reduce back to idle brightness
+                            idle_brightness = getattr(self.lighting_controller, 'idle_brightness', 0.05)
+                            await self.lighting_controller.set_brightness("all", idle_brightness)
+                        else:
+                            # Constant mode: LEDs already at correct brightness
+                            self.logger.info(f"📸 CONSTANT MODE: Capturing {stack_index + 1}/{len(focus_positions)}...")
+                            camera_data_dict = None
+                            if hasattr(self, 'camera_manager') and self.camera_manager:
+                                camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
+                                self.logger.info("✅ CONSTANT: Camera capture successful")
+                            else:
+                                raise Exception("Camera manager not available")
+                        
+                except Exception as capture_error:
+                    self.logger.error(f"❌ Camera capture failed at focus position {stack_index + 1}: {capture_error}")
+                    continue  # Skip this focus position, try next one
+                
+                # Convert result to expected format
+                stack_capture_results = []
+                if camera_data_dict and isinstance(camera_data_dict, dict):
+                    for camera_id in ['camera_0', 'camera_1']:
+                        camera_result = camera_data_dict.get(camera_id)
+                        
+                        if camera_result and isinstance(camera_result, dict) and 'image' in camera_result:
+                            image_data = camera_result['image']
+                            camera_metadata = camera_result.get('metadata', {})
+                            
+                            # Add focus stack metadata
+                            focus_metadata = {
+                                'scan_point': point_index,
+                                'timestamp': timestamp,
+                                'focus_stack_index': stack_index if len(focus_positions) > 1 else None,
+                                'focus_stack_total': len(focus_positions) if len(focus_positions) > 1 else None,
+                                'lens_position': lens_pos,
+                                **camera_metadata
+                            }
+                            
+                            stack_capture_results.append({
+                                'camera_id': camera_id,
+                                'success': True,
+                                'image_data': image_data,
+                                'metadata': focus_metadata,
+                                'error': None
+                            })
+                            
+                            if hasattr(image_data, 'shape'):
+                                self.logger.info(f"✅ Captured from {camera_id} (focus {stack_index + 1}/{len(focus_positions)}): shape {image_data.shape}")
+                            
+                        else:
+                            stack_capture_results.append({
+                                'camera_id': camera_id,
+                                'success': False,
+                                'image_data': None,
+                                'metadata': {},
+                                'error': 'No image data in camera result'
+                            })
+                            self.logger.warning(f"❌ Failed to capture from {camera_id}")
+                    
+                    # Save images from this focus position immediately
+                    successful_stack = len([r for r in stack_capture_results if r['success']])
+                    if successful_stack > 0:
+                        try:
+                            await self._save_captured_images(stack_capture_results, point, point_index)
+                            images_captured += successful_stack
+                            self.logger.info(f"💾 Saved {successful_stack} images for focus position {stack_index + 1}/{len(focus_positions)}")
+                        except Exception as storage_error:
+                            self.logger.error(f"❌ Failed to save images for focus {stack_index + 1}: {storage_error}")
+                
+                # Brief delay between focus stack captures
+                if stack_index < len(focus_positions) - 1:
+                    await asyncio.sleep(0.1)
+            
+            # End of focus stacking loop
+            if len(focus_positions) > 1:
+                self.logger.info(f"📚 ✅ Focus stacking complete: captured {images_captured} total images at {len(focus_positions)} focus positions")
             
             self._timing_stats['capture_time'] += time.time() - capture_start
             return images_captured
@@ -4796,6 +4857,94 @@ class ScanOrchestrator:
             self.logger.error(f"Error getting preview frame for camera {camera_id}: {e}")
             return None
     
+    def _apply_web_focus_to_pattern(self, pattern):
+        """Apply web UI focus settings to all scan points in a pattern
+        
+        This method modifies scan points based on focus settings from the web UI:
+        - manual: Set fixed focus position for all points
+        - autofocus_initial: Trigger AF once at start
+        - continuous: Trigger AF before each capture
+        - manual_stack: Create focus stack with interpolated positions
+        
+        Args:
+            pattern: ScanPattern object with generate_points() method
+            
+        Returns:
+            Modified pattern with focus settings applied
+        """
+        from .scan_patterns import FocusMode
+        
+        if not self._web_focus_mode:
+            # No web UI focus settings - return pattern unchanged
+            return pattern
+        
+        self.logger.info(f"📸 Applying web UI focus settings to scan pattern: mode={self._web_focus_mode}")
+        
+        # Get original points from pattern
+        original_points = pattern.generate_points()
+        
+        # Apply focus settings based on mode
+        if self._web_focus_mode == 'manual':
+            # Manual focus: single position for all points
+            focus_pos = self._web_focus_position if self._web_focus_position is not None else 8.0
+            for point in original_points:
+                point.focus_mode = FocusMode.MANUAL
+                point.focus_values = focus_pos
+            self.logger.info(f"📸 Applied manual focus position {focus_pos} to {len(original_points)} points")
+            
+        elif self._web_focus_mode == 'autofocus_initial':
+            # Autofocus once at start
+            for point in original_points:
+                point.focus_mode = FocusMode.AUTOFOCUS_ONCE
+                point.focus_values = None
+            self.logger.info(f"📸 Applied autofocus_initial to {len(original_points)} points (AF triggered once at start)")
+            
+        elif self._web_focus_mode == 'continuous':
+            # Continuous autofocus before each capture
+            for point in original_points:
+                point.focus_mode = FocusMode.CONTINUOUS_AF
+                point.focus_values = None
+            self.logger.info(f"📸 Applied continuous autofocus to {len(original_points)} points")
+            
+        elif self._web_focus_mode == 'manual_stack':
+            # Manual focus stacking with interpolated positions
+            if not self._web_focus_stack_settings:
+                self.logger.warning("Manual stack mode selected but no stack settings provided, using defaults")
+                stack_settings = {'steps': 1, 'min_focus': 6.0, 'max_focus': 10.0}
+            else:
+                stack_settings = self._web_focus_stack_settings
+            
+            steps = stack_settings['steps']
+            min_focus = stack_settings['min_focus']
+            max_focus = stack_settings['max_focus']
+            
+            # Calculate focus positions (steps + 1 = levels)
+            levels = steps + 1
+            focus_positions = []
+            for i in range(levels):
+                if levels == 1:
+                    pos = (min_focus + max_focus) / 2.0
+                else:
+                    pos = min_focus + (max_focus - min_focus) * (i / (levels - 1))
+                focus_positions.append(pos)
+            
+            # Apply focus stack to all points
+            for point in original_points:
+                point.focus_mode = FocusMode.MANUAL
+                point.focus_values = focus_positions.copy()  # List of positions
+                point.capture_count = len(focus_positions)  # Update capture count
+            
+            self.logger.info(f"📸 Applied focus stacking to {len(original_points)} points:")
+            self.logger.info(f"   Steps: {steps}, Levels: {levels}")
+            self.logger.info(f"   Positions: {[f'{p:.1f}' for p in focus_positions]}")
+            self.logger.info(f"   Total captures: {len(original_points) * len(focus_positions)}")
+        
+        # Modify the pattern's generate_points method to return our modified points
+        original_generate = pattern.generate_points
+        pattern.generate_points = lambda: original_points
+        
+        return pattern
+    
     def create_grid_pattern(self, 
                            x_range: tuple[float, float],
                            y_range: tuple[float, float],
@@ -4838,7 +4987,12 @@ class ScanOrchestrator:
         # Generate pattern ID
         pattern_id = f"grid_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        return GridScanPattern(pattern_id=pattern_id, parameters=parameters)
+        pattern = GridScanPattern(pattern_id=pattern_id, parameters=parameters)
+        
+        # Apply web UI focus settings to pattern
+        pattern = self._apply_web_focus_to_pattern(pattern)
+        
+        return pattern
     
     def create_cylindrical_pattern(self,
                                  radius: float,
@@ -4928,12 +5082,18 @@ class ScanOrchestrator:
         )
         
         # Log final pattern configuration
-        logger.info(f"📐 Final cylindrical pattern: C-axis (servo) angles={c_angles} ({len(c_angles)} angles)")
+        if c_angles:
+            logger.info(f"📐 Final cylindrical pattern: C-axis (servo) angles={c_angles} ({len(c_angles)} angles)")
         
         # Generate pattern ID
         pattern_id = f"cylindrical_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
-        return CylindricalScanPattern(pattern_id=pattern_id, parameters=parameters)
+        pattern = CylindricalScanPattern(pattern_id=pattern_id, parameters=parameters)
+        
+        # Apply web UI focus settings to pattern
+        pattern = self._apply_web_focus_to_pattern(pattern)
+        
+        return pattern
     
     # Focus Control Methods
     def set_focus_mode(self, mode: str) -> bool:

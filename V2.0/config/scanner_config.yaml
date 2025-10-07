@@ -270,7 +270,57 @@ cameras:
     enable: true
     fps: 30
     quality: 70
+  
+  # Focus Control Configuration
+  # =============================
+  # V2.0 NOW SUPPORTS PER-POINT FOCUS CONTROL!
+  # 
+  # You can override these global defaults on individual scan points:
+  #
+  # Per-Point Focus Options:
+  # ------------------------
+  # 1. Single manual focus:
+  #    focus_values: 8.0
+  #
+  # 2. Focus stacking (capture multiple images at ONE point):
+  #    focus_values: [6.0, 8.0, 10.0]
+  #    → Captures 3 images at same position with different focus
+  #    → 47% faster than running 3 complete scans!
+  #
+  # 3. Autofocus once:
+  #    focus_mode: "af"
+  #    → Triggers autofocus before capture
+  #
+  # 4. Use global default:
+  #    (no focus parameters) → uses settings below
+  #
+  # CSV Format Example:
+  #   X,Y,Z,C,FocusMode,FocusValues
+  #   100,100,0,0,manual,8.0
+  #   100,100,45,0,manual,"6.0;8.0;10.0"
+  #   100,100,90,0,af,
+  #
+  # See PER_POINT_FOCUS_CONTROL.md for complete documentation
+  # =============================
+  
+  focus:
+    # Global default mode (used when scan point doesn't specify)
+    mode: "manual"  # Options: "manual", "af" (autofocus once), "ca" (continuous AF)
     
+    # Default lens position for manual mode
+    # Range: 0.0 (infinity) to 15.0+ (extreme close-up)
+    # Recommended values:
+    #   6.0-7.0  = 40-50cm (far focus)
+    #   8.0-9.0  = 30-40cm (standard scanning - DEFAULT)
+    #   10.0-12.0 = 20-30cm (close-up)
+    manual_lens_position: 8.0
+    
+    # Autofocus settings (used when mode="af" or per-point focus_mode="af")
+    autofocus:
+      enable: true              # Enable autofocus capability
+      af_range: "macro"         # "macro" (8cm-1m), "normal" (30cm-∞), "full" (8cm-∞)
+      timeout_seconds: 4.0      # Max time to wait for autofocus
+      
   # Servo Tilt Configuration
   servo_tilt:
     enable: true

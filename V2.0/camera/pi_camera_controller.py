@@ -562,169 +562,158 @@ class PiCameraController(CameraController):
         except Exception:
             return False
     
-    async def auto_focus(self, camera_id: str) -> bool:
-        """Trigger auto-focus on camera with enhanced ArduCam support"""
+    async def auto_focus(self, camera_id: str, focus_mode: Optional[str] = None, 
+                        lens_position: Optional[float] = None) -> bool:
+        """
+        Set camera focus with flexible control options
+        
+        Args:
+            camera_id: Camera identifier (e.g., 'camera_0')
+            focus_mode: Override focus mode ('manual', 'af', 'ca', or None for config default)
+            lens_position: Manual lens position (0.0-15.0, None uses config default)
+            
+        Focus Modes:
+            - 'manual': Fixed lens position (from lens_position param or config)
+            - 'af': Trigger autofocus once, then leave
+            - 'ca': Continuous autofocus (not recommended for scanning)
+            - None: Use global config default
+            
+        Returns:
+            True if focus was set successfully
+        """
         try:
             cam_id = int(camera_id.replace('camera', ''))
             if cam_id not in self.cameras or not self.cameras[cam_id]:
-                logger.warning(f"📷 Camera {camera_id} not available for autofocus")
+                logger.warning(f"📷 Camera {camera_id} not available for focus setting")
                 return False
             
             picamera2 = self.cameras[cam_id]
             
-            # Check if camera supports autofocus
+            # Check if camera supports focus control
             if not self._supports_autofocus(cam_id):
-                logger.info(f"📷 Camera {camera_id} has fixed focus or autofocus not supported - using manual focus")
+                logger.info(f"📷 Camera {camera_id} has fixed focus - no focus control available")
                 return True
             
-            logger.info(f"📷 Starting autofocus for {camera_id}")
+            # Determine focus mode (per-point override or global config)
+            if focus_mode is None:
+                # Use global config default
+                focus_config = self.config.get('focus', {})
+                mode = focus_config.get('mode', 'manual')
+            else:
+                mode = focus_mode
             
-            # Use official Picamera2 autofocus approach (Section 5.2)
+            logger.info(f"📷 Camera {camera_id} setting focus mode: {mode}")
+            
             try:
-                # Set camera to Auto mode for single-shot autofocus (recommended for scan points)
-                logger.debug(f"📷 Camera {camera_id} setting Auto mode for single-shot autofocus")
+                from libcamera import controls
                 
-                # Import controls for proper enum usage
-                try:
-                    from libcamera import controls
-                    af_mode_auto = controls.AfModeEnum.Auto
-                    # Use Macro range for close objects (<40cm)
-                    # Macro: 8cm to 1m (perfect for close-up object scanning)
-                    # User confirmed objects always <40cm away
-                    af_range_setting = controls.AfRangeEnum.Macro
-                    range_description = "Macro (8cm-1m, close object scanning)"
-                    logger.debug(f"📷 Camera {camera_id} using libcamera controls enum")
-                except ImportError:
-                    # Fallback to numeric mode if libcamera not available
-                    af_mode_auto = 1  # Auto mode
-                    af_range_setting = 1  # Macro range
-                    range_description = "Macro (numeric fallback)"
-                    logger.debug(f"📷 Camera {camera_id} using numeric AF mode (fallback)")
+                # ===== MANUAL FOCUS MODE =====
+                if mode == 'manual':
+                    # Get lens position (per-point override or config default)
+                    if lens_position is not None:
+                        lens_pos = lens_position
+                        source = "per-point override"
+                    else:
+                        focus_config = self.config.get('focus', {})
+                        lens_pos = focus_config.get('manual_lens_position', 8.0)
+                        source = "global config"
+                    
+                    # Validate lens position range (typical range 0.0 to ~15.0)
+                    if lens_pos < 0.0:
+                        logger.warning(f"⚠️  LensPosition {lens_pos} < 0, clamping to 0.0")
+                        lens_pos = 0.0
+                    elif lens_pos > 15.0:
+                        logger.warning(f"⚠️  LensPosition {lens_pos} > 15.0, clamping to 15.0")
+                        lens_pos = 15.0
+                    
+                    # Set to Manual mode with fixed lens position
+                    picamera2.set_controls({
+                        "AfMode": controls.AfModeEnum.Manual,
+                        "LensPosition": lens_pos
+                    })
+                    logger.info(f"✅ Camera {camera_id} manual focus: LensPosition={lens_pos} (from {source})")
+                    await asyncio.sleep(0.1)  # Brief wait for lens to settle
+                    return True
                 
-                # Set Auto mode for controlled autofocus with Macro range
-                # Macro range focuses on 8cm-1m, perfect for objects <40cm away
-                picamera2.set_controls({
-                    "AfMode": af_mode_auto,
-                    "AfRange": af_range_setting
-                })
-                logger.info(f"📷 Camera {camera_id} AF range set to {range_description}")
-                await asyncio.sleep(0.2)  # Let mode change take effect
-                
-                # Use official autofocus_cycle() helper function (recommended approach)
-                logger.info(f"📷 Camera {camera_id} starting autofocus cycle...")
-                
-                # Use proper async autofocus approach from Picamera2 documentation
-                success = False
-                
-                try:
-                    # Method 1: Try async autofocus_cycle (wait=False) as per documentation
-                    if hasattr(picamera2, 'autofocus_cycle') and hasattr(picamera2, 'wait'):
-                        logger.debug(f"📷 Camera {camera_id} using async autofocus_cycle(wait=False)...")
+                # ===== AUTOFOCUS ONCE MODE =====
+                elif mode == 'af':
+                    logger.info(f"📷 Camera {camera_id} triggering AUTOFOCUS ONCE...")
+                    
+                    # Set AfMode to Auto and AfRange
+                    focus_config = self.config.get('focus', {}).get('autofocus', {})
+                    af_range = focus_config.get('af_range', 'macro')
+                    
+                    # Map string to enum
+                    range_map = {
+                        'macro': controls.AfRangeEnum.Macro,
+                        'normal': controls.AfRangeEnum.Normal,
+                        'full': controls.AfRangeEnum.Full
+                    }
+                    af_range_enum = range_map.get(af_range.lower(), controls.AfRangeEnum.Macro)
+                    
+                    # Set autofocus mode
+                    picamera2.set_controls({
+                        "AfMode": controls.AfModeEnum.Auto,
+                        "AfRange": af_range_enum
+                    })
+                    
+                    # Trigger autofocus cycle
+                    if hasattr(picamera2, 'autofocus_cycle'):
+                        timeout = focus_config.get('timeout_seconds', 4.0)
                         
-                        # Start autofocus cycle asynchronously (as shown in docs)
-                        job = picamera2.autofocus_cycle(wait=False)
-                        logger.debug(f"📷 Camera {camera_id} autofocus job started, waiting for completion...")
-                        
-                        # Wait for completion with timeout
-                        def wait_for_job():
-                            return picamera2.wait(job)
-                        
-                        # Run in thread to avoid blocking
-                        wait_task = asyncio.create_task(asyncio.to_thread(wait_for_job))
-                        result = await asyncio.wait_for(wait_task, timeout=4.0)
-                        
-                        if result:
-                            logger.info(f"✅ Camera {camera_id} async autofocus completed successfully")
-                            success = True
-                        else:
-                            logger.warning(f"⚠️ Camera {camera_id} async autofocus completed but may not be optimal")
-                            success = True  # Still consider usable
-                            
-                    # Method 2: Try synchronous autofocus_cycle as fallback
-                    elif hasattr(picamera2, 'autofocus_cycle'):
-                        logger.debug(f"📷 Camera {camera_id} using synchronous autofocus_cycle()...")
-                        
-                        def run_sync_autofocus():
+                        def run_autofocus():
                             return picamera2.autofocus_cycle()
                         
-                        sync_task = asyncio.create_task(asyncio.to_thread(run_sync_autofocus))
-                        result = await asyncio.wait_for(sync_task, timeout=4.0)
+                        af_task = asyncio.create_task(asyncio.to_thread(run_autofocus))
+                        result = await asyncio.wait_for(af_task, timeout=timeout)
                         
                         if result:
-                            logger.info(f"✅ Camera {camera_id} sync autofocus completed successfully")
-                            success = True
+                            logger.info(f"✅ Camera {camera_id} autofocus completed successfully")
+                            return True
                         else:
-                            logger.warning(f"⚠️ Camera {camera_id} sync autofocus completed but may not be optimal")
-                            success = True
-                            
+                            logger.warning(f"⚠️ Camera {camera_id} autofocus completed but may not be optimal")
+                            return True  # Still usable
                     else:
-                        logger.info(f"📷 Camera {camera_id} autofocus_cycle method not available")
-                        
-                except Exception as cycle_error:
-                    logger.warning(f"📷 Camera {camera_id} autofocus_cycle failed: {cycle_error}")
+                        logger.warning(f"⚠️ Camera {camera_id} autofocus_cycle not available")
+                        return False
                 
-                # Method 3: Manual autofocus implementation if others failed
-                if not success:
-                    logger.info(f"📷 Camera {camera_id} using manual AF trigger implementation...")
+                # ===== CONTINUOUS AUTOFOCUS MODE =====
+                elif mode == 'ca':
+                    logger.warning(f"⚠️ Camera {camera_id} continuous autofocus NOT RECOMMENDED for scanning")
                     
-                    try:
-                        # Trigger autofocus manually and monitor state
-                        picamera2.set_controls({"AfTrigger": 0})
-                        logger.debug(f"📷 Camera {camera_id} manual AF trigger sent")
-                        
-                        # Monitor autofocus state for completion with shorter timeout
-                        max_wait = 4.0  # Match the overall timeout expectation
-                        start_time = time.time()
-                        last_state = None
-                        
-                        while (time.time() - start_time) < max_wait:
-                            try:
-                                metadata = picamera2.capture_metadata()
-                                af_state = metadata.get('AfState', 0)
-                                lens_pos = metadata.get('LensPosition', None)
-                                
-                                if af_state != last_state:
-                                    logger.debug(f"📷 Camera {camera_id} AF state: {af_state}, lens: {lens_pos}")
-                                    last_state = af_state
-                                
-                                # AfState: 0=Inactive, 1=PassiveScan, 2=PassiveFocused, 3=ActiveScan, 4=FocusedLocked, 5=NotFocusedLocked
-                                if af_state in [2, 4]:  # Successfully focused
-                                    logger.info(f"✅ Camera {camera_id} manual autofocus successful (state={af_state}, lens={lens_pos})")
-                                    success = True
-                                    break
-                                elif af_state == 5:  # Focus failed but still locked
-                                    logger.warning(f"⚠️ Camera {camera_id} focus locked but may not be optimal (state={af_state}, lens={lens_pos})")
-                                    success = True  # Still usable
-                                    break
-                                    
-                            except Exception as meta_error:
-                                logger.debug(f"📷 Camera {camera_id} metadata read error: {meta_error}")
-                                
-                            await asyncio.sleep(0.05)  # Faster polling
-                        
-                        if not success:
-                            logger.warning(f"⏱️ Camera {camera_id} manual autofocus timed out after {max_wait}s")
-                            
-                    except Exception as manual_error:
-                        logger.warning(f"📷 Camera {camera_id} manual autofocus failed: {manual_error}")
+                    focus_config = self.config.get('focus', {}).get('autofocus', {})
+                    af_range = focus_config.get('af_range', 'macro')
+                    
+                    range_map = {
+                        'macro': controls.AfRangeEnum.Macro,
+                        'normal': controls.AfRangeEnum.Normal,
+                        'full': controls.AfRangeEnum.Full
+                    }
+                    af_range_enum = range_map.get(af_range.lower(), controls.AfRangeEnum.Macro)
+                    
+                    # Set continuous autofocus
+                    picamera2.set_controls({
+                        "AfMode": controls.AfModeEnum.Continuous,
+                        "AfRange": af_range_enum
+                    })
+                    logger.info(f"⚠️ Camera {camera_id} continuous autofocus enabled (may affect timing)")
+                    await asyncio.sleep(0.5)  # Allow AF to stabilize
+                    return True
                 
-                # Report final status
-                if success:
-                    logger.info(f"✅ Camera {camera_id} autofocus completed successfully")
                 else:
-                    logger.warning(f"⚠️ Camera {camera_id} autofocus had issues but continuing")
+                    logger.error(f"❌ Unknown focus mode: {mode}")
+                    return False
                 
-                return True  # Always continue scanning
-                
+            except ImportError:
+                logger.warning(f"⚠️ Camera {camera_id} libcamera controls not available - skipping focus control")
+                return True
             except Exception as focus_error:
-                logger.warning(f"📷 Camera {camera_id} autofocus process failed: {focus_error}")
-                logger.info(f"📷 Camera {camera_id} continuing with current focus setting")
-                return True  # Don't block scan for autofocus issues
-            
+                logger.error(f"❌ Camera {camera_id} focus setting failed: {focus_error}")
+                return False
+                
         except Exception as e:
-            logger.error(f"❌ Auto-focus error for {camera_id}: {e}")
-            logger.info(f"🔄 Continuing scan without autofocus for {camera_id}")
-            return True  # Never fail the scan for autofocus issues
+            logger.error(f"❌ Camera {camera_id} focus control failed: {e}")
+            return False
 
     async def auto_exposure(self, camera_id: str) -> bool:
         """Trigger auto-exposure on camera"""

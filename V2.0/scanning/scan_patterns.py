@@ -26,14 +26,49 @@ class PatternType(Enum):
     ADAPTIVE = "adaptive"
     CUSTOM = "custom"
 
+class FocusMode(Enum):
+    """Focus control modes for scan points"""
+    MANUAL = "manual"           # Fixed lens position(s)
+    AUTOFOCUS_ONCE = "af"      # Trigger autofocus once, then leave
+    CONTINUOUS_AF = "ca"       # Continuous autofocus (not recommended)
+    DEFAULT = "default"        # Use global config default
+
 @dataclass
 class ScanPoint:
-    """Single point in a scan pattern"""
+    """
+    Single point in a scan pattern with comprehensive camera control
+    
+    Focus Control Options:
+    ----------------------
+    1. Single manual focus: focus_values = 8.0
+    2. Multiple manual focus (focus stacking): focus_values = [6.0, 8.0, 10.0]
+    3. Autofocus once: focus_mode = FocusMode.AUTOFOCUS_ONCE
+    4. Continuous autofocus: focus_mode = FocusMode.CONTINUOUS_AF
+    5. Use global default: focus_mode = FocusMode.DEFAULT (or leave None)
+    
+    Examples:
+    ---------
+    # Single manual focus at lens position 8.0
+    point = ScanPoint(position=Position4D(...), focus_values=8.0)
+    
+    # Focus stacking with 3 lens positions (captures 3 images)
+    point = ScanPoint(position=Position4D(...), focus_values=[6.0, 8.0, 10.0])
+    
+    # Trigger autofocus once before capture
+    point = ScanPoint(position=Position4D(...), focus_mode=FocusMode.AUTOFOCUS_ONCE)
+    
+    # Use global config default
+    point = ScanPoint(position=Position4D(...))  # focus_mode=None uses global setting
+    """
     position: Position4D
     camera_settings: Optional[CameraSettings] = None
     lighting_settings: Optional[Dict[str, Any]] = None
-    capture_count: int = 1  # Number of images at this position
+    capture_count: int = 1  # Number of images at this position (overridden by focus_values if list)
     dwell_time: float = 0.5  # Time to wait before capture (seconds)
+    
+    # NEW: Focus control parameters
+    focus_mode: Optional[FocusMode] = None  # Focus mode (None = use global default)
+    focus_values: Optional[float | List[float]] = None  # Lens position(s) for manual focus
     
     def __post_init__(self):
         """Validate scan point parameters"""
@@ -41,6 +76,46 @@ class ScanPoint:
             raise ValueError("Capture count must be at least 1")
         if self.dwell_time < 0:
             raise ValueError("Dwell time cannot be negative")
+        
+        # Validate focus parameters
+        if self.focus_values is not None:
+            if isinstance(self.focus_values, list):
+                if len(self.focus_values) == 0:
+                    raise ValueError("focus_values list cannot be empty")
+                for val in self.focus_values:
+                    if not isinstance(val, (int, float)):
+                        raise ValueError(f"focus_values must be numeric, got {type(val)}")
+                    if val < 0.0 or val > 15.0:
+                        raise ValueError(f"focus_value {val} out of range [0.0, 15.0]")
+                # Update capture_count to match focus stack length
+                self.capture_count = len(self.focus_values)
+            elif isinstance(self.focus_values, (int, float)):
+                if self.focus_values < 0.0 or self.focus_values > 15.0:
+                    raise ValueError(f"focus_value {self.focus_values} out of range [0.0, 15.0]")
+            else:
+                raise ValueError(f"focus_values must be float or List[float], got {type(self.focus_values)}")
+    
+    def get_focus_positions(self) -> List[float]:
+        """
+        Get list of lens positions to use for this point
+        
+        Returns:
+            List of lens positions (empty list if using autofocus or default)
+        """
+        if self.focus_values is None:
+            return []
+        elif isinstance(self.focus_values, list):
+            return self.focus_values
+        else:
+            return [self.focus_values]
+    
+    def is_focus_stacking(self) -> bool:
+        """Check if this point uses focus stacking (multiple lens positions)"""
+        return isinstance(self.focus_values, list) and len(self.focus_values) > 1
+    
+    def requires_autofocus(self) -> bool:
+        """Check if this point requires autofocus"""
+        return self.focus_mode in (FocusMode.AUTOFOCUS_ONCE, FocusMode.CONTINUOUS_AF)
 
 @dataclass  
 class PatternParameters:

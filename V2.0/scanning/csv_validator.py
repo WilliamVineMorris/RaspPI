@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Tuple
 
 from core.types import Position4D
-from scanning.scan_patterns import ScanPoint
+from scanning.scan_patterns import ScanPoint, FocusMode
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,8 @@ class ScanPointValidator:
             
             # Validate header
             required_columns = ['index', 'x', 'y', 'z', 'c']
+            optional_columns = ['FocusMode', 'FocusValues']  # Focus control columns
+            
             if not reader.fieldnames or not all(col in reader.fieldnames for col in required_columns):
                 errors.append(ValidationError(
                     row=0,
@@ -104,12 +106,16 @@ class ScanPointValidator:
             expected_index = 0
             for row_num, row in enumerate(reader, start=1):
                 try:
-                    # Parse values
+                    # Parse position values
                     index = int(row['index'])
                     x = float(row['x'])
                     y = float(row['y'])
                     z = float(row['z'])
                     c = float(row['c'])
+                    
+                    # Parse optional focus parameters
+                    focus_mode = row.get('FocusMode', '').strip()
+                    focus_values = row.get('FocusValues', '').strip()
                     
                     # Validate index sequence
                     if index != expected_index:
@@ -126,15 +132,29 @@ class ScanPointValidator:
                     errors.extend(point_errors)
                     warnings.extend(point_warnings)
                     
+                    # Validate focus parameters
+                    focus_errors, focus_warnings = self._validate_focus_params(
+                        row_num, focus_mode, focus_values
+                    )
+                    errors.extend(focus_errors)
+                    warnings.extend(focus_warnings)
+                    
                     # If no errors for this point, add to valid list
-                    if not point_errors:
-                        valid_points.append({
+                    if not point_errors and not focus_errors:
+                        point_data = {
                             'index': index,
                             'x': x,
                             'y': y,
                             'z': z,
                             'c': c
-                        })
+                        }
+                        # Add focus parameters if present
+                        if focus_mode:
+                            point_data['focus_mode'] = focus_mode
+                        if focus_values:
+                            point_data['focus_values'] = focus_values
+                        
+                        valid_points.append(point_data)
                     
                     expected_index += 1
                     
@@ -254,6 +274,97 @@ class ScanPointValidator:
         
         return errors, warnings
     
+    def _validate_focus_params(
+        self, 
+        row_num: int, 
+        focus_mode: str, 
+        focus_values: str
+    ) -> Tuple[List[ValidationError], List[ValidationError]]:
+        """
+        Validate focus mode and focus values parameters.
+        
+        Args:
+            row_num: Row number for error reporting
+            focus_mode: Focus mode string (empty, 'manual', 'af', 'ca', 'default')
+            focus_values: Focus values string (empty, single float, or semicolon-separated floats)
+            
+        Returns:
+            Tuple of (errors, warnings)
+        """
+        errors = []
+        warnings = []
+        
+        # If both are empty, that's fine (use global default)
+        if not focus_mode and not focus_values:
+            return errors, warnings
+        
+        # Validate focus mode
+        if focus_mode:
+            valid_modes = ['manual', 'af', 'ca', 'default', '']
+            if focus_mode.lower() not in valid_modes:
+                errors.append(ValidationError(
+                    row=row_num,
+                    column='FocusMode',
+                    value=focus_mode,
+                    message=f"Invalid focus mode '{focus_mode}'. Must be one of: {', '.join(valid_modes[:-1])}"
+                ))
+                return errors, warnings  # Don't validate values if mode is invalid
+        
+        # Validate focus values
+        if focus_values:
+            try:
+                # Check for multiple values (focus stacking)
+                if ';' in focus_values:
+                    # Parse semicolon-separated values
+                    values = [float(v.strip()) for v in focus_values.split(';')]
+                    
+                    # Validate each lens position
+                    for i, val in enumerate(values):
+                        if val < 0.0 or val > 15.0:
+                            errors.append(ValidationError(
+                                row=row_num,
+                                column='FocusValues',
+                                value=val,
+                                message=f"Focus value {val} at position {i} exceeds range [0.0, 15.0]"
+                            ))
+                    
+                    # Warn if many focus positions (slow)
+                    if len(values) > 5:
+                        warnings.append(ValidationError(
+                            row=row_num,
+                            column='FocusValues',
+                            value=len(values),
+                            message=f"{len(values)} focus positions will significantly increase scan time"
+                        ))
+                else:
+                    # Single value
+                    val = float(focus_values)
+                    if val < 0.0 or val > 15.0:
+                        errors.append(ValidationError(
+                            row=row_num,
+                            column='FocusValues',
+                            value=val,
+                            message=f"Focus value {val} exceeds range [0.0, 15.0]"
+                        ))
+            except ValueError as e:
+                errors.append(ValidationError(
+                    row=row_num,
+                    column='FocusValues',
+                    value=focus_values,
+                    message=f"Invalid focus values format: {e}"
+                ))
+        
+        # Check for incompatible combinations
+        if focus_mode and focus_mode.lower() in ['af', 'ca'] and focus_values:
+            warnings.append(ValidationError(
+                row=row_num,
+                column='FocusValues',
+                value=focus_values,
+                message=f"Focus values ignored when using autofocus mode '{focus_mode}'"
+            ))
+        
+        return errors, warnings
+    
     def points_to_csv(self, points: List[ScanPoint]) -> str:
         """
         Convert ScanPoint objects to CSV string
@@ -262,13 +373,13 @@ class ScanPointValidator:
             points: List of ScanPoint objects
             
         Returns:
-            CSV formatted string
+            CSV formatted string with focus columns
         """
         output = io.StringIO()
         writer = csv.writer(output)
         
-        # Write header
-        writer.writerow(['index', 'x', 'y', 'z', 'c'])
+        # Write header with focus columns
+        writer.writerow(['index', 'x', 'y', 'z', 'c', 'FocusMode', 'FocusValues'])
         
         # Write data
         for i, point in enumerate(points):
@@ -279,12 +390,36 @@ class ScanPointValidator:
                 z = point.position.z if point.position.z is not None else 0.0
                 c = point.position.c if point.position.c is not None else 0.0
                 
+                # Convert focus_mode to CSV string
+                focus_mode_str = ''
+                if point.focus_mode:
+                    if point.focus_mode == FocusMode.MANUAL:
+                        focus_mode_str = 'manual'
+                    elif point.focus_mode == FocusMode.AUTOFOCUS_ONCE:
+                        focus_mode_str = 'af'
+                    elif point.focus_mode == FocusMode.CONTINUOUS_AF:
+                        focus_mode_str = 'ca'
+                    elif point.focus_mode == FocusMode.DEFAULT:
+                        focus_mode_str = 'default'
+                
+                # Convert focus_values to CSV string
+                focus_values_str = ''
+                if point.focus_values is not None:
+                    if isinstance(point.focus_values, list):
+                        # Multiple values: join with semicolons
+                        focus_values_str = ';'.join(f"{v:.1f}" for v in point.focus_values)
+                    else:
+                        # Single value
+                        focus_values_str = f"{point.focus_values:.1f}"
+                
                 writer.writerow([
                     i,
                     f"{x:.3f}",
                     f"{y:.3f}",
                     f"{z:.3f}",
-                    f"{c:.3f}"
+                    f"{c:.3f}",
+                    focus_mode_str,
+                    focus_values_str
                 ])
             except (AttributeError, TypeError) as e:
                 logger.error(f"Error converting point {i} to CSV: {e}")
@@ -294,10 +429,10 @@ class ScanPointValidator:
         csv_content = output.getvalue()
         output.close()
         
-        logger.info(f"Converted {len(points)} ScanPoints to CSV")
+        logger.info(f"Converted {len(points)} ScanPoints to CSV with focus columns")
         return csv_content
     
-    def csv_to_scan_points(self, valid_points: List[Dict[str, float]]) -> List[ScanPoint]:
+    def csv_to_scan_points(self, valid_points: List[Dict[str, Any]]) -> List[ScanPoint]:
         """
         Convert validated point dictionaries to ScanPoint objects
         
@@ -317,15 +452,46 @@ class ScanPointValidator:
                 c=point_dict['c']
             )
             
+            # Parse focus mode
+            focus_mode = None
+            focus_mode_str = point_dict.get('focus_mode', '').strip().lower()
+            if focus_mode_str:
+                if focus_mode_str == 'manual':
+                    focus_mode = FocusMode.MANUAL
+                elif focus_mode_str == 'af':
+                    focus_mode = FocusMode.AUTOFOCUS_ONCE
+                elif focus_mode_str == 'ca':
+                    focus_mode = FocusMode.CONTINUOUS_AF
+                elif focus_mode_str == 'default':
+                    focus_mode = FocusMode.DEFAULT
+            
+            # Parse focus values
+            focus_values = None
+            focus_values_str = point_dict.get('focus_values', '').strip()
+            if focus_values_str:
+                if ';' in focus_values_str:
+                    # Multiple values (focus stacking)
+                    focus_values = [float(v.strip()) for v in focus_values_str.split(';')]
+                else:
+                    # Single value
+                    focus_values = float(focus_values_str)
+            
+            # Adjust capture_count for focus stacking
+            capture_count = 1
+            if isinstance(focus_values, list):
+                capture_count = len(focus_values)
+            
             scan_point = ScanPoint(
                 position=position,
                 camera_settings=None,  # Use default camera settings
                 lighting_settings=None,  # Use default lighting settings
-                capture_count=1,
+                focus_mode=focus_mode,
+                focus_values=focus_values,
+                capture_count=capture_count,
                 dwell_time=0.5
             )
             
             scan_points.append(scan_point)
         
-        logger.info(f"Converted {len(scan_points)} CSV points to ScanPoints")
+        logger.info(f"Converted {len(scan_points)} CSV points to ScanPoints with focus parameters")
         return scan_points
