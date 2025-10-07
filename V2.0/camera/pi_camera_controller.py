@@ -1456,6 +1456,22 @@ class PiCameraController(CameraController):
             
             # Step 4: Capture final calibration metadata with timeout protection
             logger.info(f"📷 Camera {camera_id} capturing final calibration values...")
+            
+            # CRITICAL: Third and final focus reapplication before metadata capture
+            # This prevents the capture_metadata() call from resetting manual focus
+            if skip_autofocus:
+                cam_id = int(camera_id.replace('camera', ''))
+                cam_id_str = f"camera{cam_id}"
+                if hasattr(self, '_stored_focus_values') and cam_id_str in self._stored_focus_values:
+                    stored_focus = self._stored_focus_values[cam_id_str]
+                    lens_position_manual = int((1.0 - stored_focus) * 1023)
+                    picamera2.set_controls({
+                        "AfMode": 0,
+                        "LensPosition": lens_position_manual
+                    })
+                    logger.info(f"🔄 Camera {camera_id} REAPPLIED manual focus {stored_focus:.3f} (lens {lens_position_manual}) BEFORE final metadata")
+                    await asyncio.sleep(0.2)
+            
             try:
                 final_metadata = picamera2.capture_metadata()
             except Exception as metadata_error:
