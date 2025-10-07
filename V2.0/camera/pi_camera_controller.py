@@ -1255,23 +1255,25 @@ class PiCameraController(CameraController):
                 else:
                     logger.info(f"📷 Camera {camera_id} using default full-frame metering (focus_zone disabled)")
                 
-                # Set all controls
-                picamera2.set_controls(control_dict)
-                
-                # CRITICAL: If skip_autofocus=True (manual focus mode), reapply manual focus
-                # because set_controls() may have reset it
+                # CRITICAL: If skip_autofocus=True (manual focus mode), add manual focus controls
+                # to control_dict BEFORE calling set_controls() to prevent AeEnable from overriding focus
                 if skip_autofocus:
                     cam_id = int(camera_id.replace('camera', ''))
                     cam_id_str = f"camera{cam_id}"
                     if hasattr(self, '_stored_focus_values') and cam_id_str in self._stored_focus_values:
                         stored_focus = self._stored_focus_values[cam_id_str]
                         lens_position_manual = int((1.0 - stored_focus) * 1023)
-                        picamera2.set_controls({
-                            "AfMode": 0,  # Manual focus
-                            "LensPosition": lens_position_manual
-                        })
-                        logger.info(f"🔄 Camera {camera_id} REAPPLIED manual focus {stored_focus:.3f} (lens {lens_position_manual}) after exposure controls")
-                        await asyncio.sleep(0.2)  # Give camera time to adjust focus
+                        # Add manual focus to the same control_dict to set atomically with AeEnable
+                        control_dict["AfMode"] = 0  # Manual focus mode
+                        control_dict["LensPosition"] = lens_position_manual
+                        logger.info(f"� Camera {camera_id} adding manual focus to control_dict: AfMode=0, LensPosition={lens_position_manual} (focus {stored_focus:.3f})")
+                
+                # Set all controls atomically (exposure + focus together)
+                picamera2.set_controls(control_dict)
+                logger.info(f"📷 Camera {camera_id} applied controls: {list(control_dict.keys())}")
+                
+                # Give camera time to apply all settings
+                await asyncio.sleep(0.3)
                 
                 # Allow time for auto-exposure to settle
                 await asyncio.sleep(1.0)
@@ -1470,7 +1472,23 @@ class PiCameraController(CameraController):
                         "LensPosition": lens_position_manual
                     })
                     logger.info(f"🔄 Camera {camera_id} REAPPLIED manual focus {stored_focus:.3f} (lens {lens_position_manual}) BEFORE final metadata")
-                    await asyncio.sleep(0.2)
+                    
+                    # CRITICAL: Wait longer for lens to physically move and verify it moved
+                    # ArduCam lens motor needs time to travel from position 15 → 511
+                    await asyncio.sleep(0.5)  # Increased from 0.2s to 0.5s
+                    
+                    # Verify the lens actually moved by checking current position
+                    verification_metadata = picamera2.capture_metadata()
+                    actual_lens_pos = verification_metadata.get('LensPosition', None)
+                    if actual_lens_pos is not None:
+                        logger.info(f"🔍 Camera {camera_id} lens position verification: expected {lens_position_manual}, actual {actual_lens_pos}")
+                        if abs(actual_lens_pos - lens_position_manual) > 50:  # Tolerance of 50 units
+                            logger.warning(f"⚠️ Camera {camera_id} lens position mismatch! Reapplying again...")
+                            picamera2.set_controls({
+                                "AfMode": 0,
+                                "LensPosition": lens_position_manual
+                            })
+                            await asyncio.sleep(0.5)
             
             try:
                 final_metadata = picamera2.capture_metadata()
