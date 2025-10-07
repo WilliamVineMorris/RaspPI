@@ -2,7 +2,8 @@
 # Compatible with Python 3.10+
 
 # Core dependencies
-numpy>=1.21.0
+# NumPy - constrained to <2.0 for picamera2/simplejpeg binary compatibility
+numpy>=1.21.0,<2.0.0
 pyserial>=3.5
 pyserial-asyncio>=0.6
 pyyaml>=6.0

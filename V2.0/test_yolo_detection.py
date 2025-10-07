@@ -151,7 +151,7 @@ async def test_with_camera():
         
         print("\n[1/3] Loading configuration...")
         config = ConfigManager('config/scanner_config.yaml')
-        camera_config = config.get_section('cameras')
+        camera_config = config.get('cameras', {})
         
         print("[2/3] Initializing camera controller...")
         controller = PiCameraController(camera_config)
