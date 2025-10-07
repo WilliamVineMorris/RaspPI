@@ -292,26 +292,35 @@
     </section>
 
     <!-- Column 3: Reserved Space (Wider) -->
-    <section class="reserved-panel" style="grid-row: 1 / 2; grid-column: 3 / 4; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #f1f5f9 100%); border: 2px solid #cbd5e1; display: flex; flex-direction: column; min-height: 500px; height: 100%; position: relative; overflow: hidden; border-radius: 8px; padding: 0.75rem;">
+    <section class="reserved-panel" style="grid-row: 1 / 2; grid-column: 3 / 4; background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); display: flex; flex-direction: column; min-height: 500px; height: 100%; position: relative; overflow: hidden; border-radius: 12px; padding: 1rem;">
         <!-- Header -->
-        <div style="margin-bottom: 0.5rem; padding-bottom: 0.5rem; border-bottom: 2px solid #cbd5e1;">
-            <h2 style="font-size: 1rem; margin: 0; color: #475569; font-weight: 700;">📊 Real-Time Position Monitor</h2>
-            <p id="viz-mode-indicator" style="font-size: 0.75rem; margin: 0.25rem 0 0 0; color: #64748b;">Idle Mode</p>
+        <div style="margin-bottom: 0.75rem; padding-bottom: 0.75rem; border-bottom: 2px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+                <h2 style="font-size: 1.1rem; margin: 0; color: #1e293b; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 1.3rem;">📊</span>
+                    Real-Time Position Monitor
+                </h2>
+                <p id="viz-mode-indicator" style="font-size: 0.8rem; margin: 0.35rem 0 0 0; color: #64748b; font-weight: 500;">📍 Idle - Live Position</p>
+            </div>
+            <div style="font-size: 0.7rem; color: #94a3b8; text-align: right;">
+                <div>🖱️ Drag to rotate</div>
+                <div>🔍 Scroll to zoom</div>
+            </div>
         </div>
         
         <!-- 3D Visualization Canvas -->
-        <div id="dashboard-3d-plot" style="flex: 1; width: 100%; height: 100%; min-height: 400px; background: white; border-radius: 4px; border: 1px solid #e2e8f0;"></div>
+        <div id="dashboard-3d-plot" style="flex: 1; width: 100%; height: 100%; min-height: 400px; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);"></div>
         
         <!-- Info Panel -->
-        <div id="viz-info-panel" style="margin-top: 0.5rem; padding: 0.5rem; background: rgba(255, 255, 255, 0.9); border-radius: 4px; font-size: 0.75rem; color: #64748b; flex-shrink: 0;">
-            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem;">
-                <div>
-                    <strong>Current Position:</strong>
-                    <span id="viz-current-pos">--</span>
+        <div id="viz-info-panel" style="margin-top: 0.75rem; padding: 0.75rem; background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%); border-radius: 8px; font-size: 0.8rem; color: #475569; flex-shrink: 0; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem;">
+                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                    <strong style="color: #1e293b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">📍 Current Position</strong>
+                    <span id="viz-current-pos" style="font-family: 'Courier New', monospace; color: #3b82f6; font-size: 0.85rem; font-weight: 600;">--</span>
                 </div>
-                <div>
-                    <strong>Scan Progress:</strong>
-                    <span id="viz-scan-progress">--</span>
+                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                    <strong style="color: #1e293b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">📈 Scan Progress</strong>
+                    <span id="viz-scan-progress" style="font-family: 'Courier New', monospace; color: #10b981; font-size: 0.85rem; font-weight: 600;">--</span>
                 </div>
             </div>
         </div>
@@ -1501,40 +1510,54 @@
             const layout = {
                 scene: {
                     xaxis: { 
-                        title: 'X (mm)', 
+                        title: { text: 'X (mm)', font: { size: 12, color: '#475569' } },
                         showgrid: true, 
                         zeroline: true,
-                        range: [-250, 250]  // Fixed range to prevent zooming effect
+                        gridcolor: '#cbd5e1',
+                        gridwidth: 1,
+                        range: [-250, 250],
+                        backgroundcolor: 'rgba(248, 250, 252, 0.5)'
                     },
                     yaxis: { 
-                        title: 'Y (mm)', 
+                        title: { text: 'Y (mm)', font: { size: 12, color: '#475569' } },
                         showgrid: true, 
                         zeroline: true,
-                        range: [-250, 250]  // Fixed range to prevent zooming effect
+                        gridcolor: '#cbd5e1',
+                        gridwidth: 1,
+                        range: [-250, 250],
+                        backgroundcolor: 'rgba(248, 250, 252, 0.5)'
                     },
                     zaxis: { 
-                        title: 'Height (mm)', 
+                        title: { text: 'Height (mm)', font: { size: 12, color: '#475569' } },
                         showgrid: true, 
                         zeroline: true,
-                        range: [0, 250]  // Fixed range for height axis
+                        gridcolor: '#cbd5e1',
+                        gridwidth: 1,
+                        range: [0, 250],
+                        backgroundcolor: 'rgba(248, 250, 252, 0.5)'
                     },
                     camera: {
-                        eye: { x: 1.5, y: -1.5, z: 1.0 },
+                        eye: { x: 1.5, y: -1.5, z: 1.0 },  // Initial view angle
                         up: { x: 0, y: 0, z: 1 }
+                        // Camera is now freely rotatable - no lock!
                     },
-                    aspectmode: 'manual',  // Changed from 'data' to 'manual' for fixed aspect
-                    aspectratio: { x: 1, y: 1, z: 0.5 }  // Adjusted Z ratio for better view
+                    aspectmode: 'manual',
+                    aspectratio: { x: 1, y: 1, z: 0.5 },
+                    bgcolor: 'rgba(248, 250, 252, 0.3)'
                 },
-                margin: { l: 0, r: 0, b: 0, t: 0 },
+                margin: { l: 10, r: 10, b: 10, t: 10 },
                 showlegend: false,
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
-                autosize: true  // Ensure responsive sizing
+                autosize: true
             };
             
             const config = {
                 responsive: true,
-                displayModeBar: false
+                displayModeBar: true,  // Show mode bar for better UX
+                modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'],  // Remove unnecessary buttons
+                displaylogo: false,
+                scrollZoom: true  // Enable scroll to zoom
             };
             
             Plotly.newPlot(plotDiv, traces, layout, config).then(() => {
