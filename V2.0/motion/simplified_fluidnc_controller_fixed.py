@@ -1310,11 +1310,13 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         try:
             # Update current position from status
             if status.position:
+                # CRITICAL FIX: Use 'c' key, not 'a'! FluidNC reports C at last position (index [5])
+                # The parser correctly extracts it as 'c', so we must use 'c' here too
                 self.current_position = Position4D(
                     x=status.position.get('x', 0.0),
                     y=status.position.get('y', 0.0),
                     z=status.position.get('z', 0.0),
-                    c=status.position.get('a', 0.0)  # FluidNC uses 'a' for 4th axis
+                    c=status.position.get('c', 0.0)  # Use 'c' not 'a'!
                 )
             
             # Update motion status

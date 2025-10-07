@@ -2372,8 +2372,8 @@ class ScannerWebInterface:
                     # Get position timestamp for debugging lag
                     current_time = datetime.now().isoformat()
                     
-                    # Always use cached position from background monitor - NEVER call async from sync
-                    # This prevents event loop conflicts that cause delays
+                    # Use cached position from motion controller
+                    # The position is updated by _on_status_update() callback from FluidNC
                     position = motion_controller.current_position
                     
                     # DEBUG: Log the C-axis value being sent to web UI
