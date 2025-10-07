@@ -1899,7 +1899,13 @@ class CameraManagerAdapter:
                     
                     # Manual focus control
                     if 'focus_position' in controls_dict:
-                        picam_controls['LensPosition'] = float(controls_dict['focus_position'])
+                        # Convert dashboard focus position (6-10mm range) to normalized (0-1) then to lens position (0-1023)
+                        focus_mm = float(controls_dict['focus_position'])
+                        focus_normalized = (focus_mm - 6.0) / 4.0  # Convert 6-10mm to 0-1
+                        focus_normalized = max(0.0, min(1.0, focus_normalized))  # Clamp
+                        lens_position = int(focus_normalized * 1023)  # Convert to lens position (NOT inverted for ArduCam IMX519)
+                        picam_controls['LensPosition'] = lens_position
+                        self.logger.info(f"CAMERA: Converted dashboard focus {focus_mm}mm → normalized {focus_normalized:.3f} → lens {lens_position}")
                     
                     # Exposure controls
                     if 'exposure_time' in controls_dict:
@@ -4315,8 +4321,8 @@ class ScanOrchestrator:
                     if 'LensPosition' in capture_metadata:
                         actual_lens_pos = capture_metadata['LensPosition']
                         # Convert lens position (0-1023) to normalized focus (0-1)
-                        # Lens is inverted: 1023=near, 0=far → Focus: 0=near, 1=far
-                        focus_normalized = 1.0 - (actual_lens_pos / 1023.0)
+                        # ArduCam IMX519: 0=far, 1023=near (NOT inverted)
+                        focus_normalized = actual_lens_pos / 1023.0
                         # Convert to ArduCam range (6-10mm)
                         focus_mm = 6.0 + (focus_normalized * 4.0)
                         self.logger.info(f"🔍 ACTUAL LENS POSITION: {actual_lens_pos} → Focus: {focus_normalized:.3f} ({focus_mm:.1f}mm)")

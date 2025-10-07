@@ -789,9 +789,9 @@ class PiCameraController(CameraController):
             
             if lens_position is not None:
                 # Convert lens position to 0.0-1.0 range
-                # Typical lens position range is 0-1023, where 0 is infinity and higher values are closer
-                # We'll normalize and invert so 0.0 = near (high lens position) and 1.0 = infinity (low lens position)
-                normalized = 1.0 - (lens_position / 1023.0)
+                # ArduCam IMX519: lens 0 = far, lens 1023 = near
+                # Direct mapping (NOT inverted): 0.0 = far, 1.0 = near
+                normalized = lens_position / 1023.0
                 return max(0.0, min(1.0, normalized))
             
             return None
@@ -815,8 +815,9 @@ class PiCameraController(CameraController):
             focus_value = max(0.0, min(1.0, focus_value))
             
             # Convert 0.0-1.0 range to lens position
-            # 0.0 = near (high lens position), 1.0 = infinity (low lens position)
-            lens_position = int((1.0 - focus_value) * 1023)
+            # ArduCam IMX519: 0.0 = far (low lens position ~0), 1.0 = near (high lens position ~1023)
+            # NOTE: NOT inverted - direct mapping
+            lens_position = int(focus_value * 1023)
             
             picamera2 = self.cameras[cam_id]
             picamera2.set_controls({
@@ -870,8 +871,8 @@ class PiCameraController(CameraController):
                 # Clamp focus value to valid range
                 focus_value = max(0.0, min(1.0, focus_value))
                 
-                # Convert to lens position
-                lens_position = int((1.0 - focus_value) * 1023)
+                # Convert to lens position (NOT inverted for ArduCam IMX519)
+                lens_position = int(focus_value * 1023)
                 
                 picamera2 = self.cameras[cam_id]
                 picamera2.set_controls({
@@ -1262,7 +1263,7 @@ class PiCameraController(CameraController):
                     cam_id_str = f"camera{cam_id}"
                     if hasattr(self, '_stored_focus_values') and cam_id_str in self._stored_focus_values:
                         stored_focus = self._stored_focus_values[cam_id_str]
-                        lens_position_manual = int((1.0 - stored_focus) * 1023)
+                        lens_position_manual = int(stored_focus * 1023)  # NOT inverted for ArduCam IMX519
                         # Add manual focus to the same control_dict to set atomically with AeEnable
                         control_dict["AfMode"] = 0  # Manual focus mode
                         control_dict["LensPosition"] = lens_position_manual
@@ -1319,7 +1320,7 @@ class PiCameraController(CameraController):
                 cam_id_str = f"camera{cam_id}"
                 if hasattr(self, '_stored_focus_values') and cam_id_str in self._stored_focus_values:
                     stored_focus = self._stored_focus_values[cam_id_str]
-                    lens_position_manual = int((1.0 - stored_focus) * 1023)
+                    lens_position_manual = int(stored_focus * 1023)  # NOT inverted for ArduCam IMX519
                     picamera2.set_controls({
                         "AfMode": 0,  # Manual focus
                         "LensPosition": lens_position_manual
@@ -1466,7 +1467,7 @@ class PiCameraController(CameraController):
                 cam_id_str = f"camera{cam_id}"
                 if hasattr(self, '_stored_focus_values') and cam_id_str in self._stored_focus_values:
                     stored_focus = self._stored_focus_values[cam_id_str]
-                    lens_position_manual = int((1.0 - stored_focus) * 1023)
+                    lens_position_manual = int(stored_focus * 1023)  # NOT inverted for ArduCam IMX519
                     picamera2.set_controls({
                         "AfMode": 0,
                         "LensPosition": lens_position_manual
@@ -1474,7 +1475,7 @@ class PiCameraController(CameraController):
                     logger.info(f"🔄 Camera {camera_id} REAPPLIED manual focus {stored_focus:.3f} (lens {lens_position_manual}) BEFORE final metadata")
                     
                     # CRITICAL: Wait longer for lens to physically move and verify it moved
-                    # ArduCam lens motor needs time to travel from position 15 → 511
+                    # ArduCam lens motor needs time to travel
                     await asyncio.sleep(0.5)  # Increased from 0.2s to 0.5s
                     
                     # Verify the lens actually moved by checking current position
@@ -1506,9 +1507,9 @@ class PiCameraController(CameraController):
                 lens_position_raw = final_metadata.get('LensPosition', None)
                 if lens_position_raw is not None:
                     # Convert lens position (0-1023) back to normalized focus value (0-1)
-                    # Lens position is inverted: 1023=near, 0=far
-                    # Normalized focus: 0=near, 1=far
-                    focus_value = 1.0 - (lens_position_raw / 1023.0)
+                    # ArduCam IMX519: 0=far, 1023=near (NOT inverted)
+                    # Direct mapping: normalized = lens / 1023
+                    focus_value = lens_position_raw / 1023.0
                     logger.info(f"📷 Camera {camera_id} read current manual focus from metadata: {focus_value:.3f} (lens position: {lens_position_raw})")
                 else:
                     # Fallback if lens position not available
