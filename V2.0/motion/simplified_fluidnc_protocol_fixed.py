@@ -587,7 +587,12 @@ class SimplifiedFluidNCProtocolFixed:
                 try:
                     if part.startswith('MPos:'):
                         # Machine position with safe float parsing
-                        coords = part[5:].split(',')
+                        coords_str = part[5:]  # Remove "MPos:"
+                        coords = coords_str.split(',')
+                        
+                        # DEBUG: Log raw position string from FluidNC
+                        logger.info(f"🔍 RAW FluidNC MPos: '{coords_str}' → {len(coords)} coordinates")
+                        
                         if len(coords) >= 4:
                             # Validate each coordinate before parsing
                             parsed_coords = []
@@ -608,7 +613,7 @@ class SimplifiedFluidNCProtocolFixed:
                                     break  # Stop if we hit invalid data
                             
                             if len(parsed_coords) >= 4:
-                                # CRITICAL FIX: Use last coordinate for C-axis (servo)
+                                # CRITICAL: C-axis is always the LAST coordinate
                                 # FluidNC may output 4 axes (X,Y,Z,C) or 6 axes (X,Y,Z,A,B,C)
                                 # The C-axis (servo) is always the LAST coordinate reported
                                 status.machine_position = {
@@ -618,7 +623,9 @@ class SimplifiedFluidNCProtocolFixed:
                                     'c': parsed_coords[-1]  # Use LAST coordinate for C-axis
                                 }
                                 
-                                logger.debug(f"🔍 FluidNC position ({len(parsed_coords)} axes): X={parsed_coords[0]:.3f}, Y={parsed_coords[1]:.3f}, Z={parsed_coords[2]:.3f}, C={parsed_coords[-1]:.3f}")
+                                # DEBUG: Log parsed values with all coordinates
+                                all_coords = ', '.join([f"{c:.3f}" for c in parsed_coords])
+                                logger.info(f"🔍 PARSED ({len(parsed_coords)} axes): [{all_coords}] → X={parsed_coords[0]:.3f}, Y={parsed_coords[1]:.3f}, Z={parsed_coords[2]:.3f}, C={parsed_coords[-1]:.3f}")
                                 
                                 # Use machine position as work position for now
                                 status.position = status.machine_position.copy()
