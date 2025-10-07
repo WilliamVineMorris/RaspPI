@@ -1311,6 +1311,20 @@ class PiCameraController(CameraController):
                 logger.error(f"❌ Camera {camera_id} AE settling failed: {settle_error}")
                 # Continue calibration with defaults
             
+            # CRITICAL: Reapply manual focus AGAIN after AE settling (it may have been reset during frame captures)
+            if skip_autofocus:
+                cam_id = int(camera_id.replace('camera', ''))
+                cam_id_str = f"camera{cam_id}"
+                if hasattr(self, '_stored_focus_values') and cam_id_str in self._stored_focus_values:
+                    stored_focus = self._stored_focus_values[cam_id_str]
+                    lens_position_manual = int((1.0 - stored_focus) * 1023)
+                    picamera2.set_controls({
+                        "AfMode": 0,  # Manual focus
+                        "LensPosition": lens_position_manual
+                    })
+                    logger.info(f"🔄 Camera {camera_id} REAPPLIED manual focus {stored_focus:.3f} (lens {lens_position_manual}) AFTER AE settling")
+                    await asyncio.sleep(0.2)  # Give camera time to apply focus
+            
             # Step 3: Perform autofocus (reuse existing method) with timeout check
             # SKIP if manual focus mode (skip_autofocus=True)
             if skip_autofocus:
