@@ -889,23 +889,25 @@ class ScannerWebInterface:
                     if hasattr(scan, 'status') and scan.status in [ScanStatus.RUNNING, ScanStatus.PAUSED]:
                         visualization_data['mode'] = 'scanning'
                         
-                        # Get all scan points
-                        if hasattr(scan, 'scan_points') and scan.scan_points:
-                            # Convert scan points to visualization format
-                            for point in scan.scan_points:
-                                if hasattr(point, 'position'):
-                                    # Get FluidNC coordinates
+                        # Get all scan points from pattern
+                        if hasattr(self.orchestrator, 'current_pattern') and self.orchestrator.current_pattern:
+                            try:
+                                scan_points = self.orchestrator.current_pattern.generate_points()
+                                
+                                # Convert scan points to visualization format
+                                for point in scan_points:
+                                    # Get FluidNC coordinates (points are Position4D objects)
                                     fluidnc_pos = {
-                                        'x': point.position.x,
-                                        'y': point.position.y,
-                                        'z': point.position.z,
-                                        'c': point.position.c
+                                        'x': point.x,
+                                        'y': point.y,
+                                        'z': point.z,
+                                        'c': point.c
                                     }
                                     
                                     # Convert to camera coordinates if transformer available
                                     if self.coord_transformer:
                                         try:
-                                            camera_pos = self.coord_transformer.fluidnc_to_camera(point.position)
+                                            camera_pos = self.coord_transformer.fluidnc_to_camera(point)
                                             visualization_data['scan_points'].append({
                                                 'fluidnc': fluidnc_pos,
                                                 'camera': {
@@ -938,6 +940,8 @@ class ScannerWebInterface:
                                                 'tilt': fluidnc_pos['c']
                                             }
                                         })
+                            except Exception as e:
+                                self.logger.warning(f"Failed to get scan points from pattern: {e}")
                         
                         # Get current progress
                         if hasattr(scan, 'progress'):
