@@ -788,11 +788,9 @@ class PiCameraController(CameraController):
             lens_position = metadata.get('LensPosition')
             
             if lens_position is not None:
-                # Convert lens position to 0.0-1.0 range
-                # Typical lens position range is 0-1023, where 0 is infinity and higher values are closer
-                # We'll normalize and invert so 0.0 = near (high lens position) and 1.0 = infinity (low lens position)
-                normalized = 1.0 - (lens_position / 1023.0)
-                return max(0.0, min(1.0, normalized))
+                # LensPosition is in diopters (0-15 range)
+                # Just clamp and return directly (no conversion needed)
+                return max(0.0, min(15.0, lens_position))
             
             return None
             
@@ -801,7 +799,13 @@ class PiCameraController(CameraController):
             return None
 
     async def set_focus_value(self, camera_id: str, focus_value: float) -> bool:
-        """Set manual focus value for camera"""
+        """Set manual focus value for camera
+        
+        Args:
+            camera_id: Camera identifier (e.g., "camera0", "camera1")
+            focus_value: Focus position in DIOPTERS (0.0 to 15.0)
+                        0.0 = infinity (far), 15.0 = macro (close)
+        """
         try:
             cam_id = int(camera_id.replace('camera', ''))
             if cam_id not in self.cameras or not self.cameras[cam_id]:
@@ -811,25 +815,21 @@ class PiCameraController(CameraController):
                 logger.debug(f"Camera {camera_id} does not support manual focus")
                 return False
             
-            # Clamp focus value to valid range
-            focus_value = max(0.0, min(1.0, focus_value))
-            
-            # Convert 0.0-1.0 range to lens position
-            # 0.0 = near (high lens position), 1.0 = infinity (low lens position)
-            lens_position = int((1.0 - focus_value) * 1023)
+            # Clamp to valid diopter range for ArduCam IMX519
+            focus_diopters = max(0.0, min(15.0, focus_value))
             
             picamera2 = self.cameras[cam_id]
             picamera2.set_controls({
                 "AfMode": 0,  # Manual focus
-                "LensPosition": lens_position
+                "LensPosition": focus_diopters  # Direct diopters (NO conversion!)
             })
             
             # Store focus value for reapplication after reconfiguration
             if not hasattr(self, '_stored_focus_values'):
                 self._stored_focus_values = {}
-            self._stored_focus_values[camera_id] = focus_value
+            self._stored_focus_values[camera_id] = focus_diopters
             
-            logger.info(f"Set focus value {focus_value:.3f} (lens position {lens_position}) for {camera_id}")
+            logger.info(f"Set LensPosition to {focus_diopters:.1f} diopters for {camera_id} (higher = closer)")
             
             # Give camera time to adjust focus
             await asyncio.sleep(0.2)
@@ -867,19 +867,16 @@ class PiCameraController(CameraController):
                     logger.debug(f"Camera {cam_id_str} does not support manual focus")
                     return False
                 
-                # Clamp focus value to valid range
-                focus_value = max(0.0, min(1.0, focus_value))
-                
-                # Convert to lens position
-                lens_position = int((1.0 - focus_value) * 1023)
+                # Stored value is already in diopters (0-15 range)
+                focus_diopters = max(0.0, min(15.0, focus_value))
                 
                 picamera2 = self.cameras[cam_id]
                 picamera2.set_controls({
                     "AfMode": 0,  # Manual focus
-                    "LensPosition": lens_position
+                    "LensPosition": focus_diopters  # Direct diopters
                 })
                 
-                logger.info(f"✅ Restored focus {focus_value:.3f} (lens position {lens_position}) for {cam_id_str}")
+                logger.info(f"✅ Restored focus {focus_diopters:.1f} diopters for {cam_id_str}")
                 
                 # Give camera time to adjust focus
                 await asyncio.sleep(0.1)
@@ -1261,11 +1258,11 @@ class PiCameraController(CameraController):
                     cam_id = int(camera_id.replace('camera', ''))
                     cam_id_str = f"camera{cam_id}"
                     if hasattr(self, '_stored_focus_values') and cam_id_str in self._stored_focus_values:
-                        stored_focus = self._stored_focus_values[cam_id_str]
-                        lens_position_manual = int((1.0 - stored_focus) * 1023)
+                        # Stored value is already in diopters (0-15 range)
+                        focus_diopters = self._stored_focus_values[cam_id_str]
                         # Add manual focus to the same control_dict to set atomically with AeEnable
                         control_dict["AfMode"] = 0  # Manual focus mode
-                        control_dict["LensPosition"] = lens_position_manual
+                        control_dict["LensPosition"] = focus_diopters  # Direct diopters
                         logger.info(f"� Camera {camera_id} adding manual focus to control_dict: AfMode=0, LensPosition={lens_position_manual} (focus {stored_focus:.3f})")
                 
                 # Set all controls atomically (exposure + focus together)
@@ -1318,13 +1315,13 @@ class PiCameraController(CameraController):
                 cam_id = int(camera_id.replace('camera', ''))
                 cam_id_str = f"camera{cam_id}"
                 if hasattr(self, '_stored_focus_values') and cam_id_str in self._stored_focus_values:
-                    stored_focus = self._stored_focus_values[cam_id_str]
-                    lens_position_manual = int((1.0 - stored_focus) * 1023)
+                    # Stored value is already in diopters (0-15 range)
+                    focus_diopters = self._stored_focus_values[cam_id_str]
                     picamera2.set_controls({
                         "AfMode": 0,  # Manual focus
-                        "LensPosition": lens_position_manual
+                        "LensPosition": focus_diopters  # Direct diopters
                     })
-                    logger.info(f"🔄 Camera {camera_id} REAPPLIED manual focus {stored_focus:.3f} (lens {lens_position_manual}) AFTER AE settling")
+                    logger.info(f"🔄 Camera {camera_id} REAPPLIED manual focus {focus_diopters:.1f} diopters AFTER AE settling")
                     await asyncio.sleep(0.2)  # Give camera time to apply focus
             
             # Step 3: Perform autofocus (reuse existing method) with timeout check
@@ -1465,17 +1462,16 @@ class PiCameraController(CameraController):
                 cam_id = int(camera_id.replace('camera', ''))
                 cam_id_str = f"camera{cam_id}"
                 if hasattr(self, '_stored_focus_values') and cam_id_str in self._stored_focus_values:
-                    stored_focus = self._stored_focus_values[cam_id_str]
-                    lens_position_manual = int((1.0 - stored_focus) * 1023)
+                    # Stored value is already in diopters (0-15 range)
+                    focus_diopters = self._stored_focus_values[cam_id_str]
                     picamera2.set_controls({
                         "AfMode": 0,
-                        "LensPosition": lens_position_manual
+                        "LensPosition": focus_diopters  # Direct diopters
                     })
-                    logger.info(f"🔄 Camera {camera_id} REAPPLIED manual focus {stored_focus:.3f} (lens {lens_position_manual}) BEFORE final metadata")
+                    logger.info(f"🔄 Camera {camera_id} REAPPLIED manual focus {focus_diopters:.1f} diopters BEFORE final metadata")
                     
                     # CRITICAL: Wait longer for lens to physically move and verify it moved
-                    # ArduCam lens motor needs time to travel from position 15 → 511
-                    await asyncio.sleep(0.5)  # Increased from 0.2s to 0.5s
+                    await asyncio.sleep(0.5)  # Give lens time to move
                     
                     # Verify the lens actually moved by checking current position
                     verification_metadata = picamera2.capture_metadata()
@@ -1505,15 +1501,13 @@ class PiCameraController(CameraController):
             if skip_autofocus and focus_value is None:
                 lens_position_raw = final_metadata.get('LensPosition', None)
                 if lens_position_raw is not None:
-                    # Convert lens position (0-1023) back to normalized focus value (0-1)
-                    # Lens position is inverted: 1023=near, 0=far
-                    # Normalized focus: 0=near, 1=far
-                    focus_value = 1.0 - (lens_position_raw / 1023.0)
-                    logger.info(f"📷 Camera {camera_id} read current manual focus from metadata: {focus_value:.3f} (lens position: {lens_position_raw})")
+                    # LensPosition is already in diopters (0-15 range) - use directly
+                    focus_value = lens_position_raw
+                    logger.info(f"📷 Camera {camera_id} read current manual focus from metadata: {focus_value:.1f} diopters")
                 else:
                     # Fallback if lens position not available
-                    focus_value = 0.5
-                    logger.warning(f"⚠️ Camera {camera_id} could not read lens position from metadata, using default 0.5")
+                    focus_value = 8.0  # Middle of typical range
+                    logger.warning(f"⚠️ Camera {camera_id} could not read lens position from metadata, using default 8.0 diopters")
             
             # Extract optimized exposure settings with fallbacks
             final_exposure = final_metadata.get('ExposureTime', 33000)  # microseconds
