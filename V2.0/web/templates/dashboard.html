@@ -294,37 +294,34 @@
 
     <!-- Column 3: Reserved Space (Wider) -->
     <section class="reserved-panel" style="grid-row: 1 / 2; grid-column: 3 / 4; background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); display: flex; flex-direction: column; min-height: 500px; height: 100%; position: relative; overflow: hidden; border-radius: 12px; padding: 1rem;">
-        <!-- Header -->
-        <div style="margin-bottom: 0.75rem; padding-bottom: 0.75rem; border-bottom: 2px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between;">
-            <div>
-                <h2 style="font-size: 1.1rem; margin: 0; color: #1e293b; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
-                    <span style="font-size: 1.3rem;">📊</span>
-                    Real-Time Position Monitor
-                </h2>
-                <p id="viz-mode-indicator" style="font-size: 0.8rem; margin: 0.35rem 0 0 0; color: #64748b; font-weight: 500;">📍 Idle - Live Position</p>
-            </div>
-            <div style="font-size: 0.7rem; color: #94a3b8; text-align: right;">
-                <div>🖱️ Drag to rotate</div>
-                <div>🔍 Scroll to zoom</div>
+        <!-- Header with Position and Progress Info -->
+        <div style="margin-bottom: 0.75rem; padding-bottom: 0.75rem; border-bottom: 2px solid #e2e8f0;">
+            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;">
+                <!-- Title Section -->
+                <div style="flex-shrink: 0;">
+                    <h2 style="font-size: 1.1rem; margin: 0; color: #1e293b; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-size: 1.3rem;">📊</span>
+                        Real-Time Position Monitor
+                    </h2>
+                    <p id="viz-mode-indicator" style="font-size: 0.8rem; margin: 0.35rem 0 0 0; color: #64748b; font-weight: 500;">📍 Idle - Live Position</p>
+                </div>
+                
+                <!-- Position and Progress Side-by-Side -->
+                <div style="display: flex; gap: 1.5rem; align-items: flex-start; flex: 1;">
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem; min-width: 0;">
+                        <strong style="color: #1e293b; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">📍 Position</strong>
+                        <span id="viz-current-pos" style="font-family: 'Courier New', monospace; color: #3b82f6; font-size: 0.8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">--</span>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem; min-width: 0;">
+                        <strong style="color: #1e293b; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;">📈 Progress</strong>
+                        <span id="viz-scan-progress" style="font-family: 'Courier New', monospace; color: #10b981; font-size: 0.8rem; font-weight: 600; white-space: nowrap;">--</span>
+                    </div>
+                </div>
             </div>
         </div>
         
         <!-- 3D Visualization Canvas -->
         <div id="dashboard-3d-plot" style="flex: 1; width: 100%; height: 100%; min-height: 400px; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06);"></div>
-        
-        <!-- Info Panel -->
-        <div id="viz-info-panel" style="margin-top: 0.75rem; padding: 0.75rem; background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%); border-radius: 8px; font-size: 0.8rem; color: #475569; flex-shrink: 0; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
-            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem;">
-                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-                    <strong style="color: #1e293b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">📍 Current Position</strong>
-                    <span id="viz-current-pos" style="font-family: 'Courier New', monospace; color: #3b82f6; font-size: 0.85rem; font-weight: 600;">--</span>
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
-                    <strong style="color: #1e293b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">📈 Scan Progress</strong>
-                    <span id="viz-scan-progress" style="font-family: 'Courier New', monospace; color: #10b981; font-size: 0.85rem; font-weight: 600;">--</span>
-                </div>
-            </div>
-        </div>
     </section>
 
     <!-- Column 4: Live Camera Feed (Wider) -->
@@ -1552,10 +1549,9 @@
             
             const config = {
                 responsive: true,
-                displayModeBar: true,  // Show mode bar for better UX
-                modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'],  // Remove unnecessary buttons
+                displayModeBar: true,
                 displaylogo: false,
-                scrollZoom: true  // Enable scroll to zoom
+                modeBarButtonsToRemove: ['toImage']
             };
             
             Plotly.newPlot(plotDiv, traces, layout, config).then(() => {
