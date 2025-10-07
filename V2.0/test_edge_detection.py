@@ -1,7 +1,54 @@
 #!/usr/bin/env python3
 """
 Test Edge Detection System
-Tests the edge-based object detector for focus window positioning
+Tests the edge-based object         print(f"\n   Image shape: {image.shape}")
+        
+        # Save raw image for inspection
+        test_output_dir = Path("calibration/edge_detection_test")
+        test_output_dir.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(test_output_dir / "raw_capture.jpg"), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+        print(f"💾 Saved raw capture: {test_output_dir / 'raw_capture.jpg'}")
+        
+        # Try multiple sensitivity levels
+        print(f"\n🔍 Testing different edge detection sensitivities...")
+        
+        sensitivity_configs = [
+            (30, 100, "Very Sensitive"),
+            (50, 150, "Default"),
+            (20, 80, "Maximum Sensitivity")
+        ]
+        
+        best_result = None
+        best_desc = None
+        
+        for canny1, canny2, desc in sensitivity_configs:
+            test_config = config.copy()
+            test_config['canny_threshold1'] = canny1
+            test_config['canny_threshold2'] = canny2
+            test_config['detection_output_dir'] = f'calibration/edge_test_{desc.replace(" ", "_")}'
+            
+            test_detector = EdgeDetector(test_config)
+            result = test_detector.detect_object(image, f"camera_{desc.replace(' ', '_')}")
+            
+            if result:
+                print(f"   ✅ {desc} (Canny {canny1}/{canny2}): FOUND object at {result}")
+                if best_result is None:
+                    best_result = result
+                    best_desc = desc
+            else:
+                print(f"   ⚠️ {desc} (Canny {canny1}/{canny2}): No detection")
+        
+        if best_result:
+            print(f"\n✅ BEST RESULT: {best_desc}")
+            result = best_result
+        else:
+            print(f"\n⚠️ No detections at any sensitivity level")
+            print(f"   Check raw_capture.jpg to see if object is visible")
+            result = None
+        
+        # Run detection with default config for final report
+        if not result:
+            result = detector.detect_object(image, "test_camera")ctor for focus window positioning
 """
 
 import sys
@@ -56,7 +103,29 @@ def test_edge_detection():
         picam2.start()
         
         import time
-        time.sleep(2)  # Let camera warm up
+        
+        # CRITICAL: Run autofocus first to get sharp image
+        print("🔍 Running autofocus to get sharp image...")
+        try:
+            from libcamera import controls
+            
+            # Enable autofocus
+            picam2.set_controls({
+                "AfMode": controls.AfModeEnum.Continuous,
+                "AfTrigger": controls.AfTriggerEnum.Start
+            })
+            
+            time.sleep(2)  # Let autofocus settle
+            
+            # Check autofocus state
+            metadata = picam2.capture_metadata()
+            af_state = metadata.get("AfState", "unknown")
+            lens_position = metadata.get("LensPosition", "unknown")
+            print(f"   Autofocus state: {af_state}, lens: {lens_position}")
+            
+        except Exception as af_error:
+            print(f"   ⚠️ Autofocus not available: {af_error}")
+            time.sleep(2)  # Let camera warm up anyway
         
         image = picam2.capture_array("main")
         picam2.stop()

@@ -77,11 +77,19 @@ class EdgeDetector:
             # Detect edges using Canny
             edges = cv2.Canny(blurred, self.canny_threshold1, self.canny_threshold2)
             
+            # Debug: Count edge pixels
+            edge_pixel_count = np.count_nonzero(edges)
+            edge_density = edge_pixel_count / (region_size * region_size) * 100
+            logger.info(f"🔍 Edge detection stats: {edge_pixel_count} edge pixels ({edge_density:.2f}% of search region)")
+            
             # Find contours
             contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
+            logger.info(f"🔍 Found {len(contours)} total contours before filtering")
+            
             if not contours:
                 logger.warning(f"⚠️ No edges detected in {camera_name} image")
+                logger.warning(f"   Try lowering canny thresholds (current: {self.canny_threshold1}/{self.canny_threshold2})")
                 return None
             
             # Filter contours by area
@@ -89,8 +97,11 @@ class EdgeDetector:
             min_area = image_area * self.min_contour_area
             max_area = image_area * self.max_contour_area
             
+            logger.debug(f"   Filtering contours: min_area={min_area:.0f}px ({self.min_contour_area*100:.1f}%), "
+                        f"max_area={max_area:.0f}px ({self.max_contour_area*100:.1f}%)")
+            
             valid_contours = []
-            for contour in contours:
+            for i, contour in enumerate(contours):
                 area = cv2.contourArea(contour)
                 if min_area <= area <= max_area:
                     valid_contours.append({
@@ -98,9 +109,14 @@ class EdgeDetector:
                         'area': area,
                         'bbox': cv2.boundingRect(contour)
                     })
+                    logger.debug(f"   ✓ Contour {i}: area={area:.0f}px ({area/image_area*100:.2f}%) - VALID")
+                else:
+                    logger.debug(f"   ✗ Contour {i}: area={area:.0f}px ({area/image_area*100:.2f}%) - filtered")
             
             if not valid_contours:
                 logger.warning(f"⚠️ No valid contours found (area between {self.min_contour_area*100:.1f}% and {self.max_contour_area*100:.1f}%)")
+                logger.warning(f"   Found {len(contours)} contours total, but all were outside size range")
+                logger.warning(f"   Try adjusting min_contour_area or max_contour_area in config")
                 return None
             
             # Select largest valid contour
