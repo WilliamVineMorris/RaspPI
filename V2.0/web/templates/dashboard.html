@@ -1504,7 +1504,7 @@
                 });
             }
             
-            // Layout with auto-scaling (matches scan path preview settings)
+            // Layout with symmetrical axes (cube mode for accurate physical proportions)
             const layout = {
                 scene: {
                     xaxis: { title: 'X (mm)', showgrid: true, zeroline: true },
@@ -1514,8 +1514,7 @@
                         eye: { x: 1.5, y: -1.5, z: 1.0 },
                         up: { x: 0, y: 0, z: 1 }
                     },
-                    aspectmode: 'data',
-                    aspectratio: { x: 1, y: 1, z: 0.8 }
+                    aspectmode: 'cube'  // All axes symmetrical with equal scale
                 },
                 margin: { l: 0, r: 0, b: 0, t: 0 },
                 showlegend: false
