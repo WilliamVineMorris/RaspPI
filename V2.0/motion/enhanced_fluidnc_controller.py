@@ -70,6 +70,9 @@ class EnhancedFluidNCController(MotionController):
         self.is_homed = False
         self.axis_limits: Dict[str, MotionLimits] = {}
         
+        # C-axis position tracking (FluidNC servo doesn't report position)
+        self._commanded_c_position: float = 0.0
+        
         # Movement tracking
         self.movement_start_time = 0
         self.movement_start_position = Position4D()
@@ -272,8 +275,18 @@ class EnhancedFluidNCController(MotionController):
                 x=pos_data.get('x', 0),
                 y=pos_data.get('y', 0),
                 z=pos_data.get('z', 0),
-                c=pos_data.get('c', 0)
+                c=pos_data.get('c', 0)  # FluidNC reports 0 for servo (no feedback)
             )
+            
+            # WORKAROUND: FluidNC servos don't have position feedback, so C-axis always reports 0
+            # Preserve the commanded C position from our tracking
+            if hasattr(self, '_commanded_c_position'):
+                new_position = Position4D(
+                    x=new_position.x,
+                    y=new_position.y,
+                    z=new_position.z,
+                    c=self._commanded_c_position  # Use tracked C position instead of FluidNC's 0
+                )
             
             # Check for position changes
             if self._position_changed(self.current_position, new_position):
@@ -334,6 +347,9 @@ class EnhancedFluidNCController(MotionController):
             self.movement_start_time = time.time()
             self.movement_start_position = self.current_position
             self.target_position = position
+            
+            # Track commanded C position (servo doesn't report feedback)
+            self._commanded_c_position = position.c
             
             # Send movement command
             success = await self.communicator.move_to_position(position, feedrate)
@@ -411,6 +427,9 @@ class EnhancedFluidNCController(MotionController):
             )
             
             logger.info(f"🔄 Relative move: {delta} (current: {current} → target: {target})")
+            
+            # Track commanded C position (servo doesn't report feedback)
+            self._commanded_c_position = target.c
             
             # Switch to relative mode
             await self.communicator.send_gcode('G91')
