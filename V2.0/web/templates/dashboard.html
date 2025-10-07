@@ -365,8 +365,8 @@
                                 <button id="stabilizeBtn" class="btn btn-sm btn-warning" onclick="toggleStabilization()" style="padding: 0.2rem 0.3rem; font-size: 0.65rem;">🔧 Stab</button>
                             </div>
                             <div id="manualFocusPanel" style="display: none;">
-                                <label for="focusSlider" style="font-size: 0.65rem;">Focus Position (0=Near, 10=Far)</label>
-                                <input type="range" id="focusSlider" min="0" max="10" step="0.1" value="5" 
+                                <label for="focusSlider" style="font-size: 0.65rem;">Focus Position (6=Near, 10=Far)</label>
+                                <input type="range" id="focusSlider" min="6" max="10" step="0.1" value="8" 
                                        style="width: 100%;" onchange="setManualFocus(this.value)">
                                 <span id="focusValue" style="font-size: 0.65rem;">5.0</span>
                             </div>
