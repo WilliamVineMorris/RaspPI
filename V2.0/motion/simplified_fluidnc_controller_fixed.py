@@ -72,6 +72,9 @@ class SimplifiedFluidNCControllerFixed(MotionController):
         self.current_position = Position4D()  # Tracked from machine
         self.target_position = Position4D()
         
+        # C-axis tracking: RC servos have no position feedback, must track commanded position
+        self._commanded_c_position: float = 0.0
+        
         # Operating mode for feedrate selection
         self.operating_mode = "manual_mode"  # Default to manual/jog mode
         
@@ -285,6 +288,9 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 success, response = await self._send_command(gcode, priority="normal")
             
             if success:
+                # Track commanded C-axis position (servo has no position feedback)
+                self._commanded_c_position = position.c
+                
                 self.target_position = position.copy()
                 self.stats['movements_completed'] += 1
                 
@@ -357,6 +363,9 @@ class SimplifiedFluidNCControllerFixed(MotionController):
                 logger.debug(f"🎯 Using G0 rapid move for scan operations (avoids soft limits)")
             
             if success:
+                # Track commanded C-axis position (servo has no position feedback)
+                self._commanded_c_position = target.c
+                
                 self.target_position = target.copy()
                 self.stats['movements_completed'] += 1
                 
@@ -676,6 +685,12 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             logger.info(f"✅ ENHANCED homing completed successfully!")
             logger.info(f"📊 Duration: {elapsed:.1f}s, Axes detected: {axes_homed}")
             logger.info(f"📍 Final position: {self.current_position}")
+            
+            # Reset C-axis tracking if C-axis was homed
+            if axes is None or (axes and 'C' in [ax.upper() for ax in axes]) or 'C' in axes_homed:
+                # From config: c_axis home_position is 90.0 degrees
+                self._commanded_c_position = 90.0
+                logger.info(f"🔄 C-axis tracking reset to home position: {self._commanded_c_position}°")
             
             # CRITICAL: Set homed status for web interface
             self.is_homed = True
@@ -1202,11 +1217,12 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             
             if status and status.position:
                 # Update current position from machine feedback
+                # NOTE: C-axis uses tracked commanded position since RC servos have no feedback
                 self.current_position = Position4D(
                     x=status.position.get('x', 0.0),
                     y=status.position.get('y', 0.0),
                     z=status.position.get('z', 0.0),
-                    c=status.position.get('a', 0.0)  # FluidNC uses 'a' for 4th axis
+                    c=self._commanded_c_position  # Use tracked C position (servo has no feedback)
                 )
                 
                 # Update motion status from machine state
