@@ -1497,23 +1497,39 @@
                 });
             }
             
-            // Layout
+            // Layout with fixed axis ranges for stable visualization
             const layout = {
                 scene: {
-                    xaxis: { title: 'X (mm)', showgrid: true, zeroline: true },
-                    yaxis: { title: 'Y (mm)', showgrid: true, zeroline: true },
-                    zaxis: { title: 'Height (mm)', showgrid: true, zeroline: true },
+                    xaxis: { 
+                        title: 'X (mm)', 
+                        showgrid: true, 
+                        zeroline: true,
+                        range: [-250, 250]  // Fixed range to prevent zooming effect
+                    },
+                    yaxis: { 
+                        title: 'Y (mm)', 
+                        showgrid: true, 
+                        zeroline: true,
+                        range: [-250, 250]  // Fixed range to prevent zooming effect
+                    },
+                    zaxis: { 
+                        title: 'Height (mm)', 
+                        showgrid: true, 
+                        zeroline: true,
+                        range: [0, 250]  // Fixed range for height axis
+                    },
                     camera: {
                         eye: { x: 1.5, y: -1.5, z: 1.0 },
                         up: { x: 0, y: 0, z: 1 }
                     },
-                    aspectmode: 'data',
-                    aspectratio: { x: 1, y: 1, z: 0.8 }
+                    aspectmode: 'manual',  // Changed from 'data' to 'manual' for fixed aspect
+                    aspectratio: { x: 1, y: 1, z: 0.5 }  // Adjusted Z ratio for better view
                 },
                 margin: { l: 0, r: 0, b: 0, t: 0 },
                 showlegend: false,
                 paper_bgcolor: 'rgba(0,0,0,0)',
-                plot_bgcolor: 'rgba(0,0,0,0)'
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                autosize: true  // Ensure responsive sizing
             };
             
             const config = {
