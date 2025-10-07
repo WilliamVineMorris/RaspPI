@@ -2376,6 +2376,10 @@ class ScannerWebInterface:
                     # This prevents event loop conflicts that cause delays
                     position = motion_controller.current_position
                     
+                    # DEBUG: Log the C-axis value being sent to web UI
+                    c_value = getattr(position, 'c', 0.0) if position else 0.0
+                    self.logger.info(f"🔍 STATUS API: Sending C-axis to web UI: {c_value}° (full position: {position})")
+                    
                     # Get debugging info about position freshness
                     last_update_time = 0
                     data_age = 999.0
@@ -2457,15 +2461,26 @@ class ScannerWebInterface:
                     
                     # Convert Position4D to dict for JSON serialization
                     if hasattr(position, '__dict__'):
+                        x_val = getattr(position, 'x', 0.0)
+                        y_val = getattr(position, 'y', 0.0)
+                        z_val = getattr(position, 'z', 0.0)
+                        c_val = getattr(position, 'c', 0.0)
+                        
+                        # DEBUG: Log extracted values before putting in dict
+                        self.logger.info(f"🔍 STATUS API: Extracted position values - X:{x_val}, Y:{y_val}, Z:{z_val}, C:{c_val}")
+                        
                         position_dict = {
-                            'x': getattr(position, 'x', 0.0),
-                            'y': getattr(position, 'y', 0.0), 
-                            'z': getattr(position, 'z', 0.0),
-                            'c': getattr(position, 'c', 0.0),
+                            'x': x_val,
+                            'y': y_val, 
+                            'z': z_val,
+                            'c': c_val,
                             'data_age_seconds': round(data_age, 2),
                             'last_update_time': last_update_time,
                             'monitor_running': monitor_running
                         }
+                        
+                        # DEBUG: Log final position dict being sent to UI
+                        self.logger.info(f"🔍 STATUS API: Final position_dict being sent: {position_dict}")
                     else:
                         position_dict = {
                             'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0,
@@ -2473,6 +2488,7 @@ class ScannerWebInterface:
                             'last_update_time': 0,
                             'monitor_running': False
                         }
+                        self.logger.warning(f"⚠️ STATUS API: Position has no __dict__, using defaults!")
                     
                     # Convert MotionStatus enum to string and map to frontend-expected values
                     raw_status = str(current_status).split('.')[-1].lower() if hasattr(current_status, 'name') else str(current_status).lower()
