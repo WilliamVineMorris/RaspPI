@@ -824,6 +824,11 @@ class PiCameraController(CameraController):
                 "LensPosition": lens_position
             })
             
+            # Store focus value for reapplication after reconfiguration
+            if not hasattr(self, '_stored_focus_values'):
+                self._stored_focus_values = {}
+            self._stored_focus_values[camera_id] = focus_value
+            
             logger.info(f"Set focus value {focus_value:.3f} (lens position {lens_position}) for {camera_id}")
             
             # Give camera time to adjust focus
@@ -832,6 +837,47 @@ class PiCameraController(CameraController):
             
         except Exception as e:
             logger.error(f"Failed to set focus value for {camera_id}: {e}")
+            return False
+    
+    async def _reapply_focus_after_reconfiguration(self, camera_id: str) -> bool:
+        """Reapply focus value after camera reconfiguration (focus resets on camera.start())"""
+        try:
+            cam_id = int(camera_id.replace('camera', ''))
+            if cam_id not in self.cameras or not self.cameras[cam_id]:
+                return False
+            
+            # Check if we have a stored focus value (set during scan setup)
+            if hasattr(self, '_stored_focus_values') and camera_id in self._stored_focus_values:
+                focus_value = self._stored_focus_values[camera_id]
+                logger.info(f"🔄 Reapplying stored focus {focus_value:.3f} for {camera_id} after reconfiguration")
+                
+                if not self._supports_autofocus(cam_id):
+                    logger.debug(f"Camera {camera_id} does not support manual focus")
+                    return False
+                
+                # Clamp focus value to valid range
+                focus_value = max(0.0, min(1.0, focus_value))
+                
+                # Convert to lens position
+                lens_position = int((1.0 - focus_value) * 1023)
+                
+                picamera2 = self.cameras[cam_id]
+                picamera2.set_controls({
+                    "AfMode": 0,  # Manual focus
+                    "LensPosition": lens_position
+                })
+                
+                logger.info(f"✅ Restored focus {focus_value:.3f} (lens position {lens_position}) for {camera_id}")
+                
+                # Give camera time to adjust focus
+                await asyncio.sleep(0.1)
+                return True
+            else:
+                logger.debug(f"No stored focus value for {camera_id}, skipping reapplication")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to reapply focus for {camera_id}: {e}")
             return False
 
     async def auto_focus_and_get_value(self, camera_id: str) -> Optional[float]:
@@ -2460,6 +2506,10 @@ class PiCameraController(CameraController):
                                 camera.start()
                                 
                                 logger.info(f"📷 Camera {camera_id}: Standard resolution reconfiguration applied")
+                                
+                                # CRITICAL: Reapply manual focus after reconfiguration
+                                # Camera.start() resets focus to default, so we must restore it
+                                await self._reapply_focus_after_reconfiguration(camera_id)
                                 
                             except Exception as config_error:
                                 logger.warning(f"Camera {camera_id} standard reconfiguration failed: {config_error}")
