@@ -2376,10 +2376,6 @@ class ScannerWebInterface:
                     # The position is updated by _on_status_update() callback from FluidNC
                     position = motion_controller.current_position
                     
-                    # DEBUG: Log the C-axis value being sent to web UI
-                    c_value = getattr(position, 'c', 0.0) if position else 0.0
-                    self.logger.info(f"🔍 STATUS API: Sending C-axis to web UI: {c_value}° (full position: {position})")
-                    
                     # Get debugging info about position freshness
                     last_update_time = 0
                     data_age = 999.0
@@ -2392,12 +2388,6 @@ class ScannerWebInterface:
                             data_age = time.time() - last_update_time if last_update_time > 0 else 999.0
                         if hasattr(controller, 'is_background_monitor_running'):
                             monitor_running = controller.is_background_monitor_running()
-                    
-                    # Log if data seems stale but don't try to fix it synchronously
-                    if data_age > 2.0:
-                        self.logger.debug(f"⚠️  Position data is {data_age:.1f}s old, monitor_running={monitor_running}")
-                    else:
-                        self.logger.debug(f"✅ Position data is fresh ({data_age:.1f}s old)")
                     
                     # Get status information from controller properties (use cached status to avoid async calls)
                     # Force refresh connection status to avoid stale cached values
@@ -2466,9 +2456,6 @@ class ScannerWebInterface:
                         z_val = getattr(position, 'z', 0.0)
                         c_val = getattr(position, 'c', 0.0)
                         
-                        # DEBUG: Log extracted values before putting in dict
-                        self.logger.info(f"🔍 STATUS API: Extracted position values - X:{x_val}, Y:{y_val}, Z:{z_val}, C:{c_val}")
-                        
                         position_dict = {
                             'x': x_val,
                             'y': y_val, 
@@ -2478,9 +2465,6 @@ class ScannerWebInterface:
                             'last_update_time': last_update_time,
                             'monitor_running': monitor_running
                         }
-                        
-                        # DEBUG: Log final position dict being sent to UI
-                        self.logger.info(f"🔍 STATUS API: Final position_dict being sent: {position_dict}")
                     else:
                         position_dict = {
                             'x': 0.0, 'y': 0.0, 'z': 0.0, 'c': 0.0,

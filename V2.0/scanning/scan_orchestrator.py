@@ -1226,13 +1226,13 @@ class CameraManagerAdapter:
                         
                         if frame_array is not None and frame_array.size > 0:
                             # Handle the actual format returned by the camera
-                            self.logger.info(f"CAMERA: Raw frame captured: {frame_array.shape}, dtype: {frame_array.dtype}")
+                            self.logger.debug(f"Raw frame captured: {frame_array.shape}, dtype: {frame_array.dtype}")
                             
                             if len(frame_array.shape) == 3:
                                 if frame_array.shape[2] == 4:
                                     # XBGR8888 format (4 channels) - camera is in streaming mode
                                     frame_bgr = frame_array[:, :, :3]  # Take first 3 channels (BGR)
-                                    self.logger.info(f"CAMERA: Converted XBGR8888 to BGR: {frame_bgr.shape}")
+                                    self.logger.debug(f"Converted XBGR8888 to BGR: {frame_bgr.shape}")
                                 elif frame_array.shape[2] == 3:
                                     # RGB888 format (3 channels) - check if conversion is needed
                                     # Picamera2 typically outputs RGB, but let's test if colors look correct

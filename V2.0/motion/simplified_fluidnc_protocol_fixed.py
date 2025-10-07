@@ -321,7 +321,6 @@ class SimplifiedFluidNCProtocolFixed:
                 # Continue with command execution
                 command_ready_time = time.time()
                 logger.debug(f"🕐 [TIMING] Command ready after: {(command_ready_time-start_time)*1000:.1f}ms")
-                logger.info(f"📤 PROTOCOL DEBUG: Sending command: '{command}'")
                 
                 # Check connection before sending command
                 if not self.is_connected():
@@ -330,14 +329,12 @@ class SimplifiedFluidNCProtocolFixed:
                 
                 # Send command
                 if self.serial_connection is None:
-                    logger.error("❌ PROTOCOL DEBUG: No serial connection available")
+                    logger.error("❌ No serial connection available")
                     return False, "No serial connection"
                     
                 command_line = f"{command}\n"
-                logger.info(f"📤 PROTOCOL DEBUG: Writing to serial: '{command_line.strip()}'")
                 self.serial_connection.write(command_line.encode('utf-8'))
                 self.serial_connection.flush()
-                logger.info("📤 PROTOCOL DEBUG: Command written and flushed to serial")
                 
                 self.stats['commands_sent'] += 1
                 self.last_command_time = time.time()
@@ -347,11 +344,9 @@ class SimplifiedFluidNCProtocolFixed:
                 
                 # Wait for immediate response (ok/error) - shorter timeout for manual commands
                 response_timeout = 2.0 if priority == "high" else self.command_timeout
-                logger.info(f"📥 PROTOCOL DEBUG: Waiting for response (timeout: {response_timeout}s)...")
                 immediate_response = self._wait_for_immediate_response(response_timeout)
                 response_received_time = time.time() 
                 logger.debug(f"📥 [TIMING] Response received after: {(response_received_time-start_time)*1000:.1f}ms")
-                logger.info(f"📥 PROTOCOL DEBUG: FluidNC immediate response: '{immediate_response}'")
                 
                 if not immediate_response:
                     # CRITICAL FIX: Check if command completed successfully despite no response
@@ -371,7 +366,7 @@ class SimplifiedFluidNCProtocolFixed:
                         else:
                             # Actually failed
                             self.stats['timeouts'] += 1
-                            logger.error(f"❌ PROTOCOL DEBUG: Command timeout - no response from FluidNC for: '{command}'")
+                            logger.error(f"❌ Command timeout - no response from FluidNC for: '{command}'")
                             logger.error(f"   📊 Serial stats - In waiting: {self.serial_connection.in_waiting if self.serial_connection else 'N/A'}")
                             logger.error(f"   📊 Connection status: {self.is_connected()}")
                             logger.error(f"   📊 FluidNC status: {current_status.state if current_status else 'Unknown'}")
@@ -379,7 +374,7 @@ class SimplifiedFluidNCProtocolFixed:
                     else:
                         # Non-motion command timeout
                         self.stats['timeouts'] += 1
-                        logger.error(f"❌ PROTOCOL DEBUG: Command timeout - no response from FluidNC for: '{command}'")
+                        logger.error(f"❌ Command timeout - no response from FluidNC for: '{command}'")
                         logger.error(f"   📊 Serial stats - In waiting: {self.serial_connection.in_waiting if self.serial_connection else 'N/A'}")
                         logger.error(f"   📊 Connection status: {self.is_connected()}")
                         return False, f"Command timeout: {command}"
@@ -391,7 +386,7 @@ class SimplifiedFluidNCProtocolFixed:
                                    response_lower == 'error')
                 
                 if is_error_response:
-                    logger.error(f"❌ PROTOCOL DEBUG: FluidNC returned error: '{immediate_response}'")
+                    logger.error(f"❌ FluidNC returned error: '{immediate_response}'")
                     self.stats['errors'] += 1
                     return False, immediate_response
                 
@@ -590,9 +585,6 @@ class SimplifiedFluidNCProtocolFixed:
                         coords_str = part[5:]  # Remove "MPos:"
                         coords = coords_str.split(',')
                         
-                        # DEBUG: Log raw position string from FluidNC
-                        logger.info(f"🔍 RAW FluidNC MPos: '{coords_str}' → {len(coords)} coordinates")
-                        
                         if len(coords) >= 4:
                             # Validate each coordinate before parsing
                             parsed_coords = []
@@ -622,10 +614,6 @@ class SimplifiedFluidNCProtocolFixed:
                                     'z': parsed_coords[2],
                                     'c': parsed_coords[-1]  # Use LAST coordinate for C-axis
                                 }
-                                
-                                # DEBUG: Log parsed values with all coordinates
-                                all_coords = ', '.join([f"{c:.3f}" for c in parsed_coords])
-                                logger.info(f"🔍 PARSED ({len(parsed_coords)} axes): [{all_coords}] → X={parsed_coords[0]:.3f}, Y={parsed_coords[1]:.3f}, Z={parsed_coords[2]:.3f}, C={parsed_coords[-1]:.3f}")
                                 
                                 # Use machine position as work position for now
                                 status.position = status.machine_position.copy()
