@@ -591,7 +591,7 @@ class SimplifiedFluidNCProtocolFixed:
                         if len(coords) >= 4:
                             # Validate each coordinate before parsing
                             parsed_coords = []
-                            for coord in coords[:4]:  # Only take first 4
+                            for coord in coords[:6]:  # Support up to 6 axes (X,Y,Z,A,B,C)
                                 # Clean up potential corruption (multiple decimals, etc.)
                                 clean_coord = coord.strip()
                                 if clean_coord.count('.') > 1:
@@ -602,15 +602,24 @@ class SimplifiedFluidNCProtocolFixed:
                                     if len(parts_split) >= 2:
                                         clean_coord = f"{parts_split[0]}.{parts_split[1]}"
                                 
-                                parsed_coords.append(float(clean_coord))
+                                try:
+                                    parsed_coords.append(float(clean_coord))
+                                except ValueError:
+                                    break  # Stop if we hit invalid data
                             
                             if len(parsed_coords) >= 4:
+                                # CRITICAL FIX: Use last coordinate for C-axis (servo)
+                                # FluidNC may output 4 axes (X,Y,Z,C) or 6 axes (X,Y,Z,A,B,C)
+                                # The C-axis (servo) is always the LAST coordinate reported
                                 status.machine_position = {
                                     'x': parsed_coords[0],
                                     'y': parsed_coords[1], 
                                     'z': parsed_coords[2],
-                                    'a': parsed_coords[3]
+                                    'c': parsed_coords[-1]  # Use LAST coordinate for C-axis
                                 }
+                                
+                                logger.debug(f"🔍 FluidNC position ({len(parsed_coords)} axes): X={parsed_coords[0]:.3f}, Y={parsed_coords[1]:.3f}, Z={parsed_coords[2]:.3f}, C={parsed_coords[-1]:.3f}")
+                                
                                 # Use machine position as work position for now
                                 status.position = status.machine_position.copy()
                                 status.work_position = status.machine_position.copy()

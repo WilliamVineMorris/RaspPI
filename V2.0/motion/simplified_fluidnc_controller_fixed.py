@@ -227,9 +227,10 @@ class SimplifiedFluidNCControllerFixed(MotionController):
     
     # Position and Status
     async def get_position(self) -> Position4D:
-        """Get current position (from machine feedback)"""
-        # Update position from latest status
-        await self._update_current_position()
+        """Get current position (from cached value updated after moves)"""
+        # DON'T call _update_current_position() here - it causes race conditions
+        # The position is already updated after every move in move_to_position() and move_relative()
+        # Calling it again here can overwrite the tracked C-axis position before FluidNC status updates
         return self.current_position.copy()
     
     async def get_current_position(self) -> Position4D:
@@ -1216,13 +1217,22 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             status = self.protocol.get_current_status()
             
             if status and status.position:
+                # CRITICAL: FluidNC now reports C-axis as 'c' (last coordinate)
+                # But RC servos have no position feedback, so FluidNC will report 0
+                # We must use our tracked commanded position
+                fluidnc_c = status.position.get('c', 0.0)
+                
+                # Always use tracked position for C-axis (servo has no encoder)
+                # Log FluidNC value for debugging to confirm it's always 0
+                if fluidnc_c != self._commanded_c_position:
+                    logger.debug(f"🔍 C-axis: FluidNC reports {fluidnc_c:.1f}° but we're tracking {self._commanded_c_position:.1f}° (servo has no feedback)")
+                
                 # Update current position from machine feedback
-                # NOTE: C-axis uses tracked commanded position since RC servos have no feedback
                 self.current_position = Position4D(
                     x=status.position.get('x', 0.0),
                     y=status.position.get('y', 0.0),
                     z=status.position.get('z', 0.0),
-                    c=self._commanded_c_position  # Use tracked C position (servo has no feedback)
+                    c=self._commanded_c_position  # Always use tracked (servo has no feedback)
                 )
                 
                 # Update motion status from machine state
