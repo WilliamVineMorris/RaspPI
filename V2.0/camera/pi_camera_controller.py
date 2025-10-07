@@ -1258,6 +1258,21 @@ class PiCameraController(CameraController):
                 # Set all controls
                 picamera2.set_controls(control_dict)
                 
+                # CRITICAL: If skip_autofocus=True (manual focus mode), reapply manual focus
+                # because set_controls() may have reset it
+                if skip_autofocus:
+                    cam_id = int(camera_id.replace('camera', ''))
+                    cam_id_str = f"camera{cam_id}"
+                    if hasattr(self, '_stored_focus_values') and cam_id_str in self._stored_focus_values:
+                        stored_focus = self._stored_focus_values[cam_id_str]
+                        lens_position_manual = int((1.0 - stored_focus) * 1023)
+                        picamera2.set_controls({
+                            "AfMode": 0,  # Manual focus
+                            "LensPosition": lens_position_manual
+                        })
+                        logger.info(f"🔄 Camera {camera_id} REAPPLIED manual focus {stored_focus:.3f} (lens {lens_position_manual}) after exposure controls")
+                        await asyncio.sleep(0.2)  # Give camera time to adjust focus
+                
                 # Allow time for auto-exposure to settle
                 await asyncio.sleep(1.0)
                 
