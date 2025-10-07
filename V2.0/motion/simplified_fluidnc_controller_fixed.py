@@ -1217,22 +1217,21 @@ class SimplifiedFluidNCControllerFixed(MotionController):
             status = self.protocol.get_current_status()
             
             if status and status.position:
-                # CRITICAL: FluidNC now reports C-axis as 'c' (last coordinate)
-                # But RC servos have no position feedback, so FluidNC will report 0
-                # We must use our tracked commanded position
+                # CRITICAL: FluidNC DOES report C-axis correctly (last coordinate in 6-axis output)
+                # Use FluidNC value directly since it matches commanded position
                 fluidnc_c = status.position.get('c', 0.0)
                 
-                # Always use tracked position for C-axis (servo has no encoder)
-                # Log FluidNC value for debugging to confirm it's always 0
-                if fluidnc_c != self._commanded_c_position:
-                    logger.debug(f"🔍 C-axis: FluidNC reports {fluidnc_c:.1f}° but we're tracking {self._commanded_c_position:.1f}° (servo has no feedback)")
+                # Log discrepancies for debugging
+                if abs(fluidnc_c - self._commanded_c_position) > 0.1:
+                    logger.warning(f"🔍 C-axis mismatch: FluidNC={fluidnc_c:.1f}° vs Tracked={self._commanded_c_position:.1f}°")
                 
+                # Use FluidNC C value (it's accurate!)
                 # Update current position from machine feedback
                 self.current_position = Position4D(
                     x=status.position.get('x', 0.0),
                     y=status.position.get('y', 0.0),
                     z=status.position.get('z', 0.0),
-                    c=self._commanded_c_position  # Always use tracked (servo has no feedback)
+                    c=fluidnc_c  # Use FluidNC C value (reports correctly!)
                 )
                 
                 # Update motion status from machine state
