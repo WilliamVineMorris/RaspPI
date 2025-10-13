@@ -2664,7 +2664,7 @@ class ScannerWebInterface:
         
         @self.app.route('/api/storage/reload', methods=['POST'])
         def api_storage_reload():
-            """Reload sessions index from disk (useful after running rebuild script)"""
+            """Reload sessions index and scan for new sessions in the directory"""
             try:
                 if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
                     return jsonify({'error': 'Storage manager not available'}), 503
@@ -2688,25 +2688,32 @@ class ScannerWebInterface:
                         loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(loop)
                         loop.run_until_complete(storage_manager._load_sessions_index())
+                        
+                        # Now scan for any new sessions not in the index
+                        new_sessions = loop.run_until_complete(storage_manager.scan_for_new_sessions())
+                        
                         loop.close()
                     else:
                         loop.run_until_complete(storage_manager._load_sessions_index())
+                        new_sessions = loop.run_until_complete(storage_manager.scan_for_new_sessions())
                 except RuntimeError:
                     # No event loop exists, create one
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     loop.run_until_complete(storage_manager._load_sessions_index())
+                    new_sessions = loop.run_until_complete(storage_manager.scan_for_new_sessions())
                     loop.close()
                 
                 sessions_after = len(storage_manager.sessions_index)
                 
-                self.logger.info(f"🔄 Reloaded sessions index: {sessions_before} → {sessions_after} sessions")
+                self.logger.info(f"🔄 Reloaded sessions index: {sessions_before} → {sessions_after} sessions ({new_sessions} newly discovered)")
                 
                 return jsonify({
                     'success': True,
                     'sessions_before': sessions_before,
                     'sessions_after': sessions_after,
-                    'sessions_added': sessions_after - sessions_before
+                    'sessions_added': sessions_after - sessions_before,
+                    'newly_discovered': new_sessions
                 })
             
             except Exception as e:

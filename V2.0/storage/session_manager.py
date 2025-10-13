@@ -241,6 +241,126 @@ class SessionManager(StorageManager):
         except Exception as e:
             logger.error(f"Failed to save sessions index: {e}")
 
+    async def scan_for_new_sessions(self):
+        """Scan sessions directory and add any missing sessions to the index"""
+        try:
+            sessions_dir = self.base_storage_path / 'sessions'
+            
+            if not sessions_dir.exists():
+                logger.warning(f"Sessions directory does not exist: {sessions_dir}")
+                return 0
+            
+            added_count = 0
+            
+            # Scan each subdirectory in sessions/
+            for session_dir in sessions_dir.iterdir():
+                if not session_dir.is_dir():
+                    continue
+                
+                session_id = session_dir.name
+                
+                # Skip if already in index
+                if session_id in self.sessions_index:
+                    continue
+                
+                logger.info(f"Found session not in index: {session_id}")
+                
+                # Try to load session.json for metadata
+                metadata_file = session_dir / 'metadata' / 'session.json'
+                
+                if metadata_file.exists():
+                    try:
+                        with open(metadata_file, 'r') as f:
+                            session_data = json.load(f)
+                        
+                        # Count actual files
+                        images_dir = session_dir / 'images'
+                        total_files = 0
+                        total_size = 0
+                        
+                        if images_dir.exists():
+                            for file in images_dir.rglob('*'):
+                                if file.is_file():
+                                    total_files += 1
+                                    total_size += file.stat().st_size
+                        
+                        # Update with actual counts
+                        session_data['total_files'] = total_files
+                        session_data['total_size_bytes'] = total_size
+                        
+                        # Ensure end_time is set
+                        if not session_data.get('end_time'):
+                            session_data['end_time'] = session_dir.stat().st_mtime
+                        
+                        # Update status based on file count
+                        if total_files > 0:
+                            session_data['status'] = 'completed'
+                        
+                        # Create session object
+                        session = ScanSession(
+                            session_id=session_data['session_id'],
+                            start_time=session_data['start_time'],
+                            end_time=session_data.get('end_time'),
+                            scan_name=session_data.get('scan_name', 'Untitled Scan'),
+                            description=session_data.get('description', ''),
+                            operator=session_data.get('operator', 'Unknown'),
+                            total_files=session_data.get('total_files', 0),
+                            total_size_bytes=session_data.get('total_size_bytes', 0),
+                            scan_parameters=session_data.get('scan_parameters', {}),
+                            status=session_data.get('status', 'active')
+                        )
+                        
+                        self.sessions_index[session_id] = session
+                        added_count += 1
+                        logger.info(f"Added session to index: {session.scan_name} ({total_files} files)")
+                        
+                    except Exception as e:
+                        logger.error(f"Error loading metadata for {session_id}: {e}")
+                else:
+                    # No session.json - create minimal entry
+                    logger.warning(f"No metadata file for {session_id}, creating minimal entry")
+                    
+                    # Count files
+                    images_dir = session_dir / 'images'
+                    total_files = 0
+                    total_size = 0
+                    
+                    if images_dir.exists():
+                        for file in images_dir.rglob('*'):
+                            if file.is_file():
+                                total_files += 1
+                                total_size += file.stat().st_size
+                    
+                    stat_info = session_dir.stat()
+                    
+                    session = ScanSession(
+                        session_id=session_id,
+                        start_time=stat_info.st_ctime,
+                        end_time=stat_info.st_mtime,
+                        scan_name=f"Unknown Scan - {session_id[:8]}",
+                        description='Session recovered from directory',
+                        operator='Unknown',
+                        total_files=total_files,
+                        total_size_bytes=total_size,
+                        scan_parameters={},
+                        status='completed' if total_files > 0 else 'incomplete'
+                    )
+                    
+                    self.sessions_index[session_id] = session
+                    added_count += 1
+                    logger.info(f"Added recovered session: {session.scan_name} ({total_files} files)")
+            
+            # Save updated index if we added anything
+            if added_count > 0:
+                await self._save_sessions_index()
+                logger.info(f"Saved index with {added_count} new session(s)")
+            
+            return added_count
+            
+        except Exception as e:
+            logger.error(f"Error scanning for new sessions: {e}")
+            return 0
+
     # Core Session Management Operations
     
     async def create_session(self, session_metadata: Dict[str, Any]) -> str:
