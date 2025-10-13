@@ -97,13 +97,14 @@ def scan_session_directory(session_path: Path) -> dict:
         return None
 
 
-def rebuild_sessions_index(base_path: Path, dry_run: bool = False):
+def rebuild_sessions_index(base_path: Path, dry_run: bool = False, force_recalculate: bool = False):
     """
     Rebuild the sessions index by scanning the sessions directory
     
     Args:
         base_path: Base storage path
         dry_run: If True, only show what would be done without making changes
+        force_recalculate: If True, recalculate metadata even for existing sessions
     """
     
     sessions_dir = base_path / 'sessions'
@@ -111,6 +112,7 @@ def rebuild_sessions_index(base_path: Path, dry_run: bool = False):
     
     logger.info(f"📁 Scanning for sessions in: {sessions_dir}")
     logger.info(f"📋 Index file: {index_file}")
+    logger.info(f"🔄 Force recalculate: {force_recalculate}")
     
     if not sessions_dir.exists():
         logger.error(f"❌ Sessions directory not found: {sessions_dir}")
@@ -130,27 +132,33 @@ def rebuild_sessions_index(base_path: Path, dry_run: bool = False):
     new_index = {}
     discovered = 0
     recovered = 0
+    updated = 0
     
     for session_dir in sorted(sessions_dir.iterdir()):
         if session_dir.is_dir():
             session_id = session_dir.name
             
             # Check if already in index
-            if session_id in existing_index:
+            if session_id in existing_index and not force_recalculate:
                 logger.info(f"  ✓ {session_id} - already in index")
                 new_index[session_id] = existing_index[session_id]
                 discovered += 1
             else:
-                # New session found - scan it
+                # New session found OR forcing recalculation - scan it
                 session_data = scan_session_directory(session_dir)
                 
                 if session_data:
-                    logger.info(f"  🔍 {session_id} - RECOVERED")
+                    if session_id in existing_index:
+                        logger.info(f"  � {session_id} - UPDATED")
+                        updated += 1
+                    else:
+                        logger.info(f"  �🔍 {session_id} - RECOVERED")
+                        recovered += 1
+                    
                     logger.info(f"       Name: {session_data.get('scan_name')}")
                     logger.info(f"       Files: {session_data.get('total_files', 0)}")
                     logger.info(f"       Size: {session_data.get('total_size_bytes', 0) / (1024*1024):.1f} MB")
                     new_index[session_id] = session_data
-                    recovered += 1
     
     # Summary
     logger.info("")
@@ -159,6 +167,7 @@ def rebuild_sessions_index(base_path: Path, dry_run: bool = False):
     logger.info("="*70)
     logger.info(f"  Existing sessions:  {discovered}")
     logger.info(f"  Recovered sessions: {recovered}")
+    logger.info(f"  Updated sessions:   {updated}")
     logger.info(f"  Total sessions:     {len(new_index)}")
     logger.info("")
     
@@ -168,7 +177,7 @@ def rebuild_sessions_index(base_path: Path, dry_run: bool = False):
         return
     
     # Save new index
-    if recovered > 0 or len(new_index) != len(existing_index):
+    if recovered > 0 or updated > 0 or len(new_index) != len(existing_index):
         try:
             # Ensure metadata directory exists
             index_file.parent.mkdir(parents=True, exist_ok=True)
@@ -185,7 +194,10 @@ def rebuild_sessions_index(base_path: Path, dry_run: bool = False):
                 json.dump(new_index, f, indent=2)
             
             logger.info(f"✅ Successfully updated sessions index!")
-            logger.info(f"   {recovered} sessions recovered and added to index")
+            if recovered > 0:
+                logger.info(f"   {recovered} sessions recovered and added to index")
+            if updated > 0:
+                logger.info(f"   {updated} sessions updated with recalculated metadata")
             
         except Exception as e:
             logger.error(f"❌ Failed to save index: {e}")
@@ -212,6 +224,11 @@ def main():
         action='store_true',
         help='Show what would be done without making changes'
     )
+    parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Force recalculation of metadata for all sessions (even if already in index)'
+    )
     
     args = parser.parse_args()
     
@@ -226,6 +243,7 @@ def main():
     logger.info("="*70)
     logger.info(f"Base path: {base_path}")
     logger.info(f"Dry run:   {args.dry_run}")
+    logger.info(f"Force:     {args.force}")
     logger.info("")
     
     if not base_path.exists():
@@ -233,7 +251,7 @@ def main():
         return 1
     
     # Run rebuild
-    rebuild_sessions_index(base_path, dry_run=args.dry_run)
+    rebuild_sessions_index(base_path, dry_run=args.dry_run, force_recalculate=args.force)
     
     logger.info("")
     logger.info("="*70)
