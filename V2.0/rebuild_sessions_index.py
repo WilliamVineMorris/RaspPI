@@ -47,21 +47,29 @@ def get_storage_path():
     return Path('/home/pi/scanner_data')
 
 
-def scan_session_directory(session_path: Path) -> dict:
-    """Extract session metadata from directory"""
+def scan_session_directory(session_path: Path, force_recalculate: bool = False) -> dict:
+    """
+    Extract session metadata from directory
+    
+    Args:
+        session_path: Path to session directory
+        force_recalculate: If True, recalculate file counts even if session.json exists
+    """
     try:
-        # Try to load session.json
-        metadata_file = session_path / 'metadata' / 'session.json'
-        
-        if metadata_file.exists():
-            with open(metadata_file, 'r') as f:
-                data = json.load(f)
-                return data
-        
-        # If no session.json, create basic metadata from directory
         session_id = session_path.name
         
-        # Count files
+        # Try to load session.json for base metadata
+        metadata_file = session_path / 'metadata' / 'session.json'
+        base_data = None
+        
+        if metadata_file.exists():
+            try:
+                with open(metadata_file, 'r') as f:
+                    base_data = json.load(f)
+            except Exception as e:
+                logger.warning(f"Could not load {metadata_file}: {e}")
+        
+        # Count files in images directory
         images_dir = session_path / 'images'
         total_files = 0
         total_size = 0
@@ -72,25 +80,36 @@ def scan_session_directory(session_path: Path) -> dict:
                     total_files += 1
                     total_size += file.stat().st_size
         
-        # Get creation time from directory
-        stat_info = session_path.stat()
-        start_time = stat_info.st_ctime
-        
-        # Try to parse session name from directory name
-        scan_name = f"Recovered Scan - {session_id}"
-        
-        return {
-            'session_id': session_id,
-            'start_time': start_time,
-            'end_time': stat_info.st_mtime,  # Use modification time as end time
-            'scan_name': scan_name,
-            'description': 'Recovered from existing session directory',
-            'operator': 'Unknown',
-            'total_files': total_files,
-            'total_size_bytes': total_size,
-            'scan_parameters': {},
-            'status': 'completed'
-        }
+        # If we have base_data and NOT forcing recalculation, use its file counts
+        if base_data and not force_recalculate:
+            # Use existing metadata as-is (may have wrong file counts)
+            return base_data
+        elif base_data:
+            # Use base metadata but UPDATE file counts with actual values
+            base_data['total_files'] = total_files
+            base_data['total_size_bytes'] = total_size
+            # Update status based on actual file count
+            if total_files > 0:
+                base_data['status'] = base_data.get('status', 'completed')
+            else:
+                base_data['status'] = 'incomplete'
+            return base_data
+        else:
+            # No session.json found - create new metadata from scratch
+            stat_info = session_path.stat()
+            
+            return {
+                'session_id': session_id,
+                'start_time': stat_info.st_ctime,
+                'end_time': stat_info.st_mtime,
+                'scan_name': f"Recovered Scan - {session_id}",
+                'description': 'Recovered from existing session directory',
+                'operator': 'Unknown',
+                'total_files': total_files,
+                'total_size_bytes': total_size,
+                'scan_parameters': {},
+                'status': 'completed' if total_files > 0 else 'incomplete'
+            }
     
     except Exception as e:
         logger.error(f"Error scanning {session_path}: {e}")
@@ -145,7 +164,7 @@ def rebuild_sessions_index(base_path: Path, dry_run: bool = False, force_recalcu
                 discovered += 1
             else:
                 # New session found OR forcing recalculation - scan it
-                session_data = scan_session_directory(session_dir)
+                session_data = scan_session_directory(session_dir, force_recalculate=force_recalculate)
                 
                 if session_data:
                     if session_id in existing_index:
