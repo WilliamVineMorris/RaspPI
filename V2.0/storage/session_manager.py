@@ -241,8 +241,13 @@ class SessionManager(StorageManager):
         except Exception as e:
             logger.error(f"Failed to save sessions index: {e}")
 
-    async def scan_for_new_sessions(self):
-        """Scan sessions directory and add any missing sessions to the index"""
+    async def scan_for_new_sessions(self, refresh_existing: bool = True):
+        """
+        Scan sessions directory and add any missing sessions to the index
+        
+        Args:
+            refresh_existing: If True, also update file counts for existing sessions with 0 files
+        """
         try:
             sessions_dir = self.base_storage_path / 'sessions'
             
@@ -251,6 +256,7 @@ class SessionManager(StorageManager):
                 return 0
             
             added_count = 0
+            updated_count = 0
             
             # Scan each subdirectory in sessions/
             for session_dir in sessions_dir.iterdir():
@@ -259,11 +265,23 @@ class SessionManager(StorageManager):
                 
                 session_id = session_dir.name
                 
-                # Skip if already in index
-                if session_id in self.sessions_index:
+                # Check if this session needs processing
+                is_new_session = session_id not in self.sessions_index
+                needs_refresh = False
+                
+                if not is_new_session and refresh_existing:
+                    # Check if existing session has 0 files (might need refresh)
+                    existing_session = self.sessions_index[session_id]
+                    if existing_session.total_files == 0:
+                        needs_refresh = True
+                        logger.info(f"Session {session_id} has 0 files, refreshing...")
+                
+                # Skip if already in index and doesn't need refresh
+                if not is_new_session and not needs_refresh:
                     continue
                 
-                logger.info(f"Found session not in index: {session_id}")
+                if is_new_session:
+                    logger.info(f"Found session not in index: {session_id}")
                 
                 # Try to load session.json for metadata
                 metadata_file = session_dir / 'metadata' / 'session.json'
@@ -311,8 +329,13 @@ class SessionManager(StorageManager):
                         )
                         
                         self.sessions_index[session_id] = session
-                        added_count += 1
-                        logger.info(f"Added session to index: {session.scan_name} ({total_files} files)")
+                        
+                        if is_new_session:
+                            added_count += 1
+                            logger.info(f"Added session to index: {session.scan_name} ({total_files} files)")
+                        else:
+                            updated_count += 1
+                            logger.info(f"Updated session in index: {session.scan_name} (0 → {total_files} files)")
                         
                     except Exception as e:
                         logger.error(f"Error loading metadata for {session_id}: {e}")
@@ -347,15 +370,20 @@ class SessionManager(StorageManager):
                     )
                     
                     self.sessions_index[session_id] = session
-                    added_count += 1
-                    logger.info(f"Added recovered session: {session.scan_name} ({total_files} files)")
+                    
+                    if is_new_session:
+                        added_count += 1
+                        logger.info(f"Added recovered session: {session.scan_name} ({total_files} files)")
+                    else:
+                        updated_count += 1
+                        logger.info(f"Updated recovered session: {session.scan_name} (0 → {total_files} files)")
             
-            # Save updated index if we added anything
-            if added_count > 0:
+            # Save updated index if we added or updated anything
+            if added_count > 0 or updated_count > 0:
                 await self._save_sessions_index()
-                logger.info(f"Saved index with {added_count} new session(s)")
+                logger.info(f"Saved index with {added_count} new session(s) and {updated_count} updated session(s)")
             
-            return added_count
+            return added_count + updated_count
             
         except Exception as e:
             logger.error(f"Error scanning for new sessions: {e}")
