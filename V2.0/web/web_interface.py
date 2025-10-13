@@ -432,6 +432,16 @@ class ScannerWebInterface:
                 self.logger.error(f"Scan management error: {e}")
                 return jsonify({'error': str(e)}), 500
         
+        @self.app.route('/sessions')
+        def sessions():
+            """Scan sessions browser page"""
+            try:
+                status = self._get_system_status()
+                return render_template('sessions.html', status=status)
+            except Exception as e:
+                self.logger.error(f"Sessions browser error: {e}")
+                return jsonify({'error': str(e)}), 500
+        
         @self.app.route('/settings')
         def settings():
             """Settings and diagnostics page"""
@@ -2291,6 +2301,253 @@ class ScannerWebInterface:
                 self.logger.error(f"Full traceback: {traceback.format_exc()}")
                 # Return empty response that will trigger onerror in HTML
                 return Response("", status=404)
+        
+        # ========== STORAGE & EXPORT API ENDPOINTS ==========
+        # API for managing scans, browsing history, and preparing exports
+        # Designed to support future desktop client integration
+        
+        @self.app.route('/api/storage/sessions', methods=['GET'])
+        def api_storage_sessions():
+            """List all scan sessions with metadata"""
+            try:
+                if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
+                    return jsonify({'error': 'Storage manager not available'}), 503
+                
+                storage_manager = self.orchestrator.storage_manager
+                sessions = []
+                
+                # Get all sessions from the index
+                sessions_index = storage_manager.sessions_index
+                
+                for session_id, session in sessions_index.items():
+                    session_dict = {
+                        'session_id': session_id,
+                        'scan_name': session.scan_name,
+                        'start_time': session.start_time,
+                        'end_time': session.end_time,
+                        'total_files': session.total_files,
+                        'total_size_bytes': session.total_size_bytes,
+                        'status': session.status,
+                        'description': session.description,
+                        'operator': session.operator,
+                        'scan_parameters': session.scan_parameters
+                    }
+                    sessions.append(session_dict)
+                
+                # Sort by start time (newest first)
+                sessions.sort(key=lambda x: x['start_time'] if x['start_time'] else 0, reverse=True)
+                
+                self.logger.info(f"📋 Listed {len(sessions)} scan sessions")
+                return jsonify({
+                    'success': True,
+                    'sessions': sessions,
+                    'count': len(sessions)
+                })
+            
+            except Exception as e:
+                self.logger.error(f"Failed to list sessions: {e}")
+                import traceback
+                self.logger.error(f"Traceback: {traceback.format_exc()}")
+                return jsonify({'error': str(e)}), 500
+        
+        @self.app.route('/api/storage/sessions/<session_id>', methods=['GET'])
+        def api_storage_session_details(session_id):
+            """Get detailed information about a specific session"""
+            try:
+                if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
+                    return jsonify({'error': 'Storage manager not available'}), 503
+                
+                storage_manager = self.orchestrator.storage_manager
+                
+                # Get session from index
+                if session_id not in storage_manager.sessions_index:
+                    return jsonify({'error': 'Session not found'}), 404
+                
+                session = storage_manager.sessions_index[session_id]
+                
+                # Get file list from session directory
+                session_path = storage_manager.base_storage_path / 'sessions' / session_id
+                files = []
+                total_size = 0
+                
+                if session_path.exists():
+                    for file_path in session_path.glob('*.jpg'):
+                        file_stat = file_path.stat()
+                        files.append({
+                            'filename': file_path.name,
+                            'size_bytes': file_stat.st_size,
+                            'modified': file_stat.st_mtime
+                        })
+                        total_size += file_stat.st_size
+                    
+                    # Check for XMP sidecar files
+                    xmp_dir = session_path / 'xmp_sidecar_files'
+                    has_xmp = xmp_dir.exists() and any(xmp_dir.glob('*.xmp'))
+                    
+                    # Check for metadata files
+                    has_metadata = (session_path / 'scan_metadata.json').exists()
+                    has_camera_positions = (session_path / 'camera_positions_full.json').exists()
+                
+                self.logger.info(f"📂 Session {session_id} details: {len(files)} files, {total_size} bytes")
+                
+                return jsonify({
+                    'success': True,
+                    'session': {
+                        'session_id': session_id,
+                        'scan_name': session.scan_name,
+                        'start_time': session.start_time,
+                        'end_time': session.end_time,
+                        'total_files': len(files),
+                        'total_size_bytes': total_size,
+                        'status': session.status,
+                        'description': session.description,
+                        'operator': session.operator,
+                        'scan_parameters': session.scan_parameters
+                    },
+                    'files': files,
+                    'file_count': len(files),
+                    'has_xmp': has_xmp,
+                    'has_metadata': has_metadata,
+                    'has_camera_positions': has_camera_positions
+                })
+            
+            except Exception as e:
+                self.logger.error(f"Failed to get session details for {session_id}: {e}")
+                import traceback
+                self.logger.error(f"Traceback: {traceback.format_exc()}")
+                return jsonify({'error': str(e)}), 500
+        
+        @self.app.route('/api/storage/stats', methods=['GET'])
+        def api_storage_stats():
+            """Get storage system statistics"""
+            try:
+                if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
+                    return jsonify({'error': 'Storage manager not available'}), 503
+                
+                storage_manager = self.orchestrator.storage_manager
+                base_path = storage_manager.base_storage_path
+                
+                # Calculate storage statistics
+                import shutil
+                disk_usage = shutil.disk_usage(base_path)
+                
+                total_gb = disk_usage.total / (1024**3)
+                used_gb = disk_usage.used / (1024**3)
+                free_gb = disk_usage.free / (1024**3)
+                usage_percent = (used_gb / total_gb) * 100 if total_gb > 0 else 0
+                
+                # Count sessions and files
+                session_count = len(storage_manager.sessions_index)
+                
+                total_files = 0
+                total_size_bytes = 0
+                for session in storage_manager.sessions_index.values():
+                    total_files += session.total_files
+                    total_size_bytes += session.total_size_bytes
+                
+                self.logger.info(f"📊 Storage stats: {used_gb:.1f}GB / {total_gb:.1f}GB ({usage_percent:.1f}%)")
+                
+                return jsonify({
+                    'success': True,
+                    'stats': {
+                        'total_capacity_gb': round(total_gb, 2),
+                        'used_space_gb': round(used_gb, 2),
+                        'available_space_gb': round(free_gb, 2),
+                        'usage_percentage': round(usage_percent, 1),
+                        'session_count': session_count,
+                        'total_files': total_files,
+                        'total_size_bytes': total_size_bytes,
+                        'total_size_mb': round(total_size_bytes / (1024**2), 1)
+                    }
+                })
+            
+            except Exception as e:
+                self.logger.error(f"Failed to get storage stats: {e}")
+                import traceback
+                self.logger.error(f"Traceback: {traceback.format_exc()}")
+                return jsonify({'error': str(e)}), 500
+        
+        @self.app.route('/api/storage/sessions/<session_id>/files/<path:filename>', methods=['GET'])
+        def api_storage_serve_file(session_id, filename):
+            """Serve individual files from a session"""
+            try:
+                if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
+                    return jsonify({'error': 'Storage manager not available'}), 503
+                
+                storage_manager = self.orchestrator.storage_manager
+                
+                # Validate session exists
+                if session_id not in storage_manager.sessions_index:
+                    return jsonify({'error': 'Session not found'}), 404
+                
+                # Build file path
+                session_path = storage_manager.base_storage_path / 'sessions' / session_id
+                file_path = session_path / filename
+                
+                # Security check: ensure path is within session directory
+                try:
+                    file_path = file_path.resolve()
+                    session_path = session_path.resolve()
+                    if not str(file_path).startswith(str(session_path)):
+                        return jsonify({'error': 'Invalid file path'}), 403
+                except Exception:
+                    return jsonify({'error': 'Invalid file path'}), 403
+                
+                # Check file exists
+                if not file_path.exists() or not file_path.is_file():
+                    return jsonify({'error': 'File not found'}), 404
+                
+                # Serve the file
+                from flask import send_file
+                return send_file(file_path, as_attachment=False)
+            
+            except Exception as e:
+                self.logger.error(f"Failed to serve file {filename} from session {session_id}: {e}")
+                return jsonify({'error': str(e)}), 500
+        
+        @self.app.route('/api/storage/sessions/<session_id>', methods=['DELETE'])
+        def api_storage_delete_session(session_id):
+            """Delete a scan session"""
+            try:
+                if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
+                    return jsonify({'error': 'Storage manager not available'}), 503
+                
+                storage_manager = self.orchestrator.storage_manager
+                
+                # Check if session exists
+                if session_id not in storage_manager.sessions_index:
+                    return jsonify({'error': 'Session not found'}), 404
+                
+                # Get session info before deletion
+                session = storage_manager.sessions_index[session_id]
+                freed_space_bytes = session.total_size_bytes
+                
+                # Delete session directory
+                session_path = storage_manager.base_storage_path / 'sessions' / session_id
+                if session_path.exists():
+                    import shutil
+                    shutil.rmtree(session_path)
+                
+                # Remove from index
+                del storage_manager.sessions_index[session_id]
+                
+                # Save updated index
+                import asyncio
+                asyncio.create_task(storage_manager._save_sessions_index())
+                
+                self.logger.info(f"🗑️ Deleted session {session_id}, freed {freed_space_bytes / (1024**2):.1f} MB")
+                
+                return jsonify({
+                    'success': True,
+                    'session_id': session_id,
+                    'freed_space_mb': round(freed_space_bytes / (1024**2), 1)
+                })
+            
+            except Exception as e:
+                self.logger.error(f"Failed to delete session {session_id}: {e}")
+                import traceback
+                self.logger.error(f"Traceback: {traceback.format_exc()}")
+                return jsonify({'error': str(e)}), 500
     
     def _setup_orchestrator_integration(self):
         """Setup integration with the scan orchestrator"""
