@@ -614,6 +614,33 @@
     </div>
 </div>
 
+<!-- Download Progress Modal -->
+<div id="downloadProgressModal" class="session-modal" style="display: none;">
+    <div class="modal-content-large" style="max-width: 500px;">
+        <div class="modal-header-large">
+            <h3 class="modal-title-large">📦 Preparing Download</h3>
+        </div>
+        <div class="modal-body-large">
+            <div style="text-align: center; padding: 2rem;">
+                <div id="downloadSpinner" class="spinner-large" style="margin: 0 auto 1.5rem;">
+                    <div class="spinner-ring"></div>
+                    <div class="spinner-ring"></div>
+                    <div class="spinner-ring"></div>
+                </div>
+                <div id="downloadProgressText" style="font-size: 1.1rem; color: #6b7280; margin-bottom: 1rem;">
+                    Initializing...
+                </div>
+                <div id="downloadProgressDetails" style="font-size: 0.9rem; color: #9ca3af;">
+                    Please wait while we prepare your download
+                </div>
+                <div id="downloadProgressTime" style="font-size: 0.85rem; color: #d1d5db; margin-top: 1rem;">
+                    <!-- Elapsed time shown here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <style>
     /* Alert animations */
     @keyframes slideIn {
@@ -635,6 +662,42 @@
         to {
             transform: translateX(400px);
             opacity: 0;
+        }
+    }
+    
+    /* Spinner animations */
+    .spinner-large {
+        width: 80px;
+        height: 80px;
+        position: relative;
+    }
+    
+    .spinner-ring {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        border: 4px solid transparent;
+        border-top-color: #3b82f6;
+        border-radius: 50%;
+        animation: spin 1.5s cubic-bezier(0.68, -0.55, 0.27, 1.55) infinite;
+    }
+    
+    .spinner-ring:nth-child(2) {
+        border-top-color: #10b981;
+        animation-delay: 0.15s;
+    }
+    
+    .spinner-ring:nth-child(3) {
+        border-top-color: #f59e0b;
+        animation-delay: 0.3s;
+    }
+    
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+        100% {
+            transform: rotate(360deg);
         }
     }
 </style>
@@ -948,20 +1011,99 @@ async function downloadSession(sessionId, scanName) {
         return;
     }
     
+    // Show progress modal
+    const modal = document.getElementById('downloadProgressModal');
+    const progressText = document.getElementById('downloadProgressText');
+    const progressDetails = document.getElementById('downloadProgressDetails');
+    const progressTime = document.getElementById('downloadProgressTime');
+    
+    modal.style.display = 'flex';
+    
+    // Track elapsed time
+    const startTime = Date.now();
+    let timeInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        progressTime.textContent = `Elapsed time: ${elapsed}s`;
+    }, 1000);
+    
     try {
-        showAlert('Preparing ZIP file...', 'info', 2000);
+        // Stage 1: Fetching session details
+        progressText.textContent = '📋 Fetching session details...';
+        progressDetails.textContent = 'Retrieving file list and metadata';
         
-        // Trigger ZIP download
+        const response = await fetch(`/api/storage/sessions/${sessionId}`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to fetch session details');
+        }
+        
+        const fileCount = data.files.length;
+        const totalSize = data.total_size_bytes;
+        const sizeMB = (totalSize / (1024 * 1024)).toFixed(1);
+        
+        // Stage 2: Requesting ZIP creation
+        progressText.textContent = '📦 Creating ZIP archive...';
+        progressDetails.textContent = `Compressing ${fileCount} files (${sizeMB} MB)`;
+        
+        // Add slight delay to show the message
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Stage 3: Estimate and show expected time
+        const estimatedSeconds = Math.ceil(fileCount / 10); // Rough estimate: 10 files/second
+        progressDetails.textContent = `This may take ${estimatedSeconds}-${estimatedSeconds * 2} seconds for ${fileCount} files`;
+        
+        // Trigger the download
         const url = `/api/storage/sessions/${sessionId}/download`;
-        window.location.href = url;
         
-        // Show success message after a delay
+        // Create hidden iframe to trigger download without changing page
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = url;
+        document.body.appendChild(iframe);
+        
+        // Stage 4: Download in progress
+        progressText.textContent = '⬇️ Download starting...';
+        progressDetails.textContent = 'Your browser will prompt to save the file';
+        
+        // Wait a bit longer for large files
+        const waitTime = Math.min(estimatedSeconds * 1000, 5000); // Max 5 seconds wait
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        
+        // Stage 5: Complete
+        progressText.textContent = '✅ Download initiated!';
+        progressDetails.textContent = 'Check your browser downloads';
+        
+        // Clear time interval
+        clearInterval(timeInterval);
+        
+        // Show final time
+        const totalTime = Math.floor((Date.now() - startTime) / 1000);
+        progressTime.textContent = `Total time: ${totalTime}s`;
+        
+        // Auto-close after 2 seconds
         setTimeout(() => {
-            showAlert('Download started!', 'success', 3000);
-        }, 1000);
+            modal.style.display = 'none';
+            // Clean up iframe
+            if (iframe.parentNode) {
+                iframe.parentNode.removeChild(iframe);
+            }
+        }, 2000);
+        
+        showAlert('Download started! Check your downloads folder', 'success', 3000);
         
     } catch (error) {
+        clearInterval(timeInterval);
         console.error('Error downloading session:', error);
+        
+        progressText.textContent = '❌ Download failed';
+        progressDetails.textContent = error.message || 'An error occurred';
+        progressTime.textContent = '';
+        
+        setTimeout(() => {
+            modal.style.display = 'none';
+        }, 3000);
+        
         showAlert('Failed to download session', 'error', 3000);
     }
 }
