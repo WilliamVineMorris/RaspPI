@@ -636,7 +636,7 @@ async function loadStorageStats() {
 }
 
 // Reload sessions index from disk (for after running rebuild script)
-async function reloadSessionsIndex() {
+async function reloadSessionsIndex(silent = false) {
     try {
         const response = await fetch('/api/storage/reload', {
             method: 'POST',
@@ -648,25 +648,29 @@ async function reloadSessionsIndex() {
         
         if (data.success) {
             console.log(`✅ Reloaded sessions index: ${data.sessions_before} → ${data.sessions_after} sessions`);
-            if (data.sessions_added > 0) {
+            if (data.sessions_added > 0 && !silent) {
                 showNotification(`Found ${data.sessions_added} new session(s)!`, 'success');
             }
             return true;
         } else {
             console.error('Failed to reload sessions index:', data.error);
-            showNotification('Failed to reload sessions index', 'error');
+            if (!silent) {
+                showNotification('Failed to reload sessions index', 'error');
+            }
             return false;
         }
     } catch (error) {
         console.error('Error reloading sessions index:', error);
-        showNotification('Error reloading sessions index', 'error');
+        if (!silent) {
+            showNotification('Error reloading sessions index', 'error');
+        }
         return false;
     }
 }
 
 // Reload index from disk and refresh display
-async function reloadAndRefresh() {
-    await reloadSessionsIndex();
+async function reloadAndRefresh(silent = false) {
+    await reloadSessionsIndex(silent);
     await loadSessions();
 }
 
@@ -982,7 +986,10 @@ window.onclick = function(event) {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
-    loadSessions();
+    // Reload index from disk first, then load sessions
+    // This ensures we show the latest data on initial page load
+    // Use silent=true to avoid notification spam on page load
+    reloadAndRefresh(true);
     loadStorageStats();
 });
 
