@@ -2306,6 +2306,12 @@ class ScannerWebInterface:
         # API for managing scans, browsing history, and preparing exports
         # Designed to support future desktop client integration
         
+        @self.app.route('/api/storage/test', methods=['GET'])
+        def api_storage_test():
+            """Test endpoint to verify logging is working"""
+            self.logger.info("🧪 TEST ENDPOINT CALLED - Logging is working!")
+            return jsonify({'success': True, 'message': 'Test endpoint working'})
+        
         @self.app.route('/api/storage/sessions', methods=['GET'])
         def api_storage_sessions():
             """List all scan sessions with metadata"""
@@ -2561,6 +2567,8 @@ class ScannerWebInterface:
         def api_storage_download_session(session_id):
             """Download entire session as ZIP file"""
             self.logger.info(f"📥 ZIP download requested for session: {session_id}")
+            self.logger.info(f"📥 Request headers: {dict(request.headers)}")
+            self.logger.info(f"📥 Request args: {dict(request.args)}")
             try:
                 if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
                     self.logger.error("Storage manager not available")
