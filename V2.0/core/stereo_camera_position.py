@@ -392,6 +392,109 @@ class StereoCameraPositionCalculator:
             print(f"❌ Failed to export XMP sidecar files: {e}")
             return False
 
+    def export_meshroom_sfm(
+        self,
+        positions_dict: Dict[str, Dict[int, CameraPosition3D]],
+        output_path: str
+    ) -> bool:
+        """
+        Export camera poses in Meshroom's ImportKnownPoses format (.sfm).
+        
+        Format: Newline-delimited JSON with pose/forward/up vectors per image.
+        Each line: {"pose": [x, y, z], "forward": [fx, fy, fz], "up": [ux, uy, uz]}
+        
+        Coordinate System: Meshroom expects Y-up convention with 90° rotation:
+        - Standard (X, Y, Z) → Meshroom (X, Z, -Y)
+        - Applied to both position and direction vectors
+        
+        Args:
+            positions_dict: Dict mapping image_name to {camera_id: CameraPosition3D}
+            output_path: Path to output .sfm file
+            
+        Returns:
+            True if export successful
+        """
+        try:
+            import json
+            import math
+            
+            with open(output_path, 'w') as f:
+                # Process images in sorted order (required by Meshroom)
+                for image_name in sorted(positions_dict.keys()):
+                    cameras = positions_dict[image_name]
+                    
+                    # Process each camera for this image
+                    for cam_id in sorted(cameras.keys()):
+                        pos = cameras[cam_id]
+                        
+                        # Convert Euler angles to direction vectors
+                        # Euler convention: ZYX rotation (yaw-pitch-roll)
+                        omega_rad = math.radians(pos.omega)  # Roll (X-axis)
+                        phi_rad = math.radians(pos.phi)      # Pitch (Y-axis)
+                        kappa_rad = math.radians(pos.kappa)  # Yaw (Z-axis)
+                        
+                        # Calculate forward vector (camera looking direction)
+                        # Standard camera looks along +Z axis initially
+                        # Apply rotations: Yaw (Z) → Pitch (Y) → Roll (X)
+                        forward_x = math.cos(phi_rad) * math.sin(kappa_rad)
+                        forward_y = -math.sin(phi_rad)
+                        forward_z = math.cos(phi_rad) * math.cos(kappa_rad)
+                        
+                        # Calculate up vector (camera "up" direction)
+                        # Standard camera "up" is -Y axis initially
+                        # Apply same rotations
+                        up_x = math.sin(omega_rad) * math.sin(phi_rad) * math.sin(kappa_rad) + math.cos(omega_rad) * math.cos(kappa_rad)
+                        up_y = math.sin(omega_rad) * math.cos(phi_rad)
+                        up_z = math.sin(omega_rad) * math.sin(phi_rad) * math.cos(kappa_rad) - math.cos(omega_rad) * math.sin(kappa_rad)
+                        
+                        # Normalize vectors to unit length
+                        forward_len = math.sqrt(forward_x**2 + forward_y**2 + forward_z**2)
+                        up_len = math.sqrt(up_x**2 + up_y**2 + up_z**2)
+                        
+                        forward_x /= forward_len
+                        forward_y /= forward_len
+                        forward_z /= forward_len
+                        
+                        up_x /= up_len
+                        up_y /= up_len
+                        up_z /= up_len
+                        
+                        # Apply Meshroom coordinate transformation
+                        # Standard (X, Y, Z) → Meshroom (X, Z, -Y)
+                        meshroom_pose = [
+                            pos.x,        # X stays the same
+                            pos.z,        # Z → Y (Meshroom uses Y-up)
+                            -pos.y        # Y → -Z (flip and swap)
+                        ]
+                        
+                        meshroom_forward = [
+                            forward_x,    # X stays the same
+                            forward_z,    # Z → Y
+                            -forward_y    # Y → -Z
+                        ]
+                        
+                        meshroom_up = [
+                            up_x,         # X stays the same
+                            up_z,         # Z → Y
+                            -up_y         # Y → -Z
+                        ]
+                        
+                        # Create JSON line (one per image)
+                        pose_data = {
+                            "pose": meshroom_pose,
+                            "forward": meshroom_forward,
+                            "up": meshroom_up
+                        }
+                        
+                        # Write as single-line JSON (newline-delimited format)
+                        f.write(json.dumps(pose_data) + '\n')
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ Failed to export Meshroom SFM file: {e}")
+            return False
+
 def create_stereo_position_calculator(config_manager: ConfigManager) -> StereoCameraPositionCalculator:
     """
     Factory function to create stereo camera position calculator.

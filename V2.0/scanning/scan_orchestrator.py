@@ -4395,34 +4395,15 @@ class ScanOrchestrator:
                     self.camera_positions_for_export[image_basename] = {}
                 self.camera_positions_for_export[image_basename][camera_id] = camera_3d_pos
                 
-                # Embed in GPS EXIF (Cartesian coordinates in mm)
-                # Get formatted GPS values with reference fields
-                gps_lat, gps_lon, gps_alt, lat_ref, lon_ref, alt_ref = self.stereo_position_calc.format_for_gps_exif(camera_3d_pos)
+                # ❌ GPS EXIF removed - caused issues with photogrammetry software
+                # Camera poses exported to external files instead (see _export_camera_positions_file)
                 
-                # Set GPS coordinates (X→Latitude, Y→Longitude, Z→Altitude)
-                exif_dict["GPS"][piexif.GPSIFD.GPSLatitude] = gps_lat
-                exif_dict["GPS"][piexif.GPSIFD.GPSLatitudeRef] = lat_ref.encode('utf-8')
-                exif_dict["GPS"][piexif.GPSIFD.GPSLongitude] = gps_lon
-                exif_dict["GPS"][piexif.GPSIFD.GPSLongitudeRef] = lon_ref.encode('utf-8')
-                exif_dict["GPS"][piexif.GPSIFD.GPSAltitude] = gps_alt
-                exif_dict["GPS"][piexif.GPSIFD.GPSAltitudeRef] = alt_ref
-                
-                # Set camera orientation using GPS direction fields
-                # GPSImgDirection: Camera heading/yaw (kappa angle, 0-360°)
-                kappa_normalized = camera_3d_pos.kappa % 360  # Normalize to 0-360
-                exif_dict["GPS"][piexif.GPSIFD.GPSImgDirection] = (int(kappa_normalized * 100), 100)
-                exif_dict["GPS"][piexif.GPSIFD.GPSImgDirectionRef] = b'T'  # True north reference
-                
-                # GPSDestBearing: Camera pitch/tilt (phi angle, repurposed)
-                # Store as absolute value with sign in comment
-                exif_dict["GPS"][piexif.GPSIFD.GPSDestBearing] = (int(abs(camera_3d_pos.phi) * 100), 100)
-                
-                # Add complete orientation to UserComment (human-readable + fallback)
+                # Add complete orientation to UserComment for reference
                 # Format: omega,phi,kappa for easy machine parsing
                 orientation_comment = f"Cam{camera_id}|Orient:omega={camera_3d_pos.omega:.4f},phi={camera_3d_pos.phi:.4f},kappa={camera_3d_pos.kappa:.4f}"
                 exif_dict["Exif"][piexif.ExifIFD.UserComment] = orientation_comment.encode('utf-8')
                 
-                # Add machine-readable orientation to MakerNote (if software supports it)
+                # Add machine-readable pose to MakerNote for debugging
                 maker_note = f"SCANNER_POSE|X:{camera_3d_pos.x:.4f}|Y:{camera_3d_pos.y:.4f}|Z:{camera_3d_pos.z:.4f}|O:{camera_3d_pos.omega:.4f}|P:{camera_3d_pos.phi:.4f}|K:{camera_3d_pos.kappa:.4f}|CAM:{camera_id}"
                 exif_dict["Exif"][piexif.ExifIFD.MakerNote] = maker_note.encode('utf-8')
                 
@@ -4591,16 +4572,27 @@ class ScanOrchestrator:
             if success_rc:
                 self.logger.info(f"📐 Exported RealityCapture camera positions: {rc_file}")
             
-            # Export Meshroom format (position only)
-            meshroom_file = output_dir / 'camera_positions_meshroom.txt'
-            success_meshroom = self.stereo_position_calc.export_camera_positions_txt(
+            # Export Meshroom format (position only, simple TXT for reference)
+            meshroom_txt_file = output_dir / 'camera_positions_meshroom.txt'
+            success_meshroom_txt = self.stereo_position_calc.export_camera_positions_txt(
                 self.camera_positions_for_export,
-                str(meshroom_file),
+                str(meshroom_txt_file),
                 format_type="meshroom"
             )
             
-            if success_meshroom:
-                self.logger.info(f"📐 Exported Meshroom camera positions: {meshroom_file}")
+            if success_meshroom_txt:
+                self.logger.info(f"📐 Exported Meshroom TXT (reference): {meshroom_txt_file}")
+            
+            # Export Meshroom SFM format (pose/forward/up vectors for ImportKnownPoses)
+            meshroom_sfm_file = output_dir / 'camera_poses_meshroom.sfm'
+            success_meshroom_sfm = self.stereo_position_calc.export_meshroom_sfm(
+                self.camera_positions_for_export,
+                str(meshroom_sfm_file)
+            )
+            
+            if success_meshroom_sfm:
+                self.logger.info(f"📐 Exported Meshroom SFM (ImportKnownPoses): {meshroom_sfm_file}")
+                self.logger.info(f"💡 Use this file in Meshroom's ImportKnownPoses node")
             
             # Export XMP sidecar files to separate directory
             xmp_dir = output_dir / 'xmp_sidecar_files'
