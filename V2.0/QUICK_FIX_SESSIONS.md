@@ -15,8 +15,10 @@ Press `Ctrl+C` in the terminal running the web interface
 The updated files are already on your PC in the `RaspPI/V2.0/` directory. Copy them to the Pi:
 
 **Files that changed:**
-- `web/web_interface.py` - Added reload API endpoint
+- `web/web_interface.py` - Added reload API endpoint (FIXED async issue)
 - `web/templates/sessions.html` - Added reload button functionality
+
+**Note**: The first version had an async/await bug that's now fixed!
 
 **Quick deploy** (from your PC):
 ```bash

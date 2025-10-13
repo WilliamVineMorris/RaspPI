@@ -168,18 +168,34 @@ We could make SessionManager periodically scan the disk, but:
 
 ### Async Timing Issue
 
-The current implementation has a small timing issue:
+The original implementation had an asyncio issue - we can't use `asyncio.create_task()` in a synchronous Flask route without a running event loop.
+
+**Solution**: Handle event loop creation properly:
 ```python
-asyncio.create_task(storage_manager._load_sessions_index())
-time.sleep(0.1)  # Hope it finishes in 100ms
+# Clear the index first
+storage_manager.sessions_index.clear()
+
+# Create/get event loop and run async function
+import asyncio
+try:
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        # Create new loop if one is already running
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(storage_manager._load_sessions_index())
+        loop.close()
+    else:
+        loop.run_until_complete(storage_manager._load_sessions_index())
+except RuntimeError:
+    # No event loop exists, create one
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(storage_manager._load_sessions_index())
+    loop.close()
 ```
 
-**Better approach** (future improvement): Make the endpoint properly async:
-```python
-await storage_manager._load_sessions_index()
-```
-
-This requires making `api_storage_reload()` an async function, which needs more web interface refactoring.
+This ensures the async `_load_sessions_index()` function runs properly in the synchronous Flask context.
 
 ### Thread Safety
 

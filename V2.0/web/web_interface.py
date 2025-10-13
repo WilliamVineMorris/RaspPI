@@ -2561,13 +2561,29 @@ class ScannerWebInterface:
                 # Store count before reload
                 sessions_before = len(storage_manager.sessions_index)
                 
-                # Reload the index from disk
-                import asyncio
-                asyncio.create_task(storage_manager._load_sessions_index())
+                # Clear the current index
+                storage_manager.sessions_index.clear()
                 
-                # Give it a moment to complete
-                import time
-                time.sleep(0.1)
+                # Reload the index from disk synchronously
+                # We need to call the async function in a new event loop
+                import asyncio
+                try:
+                    # Try to get existing loop
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If loop is already running, create a new one for this call
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(storage_manager._load_sessions_index())
+                        loop.close()
+                    else:
+                        loop.run_until_complete(storage_manager._load_sessions_index())
+                except RuntimeError:
+                    # No event loop exists, create one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(storage_manager._load_sessions_index())
+                    loop.close()
                 
                 sessions_after = len(storage_manager.sessions_index)
                 
