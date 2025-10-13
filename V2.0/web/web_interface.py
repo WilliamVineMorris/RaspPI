@@ -2371,22 +2371,28 @@ class ScannerWebInterface:
                 total_size = 0
                 
                 if session_path.exists():
-                    for file_path in session_path.glob('*.jpg'):
-                        file_stat = file_path.stat()
-                        files.append({
-                            'filename': file_path.name,
-                            'size_bytes': file_stat.st_size,
-                            'modified': file_stat.st_mtime
-                        })
-                        total_size += file_stat.st_size
+                    # Look for images in the images subdirectory
+                    images_dir = session_path / 'images'
+                    if images_dir.exists():
+                        # Get all image files (jpg, png, etc.)
+                        for ext in ['*.jpg', '*.jpeg', '*.png', '*.JPG', '*.JPEG', '*.PNG']:
+                            for file_path in images_dir.glob(ext):
+                                file_stat = file_path.stat()
+                                files.append({
+                                    'filename': file_path.name,
+                                    'size_bytes': file_stat.st_size,
+                                    'modified': file_stat.st_mtime
+                                })
+                                total_size += file_stat.st_size
                     
                     # Check for XMP sidecar files
                     xmp_dir = session_path / 'xmp_sidecar_files'
                     has_xmp = xmp_dir.exists() and any(xmp_dir.glob('*.xmp'))
                     
                     # Check for metadata files
-                    has_metadata = (session_path / 'scan_metadata.json').exists()
-                    has_camera_positions = (session_path / 'camera_positions_full.json').exists()
+                    metadata_dir = session_path / 'metadata'
+                    has_metadata = (metadata_dir / 'scan_metadata.json').exists() if metadata_dir.exists() else False
+                    has_camera_positions = (metadata_dir / 'camera_positions_full.json').exists() if metadata_dir.exists() else False
                 
                 self.logger.info(f"📂 Session {session_id} details: {len(files)} files, {total_size} bytes")
                 

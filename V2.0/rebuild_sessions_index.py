@@ -88,11 +88,18 @@ def scan_session_directory(session_path: Path, force_recalculate: bool = False) 
             # Use base metadata but UPDATE file counts with actual values
             base_data['total_files'] = total_files
             base_data['total_size_bytes'] = total_size
+            
             # Update status based on actual file count
             if total_files > 0:
-                base_data['status'] = base_data.get('status', 'completed')
+                base_data['status'] = 'completed'
             else:
                 base_data['status'] = 'incomplete'
+            
+            # Ensure end_time is set (use directory mtime if missing)
+            if not base_data.get('end_time'):
+                stat_info = session_path.stat()
+                base_data['end_time'] = stat_info.st_mtime
+            
             return base_data
         else:
             # No session.json found - create new metadata from scratch
