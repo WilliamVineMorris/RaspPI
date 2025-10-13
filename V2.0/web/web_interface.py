@@ -31,7 +31,7 @@ from dataclasses import asdict
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import cv2
-from flask import Flask, render_template, jsonify, request, Response, redirect, url_for
+from flask import Flask, render_template, jsonify, request, Response, redirect, url_for, after_this_request
 from werkzeug.exceptions import BadRequest
 
 # Import scanner modules
@@ -2560,21 +2560,27 @@ class ScannerWebInterface:
         @self.app.route('/api/storage/sessions/<session_id>/download', methods=['GET'])
         def api_storage_download_session(session_id):
             """Download entire session as ZIP file"""
+            self.logger.info(f"📥 ZIP download requested for session: {session_id}")
             try:
                 if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
+                    self.logger.error("Storage manager not available")
                     return jsonify({'error': 'Storage manager not available'}), 503
                 
                 storage_manager = self.orchestrator.storage_manager
                 
                 # Validate session exists
                 if session_id not in storage_manager.sessions_index:
+                    self.logger.error(f"Session {session_id} not found in index")
                     return jsonify({'error': 'Session not found'}), 404
                 
                 session = storage_manager.sessions_index[session_id]
                 session_path = storage_manager.base_storage_path / 'sessions' / session_id
                 
                 if not session_path.exists():
+                    self.logger.error(f"Session directory does not exist: {session_path}")
                     return jsonify({'error': 'Session directory not found'}), 404
+                
+                self.logger.info(f"📦 Creating ZIP for session: {session.scan_name} ({session_path})")
                 
                 # Create temporary ZIP file
                 import tempfile
@@ -2593,7 +2599,10 @@ class ScannerWebInterface:
                 temp_zip_path = temp_zip.name
                 temp_zip.close()
                 
+                self.logger.info(f"📄 Temp ZIP file created: {temp_zip_path}")
+                
                 try:
+                    file_count = 0
                     with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                         # Add all files from session directory
                         for root, dirs, files in os.walk(session_path):
@@ -2602,18 +2611,36 @@ class ScannerWebInterface:
                                 # Calculate archive name (relative path from session root)
                                 arcname = file_path.relative_to(session_path)
                                 zipf.write(file_path, arcname)
-                                self.logger.debug(f"Added to ZIP: {arcname}")
+                                file_count += 1
+                                if file_count % 50 == 0:
+                                    self.logger.debug(f"Added {file_count} files to ZIP...")
                     
-                    self.logger.info(f"📦 Created ZIP for session {session_id}: {zip_filename}")
+                    zip_size_mb = os.path.getsize(temp_zip_path) / (1024**2)
+                    self.logger.info(f"📦 Created ZIP for session {session_id}: {zip_filename} ({file_count} files, {zip_size_mb:.1f} MB)")
                     
-                    # Send the file and delete after
+                    # Send the file with proper cleanup
                     from flask import send_file
-                    return send_file(
+                    
+                    @after_this_request
+                    def cleanup_temp_file(response):
+                        """Delete temp file after sending"""
+                        try:
+                            if os.path.exists(temp_zip_path):
+                                os.unlink(temp_zip_path)
+                                self.logger.debug(f"🗑️  Cleaned up temp ZIP: {temp_zip_path}")
+                        except Exception as e:
+                            self.logger.warning(f"Failed to cleanup temp ZIP: {e}")
+                        return response
+                    
+                    # Send file with explicit filename header
+                    response = send_file(
                         temp_zip_path,
                         as_attachment=True,
-                        download_name=zip_filename,
                         mimetype='application/zip'
                     )
+                    # Set the download filename in the header
+                    response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
+                    return response
                     
                 except Exception as zip_error:
                     # Clean up temp file on error
