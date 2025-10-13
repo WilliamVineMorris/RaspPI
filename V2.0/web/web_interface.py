@@ -2545,9 +2545,25 @@ class ScannerWebInterface:
                 # Remove from index
                 del storage_manager.sessions_index[session_id]
                 
-                # Save updated index
+                # Save updated index synchronously
                 import asyncio
-                asyncio.create_task(storage_manager._save_sessions_index())
+                try:
+                    # Try to get existing loop
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If loop is already running, create a new one for this call
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(storage_manager._save_sessions_index())
+                        loop.close()
+                    else:
+                        loop.run_until_complete(storage_manager._save_sessions_index())
+                except RuntimeError:
+                    # No event loop exists, create one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(storage_manager._save_sessions_index())
+                    loop.close()
                 
                 self.logger.info(f"🗑️ Deleted session {session_id}, freed {freed_space_bytes / (1024**2):.1f} MB")
                 
