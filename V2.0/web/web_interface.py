@@ -2380,6 +2380,7 @@ class ScannerWebInterface:
                                 file_stat = file_path.stat()
                                 files.append({
                                     'filename': file_path.name,
+                                    'relative_path': f"images/{file_path.name}",  # Include subdirectory for download
                                     'size_bytes': file_stat.st_size,
                                     'modified': file_stat.st_mtime
                                 })
@@ -2552,6 +2553,76 @@ class ScannerWebInterface:
             
             except Exception as e:
                 self.logger.error(f"Failed to delete session {session_id}: {e}")
+                import traceback
+                self.logger.error(f"Traceback: {traceback.format_exc()}")
+                return jsonify({'error': str(e)}), 500
+        
+        @self.app.route('/api/storage/sessions/<session_id>/download', methods=['GET'])
+        def api_storage_download_session(session_id):
+            """Download entire session as ZIP file"""
+            try:
+                if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
+                    return jsonify({'error': 'Storage manager not available'}), 503
+                
+                storage_manager = self.orchestrator.storage_manager
+                
+                # Validate session exists
+                if session_id not in storage_manager.sessions_index:
+                    return jsonify({'error': 'Session not found'}), 404
+                
+                session = storage_manager.sessions_index[session_id]
+                session_path = storage_manager.base_storage_path / 'sessions' / session_id
+                
+                if not session_path.exists():
+                    return jsonify({'error': 'Session directory not found'}), 404
+                
+                # Create temporary ZIP file
+                import tempfile
+                import zipfile
+                from pathlib import Path
+                
+                # Create a safe filename from scan name
+                safe_name = "".join(c for c in session.scan_name if c.isalnum() or c in (' ', '-', '_')).strip()
+                if not safe_name:
+                    safe_name = session_id[:8]
+                
+                zip_filename = f"{safe_name}.zip"
+                
+                # Create ZIP in memory or temp file
+                temp_zip = tempfile.NamedTemporaryFile(mode='w+b', delete=False, suffix='.zip')
+                temp_zip_path = temp_zip.name
+                temp_zip.close()
+                
+                try:
+                    with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        # Add all files from session directory
+                        for root, dirs, files in os.walk(session_path):
+                            for file in files:
+                                file_path = Path(root) / file
+                                # Calculate archive name (relative path from session root)
+                                arcname = file_path.relative_to(session_path)
+                                zipf.write(file_path, arcname)
+                                self.logger.debug(f"Added to ZIP: {arcname}")
+                    
+                    self.logger.info(f"📦 Created ZIP for session {session_id}: {zip_filename}")
+                    
+                    # Send the file and delete after
+                    from flask import send_file
+                    return send_file(
+                        temp_zip_path,
+                        as_attachment=True,
+                        download_name=zip_filename,
+                        mimetype='application/zip'
+                    )
+                    
+                except Exception as zip_error:
+                    # Clean up temp file on error
+                    if os.path.exists(temp_zip_path):
+                        os.unlink(temp_zip_path)
+                    raise zip_error
+                
+            except Exception as e:
+                self.logger.error(f"Failed to create ZIP for session {session_id}: {e}")
                 import traceback
                 self.logger.error(f"Traceback: {traceback.format_exc()}")
                 return jsonify({'error': str(e)}), 500
