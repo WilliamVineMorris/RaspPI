@@ -2392,7 +2392,8 @@ class ScannerWebInterface:
                     # Check for metadata files
                     metadata_dir = session_path / 'metadata'
                     has_metadata = (metadata_dir / 'scan_metadata.json').exists() if metadata_dir.exists() else False
-                    has_camera_positions = (metadata_dir / 'camera_positions_full.json').exists() if metadata_dir.exists() else False
+                    # Camera positions are saved to session root, not metadata subdirectory
+                    has_camera_positions = (session_path / 'camera_positions_full.json').exists()
                 
                 self.logger.info(f"📂 Session {session_id} details: {len(files)} files, {total_size} bytes")
                 
