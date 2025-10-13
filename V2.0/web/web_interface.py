@@ -2548,6 +2548,43 @@ class ScannerWebInterface:
                 import traceback
                 self.logger.error(f"Traceback: {traceback.format_exc()}")
                 return jsonify({'error': str(e)}), 500
+        
+        @self.app.route('/api/storage/reload', methods=['POST'])
+        def api_storage_reload():
+            """Reload sessions index from disk (useful after running rebuild script)"""
+            try:
+                if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
+                    return jsonify({'error': 'Storage manager not available'}), 503
+                
+                storage_manager = self.orchestrator.storage_manager
+                
+                # Store count before reload
+                sessions_before = len(storage_manager.sessions_index)
+                
+                # Reload the index from disk
+                import asyncio
+                asyncio.create_task(storage_manager._load_sessions_index())
+                
+                # Give it a moment to complete
+                import time
+                time.sleep(0.1)
+                
+                sessions_after = len(storage_manager.sessions_index)
+                
+                self.logger.info(f"🔄 Reloaded sessions index: {sessions_before} → {sessions_after} sessions")
+                
+                return jsonify({
+                    'success': True,
+                    'sessions_before': sessions_before,
+                    'sessions_after': sessions_after,
+                    'sessions_added': sessions_after - sessions_before
+                })
+            
+            except Exception as e:
+                self.logger.error(f"Failed to reload sessions index: {e}")
+                import traceback
+                self.logger.error(f"Traceback: {traceback.format_exc()}")
+                return jsonify({'error': str(e)}), 500
     
     def _setup_orchestrator_integration(self):
         """Setup integration with the scan orchestrator"""

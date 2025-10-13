@@ -580,8 +580,8 @@
                     <input type="text" id="sessionSearchInput" placeholder="Search sessions by name..." onkeyup="filterSessions()">
                 </div>
                 <div class="session-actions">
-                    <button class="action-btn btn-refresh" onclick="loadSessions()">
-                        🔄 Refresh
+                    <button class="action-btn btn-refresh" onclick="reloadAndRefresh()">
+                        🔄 Reload & Refresh
                     </button>
                 </div>
             </div>
@@ -633,6 +633,41 @@ async function loadStorageStats() {
     } catch (error) {
         console.error('Error loading storage stats:', error);
     }
+}
+
+// Reload sessions index from disk (for after running rebuild script)
+async function reloadSessionsIndex() {
+    try {
+        const response = await fetch('/api/storage/reload', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            console.log(`✅ Reloaded sessions index: ${data.sessions_before} → ${data.sessions_after} sessions`);
+            if (data.sessions_added > 0) {
+                showNotification(`Found ${data.sessions_added} new session(s)!`, 'success');
+            }
+            return true;
+        } else {
+            console.error('Failed to reload sessions index:', data.error);
+            showNotification('Failed to reload sessions index', 'error');
+            return false;
+        }
+    } catch (error) {
+        console.error('Error reloading sessions index:', error);
+        showNotification('Error reloading sessions index', 'error');
+        return false;
+    }
+}
+
+// Reload index from disk and refresh display
+async function reloadAndRefresh() {
+    await reloadSessionsIndex();
+    await loadSessions();
 }
 
 // Load all sessions
