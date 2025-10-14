@@ -356,6 +356,10 @@ class ScannerWebInterface:
                         static_folder=str(Path(__file__).parent / 'static'))
         self.app.config['SECRET_KEY'] = 'scanner_control_secret_key'
         
+        # Configure Flask for large file downloads
+        self.app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB max upload
+        self.app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching for downloads
+        
         # Web interface state (simplified without SocketIO for now)
         self._connected_clients = set()
         self._last_status_update = None
@@ -2651,47 +2655,70 @@ class ScannerWebInterface:
                     # Send the file with proper cleanup
                     from flask import send_file
                     
-                    @after_this_request
-                    def cleanup_temp_file(response):
-                        """Delete temp file after sending"""
-                        try:
-                            if os.path.exists(temp_zip_path):
-                                os.unlink(temp_zip_path)
-                                self.logger.debug(f"🗑️  Cleaned up temp ZIP: {temp_zip_path}")
-                        except Exception as e:
-                            self.logger.warning(f"Failed to cleanup temp ZIP: {e}")
-                        return response
+                    # Note: Temporarily disabled cleanup to debug download issues
+                    # @after_this_request
+                    # def cleanup_temp_file(response):
+                    #     """Delete temp file after sending"""
+                    #     try:
+                    #         if os.path.exists(temp_zip_path):
+                    #             os.unlink(temp_zip_path)
+                    #             self.logger.debug(f"🗑️  Cleaned up temp ZIP: {temp_zip_path}")
+                    #     except Exception as e:
+                    #         self.logger.warning(f"Failed to cleanup temp ZIP: {e}")
+                    #     return response
                     
-                    # Send file with proper Range request handling
+                    self.logger.info(f"📤 Preparing to send ZIP: {zip_filename} from {temp_zip_path}")
+                    
+                    # Send file with custom streaming response for better compatibility
                     try:
-                        # Use send_file with range support
-                        response = send_file(
-                            temp_zip_path,
-                            as_attachment=True,
+                        # Check file size and existence
+                        if not os.path.exists(temp_zip_path):
+                            raise FileNotFoundError(f"ZIP file not found: {temp_zip_path}")
+                        
+                        file_size = os.path.getsize(temp_zip_path)
+                        self.logger.info(f"📤 Sending ZIP file: {zip_filename} ({file_size} bytes)")
+                        
+                        # Use a simple streaming response instead of send_file
+                        def generate():
+                            try:
+                                with open(temp_zip_path, 'rb') as f:
+                                    while True:
+                                        data = f.read(8192)  # 8KB chunks
+                                        if not data:
+                                            break
+                                        yield data
+                            except Exception as stream_error:
+                                self.logger.error(f"Error streaming file: {stream_error}")
+                                raise
+                        
+                        # Create response with proper headers
+                        response = Response(
+                            generate(),
                             mimetype='application/zip',
-                            conditional=True  # Enable conditional/range requests
+                            headers={
+                                'Content-Disposition': f'attachment; filename="{zip_filename}"',
+                                'Content-Length': str(file_size),
+                                'Cache-Control': 'no-cache'
+                            }
                         )
                         
-                        # Set the download filename in the header
-                        response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
-                        # Add headers for better download handling
-                        response.headers['Accept-Ranges'] = 'bytes'
-                        response.headers['Cache-Control'] = 'no-cache'
-                        
-                        self.logger.info(f"📤 Sending ZIP file: {zip_filename} ({zip_size_mb:.1f} MB)")
+                        self.logger.info(f"📤 Created streaming response for {zip_filename}")
                         return response
                         
                     except Exception as send_error:
-                        self.logger.error(f"Failed to send ZIP file: {send_error}")
-                        # Fallback: try without conditional=True
-                        response = send_file(
-                            temp_zip_path,
-                            as_attachment=True,
-                            mimetype='application/zip'
-                        )
-                        response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
-                        response.headers['Cache-Control'] = 'no-cache'
-                        return response
+                        self.logger.error(f"Failed to create streaming response: {send_error}")
+                        # Final fallback: try basic send_file
+                        try:
+                            response = send_file(
+                                temp_zip_path,
+                                as_attachment=True,
+                                mimetype='application/zip'
+                            )
+                            response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
+                            return response
+                        except Exception as final_error:
+                            self.logger.error(f"All download methods failed: {final_error}")
+                            raise final_error
                     
                 except Exception as zip_error:
                     # Clean up temp file on error
