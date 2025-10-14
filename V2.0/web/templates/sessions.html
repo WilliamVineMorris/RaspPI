@@ -1030,7 +1030,7 @@ function downloadFile(sessionId, filename) {
 // Track ongoing downloads to prevent duplicates
 const activeDownloads = new Set();
 
-// Download entire session as ZIP file with real-time status
+// Download entire session as ZIP file (simple direct method)
 async function downloadSession(sessionId, scanName) {
     // Prevent multiple simultaneous downloads of the same session
     if (activeDownloads.has(sessionId)) {
@@ -1049,220 +1049,38 @@ async function downloadSession(sessionId, scanName) {
     const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
     downloadButtons.forEach(btn => {
         btn.disabled = true;
-        btn.style.opacity = '0.5';
+        btn.style.opacity = '0.6';
         btn.style.cursor = 'not-allowed';
-        btn.innerHTML = '⏳ Downloading...';
+        btn.innerHTML = '⏳ Creating ZIP...';
     });
     
-    // Show progress notification
-    const progressNotification = document.createElement('div');
-    progressNotification.id = 'downloadProgressNotification';
-    progressNotification.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        max-width: 400px;
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        padding: 20px;
-        z-index: 9999;
-        animation: slideInBottom 0.3s ease;
-    `;
-    
-    progressNotification.innerHTML = `
-        <div style="display: flex; align-items: flex-start; gap: 15px;">
-            <div class="spinner-small">
-                <div class="spinner-ring-small"></div>
-                <div class="spinner-ring-small"></div>
-            </div>
-            <div style="flex: 1;">
-                <div style="font-weight: 600; color: #1f2937; margin-bottom: 8px;">
-                    📦 Preparing "${scanName}"
-                </div>
-                <div id="downloadProgressStatus" style="color: #6b7280; font-size: 0.9rem; margin-bottom: 4px;">
-                    Starting ZIP creation...
-                </div>
-                <div id="downloadProgressTimer" style="color: #d1d5db; font-size: 0.8rem; margin-top: 8px;">
-                    Elapsed: 0s
-                </div>
-            </div>
-            <button onclick="this.parentElement.parentElement.remove()" 
-                    style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 1.5rem; line-height: 1; padding: 0;">
-                ×
-            </button>
-        </div>
-    `;
-    
-    document.body.appendChild(progressNotification);
-    
-    // Track elapsed time
-    const startTime = Date.now();
-    const timerInterval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        const timerEl = document.getElementById('downloadProgressTimer');
-        if (timerEl) {
-            timerEl.textContent = `Elapsed: ${elapsed}s`;
-        }
-    }, 1000);
-    
     try {
-        // URLs for download and status checking
+        // Use direct navigation to trigger download
         const downloadUrl = `/api/storage/sessions/${sessionId}/download`;
-        const statusUrl = `/api/storage/sessions/${sessionId}/download-status`;
+        window.location.href = downloadUrl;
         
-        let zipReady = false;
-        let downloadStarted = false;
-        
-        // Start the ZIP creation by triggering the download endpoint in background
-        fetch(downloadUrl).catch(() => {}); // Start ZIP creation, ignore fetch errors
-        
-        // Poll server for real-time ZIP creation status
-        const checkZipStatus = async () => {
-            try {
-                const response = await fetch(statusUrl);
-                const data = await response.json();
-                
-                if (data.success) {
-                    const statusEl = document.getElementById('downloadProgressStatus');
-                    
-                    switch (data.status) {
-                        case 'creating':
-                            if (statusEl) {
-                                statusEl.innerHTML = `📦 <strong>Creating ZIP...</strong> Please wait`;
-                            }
-                            break;
-                            
-                        case 'ready':
-                            if (!zipReady) {
-                                zipReady = true;
-                                if (statusEl) {
-                                    statusEl.innerHTML = `🚀 <strong>ZIP ready!</strong> Starting download...`;
-                                }
-                                
-                                // Clear intervals
-                                clearInterval(statusInterval);
-                                clearInterval(timerInterval);
-                                
-                                // Start actual download
-                                setTimeout(() => {
-                                    window.location.href = downloadUrl;
-                                    downloadStarted = true;
-                                    
-                                    if (statusEl) {
-                                        statusEl.innerHTML = `📥 <strong>Download started!</strong> Check your browser downloads`;
-                                    }
-                                    
-                                    // Clean up after download starts
-                                    setTimeout(() => {
-                                        const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
-                                        downloadButtons.forEach(btn => {
-                                            btn.disabled = false;
-                                            btn.style.opacity = '1';
-                                            btn.style.cursor = 'pointer';
-                                            btn.innerHTML = '⬇️ Download';
-                                        });
-                                        
-                                        activeDownloads.delete(sessionId);
-                                        
-                                        if (progressNotification.parentNode) {
-                                            progressNotification.style.animation = 'slideOutBottom 0.3s ease';
-                                            setTimeout(() => progressNotification.remove(), 300);
-                                        }
-                                    }, 3000);
-                                }, 1000);
-                            }
-                            break;
-                            
-                        case 'error':
-                            if (statusEl) {
-                                statusEl.innerHTML = `❌ <strong>Error:</strong> ${data.message}`;
-                            }
-                            clearInterval(statusInterval);
-                            clearInterval(timerInterval);
-                            
-                            // Re-enable buttons on error
-                            setTimeout(() => {
-                                const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
-                                downloadButtons.forEach(btn => {
-                                    btn.disabled = false;
-                                    btn.style.opacity = '1';
-                                    btn.style.cursor = 'pointer';
-                                    btn.innerHTML = '⬇️ Download';
-                                });
-                                activeDownloads.delete(sessionId);
-                                
-                                if (progressNotification.parentNode) {
-                                    progressNotification.remove();
-                                }
-                            }, 3000);
-                            break;
-                    }
-                }
-            } catch (error) {
-                console.error('Error checking ZIP status:', error);
-            }
-        };
-        
-        // Check status every 1 second
-        const statusInterval = setInterval(checkZipStatus, 1000);
-        
-        // Fallback timeout after 3 minutes
+        // Reset button after a delay
         setTimeout(() => {
-            clearInterval(statusInterval);
-            clearInterval(timerInterval);
-            
-            if (!downloadStarted) {
-                const statusEl = document.getElementById('downloadProgressStatus');
-                if (statusEl) {
-                    statusEl.innerHTML = `⚠️ <strong>Timeout</strong> - Check if download started manually`;
-                }
-                
-                // Clean up after timeout
-                setTimeout(() => {
-                    const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
-                    downloadButtons.forEach(btn => {
-                        btn.disabled = false;
-                        btn.style.opacity = '1';
-                        btn.style.cursor = 'pointer';
-                        btn.innerHTML = '⬇️ Download';
-                    });
-                    
-                    activeDownloads.delete(sessionId);
-                    
-                    if (progressNotification.parentNode) {
-                        progressNotification.remove();
-                    }
-                }, 5000);
-            }
-        }, 180000); // 3 minute timeout
+            downloadButtons.forEach(btn => {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+                btn.innerHTML = '⬇️ Download';
+            });
+            activeDownloads.delete(sessionId);
+        }, 8000); // 8 second delay for ZIP creation + download start
         
     } catch (error) {
         console.error('Error downloading session:', error);
-        clearInterval(timerInterval);
-        
-        // Re-enable buttons on error
-        const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
+        // Reset buttons on error
         downloadButtons.forEach(btn => {
             btn.disabled = false;
             btn.style.opacity = '1';
             btn.style.cursor = 'pointer';
             btn.innerHTML = '⬇️ Download';
         });
-        
         activeDownloads.delete(sessionId);
-        
-        if (progressNotification.parentNode) {
-            progressNotification.innerHTML = `
-                <div style="color: #ef4444;">
-                    <div style="font-weight: 600; margin-bottom: 8px;">❌ Download Failed</div>
-                    <div style="font-size: 0.9rem;">${error.message || 'An error occurred'}</div>
-                </div>
-            `;
-            setTimeout(() => progressNotification.remove(), 5000);
-        } else {
-            showAlert('Failed to download session', 'error', 3000);
-        }
+        alert('Failed to download session');
     }
 }
 
