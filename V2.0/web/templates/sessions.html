@@ -1082,7 +1082,18 @@ async function downloadSession(sessionId, scanName) {
         const fileCount = data.files.length;
         const totalSize = data.total_size_bytes;
         const sizeMB = (totalSize / (1024 * 1024)).toFixed(1);
-        const estimatedSeconds = Math.ceil(fileCount / 10);
+        
+        // Calculate dynamic timeout based on file count and size
+        // Base: 5 seconds minimum
+        // File processing: ~100 files per second
+        // Size processing: ~20MB per second (conservative estimate for ZIP compression)
+        const fileTimeEstimate = Math.ceil(fileCount / 100);
+        const sizeTimeEstimate = Math.ceil(totalSize / (20 * 1024 * 1024));
+        const estimatedSeconds = Math.max(5, Math.max(fileTimeEstimate, sizeTimeEstimate));
+        const timeoutSeconds = estimatedSeconds + 10; // Add 10 second buffer
+        const maxTimeout = Math.min(timeoutSeconds, 120); // Cap at 2 minutes max
+        
+        console.log(`Download timing: ${fileCount} files, ${sizeMB}MB -> estimated ${estimatedSeconds}s, timeout ${maxTimeout}s`);
         
         // Build notification content
         progressNotification.innerHTML = `
@@ -1099,7 +1110,7 @@ async function downloadSession(sessionId, scanName) {
                         Creating ZIP: ${fileCount} files (${sizeMB} MB)
                     </div>
                     <div style="color: #9ca3af; font-size: 0.85rem;">
-                        Estimated time: ${estimatedSeconds}-${estimatedSeconds * 2}s
+                        Estimated time: ${estimatedSeconds}s
                     </div>
                     <div id="downloadProgressTimer" style="color: #d1d5db; font-size: 0.8rem; margin-top: 8px;">
                         Elapsed: 0s
@@ -1120,7 +1131,11 @@ async function downloadSession(sessionId, scanName) {
             const elapsed = Math.floor((Date.now() - startTime) / 1000);
             const timerEl = document.getElementById('downloadProgressTimer');
             if (timerEl) {
-                timerEl.textContent = `Elapsed: ${elapsed}s`;
+                if (elapsed < estimatedSeconds) {
+                    timerEl.textContent = `Elapsed: ${elapsed}s / ~${estimatedSeconds}s`;
+                } else {
+                    timerEl.textContent = `Elapsed: ${elapsed}s (taking longer than expected...)`;
+                }
             }
         }, 1000);
         
@@ -1130,34 +1145,49 @@ async function downloadSession(sessionId, scanName) {
         // Update status to show download started
         const statusEl = document.getElementById('downloadProgressStatus');
         if (statusEl) {
-            statusEl.innerHTML = `🚀 <strong>Download started!</strong> Check your browser downloads`;
+            statusEl.innerHTML = `🚀 <strong>Starting download...</strong> Creating ZIP archive`;
         }
         
         // Trigger download via direct navigation (handles large files better)
         window.location.href = downloadUrl;
         
-        // Clean up UI after a delay (download should have started)
+        // Update status after download request is made
+        setTimeout(() => {
+            const statusEl = document.getElementById('downloadProgressStatus');
+            if (statusEl) {
+                statusEl.innerHTML = `📥 <strong>Download in progress...</strong> Check your browser downloads`;
+            }
+        }, 1000);
+        
+        // Clean up UI after dynamic timeout based on file size
         setTimeout(() => {
             clearInterval(timerInterval);
             
-            // Re-enable all buttons for this session
-            const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
-            downloadButtons.forEach(btn => {
-                btn.disabled = false;
-                btn.style.opacity = '1';
-                btn.style.cursor = 'pointer';
-                btn.innerHTML = '⬇️ Download';
-            });
-            
-            // Remove from active downloads
-            activeDownloads.delete(sessionId);
-            
-            // Remove notification after showing success
-            if (progressNotification.parentNode) {
-                progressNotification.style.animation = 'slideOutBottom 0.3s ease';
-                setTimeout(() => progressNotification.remove(), 300);
+            const statusEl = document.getElementById('downloadProgressStatus');
+            if (statusEl) {
+                statusEl.innerHTML = `✅ <strong>Download sent!</strong> Check your downloads folder`;
             }
-        }, 2000);
+            
+            // Re-enable all buttons for this session after a longer delay
+            setTimeout(() => {
+                const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
+                downloadButtons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    btn.style.cursor = 'pointer';
+                    btn.innerHTML = '⬇️ Download';
+                });
+                
+                // Remove from active downloads
+                activeDownloads.delete(sessionId);
+                
+                // Remove notification after showing success longer
+                if (progressNotification.parentNode) {
+                    progressNotification.style.animation = 'slideOutBottom 0.3s ease';
+                    setTimeout(() => progressNotification.remove(), 300);
+                }
+            }, 3000);
+        }, maxTimeout * 1000); // Dynamic timeout based on file size
         
     } catch (error) {
         console.error('Error downloading session:', error);
