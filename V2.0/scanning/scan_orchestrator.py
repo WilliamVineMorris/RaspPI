@@ -3408,6 +3408,14 @@ class ScanOrchestrator:
                 self.current_scan.complete()
                 self.logger.info(f"Scan {self.current_scan.scan_id} completed successfully")
                 
+                # Finalize session metadata with actual file counts and sizes
+                # This prevents wrong session data when users navigate during scanning
+                try:
+                    await self.storage_manager.finalize_session(self.current_scan.scan_id)
+                    self.logger.info(f"Session metadata finalized for scan {self.current_scan.scan_id}")
+                except Exception as e:
+                    self.logger.error(f"Failed to finalize session metadata: {e}")
+                
                 # Export camera positions for photogrammetry software
                 await self._export_camera_positions_file(self.current_scan.scan_id)
                 
@@ -3422,12 +3430,26 @@ class ScanOrchestrator:
                 self.current_scan.cancel()
                 self.logger.info(f"Scan {self.current_scan.scan_id} cancelled")
                 
+                # Finalize session metadata even for cancelled scans to ensure accurate file counts
+                try:
+                    await self.storage_manager.finalize_session(self.current_scan.scan_id)
+                    self.logger.info(f"Session metadata finalized for cancelled scan {self.current_scan.scan_id}")
+                except Exception as e:
+                    self.logger.error(f"Failed to finalize cancelled session metadata: {e}")
+                
         except Exception as e:
             self.logger.error(f"Scan execution failed: {e}")
             import traceback
             self.logger.error(f"Full traceback: {traceback.format_exc()}")
             if self.current_scan:
                 self.current_scan.fail(str(e), {'exception_type': type(e).__name__})
+                
+                # Finalize session metadata even for failed scans to ensure accurate file counts
+                try:
+                    await self.storage_manager.finalize_session(self.current_scan.scan_id)
+                    self.logger.info(f"Session metadata finalized for failed scan {self.current_scan.scan_id}")
+                except Exception as finalize_error:
+                    self.logger.error(f"Failed to finalize failed session metadata: {finalize_error}")
         
         finally:
             # Always switch camera back to live streaming mode
