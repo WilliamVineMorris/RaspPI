@@ -2583,12 +2583,24 @@ class ScannerWebInterface:
                 self.logger.error(f"Traceback: {traceback.format_exc()}")
                 return jsonify({'error': str(e)}), 500
         
+        # Track ZIP creation progress
+        self.zip_progress = {}  # session_id -> {'status': 'creating'|'ready'|'error', 'message': str}
+        
+        @self.app.route('/api/storage/sessions/<session_id>/download-status', methods=['GET'])
+        def api_storage_download_status(session_id):
+            """Check ZIP creation status"""
+            status = self.zip_progress.get(session_id, {'status': 'unknown', 'message': 'No download in progress'})
+            return jsonify({'success': True, 'status': status['status'], 'message': status['message']})
+        
         @self.app.route('/api/storage/sessions/<session_id>/download', methods=['GET'])
         def api_storage_download_session(session_id):
             """Download entire session as ZIP file"""
             self.logger.info(f"📥 ZIP download requested for session: {session_id}")
             self.logger.info(f"📥 Request headers: {dict(request.headers)}")
             self.logger.info(f"📥 Request args: {dict(request.args)}")
+            
+            # Track ZIP creation progress
+            self.zip_progress[session_id] = {'status': 'creating', 'message': 'Creating ZIP archive...'}
             
             # Simple debug: just return a test file first
             if request.args.get('test'):
@@ -2663,6 +2675,9 @@ class ScannerWebInterface:
                     zip_size_mb = os.path.getsize(temp_zip_path) / (1024**2)
                     self.logger.info(f"📦 Created ZIP for session {session_id}: {zip_filename} ({file_count} files, {zip_size_mb:.1f} MB)")
                     
+                    # Update progress - ZIP is ready
+                    self.zip_progress[session_id] = {'status': 'ready', 'message': f'ZIP ready: {zip_filename} ({file_count} files, {zip_size_mb:.1f} MB)'}
+                    
                     # Send the file with proper cleanup
                     from flask import send_file
                     
@@ -2724,6 +2739,9 @@ class ScannerWebInterface:
                         cleanup_thread = threading.Thread(target=delayed_cleanup, daemon=True)
                         cleanup_thread.start()
                         
+                        # Clear progress tracking after response is sent
+                        self.zip_progress.pop(session_id, None)
+                        
                         return response
                         
                     except Exception as send_error:
@@ -2743,6 +2761,8 @@ class ScannerWebInterface:
                 
             except Exception as e:
                 self.logger.error(f"Failed to create ZIP for session {session_id}: {e}")
+                # Update progress - error occurred
+                self.zip_progress[session_id] = {'status': 'error', 'message': f'Error creating ZIP: {str(e)}'}
                 import traceback
                 self.logger.error(f"Traceback: {traceback.format_exc()}")
                 return jsonify({'error': str(e)}), 500

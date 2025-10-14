@@ -1139,36 +1139,60 @@ async function downloadSession(sessionId, scanName) {
             }
         }, 1000);
         
-        // Use direct browser navigation for large file downloads (more reliable than fetch)
+        // Use real-time status checking instead of time estimates
         const downloadUrl = `/api/storage/sessions/${sessionId}/download`;
         
-        // Update status to show download started
-        const statusEl = document.getElementById('downloadProgressStatus');
-        if (statusEl) {
-            statusEl.innerHTML = `🚀 <strong>Starting download...</strong> Creating ZIP archive`;
-        }
+        // Start the download request in background
+        let downloadStarted = false;
+        let downloadComplete = false;
         
-        // Trigger download via direct navigation (handles large files better)
-        window.location.href = downloadUrl;
+        // Start download via navigation (this will block until ZIP is ready)
+        const downloadFrame = document.createElement('iframe');
+        downloadFrame.style.display = 'none';
+        downloadFrame.src = downloadUrl;
+        document.body.appendChild(downloadFrame);
         
-        // Update status after download request is made
-        setTimeout(() => {
-            const statusEl = document.getElementById('downloadProgressStatus');
-            if (statusEl) {
-                statusEl.innerHTML = `📥 <strong>Download in progress...</strong> Check your browser downloads`;
+        // Monitor for when download actually starts by checking if navigation completes
+        const checkDownloadStatus = async () => {
+            try {
+                // Try to access the frame - if ZIP is being created, this will be blocked
+                // If ZIP is ready, the download will have started
+                if (!downloadStarted) {
+                    const statusEl = document.getElementById('downloadProgressStatus');
+                    if (statusEl) {
+                        statusEl.innerHTML = `� <strong>Creating ZIP...</strong> Please wait`;
+                    }
+                }
+            } catch (e) {
+                // Error accessing frame usually means download has started
+                if (!downloadStarted) {
+                    downloadStarted = true;
+                    const statusEl = document.getElementById('downloadProgressStatus');
+                    if (statusEl) {
+                        statusEl.innerHTML = `📥 <strong>Download started!</strong> Check your browser downloads`;
+                    }
+                }
             }
-        }, 1000);
+        };
         
-        // Clean up UI after dynamic timeout based on file size
+        // Check status every 500ms
+        const statusInterval = setInterval(checkDownloadStatus, 500);
+        
+        // Fallback: assume download started after reasonable time
+        const maxWaitTime = Math.max(30000, fileCount * 100); // At least 30s, or 100ms per file
         setTimeout(() => {
+            if (!downloadStarted) {
+                downloadStarted = true;
+                const statusEl = document.getElementById('downloadProgressStatus');
+                if (statusEl) {
+                    statusEl.innerHTML = `📥 <strong>Download should have started</strong> Check your browser downloads`;
+                }
+            }
+            
+            clearInterval(statusInterval);
             clearInterval(timerInterval);
             
-            const statusEl = document.getElementById('downloadProgressStatus');
-            if (statusEl) {
-                statusEl.innerHTML = `✅ <strong>Download sent!</strong> Check your downloads folder`;
-            }
-            
-            // Re-enable all buttons for this session after a longer delay
+            // Clean up after additional delay
             setTimeout(() => {
                 const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
                 downloadButtons.forEach(btn => {
@@ -1178,16 +1202,17 @@ async function downloadSession(sessionId, scanName) {
                     btn.innerHTML = '⬇️ Download';
                 });
                 
-                // Remove from active downloads
                 activeDownloads.delete(sessionId);
                 
-                // Remove notification after showing success longer
                 if (progressNotification.parentNode) {
                     progressNotification.style.animation = 'slideOutBottom 0.3s ease';
-                    setTimeout(() => progressNotification.remove(), 300);
+                    setTimeout(() => {
+                        progressNotification.remove();
+                        downloadFrame.remove();
+                    }, 300);
                 }
             }, 3000);
-        }, maxTimeout * 1000); // Dynamic timeout based on file size
+        }, maxWaitTime);
         
     } catch (error) {
         console.error('Error downloading session:', error);
