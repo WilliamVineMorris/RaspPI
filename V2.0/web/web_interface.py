@@ -2669,55 +2669,71 @@ class ScannerWebInterface:
                     
                     self.logger.info(f"📤 Preparing to send ZIP: {zip_filename} from {temp_zip_path}")
                     
-                    # Send file with custom streaming response for better compatibility
+                    # Use simple send_file approach for maximum compatibility
                     try:
                         # Check file size and existence
                         if not os.path.exists(temp_zip_path):
                             raise FileNotFoundError(f"ZIP file not found: {temp_zip_path}")
                         
                         file_size = os.path.getsize(temp_zip_path)
-                        self.logger.info(f"📤 Sending ZIP file: {zip_filename} ({file_size} bytes)")
+                        self.logger.info(f"📤 Sending ZIP file: {zip_filename} ({file_size} bytes, {file_size/(1024*1024):.1f} MB)")
                         
-                        # Use a simple streaming response instead of send_file
-                        def generate():
-                            try:
-                                with open(temp_zip_path, 'rb') as f:
-                                    while True:
-                                        data = f.read(8192)  # 8KB chunks
-                                        if not data:
-                                            break
-                                        yield data
-                            except Exception as stream_error:
-                                self.logger.error(f"Error streaming file: {stream_error}")
-                                raise
-                        
-                        # Create response with proper headers
-                        response = Response(
-                            generate(),
-                            mimetype='application/zip',
-                            headers={
-                                'Content-Disposition': f'attachment; filename="{zip_filename}"',
-                                'Content-Length': str(file_size),
-                                'Cache-Control': 'no-cache'
-                            }
+                        # Use basic send_file without conditional support
+                        response = send_file(
+                            temp_zip_path,
+                            as_attachment=True,
+                            download_name=zip_filename,  # Modern Flask parameter
+                            mimetype='application/zip'
                         )
                         
-                        self.logger.info(f"📤 Created streaming response for {zip_filename}")
+                        # Add explicit headers for download
+                        response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
+                        response.headers['Content-Length'] = str(file_size)
+                        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                        response.headers['Pragma'] = 'no-cache'
+                        response.headers['Expires'] = '0'
+                        
+                        self.logger.info(f"📤 Successfully created download response for {zip_filename}")
+                        
+                        # Schedule cleanup of temp file after a delay (background task)
+                        import threading
+                        def delayed_cleanup():
+                            import time
+                            time.sleep(30)  # Wait 30 seconds before cleanup
+                            try:
+                                if os.path.exists(temp_zip_path):
+                                    os.unlink(temp_zip_path)
+                                    self.logger.debug(f"🗑️  Cleaned up temp ZIP: {temp_zip_path}")
+                            except Exception as cleanup_error:
+                                self.logger.warning(f"Failed to cleanup temp ZIP: {cleanup_error}")
+                        
+                        cleanup_thread = threading.Thread(target=delayed_cleanup, daemon=True)
+                        cleanup_thread.start()
+                        
                         return response
                         
                     except Exception as send_error:
-                        self.logger.error(f"Failed to create streaming response: {send_error}")
-                        # Final fallback: try basic send_file
+                        self.logger.error(f"Failed to create download response: {send_error}")
+                        import traceback
+                        self.logger.error(f"Error traceback: {traceback.format_exc()}")
+                        
+                        # Fallback: try without download_name parameter (older Flask compatibility)
                         try:
+                            self.logger.info("📤 Trying fallback download method...")
                             response = send_file(
                                 temp_zip_path,
                                 as_attachment=True,
                                 mimetype='application/zip'
                             )
                             response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
+                            response.headers['Content-Length'] = str(file_size)
+                            self.logger.info(f"📤 Fallback download response created for {zip_filename}")
                             return response
+                            
                         except Exception as final_error:
                             self.logger.error(f"All download methods failed: {final_error}")
+                            import traceback
+                            self.logger.error(f"Final error traceback: {traceback.format_exc()}")
                             raise final_error
                     
                 except Exception as zip_error:
