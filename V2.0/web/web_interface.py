@@ -2590,10 +2590,21 @@ class ScannerWebInterface:
             self.logger.info(f"📥 Request headers: {dict(request.headers)}")
             self.logger.info(f"📥 Request args: {dict(request.args)}")
             
-            # Check if this is a Range request
+            # Check if this is a Range request and reject it immediately
             range_header = request.headers.get('Range')
             if range_header:
                 self.logger.info(f"📥 Range request detected: {range_header}")
+                self.logger.info("🚫 Rejecting Range request - forcing fresh download")
+                # Return 416 Range Not Satisfiable to force browser to restart
+                from flask import Response
+                return Response(
+                    "Range requests not supported for this file. Please retry for complete download.",
+                    status=416,
+                    headers={
+                        'Content-Range': 'bytes */*',
+                        'Accept-Ranges': 'none'
+                    }
+                )
             
             try:
                 if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
