@@ -2669,37 +2669,32 @@ class ScannerWebInterface:
                     
                     self.logger.info(f"📤 Preparing to send ZIP: {zip_filename} from {temp_zip_path}")
                     
-                    # Use simple send_file approach for maximum compatibility
+                    # Use the simplest possible send_file approach
                     try:
-                        # Check file size and existence
+                        # Check file exists
                         if not os.path.exists(temp_zip_path):
                             raise FileNotFoundError(f"ZIP file not found: {temp_zip_path}")
                         
                         file_size = os.path.getsize(temp_zip_path)
                         self.logger.info(f"📤 Sending ZIP file: {zip_filename} ({file_size} bytes, {file_size/(1024*1024):.1f} MB)")
                         
-                        # Use basic send_file without conditional support
+                        # Use the most basic send_file call possible
                         response = send_file(
-                            temp_zip_path,
+                            temp_zip_path, 
                             as_attachment=True,
-                            download_name=zip_filename,  # Modern Flask parameter
                             mimetype='application/zip'
                         )
                         
-                        # Add explicit headers for download
+                        # Only set the essential headers
                         response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
-                        response.headers['Content-Length'] = str(file_size)
-                        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-                        response.headers['Pragma'] = 'no-cache'
-                        response.headers['Expires'] = '0'
                         
                         self.logger.info(f"📤 Successfully created download response for {zip_filename}")
                         
-                        # Schedule cleanup of temp file after a delay (background task)
+                        # Schedule cleanup after delay
                         import threading
                         def delayed_cleanup():
                             import time
-                            time.sleep(30)  # Wait 30 seconds before cleanup
+                            time.sleep(30)
                             try:
                                 if os.path.exists(temp_zip_path):
                                     os.unlink(temp_zip_path)
@@ -2713,28 +2708,13 @@ class ScannerWebInterface:
                         return response
                         
                     except Exception as send_error:
-                        self.logger.error(f"Failed to create download response: {send_error}")
+                        self.logger.error(f"Failed to send ZIP file: {send_error}")
                         import traceback
                         self.logger.error(f"Error traceback: {traceback.format_exc()}")
-                        
-                        # Fallback: try without download_name parameter (older Flask compatibility)
-                        try:
-                            self.logger.info("📤 Trying fallback download method...")
-                            response = send_file(
-                                temp_zip_path,
-                                as_attachment=True,
-                                mimetype='application/zip'
-                            )
-                            response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
-                            response.headers['Content-Length'] = str(file_size)
-                            self.logger.info(f"📤 Fallback download response created for {zip_filename}")
-                            return response
-                            
-                        except Exception as final_error:
-                            self.logger.error(f"All download methods failed: {final_error}")
-                            import traceback
-                            self.logger.error(f"Final error traceback: {traceback.format_exc()}")
-                            raise final_error
+                        # Clean up temp file on error
+                        if os.path.exists(temp_zip_path):
+                            os.unlink(temp_zip_path)
+                        raise send_error
                     
                 except Exception as zip_error:
                     # Clean up temp file on error
