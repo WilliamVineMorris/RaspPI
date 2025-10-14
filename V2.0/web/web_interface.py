@@ -2678,11 +2678,12 @@ class ScannerWebInterface:
                         file_size = os.path.getsize(temp_zip_path)
                         self.logger.info(f"📤 Sending ZIP file: {zip_filename} ({file_size} bytes, {file_size/(1024*1024):.1f} MB)")
                         
-                        # Use the most basic send_file call possible
+                        # Use the most basic send_file call possible with Range support
                         response = send_file(
                             temp_zip_path, 
                             as_attachment=True,
-                            mimetype='application/zip'
+                            mimetype='application/zip',
+                            conditional=True  # This enables Range request support
                         )
                         
                         # Only set the essential headers
