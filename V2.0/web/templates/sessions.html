@@ -1267,18 +1267,8 @@ async function downloadSession(sessionId, scanName) {
 }
 
 // Delete session
-        // File processing: ~100 files per second
-        // Size processing: ~20MB per second (conservative estimate for ZIP compression)
-        const fileTimeEstimate = Math.ceil(fileCount / 100);
-        const sizeTimeEstimate = Math.ceil(totalSize / (20 * 1024 * 1024));
-        const estimatedSeconds = Math.max(5, Math.max(fileTimeEstimate, sizeTimeEstimate));
-        const timeoutSeconds = estimatedSeconds + 10; // Add 10 second buffer
-        const maxTimeout = Math.min(timeoutSeconds, 120); // Cap at 2 minutes max
-        
-        console.log(`Download timing: ${fileCount} files, ${sizeMB}MB -> estimated ${estimatedSeconds}s, timeout ${maxTimeout}s`);
-        
-        // Build notification content
-        progressNotification.innerHTML = `
+// Delete session
+async function deleteSession(sessionId, scanName) {
             <div style="display: flex; align-items: flex-start; gap: 15px;">
                 <div class="spinner-small">
                     <div class="spinner-ring-small"></div>
