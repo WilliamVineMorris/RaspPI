@@ -2585,6 +2585,12 @@ class ScannerWebInterface:
             self.logger.info(f"📥 ZIP download requested for session: {session_id}")
             self.logger.info(f"📥 Request headers: {dict(request.headers)}")
             self.logger.info(f"📥 Request args: {dict(request.args)}")
+            
+            # Check if this is a Range request
+            range_header = request.headers.get('Range')
+            if range_header:
+                self.logger.info(f"📥 Range request detected: {range_header}")
+            
             try:
                 if not self.orchestrator or not hasattr(self.orchestrator, 'storage_manager'):
                     self.logger.error("Storage manager not available")
@@ -2656,15 +2662,36 @@ class ScannerWebInterface:
                             self.logger.warning(f"Failed to cleanup temp ZIP: {e}")
                         return response
                     
-                    # Send file with explicit filename header
-                    response = send_file(
-                        temp_zip_path,
-                        as_attachment=True,
-                        mimetype='application/zip'
-                    )
-                    # Set the download filename in the header
-                    response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
-                    return response
+                    # Send file with proper Range request handling
+                    try:
+                        # Use send_file with range support
+                        response = send_file(
+                            temp_zip_path,
+                            as_attachment=True,
+                            mimetype='application/zip',
+                            conditional=True  # Enable conditional/range requests
+                        )
+                        
+                        # Set the download filename in the header
+                        response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
+                        # Add headers for better download handling
+                        response.headers['Accept-Ranges'] = 'bytes'
+                        response.headers['Cache-Control'] = 'no-cache'
+                        
+                        self.logger.info(f"📤 Sending ZIP file: {zip_filename} ({zip_size_mb:.1f} MB)")
+                        return response
+                        
+                    except Exception as send_error:
+                        self.logger.error(f"Failed to send ZIP file: {send_error}")
+                        # Fallback: try without conditional=True
+                        response = send_file(
+                            temp_zip_path,
+                            as_attachment=True,
+                            mimetype='application/zip'
+                        )
+                        response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
+                        response.headers['Cache-Control'] = 'no-cache'
+                        return response
                     
                 except Exception as zip_error:
                     # Clean up temp file on error
