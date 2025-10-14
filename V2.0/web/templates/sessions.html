@@ -1265,22 +1265,8 @@ async function downloadSession(sessionId, scanName) {
         }
     }
 }
-    
-    try {
-        // Fetch session details
-        const response = await fetch(`/api/storage/sessions/${sessionId}`);
-        const data = await response.json();
-        
-        if (!data.success) {
-            throw new Error(data.error || 'Failed to fetch session details');
-        }
-        
-        const fileCount = data.files.length;
-        const totalSize = data.total_size_bytes;
-        const sizeMB = (totalSize / (1024 * 1024)).toFixed(1);
-        
-        // Calculate dynamic timeout based on file count and size
-        // Base: 5 seconds minimum
+
+// Delete session
         // File processing: ~100 files per second
         // Size processing: ~20MB per second (conservative estimate for ZIP compression)
         const fileTimeEstimate = Math.ceil(fileCount / 100);
