@@ -2678,16 +2678,23 @@ class ScannerWebInterface:
                         file_size = os.path.getsize(temp_zip_path)
                         self.logger.info(f"📤 Sending ZIP file: {zip_filename} ({file_size} bytes, {file_size/(1024*1024):.1f} MB)")
                         
-                        # Use the most basic send_file call possible with Range support
+                        # Force fresh download by preventing browser caching/resume
                         response = send_file(
                             temp_zip_path, 
                             as_attachment=True,
-                            mimetype='application/zip',
-                            conditional=True  # This enables Range request support
+                            mimetype='application/zip'
                         )
                         
-                        # Only set the essential headers
+                        # Add headers to prevent caching and force fresh download
                         response.headers['Content-Disposition'] = f'attachment; filename="{zip_filename}"'
+                        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                        response.headers['Pragma'] = 'no-cache'
+                        response.headers['Expires'] = '0'
+                        # Prevent browser from trying to resume downloads
+                        response.headers['Accept-Ranges'] = 'none'
+                        # Force new ETag to prevent If-Range matching
+                        import time
+                        response.headers['ETag'] = f'"{int(time.time())}-{file_size}"'
                         
                         self.logger.info(f"📤 Successfully created download response for {zip_filename}")
                         
