@@ -1124,92 +1124,40 @@ async function downloadSession(sessionId, scanName) {
             }
         }, 1000);
         
-        // Trigger download using a temporary link (more reliable than iframe)
+        // Use direct browser navigation for large file downloads (more reliable than fetch)
         const downloadUrl = `/api/storage/sessions/${sessionId}/download`;
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = `${scanName}.zip`;
-        link.style.display = 'none';
-        document.body.appendChild(link);
         
-        // Monitor for download completion by tracking when the request finishes
-        let downloadComplete = false;
+        // Update status to show download started
+        const statusEl = document.getElementById('downloadProgressStatus');
+        if (statusEl) {
+            statusEl.innerHTML = `🚀 <strong>Download started!</strong> Check your browser downloads`;
+        }
         
-        // Fetch with monitoring instead of just clicking link
-        fetch(downloadUrl)
-            .then(response => {
-                if (!response.ok) throw new Error('Download failed');
-                return response.blob();
-            })
-            .then(blob => {
-                // Create blob URL and trigger download
-                const blobUrl = window.URL.createObjectURL(blob);
-                link.href = blobUrl;
-                link.click();
-                
-                downloadComplete = true;
-                clearInterval(timerInterval);
-                
-                const statusEl = document.getElementById('downloadProgressStatus');
-                const totalTime = Math.floor((Date.now() - startTime) / 1000);
-                
-                if (statusEl) {
-                    statusEl.innerHTML = `✅ <strong>Complete!</strong> Check your downloads (${totalTime}s)`;
-                }
-                
-                // Re-enable all buttons for this session
-                const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
-                downloadButtons.forEach(btn => {
-                    btn.disabled = false;
-                    btn.style.opacity = '1';
-                    btn.style.cursor = 'pointer';
-                    btn.innerHTML = '⬇️ Download';
-                });
-                
-                // Remove from active downloads
-                activeDownloads.delete(sessionId);
-                
-                // Clean up after showing success
-                setTimeout(() => {
-                    if (progressNotification.parentNode) {
-                        progressNotification.style.animation = 'slideOutBottom 0.3s ease';
-                        setTimeout(() => {
-                            progressNotification.remove();
-                            window.URL.revokeObjectURL(blobUrl);
-                        }, 300);
-                    }
-                    if (link.parentNode) {
-                        link.remove();
-                    }
-                }, 3000);
-            })
-            .catch(error => {
-                downloadComplete = true;
-                clearInterval(timerInterval);
-                
-                const statusEl = document.getElementById('downloadProgressStatus');
-                if (statusEl) {
-                    statusEl.innerHTML = `❌ <strong>Failed:</strong> ${error.message}`;
-                }
-                
-                // Re-enable all buttons for this session
-                const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
-                downloadButtons.forEach(btn => {
-                    btn.disabled = false;
-                    btn.style.opacity = '1';
-                    btn.style.cursor = 'pointer';
-                    btn.innerHTML = '⬇️ Download';
-                });
-                
-                // Remove from active downloads
-                activeDownloads.delete(sessionId);
-                
-                setTimeout(() => {
-                    if (progressNotification.parentNode) {
-                        progressNotification.remove();
-                    }
-                }, 5000);
+        // Trigger download via direct navigation (handles large files better)
+        window.location.href = downloadUrl;
+        
+        // Clean up UI after a delay (download should have started)
+        setTimeout(() => {
+            clearInterval(timerInterval);
+            
+            // Re-enable all buttons for this session
+            const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
+            downloadButtons.forEach(btn => {
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                btn.style.cursor = 'pointer';
+                btn.innerHTML = '⬇️ Download';
             });
+            
+            // Remove from active downloads
+            activeDownloads.delete(sessionId);
+            
+            // Remove notification after showing success
+            if (progressNotification.parentNode) {
+                progressNotification.style.animation = 'slideOutBottom 0.3s ease';
+                setTimeout(() => progressNotification.remove(), 300);
+            }
+        }, 2000);
         
     } catch (error) {
         console.error('Error downloading session:', error);
