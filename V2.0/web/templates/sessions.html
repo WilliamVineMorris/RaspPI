@@ -1129,7 +1129,9 @@ async function downloadSession(sessionId, scanName) {
                     switch (data.status) {
                         case 'creating':
                             if (statusEl) {
-                                statusEl.innerHTML = `📦 <strong>Creating ZIP...</strong> Please wait`;
+                                if (statusEl) {
+                        statusEl.innerHTML = ``📦 <strong>Creating ZIP...</strong> Please wait``;
+                    }
                             }
                             break;
                             
