@@ -475,6 +475,12 @@ scanning:
     default_overlap_percent: 20
     default_safety_margin: 5.0  # mm
     
+  # Camera position export settings
+  position_export:
+    # Convert coordinates from mm to meters for photogrammetry software
+    # Most photogrammetry software (Meshroom, RealityCapture, etc.) expects meters
+    scale_to_meters: true
+    
   session_management:
     auto_save_metadata: true
     auto_generate_thumbnails: true

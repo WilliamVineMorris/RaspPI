@@ -4584,14 +4584,20 @@ class ScanOrchestrator:
                 self.logger.info(f"📐 Exported Meshroom TXT (reference): {meshroom_txt_file}")
             
             # Export Meshroom SFM format (pose/forward/up vectors for ImportKnownPoses)
+            # Get scale conversion setting from config
+            scale_to_meters = self.config.get('scanning', {}).get('position_export', {}).get('scale_to_meters', True)
+            
             meshroom_sfm_file = output_dir / 'camera_poses_meshroom.sfm'
             success_meshroom_sfm = self.stereo_position_calc.export_meshroom_sfm(
                 self.camera_positions_for_export,
-                str(meshroom_sfm_file)
+                str(meshroom_sfm_file),
+                scale_to_meters=scale_to_meters
             )
             
             if success_meshroom_sfm:
+                unit_str = "meters" if scale_to_meters else "millimeters"
                 self.logger.info(f"📐 Exported Meshroom SFM (ImportKnownPoses): {meshroom_sfm_file}")
+                self.logger.info(f"📏 Coordinate units: {unit_str}")
                 self.logger.info(f"💡 Use this file in Meshroom's ImportKnownPoses node")
             
             # Export XMP sidecar files to separate directory

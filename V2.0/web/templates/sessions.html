@@ -897,7 +897,9 @@ function displaySessions(sessions) {
                 <button class="card-action-btn btn-view" onclick="viewSessionDetails('${session.session_id}')">
                     👁️ View
                 </button>
-                <button class="card-action-btn btn-download" onclick="downloadSession('${session.session_id}', '${session.scan_name}')">
+                <button class="card-action-btn btn-download" 
+                        data-session-id="${session.session_id}" 
+                        onclick="downloadSession('${session.session_id}', '${session.scan_name}')">
                     ⬇️ Download
                 </button>
                 <button class="card-action-btn btn-delete" onclick="deleteSession('${session.session_id}', '${session.scan_name}')">
@@ -1025,11 +1027,32 @@ function downloadFile(sessionId, filename) {
     window.open(url, '_blank');
 }
 
+// Track ongoing downloads to prevent duplicates
+const activeDownloads = new Set();
+
 // Download entire session as ZIP file
 async function downloadSession(sessionId, scanName) {
-    if (!confirm(`Download "${scanName}" as ZIP file?`)) {
+    // Prevent multiple simultaneous downloads of the same session
+    if (activeDownloads.has(sessionId)) {
+        console.log('Download already in progress for session:', sessionId);
         return;
     }
+    
+    if (!confirm(`Download "${scanName}" as ZIP file?\n\nThis will create a ZIP archive and may take 10-30 seconds depending on scan size.`)) {
+        return;
+    }
+    
+    // Mark this session as being downloaded
+    activeDownloads.add(sessionId);
+    
+    // Disable ALL download buttons for this session (both in card and modal)
+    const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
+    downloadButtons.forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+        btn.innerHTML = '⏳ Downloading...';
+    });
     
     // Show progress notification (non-blocking)
     const progressNotification = document.createElement('div');
@@ -1134,6 +1157,18 @@ async function downloadSession(sessionId, scanName) {
                     statusEl.innerHTML = `✅ <strong>Complete!</strong> Check your downloads (${totalTime}s)`;
                 }
                 
+                // Re-enable all buttons for this session
+                const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
+                downloadButtons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    btn.style.cursor = 'pointer';
+                    btn.innerHTML = '⬇️ Download';
+                });
+                
+                // Remove from active downloads
+                activeDownloads.delete(sessionId);
+                
                 // Clean up after showing success
                 setTimeout(() => {
                     if (progressNotification.parentNode) {
@@ -1157,6 +1192,18 @@ async function downloadSession(sessionId, scanName) {
                     statusEl.innerHTML = `❌ <strong>Failed:</strong> ${error.message}`;
                 }
                 
+                // Re-enable all buttons for this session
+                const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
+                downloadButtons.forEach(btn => {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    btn.style.cursor = 'pointer';
+                    btn.innerHTML = '⬇️ Download';
+                });
+                
+                // Remove from active downloads
+                activeDownloads.delete(sessionId);
+                
                 setTimeout(() => {
                     if (progressNotification.parentNode) {
                         progressNotification.remove();
@@ -1166,6 +1213,18 @@ async function downloadSession(sessionId, scanName) {
         
     } catch (error) {
         console.error('Error downloading session:', error);
+        
+        // Re-enable all buttons for this session on error
+        const downloadButtons = document.querySelectorAll(`button[data-session-id="${sessionId}"].btn-download`);
+        downloadButtons.forEach(btn => {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+            btn.innerHTML = '⬇️ Download';
+        });
+        
+        // Remove from active downloads
+        activeDownloads.delete(sessionId);
         
         if (progressNotification.parentNode) {
             progressNotification.innerHTML = `

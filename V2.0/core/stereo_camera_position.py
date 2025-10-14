@@ -395,7 +395,8 @@ class StereoCameraPositionCalculator:
     def export_meshroom_sfm(
         self,
         positions_dict: Dict[str, Dict[int, CameraPosition3D]],
-        output_path: str
+        output_path: str,
+        scale_to_meters: bool = True
     ) -> bool:
         """
         Export camera poses in Meshroom's ImportKnownPoses format (.sfm).
@@ -407,9 +408,13 @@ class StereoCameraPositionCalculator:
         - Standard (X, Y, Z) → Meshroom (X, Z, -Y)
         - Applied to both position and direction vectors
         
+        Unit Conversion: Scanner works in millimeters, but photogrammetry software
+        expects meters by convention. Default converts mm → m (divide by 1000).
+        
         Args:
             positions_dict: Dict mapping image_name to {camera_id: CameraPosition3D}
             output_path: Path to output .sfm file
+            scale_to_meters: If True, convert mm to meters (divide by 1000). Default True.
             
         Returns:
             True if export successful
@@ -417,6 +422,12 @@ class StereoCameraPositionCalculator:
         try:
             import json
             import math
+            
+            # Scale factor for unit conversion (mm to meters by default)
+            scale_factor = 0.001 if scale_to_meters else 1.0
+            
+            if scale_to_meters:
+                print(f"📐 Converting coordinates from millimeters to meters (÷1000)")
             
             with open(output_path, 'w') as f:
                 # Process images in sorted order (required by Meshroom)
@@ -427,56 +438,116 @@ class StereoCameraPositionCalculator:
                     for cam_id in sorted(cameras.keys()):
                         pos = cameras[cam_id]
                         
-                        # Convert Euler angles to direction vectors
-                        # Euler convention: ZYX rotation (yaw-pitch-roll)
-                        omega_rad = math.radians(pos.omega)  # Roll (X-axis)
-                        phi_rad = math.radians(pos.phi)      # Pitch (Y-axis)
-                        kappa_rad = math.radians(pos.kappa)  # Yaw (Z-axis)
+                        # === GEOMETRY-BASED APPROACH ===
+                        # Instead of converting Euler angles (which can be error-prone),
+                        # use the physical geometry: cameras point toward turntable origin
                         
-                        # Calculate forward vector (camera looking direction)
-                        # Standard camera looks along +Z axis initially
-                        # Apply rotations: Yaw (Z) → Pitch (Y) → Roll (X)
-                        forward_x = math.cos(phi_rad) * math.sin(kappa_rad)
-                        forward_y = -math.sin(phi_rad)
-                        forward_z = math.cos(phi_rad) * math.cos(kappa_rad)
+                        # Calculate forward vector: camera position → origin
+                        # This is the actual viewing direction for a scanner camera
+                        forward_scanner = [-pos.x, -pos.y, -pos.z]  # Vector to origin
                         
-                        # Calculate up vector (camera "up" direction)
-                        # Standard camera "up" is -Y axis initially
-                        # Apply same rotations
-                        up_x = math.sin(omega_rad) * math.sin(phi_rad) * math.sin(kappa_rad) + math.cos(omega_rad) * math.cos(kappa_rad)
-                        up_y = math.sin(omega_rad) * math.cos(phi_rad)
-                        up_z = math.sin(omega_rad) * math.sin(phi_rad) * math.cos(kappa_rad) - math.cos(omega_rad) * math.sin(kappa_rad)
+                        # Normalize forward vector
+                        forward_len = math.sqrt(sum(x**2 for x in forward_scanner))
+                        if forward_len < 0.001:  # Avoid division by zero
+                            # Camera at origin - shouldn't happen, use default
+                            forward_scanner = [0.0, 1.0, 0.0]  # Look forward
+                            forward_len = 1.0
                         
-                        # Normalize vectors to unit length
-                        forward_len = math.sqrt(forward_x**2 + forward_y**2 + forward_z**2)
-                        up_len = math.sqrt(up_x**2 + up_y**2 + up_z**2)
+                        forward_scanner = [x / forward_len for x in forward_scanner]
                         
-                        forward_x /= forward_len
-                        forward_y /= forward_len
-                        forward_z /= forward_len
+                        # Calculate up vector: should point generally upward (+Z in scanner)
+                        # Account for camera tilt (phi angle)
+                        phi_rad = math.radians(pos.phi)
                         
-                        up_x /= up_len
-                        up_y /= up_len
-                        up_z /= up_len
+                        # Start with vertical up vector
+                        up_scanner_base = [0.0, 0.0, 1.0]
+                        
+                        # If camera is tilted down (negative phi), up vector tilts back
+                        # Simple approximation: blend between vertical and radial
+                        tilt_factor = -math.sin(phi_rad)  # Negative phi = tilt down
+                        radial_component = [pos.x, pos.y, 0.0]  # Horizontal radial
+                        radial_len = math.sqrt(radial_component[0]**2 + radial_component[1]**2)
+                        
+                        if radial_len > 0.001:
+                            radial_unit = [x / radial_len for x in radial_component]
+                            
+                            # Blend vertical with radial based on tilt
+                            up_scanner = [
+                                tilt_factor * radial_unit[0],
+                                tilt_factor * radial_unit[1],
+                                math.cos(phi_rad)  # Vertical component reduces with tilt
+                            ]
+                        else:
+                            up_scanner = up_scanner_base
+                        
+                        # Normalize up vector
+                        up_len = math.sqrt(sum(x**2 for x in up_scanner))
+                        if up_len < 0.001:
+                            up_scanner = [0.0, 0.0, 1.0]
+                            up_len = 1.0
+                        up_scanner = [x / up_len for x in up_scanner]
+                        
+                        # Ensure up is orthogonal to forward (Gram-Schmidt)
+                        dot_product = sum(f*u for f,u in zip(forward_scanner, up_scanner))
+                        up_scanner = [u - dot_product * f for u, f in zip(up_scanner, forward_scanner)]
+                        
+                        # Renormalize after orthogonalization
+                        up_len = math.sqrt(sum(x**2 for x in up_scanner))
+                        if up_len > 0.001:
+                            up_scanner = [x / up_len for x in up_scanner]
+                        else:
+                            # If up is parallel to forward, create perpendicular up
+                            # Use cross product with world up or right
+                            if abs(forward_scanner[2]) < 0.9:
+                                world_up = [0.0, 0.0, 1.0]
+                            else:
+                                world_up = [1.0, 0.0, 0.0]
+                            
+                            # Right = forward × world_up
+                            right = [
+                                forward_scanner[1] * world_up[2] - forward_scanner[2] * world_up[1],
+                                forward_scanner[2] * world_up[0] - forward_scanner[0] * world_up[2],
+                                forward_scanner[0] * world_up[1] - forward_scanner[1] * world_up[0]
+                            ]
+                            right_len = math.sqrt(sum(x**2 for x in right))
+                            if right_len > 0.001:
+                                right = [x / right_len for x in right]
+                                
+                                # Up = right × forward
+                                up_scanner = [
+                                    right[1] * forward_scanner[2] - right[2] * forward_scanner[1],
+                                    right[2] * forward_scanner[0] - right[0] * forward_scanner[2],
+                                    right[0] * forward_scanner[1] - right[1] * forward_scanner[0]
+                                ]
                         
                         # Apply Meshroom coordinate transformation
-                        # Standard (X, Y, Z) → Meshroom (X, Z, -Y)
+                        # Scanner system: Z-up (X,Y horizontal, Z vertical)
+                        # Meshroom system: Y-up (X,Z horizontal, Y vertical)
+                        # 
+                        # Transformation: (X_scanner, Y_scanner, Z_scanner) → (X_mesh, Y_mesh, Z_mesh)
+                        #   X: stays same (both systems)
+                        #   Y: scanner Z → meshroom Y (vertical/up axis)
+                        #   Z: scanner Y → meshroom Z (depth)
+                        #
+                        # Apply scale conversion (mm → m by default)
                         meshroom_pose = [
-                            pos.x,        # X stays the same
-                            pos.z,        # Z → Y (Meshroom uses Y-up)
-                            -pos.y        # Y → -Z (flip and swap)
+                            pos.x * scale_factor,        # X: same direction (lateral)
+                            pos.z * scale_factor,        # Y: height (Z_scanner → Y_meshroom)
+                            pos.y * scale_factor         # Z: depth (Y_scanner → Z_meshroom)
                         ]
                         
+                        # Transform direction vectors with same coordinate transformation
+                        # Note: Direction vectors are NOT scaled (they're unit vectors)
                         meshroom_forward = [
-                            forward_x,    # X stays the same
-                            forward_z,    # Z → Y
-                            -forward_y    # Y → -Z
+                            forward_scanner[0],    # X: stays same
+                            forward_scanner[2],    # Y: Z component becomes Y (up)
+                            forward_scanner[1]     # Z: Y component becomes Z (depth)
                         ]
                         
                         meshroom_up = [
-                            up_x,         # X stays the same
-                            up_z,         # Z → Y
-                            -up_y         # Y → -Z
+                            up_scanner[0],         # X: stays same
+                            up_scanner[2],         # Y: Z component becomes Y (up)
+                            up_scanner[1]          # Z: Y component becomes Z (depth)
                         ]
                         
                         # Create JSON line (one per image)
