@@ -24,8 +24,12 @@ def download_file(url, local_path):
             f.write(response.content)
         
         print(f"✅ Downloaded to {local_path}")
+        print(f"📦 File size: {len(response.content):,} bytes")
         return True
         
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Network error downloading {url}: {e}")
+        return False
     except Exception as e:
         print(f"❌ Failed to download {url}: {e}")
         return False

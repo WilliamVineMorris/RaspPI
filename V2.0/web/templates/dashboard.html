@@ -1298,9 +1298,16 @@
                 console.error('⚠️ Plotly.js not loaded - visualization disabled');
                 document.getElementById('dashboard-3d-plot').innerHTML = `
                     <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #d63031;">
-                        <div style="text-align: center;">
-                            <h4>⚠️ Plotly.js Not Loaded</h4>
-                            <p style="font-size: 0.85rem;">3D visualization requires Plotly.js library</p>
+                        <div style="text-align: center; padding: 20px;">
+                            <h4>⚠️ Plotly.js Not Available</h4>
+                            <p style="font-size: 0.9rem; margin: 10px 0;">3D visualization requires Plotly.js library</p>
+                            <div style="font-size: 0.8rem; color: #666; line-height: 1.4;">
+                                <p><strong>To enable offline 3D visualization:</strong></p>
+                                <p>1. Connect Pi to internet</p>
+                                <p>2. Run: <code style="background: #f0f0f0; padding: 2px 4px;">python3 download_offline_dependencies.py</code></p>
+                                <p>3. Or run: <code style="background: #f0f0f0; padding: 2px 4px;">bash download_dependencies.sh</code></p>
+                                <p>4. Restart web server</p>
+                            </div>
                         </div>
                     </div>
                 `;

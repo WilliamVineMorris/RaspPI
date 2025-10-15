@@ -12,7 +12,8 @@
     <script>
         // Try local file first for offline operation, then CDNs
         var plotlySources = [
-            '{{ url_for("static", filename="js/plotly-2.27.0.min.js") }}',  // Local file FIRST for offline
+            '{{ url_for("static", filename="js/plotly-2.27.1.min.js") }}',  // Local file FIRST for offline (fixed version number)
+            '{{ url_for("static", filename="js/plotly-2.27.0.min.js") }}',  // Fallback to old local version if exists
             'https://cdn.plot.ly/plotly-2.27.1.min.js',  // Official CDN (if online)
             'https://cdn.jsdelivr.net/npm/plotly.js@2.27.1/dist/plotly.min.js',  // jsDelivr
             'https://unpkg.com/plotly.js@2.27.1/dist/plotly.min.js'  // unpkg
@@ -22,7 +23,9 @@
         
         function loadPlotly() {
             if (currentSourceIndex >= plotlySources.length) {
-                console.error('❌ Failed to load Plotly from all sources');
+                console.error('❌ Failed to load Plotly from all sources - 3D visualization disabled');
+                console.warn('💡 To enable offline 3D visualization, run: python3 download_offline_dependencies.py');
+                window.plotlyUnavailable = true;
                 return;
             }
             
@@ -31,6 +34,7 @@
             
             script.onload = function() {
                 console.log('✅ Plotly loaded from:', plotlySources[currentSourceIndex]);
+                window.plotlyLoaded = true;
             };
             
             script.onerror = function() {
