@@ -20,11 +20,20 @@
         ];
         
         var currentSourceIndex = 0;
+        var plotlyLoadAttempts = 0;
+        var maxAttempts = 3;
         
         function loadPlotly() {
             if (currentSourceIndex >= plotlySources.length) {
-                console.error('❌ Failed to load Plotly from all sources - 3D visualization disabled');
-                console.warn('💡 To enable offline 3D visualization, run: python3 download_offline_dependencies.py');
+                if (plotlyLoadAttempts < maxAttempts) {
+                    plotlyLoadAttempts++;
+                    currentSourceIndex = 0;  // Reset to try all sources again
+                    console.warn(`🔄 Plotly load attempt ${plotlyLoadAttempts}/${maxAttempts} - retrying all sources...`);
+                    setTimeout(loadPlotly, 1000);  // Wait 1 second before retry
+                    return;
+                }
+                console.error('❌ Failed to load Plotly from all sources after', maxAttempts, 'attempts - 3D visualization disabled');
+                console.warn('💡 Files exist but failed to load. Check browser console for errors.');
                 window.plotlyUnavailable = true;
                 return;
             }
@@ -32,17 +41,39 @@
             var script = document.createElement('script');
             script.src = plotlySources[currentSourceIndex];
             
+            // Add timeout for loading
+            var loadTimeout = setTimeout(function() {
+                console.warn('⏰ Timeout loading Plotly from:', plotlySources[currentSourceIndex]);
+                script.onerror();  // Trigger error handler
+            }, 10000);  // 10 second timeout
+            
             script.onload = function() {
-                console.log('✅ Plotly loaded from:', plotlySources[currentSourceIndex]);
+                clearTimeout(loadTimeout);
+                console.log('✅ Plotly loaded successfully from:', plotlySources[currentSourceIndex]);
                 window.plotlyLoaded = true;
+                
+                // Verify Plotly object is actually available
+                setTimeout(function() {
+                    if (typeof Plotly !== 'undefined') {
+                        console.log('✅ Plotly object confirmed available');
+                        if (window.initializeVisualization) {
+                            console.log('🔄 Triggering visualization initialization...');
+                            window.initializeVisualization();
+                        }
+                    } else {
+                        console.error('❌ Plotly loaded but object not available');
+                    }
+                }, 100);
             };
             
             script.onerror = function() {
+                clearTimeout(loadTimeout);
                 console.warn('⚠️ Failed to load Plotly from:', plotlySources[currentSourceIndex]);
                 currentSourceIndex++;
-                loadPlotly();  // Try next source
+                setTimeout(loadPlotly, 500);  // Wait 500ms before trying next source
             };
             
+            console.log('🔄 Attempting to load Plotly from:', plotlySources[currentSourceIndex]);
             document.head.appendChild(script);
         }
         

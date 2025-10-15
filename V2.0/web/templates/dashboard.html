@@ -1281,38 +1281,57 @@
                 triggerAutofocus();
             }, 2000); // Wait 2 seconds for camera to initialize
             
-            // Initialize 3D visualization
-            initializeVisualization();
+            // Initialize 3D visualization with delay to allow Plotly to load
+            setTimeout(() => {
+                window.initializeVisualization();
+            }, 2000); // Wait 2 seconds for Plotly to load
         });
         
         // ==================== 3D VISUALIZATION ====================
         
         let visualizationUpdateInterval = null;
         let lastVisualizationData = null;
+        let initializationAttempts = 0;
+        let maxInitAttempts = 10;
         
-        function initializeVisualization() {
+        // Make this function globally accessible for Plotly loading
+        window.initializeVisualization = function() {
             console.log('📊 Initializing dashboard 3D visualization...');
             
             // Check if Plotly is loaded
             if (typeof Plotly === 'undefined') {
-                console.error('⚠️ Plotly.js not loaded - visualization disabled');
+                initializationAttempts++;
+                
+                if (initializationAttempts <= maxInitAttempts) {
+                    console.log(`🔄 Plotly not ready yet, attempt ${initializationAttempts}/${maxInitAttempts} - retrying in 1s...`);
+                    setTimeout(window.initializeVisualization, 1000);
+                    return;
+                }
+                
+                console.error('⚠️ Plotly.js not loaded after', maxInitAttempts, 'attempts - visualization disabled');
                 document.getElementById('dashboard-3d-plot').innerHTML = `
                     <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #d63031;">
                         <div style="text-align: center; padding: 20px;">
-                            <h4>⚠️ Plotly.js Not Available</h4>
-                            <p style="font-size: 0.9rem; margin: 10px 0;">3D visualization requires Plotly.js library</p>
+                            <h4>⚠️ Plotly.js Loading Failed</h4>
+                            <p style="font-size: 0.9rem; margin: 10px 0;">3D visualization could not initialize</p>
                             <div style="font-size: 0.8rem; color: #666; line-height: 1.4;">
-                                <p><strong>To enable offline 3D visualization:</strong></p>
-                                <p>1. Connect Pi to internet</p>
-                                <p>2. Run: <code style="background: #f0f0f0; padding: 2px 4px;">python3 download_offline_dependencies.py</code></p>
-                                <p>3. Or run: <code style="background: #f0f0f0; padding: 2px 4px;">bash download_dependencies.sh</code></p>
+                                <p><strong>Files exist but loading failed. Try:</strong></p>
+                                <p>1. Hard refresh page (Ctrl+Shift+R)</p>
+                                <p>2. Clear browser cache</p>
+                                <p>3. Check browser console for errors</p>
                                 <p>4. Restart web server</p>
+                                <p style="margin-top: 10px;"><button onclick="location.reload(true)" style="padding: 5px 10px;">🔄 Reload Page</button></p>
                             </div>
                         </div>
                     </div>
                 `;
                 return;
             }
+            
+            console.log('✅ Plotly confirmed available - initializing 3D visualization');
+            
+            // Reset attempt counter on success
+            initializationAttempts = 0;
             
             // Initial fetch and render
             updateVisualization();

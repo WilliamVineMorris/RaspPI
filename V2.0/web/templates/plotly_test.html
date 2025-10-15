@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plotly.js Loading Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #f5f5f5; }
+        .log { background: white; padding: 10px; margin: 10px 0; border-left: 4px solid #007bff; }
+        .success { border-color: #28a745; }
+        .error { border-color: #dc3545; }
+        .warning { border-color: #ffc107; }
+        #test-plot { width: 100%; height: 400px; border: 1px solid #ccc; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Plotly.js Loading Test</h1>
+    <p>This page tests Plotly.js loading from local files.</p>
+    
+    <div id="logs"></div>
+    
+    <div id="test-plot"></div>
+    
+    <script>
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.appendChild(div);
+            console.log(message);
+        }
+        
+        log('🧪 Starting Plotly.js loading test...');
+        
+        // Test loading from static files
+        const plotlySources = [
+            '/static/js/plotly-2.27.1.min.js',
+            '/static/js/plotly-2.27.0.min.js',
+            'https://cdn.plot.ly/plotly-2.27.1.min.js'
+        ];
+        
+        let currentIndex = 0;
+        
+        function testPlotlyLoad() {
+            if (currentIndex >= plotlySources.length) {
+                log('❌ All Plotly sources failed to load', 'error');
+                return;
+            }
+            
+            const src = plotlySources[currentIndex];
+            log(`🔄 Testing: ${src}`);
+            
+            const script = document.createElement('script');
+            script.src = src;
+            
+            const timeout = setTimeout(() => {
+                log(`⏰ Timeout loading: ${src}`, 'warning');
+                currentIndex++;
+                testPlotlyLoad();
+            }, 15000);
+            
+            script.onload = function() {
+                clearTimeout(timeout);
+                log(`✅ Successfully loaded: ${src}`, 'success');
+                
+                // Test if Plotly object is available
+                setTimeout(() => {
+                    if (typeof Plotly !== 'undefined') {
+                        log(`✅ Plotly object confirmed available`, 'success');
+                        log(`📊 Plotly version: ${Plotly.version || 'unknown'}`, 'success');
+                        testPlotlyFunction();
+                    } else {
+                        log(`❌ Plotly loaded but object not available`, 'error');
+                    }
+                }, 500);
+            };
+            
+            script.onerror = function() {
+                clearTimeout(timeout);
+                log(`❌ Failed to load: ${src}`, 'error');
+                currentIndex++;
+                testPlotlyLoad();
+            };
+            
+            document.head.appendChild(script);
+        }
+        
+        function testPlotlyFunction() {
+            log('🎯 Testing Plotly functionality...');
+            
+            try {
+                const data = [{
+                    x: [1, 2, 3, 4],
+                    y: [10, 11, 12, 13],
+                    type: 'scatter'
+                }];
+                
+                const layout = {
+                    title: '✅ Plotly.js Test Plot',
+                    width: 600,
+                    height: 400
+                };
+                
+                Plotly.newPlot('test-plot', data, layout);
+                log('✅ Plotly test plot created successfully!', 'success');
+                
+            } catch (error) {
+                log(`❌ Plotly function test failed: ${error.message}`, 'error');
+            }
+        }
+        
+        // Start test
+        testPlotlyLoad();
+        
+        // File existence check
+        fetch('/static/js/plotly-2.27.1.min.js', { method: 'HEAD' })
+            .then(response => {
+                if (response.ok) {
+                    log(`✅ plotly-2.27.1.min.js file exists (${response.headers.get('content-length')} bytes)`, 'success');
+                } else {
+                    log(`❌ plotly-2.27.1.min.js file not accessible (HTTP ${response.status})`, 'error');
+                }
+            })
+            .catch(error => {
+                log(`❌ Error checking plotly-2.27.1.min.js: ${error.message}`, 'error');
+            });
+            
+        fetch('/static/js/plotly-2.27.0.min.js', { method: 'HEAD' })
+            .then(response => {
+                if (response.ok) {
+                    log(`✅ plotly-2.27.0.min.js file exists (${response.headers.get('content-length')} bytes)`, 'success');
+                } else {
+                    log(`❌ plotly-2.27.0.min.js file not accessible (HTTP ${response.status})`, 'error');
+                }
+            })
+            .catch(error => {
+                log(`❌ Error checking plotly-2.27.0.min.js: ${error.message}`, 'error');
+            });
+    </script>
+</body>
+</html>

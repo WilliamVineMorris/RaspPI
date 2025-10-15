@@ -432,6 +432,11 @@ class ScannerWebInterface:
                 self.logger.error(f"Dashboard error: {e}")
                 return jsonify({'error': str(e)}), 500
         
+        @self.app.route('/plotly-test')
+        def plotly_test():
+            """Plotly.js loading test page"""
+            return render_template('plotly_test.html')
+        
         @self.app.route('/manual')
         def manual():
             """Manual control page"""
