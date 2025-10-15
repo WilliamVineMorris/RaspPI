@@ -360,6 +360,10 @@ class ScannerWebInterface:
         self.app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB max upload
         self.app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching for downloads
         
+        # Suppress SSL/TLS connection error logs (browsers trying HTTPS on HTTP-only server)
+        import logging
+        logging.getLogger('werkzeug').addFilter(self._filter_ssl_errors)
+        
         # Web interface state (simplified without SocketIO for now)
         self._connected_clients = set()
         self._last_status_update = None
@@ -397,6 +401,23 @@ class ScannerWebInterface:
         }
         self._global_notifications.append(notification)
         self.logger.info(f"📢 Global notification added: {message}")
+    
+    def _filter_ssl_errors(self, record):
+        """Filter out SSL/TLS connection error logs from browsers attempting HTTPS"""
+        if hasattr(record, 'getMessage'):
+            message = record.getMessage()
+            # Filter out SSL/TLS handshake errors (browsers trying HTTPS on HTTP server)
+            if any(pattern in message for pattern in [
+                'Bad request version',
+                'Bad request syntax', 
+                '\\x16\\x03\\x01',  # TLS handshake signature
+                'code 400, message Bad',
+                'wjÚ¤gèz±',  # Common SSL binary garbage
+                'íÈþ®KD'  # More SSL binary garbage
+            ]):
+                return False  # Suppress these log entries
+        return True  # Allow other log entries
+    
     
     def _setup_routes(self):
         """Setup Flask routes"""

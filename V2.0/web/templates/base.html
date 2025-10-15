@@ -8,14 +8,14 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📷</text></svg>">
     
     <!-- Plotly.js for 3D Scan Path Visualization -->
-    <!-- Multiple CDN fallbacks + local file -->
+    <!-- Local file first for offline operation, CDN fallbacks for updates -->
     <script>
-        // Try multiple CDNs in order, fallback to local file
+        // Try local file first for offline operation, then CDNs
         var plotlySources = [
-            'https://cdn.plot.ly/plotly-2.27.1.min.js',  // Official CDN (different domain)
+            '{{ url_for("static", filename="js/plotly-2.27.0.min.js") }}',  // Local file FIRST for offline
+            'https://cdn.plot.ly/plotly-2.27.1.min.js',  // Official CDN (if online)
             'https://cdn.jsdelivr.net/npm/plotly.js@2.27.1/dist/plotly.min.js',  // jsDelivr
-            'https://unpkg.com/plotly.js@2.27.1/dist/plotly.min.js',  // unpkg
-            '{{ url_for("static", filename="js/plotly-2.27.0.min.js") }}'  // Local fallback
+            'https://unpkg.com/plotly.js@2.27.1/dist/plotly.min.js'  // unpkg
         ];
         
         var currentSourceIndex = 0;
@@ -247,16 +247,70 @@
         </div>
     </footer>
 
-    <!-- Base JavaScript -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <!-- Socket.IO with offline support -->
+    <script>
+        // Load Socket.IO with fallback for offline operation
+        var socketIOSources = [
+            '{{ url_for("static", filename="js/socket.io.min.js") }}',  // Local file FIRST for offline
+            'https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js'  // CDN fallback if online
+        ];
+        
+        function loadSocketIO() {
+            var currentIndex = 0;
+            
+            function tryNextSource() {
+                if (currentIndex >= socketIOSources.length) {
+                    console.warn('⚠️ Socket.IO unavailable - real-time features disabled');
+                    // Initialize without Socket.IO for offline operation
+                    window.socketIOUnavailable = true;
+                    return;
+                }
+                
+                var script = document.createElement('script');
+                script.src = socketIOSources[currentIndex];
+                script.onload = function() {
+                    console.log('✅ Socket.IO loaded from:', socketIOSources[currentIndex]);
+                };
+                script.onerror = function() {
+                    console.log('❌ Failed to load Socket.IO from:', socketIOSources[currentIndex]);
+                    currentIndex++;
+                    tryNextSource();
+                };
+                document.head.appendChild(script);
+            }
+            
+            tryNextSource();
+        }
+        
+        // Load Socket.IO immediately
+        loadSocketIO();
+    </script>
     <script src="{{ url_for('static', filename='js/scanner-base.js') }}"></script>
     
     {% block scripts %}{% endblock %}
 
     <script>
-        // Initialize base functionality
+        // Initialize base functionality with offline support
         document.addEventListener('DOMContentLoaded', function() {
-            ScannerBase.init();
+            // Wait a moment for external libraries to load
+            setTimeout(function() {
+                if (typeof ScannerBase !== 'undefined') {
+                    ScannerBase.init();
+                } else {
+                    console.error('❌ ScannerBase not available');
+                }
+                
+                // Check if we're in offline mode
+                var isOffline = window.socketIOUnavailable || !navigator.onLine;
+                if (isOffline) {
+                    console.log('📡 Operating in offline mode - some features may be limited');
+                    // Add offline indicator if needed
+                    var offlineIndicator = document.createElement('div');
+                    offlineIndicator.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#ff9800;color:white;text-align:center;padding:5px;z-index:10000;font-size:14px;';
+                    offlineIndicator.textContent = '📡 Offline Mode - Real-time features disabled';
+                    document.body.appendChild(offlineIndicator);
+                }
+            }, 100);
         });
     </script>
 </body>
