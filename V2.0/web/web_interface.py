@@ -361,7 +361,6 @@ class ScannerWebInterface:
         self.app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching for downloads
         
         # Suppress SSL/TLS connection error logs (browsers trying HTTPS on HTTP-only server)
-        import logging
         logging.getLogger('werkzeug').addFilter(self._filter_ssl_errors)
         
         # Web interface state (simplified without SocketIO for now)
