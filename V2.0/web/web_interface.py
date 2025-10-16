@@ -366,7 +366,8 @@ class CommandValidator:
         # Generate spherical scan points
         positions = []
         
-        # Calculate elevation angles based on Z range and sphere geometry
+        # Calculate elevation angles and heights for all elevation steps
+        elevation_data = []
         for elev_idx in range(elevation_steps):
             # Linear interpolation of Z values
             z = z_min + (z_max - z_min) * elev_idx / (elevation_steps - 1) if elevation_steps > 1 else z_min
@@ -379,10 +380,24 @@ class CommandValidator:
             # Calculate effective radius at this elevation
             effective_radius = radius * math.cos(elevation_angle)
             
-            # Generate azimuth positions around this "ring"
-            for az_idx in range(azimuth_positions):
-                azimuth = (2 * math.pi * az_idx) / azimuth_positions
-                azimuth_degrees = azimuth * 180 / math.pi  # Convert to degrees
+            elevation_data.append({
+                'z': z,
+                'elevation_angle': elevation_angle,
+                'effective_radius': effective_radius,
+                'elev_idx': elev_idx
+            })
+        
+        # Generate positions in azimuth-first order (like cylindrical spiral pattern)
+        # This creates a spiral pattern similar to cylindrical scanning
+        for az_idx in range(azimuth_positions):
+            azimuth = (2 * math.pi * az_idx) / azimuth_positions
+            azimuth_degrees = azimuth * 180 / math.pi  # Convert to degrees
+            
+            # For each azimuth angle, go through all elevation levels (creating a vertical arc)
+            for elev_data in elevation_data:
+                z = elev_data['z']
+                effective_radius = elev_data['effective_radius']
+                elev_idx = elev_data['elev_idx']
                 
                 # Calculate Cartesian coordinates for visualization (frontend expects these)
                 cartesian_x = effective_radius * math.cos(azimuth)
