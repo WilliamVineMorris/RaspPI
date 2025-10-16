@@ -2162,7 +2162,7 @@
                             <option value="manual">Manual Angle</option>
                             <option value="focus_point">Focus Point Targeting</option>
                         </select>
-                        <small class="parameter-help" id="sphericalServoModeHelp">Camera will maintain fixed position during scanning</small>
+                        <small class="parameter-help" id="sphericalServoModeHelp">Camera tilt operates independently of sphere geometry</small>
                     </div>
                     
                     <!-- Manual Angle Controls -->
@@ -2174,9 +2174,9 @@
                     
                     <!-- Focus Point Controls -->
                     <div class="parameter-group" id="sphericalServoFocusGroup" style="display: none;">
-                        <label for="sphericalServoYFocus">🎯 Focus Y Position (mm)</label>
+                        <label for="sphericalServoYFocus">🎯 Focus Z Position (mm)</label>
                         <input type="number" id="sphericalServoYFocus" class="parameter-input" min="10" max="200" value="80" step="5" oninput="updateSphericalVisualizerFromConfig()">
-                        <small class="parameter-help">Y-coordinate to focus servo on during scanning</small>
+                        <small class="parameter-help">Z-coordinate to focus camera on during scanning (independent of sphere center)</small>
                     </div>
                 </div>
                 <!-- END LEFT COLUMN -->
@@ -4439,15 +4439,15 @@ function updateSphericalServoTiltControls() {
         if (mode === 'manual') {
             manualGroup.style.display = 'block';
             focusGroup.style.display = 'none';
-            helpText.textContent = 'Camera will be set to the specified angle for all positions';
+            helpText.textContent = 'Camera angle fixed to specified value (independent of sphere geometry)';
         } else if (mode === 'focus_point') {
             manualGroup.style.display = 'none';
             focusGroup.style.display = 'block';
-            helpText.textContent = 'Camera will focus on the specified Y-coordinate during scanning';
+            helpText.textContent = 'Camera will focus on the specified Z-coordinate (independent of sphere geometry)';
         } else {
             manualGroup.style.display = 'none';
             focusGroup.style.display = 'none';
-            helpText.textContent = 'Camera will maintain fixed position during scanning';
+            helpText.textContent = 'Camera tilt operates independently of sphere geometry';
         }
     }
 }
