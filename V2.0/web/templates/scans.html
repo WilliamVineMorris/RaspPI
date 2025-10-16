@@ -4609,7 +4609,8 @@ function visualizeSphericalScanPath(points) {
     traces.push(scanPathTrace);
     
     // Add sphere center point for reference
-    const centerZ = parseFloat(document.getElementById('sphericalCenterZ')?.value) || 80;
+    const centerZInput = document.getElementById('sphericalCenterZ')?.value;
+    const centerZ = centerZInput !== '' ? parseFloat(centerZInput) : 80;  // Allow 0 but default empty to 80
     traces.push({
         x: [0],
         y: [0],
