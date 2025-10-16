@@ -1563,6 +1563,12 @@
                     <p>Continuous rotation scan with height steps</p>
                     <div class="card-badge">Specialized</div>
                 </div>
+                <div class="scan-type-card" data-type="spherical">
+                    <div class="card-icon">🌐</div>
+                    <h4>Spherical Scan</h4>
+                    <p>Complete spherical coverage with multiple angles</p>
+                    <div class="card-badge">Advanced</div>
+                </div>
                 <div class="scan-type-card" data-type="detail" style="display: none;">
                     <div class="card-icon">🔍</div>
                     <h4>Detail Scan</h4>
@@ -1995,7 +2001,7 @@
             </div>
 
             <!-- Cylindrical Scan Configuration -->
-            <div id="cylindrical-parameters" class="scan-config-panel" style="display: none;">
+            <div id="cylindrical-parameters" class="scan-config-panel">
                 <div class="config-section">
                     <h4>🔄 Cylindrical Scan Setup</h4>
                     <p class="config-help">Configure rotation and height parameters for cylindrical objects</p>
@@ -2099,45 +2105,6 @@
                     
                 </div>
                 <!-- END 2-COLUMN CONTAINER -->
-                </div>
-            </div>
-        </div>
-
-        <!-- Advanced Settings -->
-        <div class="advanced-settings">
-            <button class="settings-toggle" onclick="toggleAdvancedSettings()">
-                <span>⚙️</span> Advanced Settings
-                <span id="advancedToggleIcon">▼</span>
-            </button>
-            <div class="settings-content" id="advancedSettings">
-                <div class="scan-parameters">
-                    <div class="parameter-group">
-                        <label for="pointDensity">Point Density</label>
-                        <input type="range" id="pointDensity" min="1" max="10" value="5" class="parameter-input">
-                        <span id="densityValue">5</span>
-                    </div>
-                    <div class="parameter-group">
-                        <label for="overlapPercent">Image Overlap (%)</label>
-                        <input type="range" id="overlapPercent" min="20" max="80" value="50" class="parameter-input">
-                        <span id="overlapValue">50%</span>
-                    </div>
-                    <div class="parameter-group">
-                        <label for="lightingMode">Lighting Mode</label>
-                        <select id="lightingMode" class="parameter-input">
-                            <option value="auto" selected>Auto</option>
-                            <option value="uniform">Uniform</option>
-                            <option value="directional">Directional</option>
-                            <option value="custom">Custom Pattern</option>
-                        </select>
-                    </div>
-                    <div class="parameter-group">
-                        <label for="autoFocus">Auto Focus</label>
-                        <select id="autoFocus" class="parameter-input">
-                            <option value="enabled" selected>Enabled</option>
-                            <option value="disabled">Disabled</option>
-                            <option value="single">Single Point</option>
-                        </select>
-                    </div>
                 </div>
             </div>
         </div>
@@ -2674,13 +2641,6 @@ function updateServoTiltControls() {
     
     // Update visualizer to reflect tilt changes
     updateVisualizerFromConfig();
-}
-
-function toggleAdvancedSettings() {
-    const panel = document.getElementById('cylindrical-parameters');
-    if (panel) {
-        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-    }
 }
 
 // Helper functions
