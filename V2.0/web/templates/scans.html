@@ -4508,12 +4508,13 @@ function generateSphericalScanPoints(radius, centerZ, yMin, yMax, elevationSteps
             
             // Calculate spherical coordinates
             const effectiveRadius = radius * Math.cos(elevation);
-            const yCoord = centerZ + radius * Math.sin(elevation);
+            const zCoord = centerZ + radius * Math.sin(elevation);
             
             // Convert to Cartesian coordinates (FluidNC system)
+            // Turntable rotates in X-Y plane, Z is vertical height
             const x = effectiveRadius * Math.cos(azimuth);
-            const z = effectiveRadius * Math.sin(azimuth);  // FluidNC Z is horizontal rotation
-            const y = yCoord;  // FluidNC Y is vertical
+            const y = effectiveRadius * Math.sin(azimuth);  
+            const z = zCoord;  // FluidNC Z is vertical height
             
             points.push({
                 x: x,
@@ -4570,8 +4571,8 @@ function visualizeSphericalScanPath(points) {
     const centerZ = parseFloat(document.getElementById('sphericalCenterZ')?.value) || 80;
     traces.push({
         x: [0],
-        y: [centerZ],
-        z: [0],
+        y: [0],
+        z: [centerZ],
         mode: 'markers',
         type: 'scatter3d',
         name: 'Sphere Center',
