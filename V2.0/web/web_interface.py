@@ -18,6 +18,7 @@ Created: September 2025
 import asyncio
 import json
 import logging
+import math
 import os
 import sys
 import threading
@@ -203,15 +204,16 @@ class CommandValidator:
     
     @classmethod
     def validate_scan_pattern(cls, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate scan pattern parameters - Only cylindrical scans allowed"""
+        """Validate scan pattern parameters - Support cylindrical and spherical scans"""
         try:
             pattern_type = data.get('pattern_type', '').lower()
             
-            # Only allow cylindrical scanning for now
             if pattern_type == 'cylindrical':
                 return cls._validate_cylindrical_pattern(data)
+            elif pattern_type == 'spherical':
+                return cls._validate_spherical_pattern(data)
             else:
-                raise ValueError(f"Only cylindrical scanning is currently supported. Pattern type '{pattern_type}' is not available.")
+                raise ValueError(f"Unsupported scan pattern: '{pattern_type}'. Supported types: cylindrical, spherical")
                 
         except (ValueError, TypeError) as e:
             raise WebInterfaceError(f"Invalid scan pattern: {e}")
@@ -310,6 +312,120 @@ class CommandValidator:
             'servo_tilt_mode': data.get('servo_tilt_mode', 'none'),
             'servo_manual_angle': float(data.get('servo_manual_angle', 0.0)),
             'servo_y_focus': float(data.get('servo_y_focus', 80.0))
+        }
+        
+        # Preserve custom settings if present
+        if 'quality_settings' in data:
+            result['quality_settings'] = data['quality_settings']
+        if 'speed_settings' in data:
+            result['speed_settings'] = data['speed_settings']
+            
+        return result
+
+    @classmethod
+    def _validate_spherical_pattern(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate spherical pattern parameters for spherical scanning
+        
+        Spherical scan strategy:
+        - Generate points on sphere surface at different elevation/azimuth angles
+        - X/Y: Horizontal position (calculated from sphere geometry)
+        - Z: Vertical position (calculated from sphere geometry)  
+        - C: Camera servo tilt (calculated based on servo mode)
+        """
+        # Sphere parameters
+        radius = float(data.get('radius', 150.0))
+        center_z = float(data.get('center_z', 80.0))
+        z_min = float(data.get('z_min', 40.0))
+        z_max = float(data.get('z_max', 120.0))
+        
+        # Scanning resolution
+        elevation_steps = int(data.get('elevation_steps', 4))
+        azimuth_positions = int(data.get('azimuth_positions', 12))
+        
+        # Servo tilt settings
+        servo_tilt_mode = data.get('servo_tilt_mode', 'none')
+        servo_manual_angle = float(data.get('servo_manual_angle', 0.0))
+        servo_focus_z = float(data.get('servo_focus_z', 80.0))
+        
+        # Validate parameters
+        if radius <= 0:
+            raise ValueError(f"Sphere radius must be positive, got {radius}")
+        if elevation_steps < 1:
+            raise ValueError(f"Elevation steps must be at least 1, got {elevation_steps}")
+        if azimuth_positions < 1:
+            raise ValueError(f"Azimuth positions must be at least 1, got {azimuth_positions}")
+        if z_min >= z_max:
+            raise ValueError(f"Z min ({z_min}) must be less than Z max ({z_max})")
+            
+        # Validate sphere bounds
+        sphere_bottom = center_z - radius
+        sphere_top = center_z + radius
+        if z_min < sphere_bottom or z_max > sphere_top:
+            raise ValueError(f"Z range ({z_min}-{z_max}) exceeds sphere bounds ({sphere_bottom:.1f}-{sphere_top:.1f})")
+        
+        # Generate spherical scan points
+        positions = []
+        
+        # Calculate elevation angles based on Z range and sphere geometry
+        for elev_idx in range(elevation_steps):
+            # Linear interpolation of Z values
+            z = z_min + (z_max - z_min) * elev_idx / (elevation_steps - 1) if elevation_steps > 1 else z_min
+            
+            # Calculate elevation angle from sphere center
+            relative_z = z - center_z
+            sin_elevation = max(-1, min(1, relative_z / radius))
+            elevation_angle = math.asin(sin_elevation)
+            
+            # Calculate effective radius at this elevation
+            effective_radius = radius * math.cos(elevation_angle)
+            
+            # Generate azimuth positions around this "ring"
+            for az_idx in range(azimuth_positions):
+                azimuth = (2 * math.pi * az_idx) / azimuth_positions
+                
+                # Convert to Cartesian coordinates
+                x = effective_radius * math.cos(azimuth)
+                y = effective_radius * math.sin(azimuth)
+                
+                # Calculate camera tilt angle based on servo mode
+                if servo_tilt_mode == 'manual':
+                    c_angle = servo_manual_angle
+                elif servo_tilt_mode == 'focus_point':
+                    # Calculate angle to aim at focus point
+                    delta_x = 0 - x  # Focus at center (0,0)
+                    delta_y = 0 - y  # Focus at center (0,0)
+                    delta_z = servo_focus_z - z
+                    horizontal_dist = math.sqrt(delta_x*delta_x + delta_y*delta_y)
+                    c_angle = math.atan2(delta_z, horizontal_dist) * 180 / math.pi
+                else:  # none
+                    c_angle = 0.0
+                
+                positions.append({
+                    'x': x,
+                    'y': y, 
+                    'z': z,
+                    'c': c_angle,
+                    'elevation_index': elev_idx,
+                    'azimuth_index': az_idx
+                })
+        
+        result = {
+            'pattern_type': 'spherical',
+            'radius': radius,
+            'center_z': center_z,
+            'z_min': z_min,
+            'z_max': z_max,
+            'elevation_steps': elevation_steps,
+            'azimuth_positions': azimuth_positions,
+            'positions': positions,
+            'scan_name': data.get('scan_name', 'Untitled_Spherical_Scan'),
+            'homing_confirmed': data.get('homing_confirmed', False),
+            'validated': True,
+            
+            # Servo tilt parameters
+            'servo_tilt_mode': servo_tilt_mode,
+            'servo_manual_angle': servo_manual_angle,
+            'servo_focus_z': servo_focus_z
         }
         
         # Preserve custom settings if present
