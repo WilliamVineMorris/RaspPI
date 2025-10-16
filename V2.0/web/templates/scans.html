@@ -4456,11 +4456,14 @@ async function updateSphericalVisualizerFromConfig() {
     try {
         console.log('🌐 Updating spherical visualizer...');
         
-        // Get spherical scan parameters
-        const radius = parseFloat(document.getElementById('sphericalRadius')?.value) || 150;
-        const centerZ = parseFloat(document.getElementById('sphericalCenterZ')?.value) || 80;
-        const zMin = parseFloat(document.getElementById('sphericalYMin')?.value) || 40;  // Note: HTML still uses YMin but represents Z coordinate
-        const zMax = parseFloat(document.getElementById('sphericalYMax')?.value) || 120; // Note: HTML still uses YMax but represents Z coordinate
+        // Get spherical scan parameters - handle 0 values properly
+        const radius = parseFloat(document.getElementById('sphericalRadius')?.value ?? '150');
+        const centerZInput = document.getElementById('sphericalCenterZ')?.value;
+        const centerZ = centerZInput !== '' ? parseFloat(centerZInput) : 80;  // Allow 0 but default empty to 80
+        const zMinInput = document.getElementById('sphericalYMin')?.value;
+        const zMin = zMinInput !== '' ? parseFloat(zMinInput) : 40;  // Allow 0 but default empty to 40
+        const zMaxInput = document.getElementById('sphericalYMax')?.value;
+        const zMax = zMaxInput !== '' ? parseFloat(zMaxInput) : 120;  // Allow 0 but default empty to 120
         const elevationSteps = parseInt(document.getElementById('sphericalElevationSteps')?.value) || 4;
         const azimuthPositions = parseInt(document.getElementById('sphericalAzimuthPositions')?.value) || 12;
         
@@ -4472,10 +4475,10 @@ async function updateSphericalVisualizerFromConfig() {
         if (validationDiv) {
             const sphereBottom = centerZ - radius;
             const sphereTop = centerZ + radius;
-            const validZMin = Math.max(zMin, sphereBottom + 1);
-            const validZMax = Math.min(zMax, sphereTop - 1);
+            const validZMin = Math.max(zMin, sphereBottom + 0.1);
+            const validZMax = Math.min(zMax, sphereTop - 0.1);
             
-            if (zMin < sphereBottom + 1 || zMax > sphereTop - 1) {
+            if (zMin < sphereBottom + 0.1 || zMax > sphereTop - 0.1) {
                 validationDiv.style.display = 'block';
                 validationDiv.innerHTML = `⚠️ Height range capped to sphere bounds: ${validZMin.toFixed(0)}-${validZMax.toFixed(0)}mm (sphere: ${sphereBottom.toFixed(0)}-${sphereTop.toFixed(0)}mm)`;
             } else {
@@ -4504,12 +4507,18 @@ function generateSphericalScanPoints(radius, centerZ, zMin, zMax, elevationSteps
     const sphereTop = centerZ + radius;     // Highest point of sphere
     
     // Cap the scan range to sphere bounds
-    const validZMin = Math.max(zMin, sphereBottom + 1);  // Add 1mm margin to avoid edge cases
-    const validZMax = Math.min(zMax, sphereTop - 1);     // Add 1mm margin to avoid edge cases
+    const validZMin = Math.max(zMin, sphereBottom + 0.1);  // Smaller margin to avoid edge cases
+    const validZMax = Math.min(zMax, sphereTop - 0.1);     // Smaller margin to avoid edge cases
     
     // Validate that we have a valid range
     if (validZMin >= validZMax) {
-        console.warn(`Invalid scan range: sphere at Z=${centerZ} with radius=${radius} cannot reach Z=${zMin}-${zMax}`);
+        console.warn(`Invalid scan range: sphere at Z=${centerZ} with radius=${radius} cannot reach Z=${zMin}-${zMax}. Sphere bounds: ${sphereBottom.toFixed(1)}-${sphereTop.toFixed(1)}mm`);
+        return [];
+    }
+    
+    // Additional validation: ensure we have at least 1mm of valid range
+    if (validZMax - validZMin < 1) {
+        console.warn(`Scan range too narrow: ${validZMin.toFixed(1)}-${validZMax.toFixed(1)}mm (less than 1mm)`);
         return [];
     }
     
