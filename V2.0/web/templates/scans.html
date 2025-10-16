@@ -2109,6 +2109,114 @@
             </div>
         </div>
 
+        <!-- Spherical Scan Configuration -->
+        <div id="spherical-parameters" class="scan-config-panel" style="display: none;">
+            <div class="config-section">
+                <h4>🌐 Spherical Scan Setup</h4>
+                <p class="config-help">Configure spherical scanning pattern for complete 3D coverage</p>
+                
+                <!-- 2-Column Layout: Parameters + 3D Visualizer -->
+                <div class="cylindrical-container">
+                    <!-- LEFT COLUMN: Parameters -->
+                    <div class="cylindrical-grid">
+                    <div class="parameter-group">
+                        <label for="sphericalRadius">🌐 Sphere Radius</label>
+                        <input type="number" id="sphericalRadius" class="parameter-input" min="50" max="300" value="150" step="5">
+                        <small class="parameter-help">Distance from turntable center to camera positions (50-300mm)</small>
+                    </div>
+                    
+                    <div class="parameter-group">
+                        <label>📏 Scan Height Range</label>
+                        <div class="range-inputs">
+                            <input type="number" id="sphericalYMin" class="parameter-input" min="10" max="200" value="40" step="5" placeholder="Start">
+                            <span class="range-separator">to</span>
+                            <input type="number" id="sphericalYMax" class="parameter-input" min="10" max="200" value="120" step="5" placeholder="End">
+                        </div>
+                        <small class="parameter-help">Vertical scanning range in millimeters</small>
+                    </div>
+                    
+                    <div class="parameter-group">
+                        <label for="sphericalElevationSteps">📐 Number of Elevation Steps</label>
+                        <input type="number" id="sphericalElevationSteps" class="parameter-input" min="2" max="10" value="4" step="1">
+                        <small class="parameter-help">Number of elevation angles from bottom to top (2-10 steps)</small>
+                    </div>
+                    
+                    <div class="parameter-group">
+                        <label for="sphericalAzimuthPositions">🔄 Number of Azimuth Positions</label>
+                        <input type="number" id="sphericalAzimuthPositions" class="parameter-input" min="6" max="72" value="12" step="1">
+                        <small class="parameter-help">Enter number of positions per elevation (6-72). More positions = higher detail but longer scan time</small>
+                    </div>
+                    
+                    <!-- Servo Tilt Configuration -->
+                    <div class="parameter-group">
+                        <label for="sphericalServoTiltMode">🎯 Servo Tilt Mode</label>
+                        <select id="sphericalServoTiltMode" class="parameter-input" onchange="updateSphericalServoTiltControls()">
+                            <option value="none">None - Fixed Camera Position</option>
+                            <option value="manual">Manual Angle</option>
+                            <option value="focus_point">Focus Point Targeting</option>
+                        </select>
+                        <small class="parameter-help" id="sphericalServoModeHelp">Camera will maintain fixed position during scanning</small>
+                    </div>
+                    
+                    <!-- Manual Angle Controls -->
+                    <div class="parameter-group" id="sphericalServoManualGroup" style="display: none;">
+                        <label for="sphericalServoManualAngle">🔧 Manual Servo Angle (°)</label>
+                        <input type="number" id="sphericalServoManualAngle" class="parameter-input" min="-75" max="75" value="0" step="1" oninput="updateVisualizerFromConfig()">
+                        <small class="parameter-help">Set servo to a fixed angle (-75° to +75°)</small>
+                    </div>
+                    
+                    <!-- Focus Point Controls -->
+                    <div class="parameter-group" id="sphericalServoFocusGroup" style="display: none;">
+                        <label for="sphericalServoYFocus">🎯 Focus Y Position (mm)</label>
+                        <input type="number" id="sphericalServoYFocus" class="parameter-input" min="10" max="200" value="80" step="5" oninput="updateVisualizerFromConfig()">
+                        <small class="parameter-help">Y-coordinate to focus servo on during scanning</small>
+                    </div>
+                </div>
+                <!-- END LEFT COLUMN -->
+                
+                <!-- RIGHT COLUMN: 3D Visualizer -->
+                <div class="scan-visualizer-column">
+                    <div class="visualizer-card">
+                        <h4>📊 3D Scan Path Preview</h4>
+                        <div id="spherical-scan-path-3d-plot"></div>
+                        <div class="visualizer-info" id="spherical-scan-path-info">
+                            <div class="visualizer-info-item">
+                                <span>Total Points:</span>
+                                <strong id="spherical-total-points-display">-</strong>
+                            </div>
+                            <div class="visualizer-info-item">
+                                <span>X Range:</span>
+                                <span id="spherical-x-range-display">-</span>
+                            </div>
+                            <div class="visualizer-info-item">
+                                <span>Y Range:</span>
+                                <span id="spherical-y-range-display">-</span>
+                            </div>
+                            <div class="visualizer-info-item">
+                                <span>Z Range:</span>
+                                <span id="spherical-z-range-display">-</span>
+                            </div>
+                        </div>
+                        
+                        <!-- CSV Import/Export Controls -->
+                        <div class="csv-controls">
+                            <input type="file" id="spherical-csv-file-input" class="csv-file-input" accept=".csv" onchange="handleSphericalCSVUpload(event)">
+                            <button class="btn btn-outline" onclick="document.getElementById('spherical-csv-file-input').click()">
+                                📁 Import CSV
+                            </button>
+                            <button class="btn btn-outline" onclick="exportSphericalScanCSV()">
+                                💾 Export CSV
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <!-- END RIGHT COLUMN -->
+                
+            </div>
+            <!-- END 2-COLUMN CONTAINER -->
+            </div>
+        </div>
+
         <!-- Scan Preview -->
         <div class="scan-preview">
             <h4>Scan Preview</h4>
@@ -2339,6 +2447,7 @@
 // Scan type switching functionality
 function switchScanType(scanType) {
     const cylindricalParams = document.getElementById('cylindrical-parameters');
+    const sphericalParams = document.getElementById('spherical-parameters');
     const gridBoundaries = document.getElementById('grid-boundaries');
     const configTitle = document.getElementById('config-title');
     const configDescription = document.getElementById('config-description');
@@ -2357,6 +2466,10 @@ function switchScanType(scanType) {
             title: 'Configure Cylindrical Scan',
             description: 'Set rotation and height parameters for cylindrical objects'
         },
+        spherical: {
+            title: 'Configure Spherical Scan',
+            description: 'Set spherical scanning pattern for complete 3D coverage'
+        },
         detail: {
             title: 'Configure Detail Scan',
             description: 'Define the focused area for high-resolution detail capture'
@@ -2372,6 +2485,7 @@ function switchScanType(scanType) {
     // Show/hide appropriate parameter panels
     if (scanType === 'cylindrical') {
         if (cylindricalParams) cylindricalParams.style.display = 'block';
+        if (sphericalParams) sphericalParams.style.display = 'none';
         if (gridBoundaries) gridBoundaries.style.display = 'none';
         
         // Trigger visualization update when cylindrical scan is selected
@@ -2380,8 +2494,20 @@ function switchScanType(scanType) {
                 updateVisualizerFromConfig();
             }
         }, 100);
+    } else if (scanType === 'spherical') {
+        if (cylindricalParams) cylindricalParams.style.display = 'none';
+        if (sphericalParams) sphericalParams.style.display = 'block';
+        if (gridBoundaries) gridBoundaries.style.display = 'none';
+        
+        // Trigger visualization update when spherical scan is selected
+        setTimeout(() => {
+            if (typeof updateSphericalVisualizerFromConfig === 'function') {
+                updateSphericalVisualizerFromConfig();
+            }
+        }, 100);
     } else {
         if (cylindricalParams) cylindricalParams.style.display = 'none';
+        if (sphericalParams) sphericalParams.style.display = 'none';
         if (gridBoundaries) gridBoundaries.style.display = 'block';
     }
 }
@@ -4294,6 +4420,48 @@ document.addEventListener('DOMContentLoaded', function() {
         speedSelect.addEventListener('change', onSpeedProfileChange);
     }
 });
+
+// Spherical Scan Functions (Placeholder implementations)
+function updateSphericalServoTiltControls() {
+    const mode = document.getElementById('sphericalServoTiltMode')?.value;
+    const manualGroup = document.getElementById('sphericalServoManualGroup');
+    const focusGroup = document.getElementById('sphericalServoFocusGroup');
+    const helpText = document.getElementById('sphericalServoModeHelp');
+    
+    if (manualGroup && focusGroup && helpText) {
+        if (mode === 'manual') {
+            manualGroup.style.display = 'block';
+            focusGroup.style.display = 'none';
+            helpText.textContent = 'Camera will be set to the specified angle for all positions';
+        } else if (mode === 'focus_point') {
+            manualGroup.style.display = 'none';
+            focusGroup.style.display = 'block';
+            helpText.textContent = 'Camera will focus on the specified Y-coordinate during scanning';
+        } else {
+            manualGroup.style.display = 'none';
+            focusGroup.style.display = 'none';
+            helpText.textContent = 'Camera will maintain fixed position during scanning';
+        }
+    }
+}
+
+async function updateSphericalVisualizerFromConfig() {
+    // Placeholder for spherical scan visualization
+    console.log('Spherical visualizer update triggered');
+    // TODO: Implement spherical scan path visualization
+}
+
+function handleSphericalCSVUpload(event) {
+    // Placeholder for spherical CSV import
+    console.log('Spherical CSV upload triggered');
+    // TODO: Implement spherical CSV import functionality
+}
+
+function exportSphericalScanCSV() {
+    // Placeholder for spherical CSV export
+    console.log('Spherical CSV export triggered');
+    // TODO: Implement spherical CSV export functionality
+}
 </script>
 
 {% endblock %}
