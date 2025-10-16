@@ -2126,9 +2126,9 @@
                     </div>
                     
                     <div class="parameter-group">
-                        <label for="sphericalCenterZ">🎯 Sphere Center Z-Offset</label>
+                        <label for="sphericalCenterZ">🎯 Sphere Center Height</label>
                         <input type="number" id="sphericalCenterZ" class="parameter-input" min="-100" max="200" value="80" step="5" oninput="updateSphericalVisualizerFromConfig()">
-                        <small class="parameter-help">Z-offset of sphere center from turntable origin (FluidNC Z-axis, -100 to 200mm)</small>
+                        <small class="parameter-help">Height of sphere center above turntable (Z=0 is turntable level, positive is up)</small>
                     </div>
                     
                     <div class="parameter-group">
@@ -2138,7 +2138,7 @@
                             <span class="range-separator">to</span>
                             <input type="number" id="sphericalYMax" class="parameter-input" min="10" max="200" value="120" step="5" placeholder="End" oninput="updateSphericalVisualizerFromConfig()">
                         </div>
-                        <small class="parameter-help">Vertical scanning range in millimeters</small>
+                        <small class="parameter-help">Vertical height range from turntable level (Z=0 is turntable, positive is up)</small>
                     </div>
                     
                     <div class="parameter-group">
@@ -4458,13 +4458,13 @@ async function updateSphericalVisualizerFromConfig() {
         // Get spherical scan parameters
         const radius = parseFloat(document.getElementById('sphericalRadius')?.value) || 150;
         const centerZ = parseFloat(document.getElementById('sphericalCenterZ')?.value) || 80;
-        const yMin = parseFloat(document.getElementById('sphericalYMin')?.value) || 40;
-        const yMax = parseFloat(document.getElementById('sphericalYMax')?.value) || 120;
+        const zMin = parseFloat(document.getElementById('sphericalYMin')?.value) || 40;  // Note: HTML still uses YMin but represents Z coordinate
+        const zMax = parseFloat(document.getElementById('sphericalYMax')?.value) || 120; // Note: HTML still uses YMax but represents Z coordinate
         const elevationSteps = parseInt(document.getElementById('sphericalElevationSteps')?.value) || 4;
         const azimuthPositions = parseInt(document.getElementById('sphericalAzimuthPositions')?.value) || 12;
         
         // Generate spherical scan points
-        const points = generateSphericalScanPoints(radius, centerZ, yMin, yMax, elevationSteps, azimuthPositions);
+        const points = generateSphericalScanPoints(radius, centerZ, zMin, zMax, elevationSteps, azimuthPositions);
         
         // Visualize the points
         visualizeSphericalScanPath(points);
@@ -4479,19 +4479,19 @@ async function updateSphericalVisualizerFromConfig() {
     }
 }
 
-function generateSphericalScanPoints(radius, centerZ, yMin, yMax, elevationSteps, azimuthPositions) {
+function generateSphericalScanPoints(radius, centerZ, zMin, zMax, elevationSteps, azimuthPositions) {
     const points = [];
     
-    // Calculate elevation angles based on Y range and sphere geometry
+    // Calculate elevation angles based on Z range and sphere geometry
     // This creates the "height levels" equivalent to cylindrical heights
     const elevationAngles = [];
     for (let i = 0; i < elevationSteps; i++) {
-        // Linear interpolation of Y values (like cylindrical height steps)
-        const y = yMin + (yMax - yMin) * i / (elevationSteps - 1);
+        // Linear interpolation of Z values (vertical height)
+        const z = zMin + (zMax - zMin) * i / (elevationSteps - 1);
         
-        // Calculate elevation angle from sphere center to reach this Y coordinate
-        const relativeY = y - centerZ;
-        const sinElevation = Math.max(-1, Math.min(1, relativeY / radius));
+        // Calculate elevation angle from sphere center to reach this Z coordinate
+        const relativeZ = z - centerZ;
+        const sinElevation = Math.max(-1, Math.min(1, relativeZ / radius));
         const elevationAngle = Math.asin(sinElevation);
         
         elevationAngles.push(elevationAngle);
@@ -4581,6 +4581,25 @@ function visualizeSphericalScanPath(points) {
             color: 'red',
             symbol: 'cross'
         }
+    });
+
+    // Add turntable disc for reference (like cylindrical scan)
+    const turntableRadius = 50; // 10cm diameter = 50mm radius
+    const turntablePoints = 50;
+    const turntableTheta = Array.from({length: turntablePoints + 1}, (_, i) => i * 2 * Math.PI / turntablePoints);
+    const turntableX = turntableTheta.map(t => turntableRadius * Math.cos(t));
+    const turntableY = turntableTheta.map(t => turntableRadius * Math.sin(t));
+    const turntableZ = Array(turntablePoints + 1).fill(0); // Turntable at Z=0
+
+    traces.push({
+        name: 'Turntable (10cm)',
+        x: turntableX,
+        y: turntableY,
+        z: turntableZ,
+        mode: 'lines',
+        type: 'scatter3d',
+        line: { color: 'gray', width: 3 },
+        showlegend: false
     });
 
     const layout = {
