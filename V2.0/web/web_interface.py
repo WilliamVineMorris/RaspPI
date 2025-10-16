@@ -382,29 +382,44 @@ class CommandValidator:
             # Generate azimuth positions around this "ring"
             for az_idx in range(azimuth_positions):
                 azimuth = (2 * math.pi * az_idx) / azimuth_positions
+                azimuth_degrees = azimuth * 180 / math.pi  # Convert to degrees
                 
-                # Convert to Cartesian coordinates
-                x = effective_radius * math.cos(azimuth)
-                y = effective_radius * math.sin(azimuth)
+                # Calculate Cartesian coordinates for visualization (frontend expects these)
+                cartesian_x = effective_radius * math.cos(azimuth)
+                cartesian_y = effective_radius * math.sin(azimuth)
+                cartesian_z = z  # Height above turntable
+                
+                # Convert to scanner coordinate system for motion control:
+                # x = radial distance from center (always positive)
+                # y = height above turntable 
+                # z = turntable rotation angle (azimuth)
+                # c = camera tilt angle
+                scanner_x = effective_radius  # Radial distance (always positive)
+                scanner_y = z  # Height above turntable
+                scanner_z = azimuth_degrees  # Turntable rotation angle
                 
                 # Calculate camera tilt angle based on servo mode
                 if servo_tilt_mode == 'manual':
                     c_angle = servo_manual_angle
                 elif servo_tilt_mode == 'focus_point':
-                    # Calculate angle to aim at focus point
-                    delta_x = 0 - x  # Focus at center (0,0)
-                    delta_y = 0 - y  # Focus at center (0,0)
-                    delta_z = servo_focus_z - z
-                    horizontal_dist = math.sqrt(delta_x*delta_x + delta_y*delta_y)
+                    # Calculate angle to aim at focus point from camera position
+                    # Camera is at (scanner_x, 0, scanner_y) pointing toward center (0, 0, servo_focus_z)
+                    delta_z = servo_focus_z - scanner_y
+                    horizontal_dist = scanner_x  # Distance from center
                     c_angle = math.atan2(delta_z, horizontal_dist) * 180 / math.pi
                 else:  # none
                     c_angle = 0.0
                 
                 positions.append({
-                    'x': x,
-                    'y': y, 
-                    'z': z,
-                    'c': c_angle,
+                    # Scanner coordinates for motion control (what orchestrator expects)
+                    'x': scanner_x,  # Radial distance (always positive)
+                    'y': scanner_y,  # Height above turntable
+                    'z': scanner_z,  # Turntable rotation angle (degrees)
+                    'c': c_angle,    # Camera tilt angle
+                    # Cartesian coordinates for visualization (what frontend expects)
+                    'cartesian_x': cartesian_x,  # Can be negative
+                    'cartesian_y': cartesian_y,  # Can be negative
+                    'cartesian_z': cartesian_z,  # Height (same as scanner_y)
                     'elevation_index': elev_idx,
                     'azimuth_index': az_idx
                 })
