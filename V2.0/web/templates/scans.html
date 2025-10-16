@@ -4450,6 +4450,9 @@ function updateSphericalServoTiltControls() {
             helpText.textContent = 'Camera tilt operates independently of sphere geometry';
         }
     }
+    
+    // Update the visualizer after changing servo mode
+    updateSphericalVisualizerFromConfig();
 }
 
 async function updateSphericalVisualizerFromConfig() {
@@ -4659,6 +4662,9 @@ function visualizeSphericalScanPath(points) {
         ? parseFloat(focusYValue) 
         : 80;
     
+    // Debug: Log servo tilt mode status
+    console.log('🎯 Spherical Servo Tilt Mode:', servoTiltMode, 'Focus Z:', focusZPosition);
+    
     // Add focus point marker if in focus point mode
     if (servoTiltMode === 'focus_point') {
         traces.push({
@@ -4769,7 +4775,8 @@ function visualizeSphericalScanPath(points) {
             }
         },
         title: '🌐 Spherical Scan Path - Connected Arcs',
-        margin: { l: 0, r: 0, b: 0, t: 30 }
+        margin: { l: 0, r: 0, b: 0, t: 30 },
+        height: 600  // Increase height to match parameter panel
     };
 
     const config = {
