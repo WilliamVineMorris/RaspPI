@@ -4619,9 +4619,13 @@ function visualizeSphericalScanPath(points) {
         type: 'scatter3d',
         name: 'Sphere Center',
         marker: { 
-            size: 10, 
-            color: 'red',
-            symbol: 'cross'
+            size: 12, 
+            color: 'blue',
+            symbol: 'circle',
+            line: {
+                color: 'darkblue',
+                width: 2
+            }
         }
     });
 
@@ -4643,6 +4647,116 @@ function visualizeSphericalScanPath(points) {
         line: { color: 'gray', width: 3 },
         showlegend: false
     });
+
+    // Add servo tilt preview lines for each scan point (like cylindrical scan)
+    // These show the camera tilt direction at each position
+    
+    // Get tilt mode and settings for accurate visualization  
+    const servoTiltMode = document.getElementById('sphericalServoTiltMode')?.value || 'none';
+    const manualAngle = parseFloat(document.getElementById('sphericalServoManualAngle')?.value || 0);
+    const focusYValue = document.getElementById('sphericalServoYFocus')?.value;
+    const focusZPosition = focusYValue !== null && focusYValue !== undefined && focusYValue !== '' 
+        ? parseFloat(focusYValue) 
+        : 80;
+    
+    // Add focus point marker if in focus point mode
+    if (servoTiltMode === 'focus_point') {
+        traces.push({
+            type: 'scatter3d',
+            mode: 'markers',
+            name: 'Focus Point',
+            x: [0],
+            y: [0],
+            z: [focusZPosition],
+            marker: {
+                size: 10,
+                color: 'orange',
+                symbol: 'x',
+                line: {
+                    color: 'darkorange',
+                    width: 3
+                }
+            },
+            hovertext: `Focus Target<br>Height: ${focusZPosition.toFixed(1)}mm`,
+            hoverinfo: 'text',
+            showlegend: false
+        });
+    }
+
+    // Add servo tilt lines for each point (if tilt mode is active)
+    if (servoTiltMode !== 'none') {
+        points.forEach((p, i) => {
+            // Base position (camera mount) 
+            const baseX = p.x;
+            const baseY = p.y;
+            const baseZ = p.z;
+            
+            // Calculate tilt angle based on mode
+            let actualTiltAngle = 0;
+            if (servoTiltMode === 'manual') {
+                actualTiltAngle = manualAngle;
+            } else if (servoTiltMode === 'focus_point') {
+                // Calculate angle to point at focus position
+                const deltaX = 0 - baseX;  // Focus at center (0,0)
+                const deltaY = 0 - baseY;  // Focus at center (0,0)
+                const deltaZ = focusZPosition - baseZ;
+                const horizontalDist = Math.sqrt(deltaX*deltaX + deltaY*deltaY);
+                actualTiltAngle = Math.atan2(deltaZ, horizontalDist) * 180 / Math.PI;
+            }
+            
+            const c_rad = actualTiltAngle * Math.PI / 180;
+            
+            // Calculate azimuth angle for this point
+            const azimuth = Math.atan2(baseY, baseX);
+            
+            // For visualization, draw line based on servo tilt mode
+            let tiltEndX, tiltEndY, tiltEndZ;
+            
+            if (servoTiltMode === 'focus_point') {
+                // Focus Point Targeting mode - point directly at focus point
+                tiltEndX = 0;  // Center
+                tiltEndY = 0;  // Center  
+                tiltEndZ = focusZPosition;  // Focus height
+            } else {
+                // Manual mode - draw line in camera direction
+                
+                // Direction from camera position based on tilt angle
+                // Hardware Convention: 0° = horizontal toward center, NEGATIVE = tilted down, POSITIVE = tilted up
+                const dirX = -Math.cos(azimuth) * Math.cos(c_rad); // Inward radially, scaled by horizontal component
+                const dirY = -Math.sin(azimuth) * Math.cos(c_rad); // Inward radially, scaled by horizontal component  
+                const dirZ = Math.sin(c_rad); // Vertical component
+                
+                // Normalize direction vector
+                const dirLength = Math.sqrt(dirX*dirX + dirY*dirY + dirZ*dirZ);
+                const normDirX = dirX / dirLength;
+                const normDirY = dirY / dirLength;
+                const normDirZ = dirZ / dirLength;
+                
+                // Draw line for 50mm distance (reasonable preview length)
+                const t_max = 50;
+                tiltEndX = baseX + t_max * normDirX;
+                tiltEndY = baseY + t_max * normDirY;
+                tiltEndZ = baseZ + t_max * normDirZ;
+            }
+            
+            // Add tilt line (no hover info - user checks tilt via scan point hover)
+            traces.push({
+                type: 'scatter3d',
+                mode: 'lines',
+                name: `Tilt ${i}`,
+                x: [baseX, tiltEndX],
+                y: [baseY, tiltEndY], 
+                z: [baseZ, tiltEndZ],
+                line: {
+                    color: 'rgba(0, 0, 0, 0.5)',  // Black, semi-transparent
+                    width: 2,
+                    dash: 'dot'  // Dotted line style
+                },
+                hoverinfo: 'skip',
+                showlegend: false
+            });
+        });
+    }
 
     const layout = {
         scene: {
