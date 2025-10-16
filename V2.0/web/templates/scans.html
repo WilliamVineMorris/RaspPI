@@ -4508,13 +4508,14 @@ function generateSphericalScanPoints(radius, centerZ, zMin, zMax, elevationSteps
             
             // Calculate spherical coordinates
             const effectiveRadius = radius * Math.cos(elevation);
-            const zCoord = centerZ + radius * Math.sin(elevation);
+            // Use the original Z coordinate we calculated, not the spherical recalculation
+            const targetZ = zMin + (zMax - zMin) * elevIndex / (elevationSteps - 1);
             
             // Convert to Cartesian coordinates (FluidNC system)
             // Turntable rotates in X-Y plane, Z is vertical height
             const x = effectiveRadius * Math.cos(azimuth);
             const y = effectiveRadius * Math.sin(azimuth);  
-            const z = zCoord;  // FluidNC Z is vertical height
+            const z = targetZ;  // Use the target Z directly from scan range
             
             points.push({
                 x: x,
