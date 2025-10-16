@@ -4483,38 +4483,34 @@ function generateSphericalScanPoints(radius, centerZ, yMin, yMax, elevationSteps
     const points = [];
     
     // Calculate elevation angles based on Y range and sphere geometry
-    // For a sphere with center at (0, 0, centerZ), we need to find elevation angles
-    // that correspond to the desired Y range (yMin to yMax)
-    
+    // This creates the "height levels" equivalent to cylindrical heights
     const elevationAngles = [];
     for (let i = 0; i < elevationSteps; i++) {
-        // Linear interpolation of Y values
+        // Linear interpolation of Y values (like cylindrical height steps)
         const y = yMin + (yMax - yMin) * i / (elevationSteps - 1);
         
         // Calculate elevation angle from sphere center to reach this Y coordinate
-        // Using: y = centerZ + radius * sin(elevation)
-        // Therefore: elevation = arcsin((y - centerZ) / radius)
         const relativeY = y - centerZ;
-        
-        // Clamp to valid range for arcsin
         const sinElevation = Math.max(-1, Math.min(1, relativeY / radius));
         const elevationAngle = Math.asin(sinElevation);
         
         elevationAngles.push(elevationAngle);
     }
     
-    // Generate points for each elevation (like rings in cylindrical, but tilted)
-    elevationAngles.forEach((elevation, elevIndex) => {
-        // Calculate the effective radius at this elevation
-        const effectiveRadius = radius * Math.cos(elevation);
-        const yCoord = centerZ + radius * Math.sin(elevation);
+    // Generate points following cylindrical pattern but with spherical arcs
+    // For each azimuth position (rotation), create an arc through all elevations
+    for (let azIndex = 0; azIndex < azimuthPositions; azIndex++) {
+        const azimuth = (2 * Math.PI * azIndex) / azimuthPositions;
         
-        // Generate azimuth positions around this "ring"
-        for (let azIndex = 0; azIndex < azimuthPositions; azIndex++) {
-            const azimuth = (2 * Math.PI * azIndex) / azimuthPositions;
+        // Create an arc at this azimuth position (equivalent to vertical line in cylindrical)
+        for (let elevIndex = 0; elevIndex < elevationSteps; elevIndex++) {
+            const elevation = elevationAngles[elevIndex];
             
-            // Convert spherical to Cartesian coordinates
-            // Note: FluidNC coordinate system where turntable rotates around Z-axis
+            // Calculate spherical coordinates
+            const effectiveRadius = radius * Math.cos(elevation);
+            const yCoord = centerZ + radius * Math.sin(elevation);
+            
+            // Convert to Cartesian coordinates (FluidNC system)
             const x = effectiveRadius * Math.cos(azimuth);
             const z = effectiveRadius * Math.sin(azimuth);  // FluidNC Z is horizontal rotation
             const y = yCoord;  // FluidNC Y is vertical
@@ -4526,10 +4522,11 @@ function generateSphericalScanPoints(radius, centerZ, yMin, yMax, elevationSteps
                 elevation: elevation * 180 / Math.PI,  // Convert to degrees for display
                 azimuth: azimuth * 180 / Math.PI,      // Convert to degrees for display
                 elevationIndex: elevIndex,
-                azimuthIndex: azIndex
+                azimuthIndex: azIndex,
+                pointIndex: azIndex * elevationSteps + elevIndex  // Sequential numbering like cylindrical
             });
         }
-    });
+    }
     
     return points;
 }
@@ -4541,39 +4538,35 @@ function visualizeSphericalScanPath(points) {
         return;
     }
 
-    // Create traces for different elevation levels (like rings)
+    // Create single connected path trace (like cylindrical)
+    // Points are already ordered in scanning sequence: arc1, arc2, arc3, etc.
     const traces = [];
-    const elevationLevels = [...new Set(points.map(p => p.elevationIndex))];
     
-    // Color palette for different elevation levels
-    const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
-                   '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
-    
-    elevationLevels.forEach((elevIndex, colorIndex) => {
-        const elevPoints = points.filter(p => p.elevationIndex === elevIndex);
-        
-        // Add connecting lines to show the "ring" at this elevation
-        const ringPoints = [...elevPoints, elevPoints[0]]; // Close the ring
-        
-        traces.push({
-            x: ringPoints.map(p => p.x),
-            y: ringPoints.map(p => p.y),
-            z: ringPoints.map(p => p.z),
-            mode: 'lines+markers',
-            type: 'scatter3d',
-            name: `Elevation ${elevIndex + 1} (${elevPoints[0]?.elevation.toFixed(1)}°)`,
-            line: { 
-                color: colors[colorIndex % colors.length], 
-                width: 3 
-            },
-            marker: { 
-                size: 6, 
-                color: colors[colorIndex % colors.length] 
+    // Main scan path - single connected trace showing the spherical arcs
+    const scanPathTrace = {
+        x: points.map(p => p.x),
+        y: points.map(p => p.y),
+        z: points.map(p => p.z),
+        mode: 'lines+markers',
+        type: 'scatter3d',
+        name: 'Spherical Scan Path',
+        line: { 
+            color: points.map(p => p.pointIndex),  // Color by sequence
+            colorscale: 'Viridis',
+            width: 3 
+        },
+        marker: { 
+            size: 4,
+            color: points.map(p => p.pointIndex),
+            colorscale: 'Viridis',
+            colorbar: {
+                title: 'Point Index'
             }
-        });
-    });
+        }
+    };
+    traces.push(scanPathTrace);
     
-    // Add sphere center point
+    // Add sphere center point for reference
     const centerZ = parseFloat(document.getElementById('sphericalCenterZ')?.value) || 80;
     traces.push({
         x: [0],
@@ -4594,9 +4587,12 @@ function visualizeSphericalScanPath(points) {
             xaxis: { title: 'X (mm)' },
             yaxis: { title: 'Y (mm)' },
             zaxis: { title: 'Z (mm)' },
-            aspectmode: 'cube'
+            aspectmode: 'cube',
+            camera: {
+                eye: { x: 1.5, y: 1.5, z: 1.5 }
+            }
         },
-        title: '🌐 Spherical Scan Path',
+        title: '🌐 Spherical Scan Path - Connected Arcs',
         margin: { l: 0, r: 0, b: 0, t: 30 }
     };
 
