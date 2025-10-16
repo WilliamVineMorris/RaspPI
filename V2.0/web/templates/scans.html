@@ -2121,29 +2121,35 @@
                     <div class="cylindrical-grid">
                     <div class="parameter-group">
                         <label for="sphericalRadius">🌐 Sphere Radius</label>
-                        <input type="number" id="sphericalRadius" class="parameter-input" min="50" max="300" value="150" step="5">
+                        <input type="number" id="sphericalRadius" class="parameter-input" min="50" max="300" value="150" step="5" oninput="updateSphericalVisualizerFromConfig()">
                         <small class="parameter-help">Distance from turntable center to camera positions (50-300mm)</small>
+                    </div>
+                    
+                    <div class="parameter-group">
+                        <label for="sphericalCenterZ">🎯 Sphere Center Z-Offset</label>
+                        <input type="number" id="sphericalCenterZ" class="parameter-input" min="-100" max="200" value="80" step="5" oninput="updateSphericalVisualizerFromConfig()">
+                        <small class="parameter-help">Z-offset of sphere center from turntable origin (FluidNC Z-axis, -100 to 200mm)</small>
                     </div>
                     
                     <div class="parameter-group">
                         <label>📏 Scan Height Range</label>
                         <div class="range-inputs">
-                            <input type="number" id="sphericalYMin" class="parameter-input" min="10" max="200" value="40" step="5" placeholder="Start">
+                            <input type="number" id="sphericalYMin" class="parameter-input" min="10" max="200" value="40" step="5" placeholder="Start" oninput="updateSphericalVisualizerFromConfig()">
                             <span class="range-separator">to</span>
-                            <input type="number" id="sphericalYMax" class="parameter-input" min="10" max="200" value="120" step="5" placeholder="End">
+                            <input type="number" id="sphericalYMax" class="parameter-input" min="10" max="200" value="120" step="5" placeholder="End" oninput="updateSphericalVisualizerFromConfig()">
                         </div>
                         <small class="parameter-help">Vertical scanning range in millimeters</small>
                     </div>
                     
                     <div class="parameter-group">
                         <label for="sphericalElevationSteps">📐 Number of Elevation Steps</label>
-                        <input type="number" id="sphericalElevationSteps" class="parameter-input" min="2" max="10" value="4" step="1">
+                        <input type="number" id="sphericalElevationSteps" class="parameter-input" min="2" max="10" value="4" step="1" oninput="updateSphericalVisualizerFromConfig()">
                         <small class="parameter-help">Number of elevation angles from bottom to top (2-10 steps)</small>
                     </div>
                     
                     <div class="parameter-group">
                         <label for="sphericalAzimuthPositions">🔄 Number of Azimuth Positions</label>
-                        <input type="number" id="sphericalAzimuthPositions" class="parameter-input" min="6" max="72" value="12" step="1">
+                        <input type="number" id="sphericalAzimuthPositions" class="parameter-input" min="6" max="72" value="12" step="1" oninput="updateSphericalVisualizerFromConfig()">
                         <small class="parameter-help">Enter number of positions per elevation (6-72). More positions = higher detail but longer scan time</small>
                     </div>
                     
@@ -2161,14 +2167,14 @@
                     <!-- Manual Angle Controls -->
                     <div class="parameter-group" id="sphericalServoManualGroup" style="display: none;">
                         <label for="sphericalServoManualAngle">🔧 Manual Servo Angle (°)</label>
-                        <input type="number" id="sphericalServoManualAngle" class="parameter-input" min="-75" max="75" value="0" step="1" oninput="updateVisualizerFromConfig()">
+                        <input type="number" id="sphericalServoManualAngle" class="parameter-input" min="-75" max="75" value="0" step="1" oninput="updateSphericalVisualizerFromConfig()">
                         <small class="parameter-help">Set servo to a fixed angle (-75° to +75°)</small>
                     </div>
                     
                     <!-- Focus Point Controls -->
                     <div class="parameter-group" id="sphericalServoFocusGroup" style="display: none;">
                         <label for="sphericalServoYFocus">🎯 Focus Y Position (mm)</label>
-                        <input type="number" id="sphericalServoYFocus" class="parameter-input" min="10" max="200" value="80" step="5" oninput="updateVisualizerFromConfig()">
+                        <input type="number" id="sphericalServoYFocus" class="parameter-input" min="10" max="200" value="80" step="5" oninput="updateSphericalVisualizerFromConfig()">
                         <small class="parameter-help">Y-coordinate to focus servo on during scanning</small>
                     </div>
                 </div>
@@ -4446,9 +4452,187 @@ function updateSphericalServoTiltControls() {
 }
 
 async function updateSphericalVisualizerFromConfig() {
-    // Placeholder for spherical scan visualization
-    console.log('Spherical visualizer update triggered');
-    // TODO: Implement spherical scan path visualization
+    try {
+        console.log('🌐 Updating spherical visualizer...');
+        
+        // Get spherical scan parameters
+        const radius = parseFloat(document.getElementById('sphericalRadius')?.value) || 150;
+        const centerZ = parseFloat(document.getElementById('sphericalCenterZ')?.value) || 80;
+        const yMin = parseFloat(document.getElementById('sphericalYMin')?.value) || 40;
+        const yMax = parseFloat(document.getElementById('sphericalYMax')?.value) || 120;
+        const elevationSteps = parseInt(document.getElementById('sphericalElevationSteps')?.value) || 4;
+        const azimuthPositions = parseInt(document.getElementById('sphericalAzimuthPositions')?.value) || 12;
+        
+        // Generate spherical scan points
+        const points = generateSphericalScanPoints(radius, centerZ, yMin, yMax, elevationSteps, azimuthPositions);
+        
+        // Visualize the points
+        visualizeSphericalScanPath(points);
+        
+        // Update info display
+        updateSphericalScanInfo(points, radius, centerZ);
+        
+        console.log('🌐 Generated', points.length, 'spherical scan points');
+        
+    } catch (error) {
+        console.error('Error updating spherical visualizer:', error);
+    }
+}
+
+function generateSphericalScanPoints(radius, centerZ, yMin, yMax, elevationSteps, azimuthPositions) {
+    const points = [];
+    
+    // Calculate elevation angles based on Y range and sphere geometry
+    // For a sphere with center at (0, 0, centerZ), we need to find elevation angles
+    // that correspond to the desired Y range (yMin to yMax)
+    
+    const elevationAngles = [];
+    for (let i = 0; i < elevationSteps; i++) {
+        // Linear interpolation of Y values
+        const y = yMin + (yMax - yMin) * i / (elevationSteps - 1);
+        
+        // Calculate elevation angle from sphere center to reach this Y coordinate
+        // Using: y = centerZ + radius * sin(elevation)
+        // Therefore: elevation = arcsin((y - centerZ) / radius)
+        const relativeY = y - centerZ;
+        
+        // Clamp to valid range for arcsin
+        const sinElevation = Math.max(-1, Math.min(1, relativeY / radius));
+        const elevationAngle = Math.asin(sinElevation);
+        
+        elevationAngles.push(elevationAngle);
+    }
+    
+    // Generate points for each elevation (like rings in cylindrical, but tilted)
+    elevationAngles.forEach((elevation, elevIndex) => {
+        // Calculate the effective radius at this elevation
+        const effectiveRadius = radius * Math.cos(elevation);
+        const yCoord = centerZ + radius * Math.sin(elevation);
+        
+        // Generate azimuth positions around this "ring"
+        for (let azIndex = 0; azIndex < azimuthPositions; azIndex++) {
+            const azimuth = (2 * Math.PI * azIndex) / azimuthPositions;
+            
+            // Convert spherical to Cartesian coordinates
+            // Note: FluidNC coordinate system where turntable rotates around Z-axis
+            const x = effectiveRadius * Math.cos(azimuth);
+            const z = effectiveRadius * Math.sin(azimuth);  // FluidNC Z is horizontal rotation
+            const y = yCoord;  // FluidNC Y is vertical
+            
+            points.push({
+                x: x,
+                y: y, 
+                z: z,
+                elevation: elevation * 180 / Math.PI,  // Convert to degrees for display
+                azimuth: azimuth * 180 / Math.PI,      // Convert to degrees for display
+                elevationIndex: elevIndex,
+                azimuthIndex: azIndex
+            });
+        }
+    });
+    
+    return points;
+}
+
+function visualizeSphericalScanPath(points) {
+    if (!points || points.length === 0) {
+        document.getElementById('spherical-scan-path-3d-plot').innerHTML = 
+            '<div style="text-align: center; padding: 2rem; color: #666;">No points to display</div>';
+        return;
+    }
+
+    // Create traces for different elevation levels (like rings)
+    const traces = [];
+    const elevationLevels = [...new Set(points.map(p => p.elevationIndex))];
+    
+    // Color palette for different elevation levels
+    const colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+                   '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
+    
+    elevationLevels.forEach((elevIndex, colorIndex) => {
+        const elevPoints = points.filter(p => p.elevationIndex === elevIndex);
+        
+        // Add connecting lines to show the "ring" at this elevation
+        const ringPoints = [...elevPoints, elevPoints[0]]; // Close the ring
+        
+        traces.push({
+            x: ringPoints.map(p => p.x),
+            y: ringPoints.map(p => p.y),
+            z: ringPoints.map(p => p.z),
+            mode: 'lines+markers',
+            type: 'scatter3d',
+            name: `Elevation ${elevIndex + 1} (${elevPoints[0]?.elevation.toFixed(1)}°)`,
+            line: { 
+                color: colors[colorIndex % colors.length], 
+                width: 3 
+            },
+            marker: { 
+                size: 6, 
+                color: colors[colorIndex % colors.length] 
+            }
+        });
+    });
+    
+    // Add sphere center point
+    const centerZ = parseFloat(document.getElementById('sphericalCenterZ')?.value) || 80;
+    traces.push({
+        x: [0],
+        y: [centerZ],
+        z: [0],
+        mode: 'markers',
+        type: 'scatter3d',
+        name: 'Sphere Center',
+        marker: { 
+            size: 10, 
+            color: 'red',
+            symbol: 'cross'
+        }
+    });
+
+    const layout = {
+        scene: {
+            xaxis: { title: 'X (mm)' },
+            yaxis: { title: 'Y (mm)' },
+            zaxis: { title: 'Z (mm)' },
+            aspectmode: 'cube'
+        },
+        title: '🌐 Spherical Scan Path',
+        margin: { l: 0, r: 0, b: 0, t: 30 }
+    };
+
+    const config = {
+        displayModeBar: true,
+        displaylogo: false,
+        modeBarButtonsToRemove: ['pan2d', 'lasso2d']
+    };
+
+    Plotly.newPlot('spherical-scan-path-3d-plot', traces, layout, config);
+}
+
+function updateSphericalScanInfo(points, radius, centerZ) {
+    if (!points || points.length === 0) {
+        document.getElementById('spherical-total-points-display').textContent = '0';
+        document.getElementById('spherical-x-range-display').textContent = '-';
+        document.getElementById('spherical-y-range-display').textContent = '-';
+        document.getElementById('spherical-z-range-display').textContent = '-';
+        return;
+    }
+
+    const xCoords = points.map(p => p.x);
+    const yCoords = points.map(p => p.y);
+    const zCoords = points.map(p => p.z);
+
+    const xMin = Math.min(...xCoords);
+    const xMax = Math.max(...xCoords);
+    const yMin = Math.min(...yCoords);
+    const yMax = Math.max(...yCoords);
+    const zMin = Math.min(...zCoords);
+    const zMax = Math.max(...zCoords);
+
+    document.getElementById('spherical-total-points-display').textContent = points.length;
+    document.getElementById('spherical-x-range-display').textContent = `${xMin.toFixed(1)} to ${xMax.toFixed(1)} mm`;
+    document.getElementById('spherical-y-range-display').textContent = `${yMin.toFixed(1)} to ${yMax.toFixed(1)} mm`;
+    document.getElementById('spherical-z-range-display').textContent = `${zMin.toFixed(1)} to ${zMax.toFixed(1)} mm`;
 }
 
 function handleSphericalCSVUpload(event) {
