@@ -2949,6 +2949,52 @@ function collectScanParameters() {
             }
             
             return scanData;
+        } else if (scanType === 'spherical') {
+            // Get spherical parameters
+            const radius = document.getElementById('sphericalRadius')?.value || '150';
+            const centerZ = document.getElementById('sphericalCenterZ')?.value;
+            const centerZValue = centerZ !== '' ? parseFloat(centerZ) : 80;
+            const zMin = document.getElementById('sphericalYMin')?.value || '40';  // Note: HTML uses YMin but represents Z
+            const zMax = document.getElementById('sphericalYMax')?.value || '120'; // Note: HTML uses YMax but represents Z
+            const elevationSteps = parseInt(document.getElementById('sphericalElevationSteps')?.value) || 4;
+            const azimuthPositions = parseInt(document.getElementById('sphericalAzimuthPositions')?.value) || 12;
+            
+            // Servo tilt settings
+            const servoTiltMode = document.getElementById('sphericalServoTiltMode')?.value || 'none';
+            const servoManualAngle = parseFloat(document.getElementById('sphericalServoManualAngle')?.value || 0);
+            const servoFocusZ = document.getElementById('sphericalServoYFocus')?.value;
+            const servoFocusZValue = servoFocusZ !== '' ? parseFloat(servoFocusZ) : 80;
+            
+            const scanData = {
+                pattern_type: 'spherical',
+                radius: parseFloat(radius),
+                center_z: centerZValue,
+                z_min: parseFloat(zMin),
+                z_max: parseFloat(zMax),
+                elevation_steps: elevationSteps,
+                azimuth_positions: azimuthPositions,
+                servo_tilt_mode: servoTiltMode,
+                servo_manual_angle: servoManualAngle,
+                servo_focus_z: servoFocusZValue,
+                scan_name: scanName,
+                resolution: resolution,
+                speed: speed,
+                camera_count: parseInt(cameraCount),
+                focus_settings: focusSettings
+            };
+            
+            // Add custom settings if active
+            if (qualitySettings) {
+                scanData.quality_settings = qualitySettings;
+                console.log('✅ Added quality_settings to SPHERICAL scan data:', qualitySettings);
+            }
+            if (speedSettings) {
+                scanData.speed_settings = speedSettings;
+                console.log('✅ Added speed_settings to SPHERICAL scan data:', speedSettings);
+            }
+            
+            console.log('📊 Spherical scan data collected:', scanData);
+            return scanData;
         } else {
             // Get grid parameters
             const xMin = document.getElementById('boundaryXMin')?.value || '-50';
@@ -3517,6 +3563,20 @@ function updatePreviewDisplay(scanData) {
         if (previewImages) previewImages.textContent = images.toLocaleString();
         
         console.log(`📊 Preview calculation: ${heightLevels} height levels × ${rotationPositions} rotations = ${totalPoints} points`);
+    } else if (scanData.pattern_type === 'spherical') {
+        // Calculate total points for spherical scan: elevation steps × azimuth positions
+        const elevationSteps = scanData.elevation_steps || 4;
+        const azimuthPositions = scanData.azimuth_positions || 12;
+        const totalPoints = elevationSteps * azimuthPositions;
+        const images = totalPoints * scanData.camera_count;
+        const timeMinutes = Math.ceil(totalPoints * 4); // Estimate 4 seconds per point
+        
+        if (previewPoints) previewPoints.textContent = totalPoints.toLocaleString();
+        if (previewTime) previewTime.textContent = `${timeMinutes} min`;
+        if (previewSize) previewSize.textContent = `${(images * 2.5).toFixed(1)} MB`;
+        if (previewImages) previewImages.textContent = images.toLocaleString();
+        
+        console.log(`📊 Spherical Preview: ${elevationSteps} elevation steps × ${azimuthPositions} azimuth positions = ${totalPoints} points`);
     } else {
         const xRange = scanData.x_max - scanData.x_min;
         const yRange = scanData.y_max - scanData.y_min;
@@ -4494,6 +4554,9 @@ async function updateSphericalVisualizerFromConfig() {
         
         // Update info display
         updateSphericalScanInfo(points, radius, centerZ);
+        
+        // Update the scan preview (capture points, time, etc.)
+        previewScan();
         
         console.log('🌐 Generated', points.length, 'spherical scan points');
         
