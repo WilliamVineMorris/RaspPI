@@ -627,16 +627,62 @@ class SphericalScanPattern(ScanPattern):
     def pattern_type(self) -> PatternType:
         return PatternType.SPHERICAL
         
-    def generate_positions(self) -> Iterator[Position4D]:
-        """Generate spherical scan positions from pre-calculated coordinates"""
-        for pos_dict in self.sphere_params.positions:
+    def generate_points(self) -> List[ScanPoint]:
+        """Generate scan points for spherical pattern
+        
+        Spherical scanning strategy:
+        - Z-axis: Rotates turntable through azimuth angles
+        - C-axis: Camera tilt angle for optimal viewing angle
+        - X,Y: Camera positioning on sphere surface
+        """
+        points = []
+        params = self.sphere_params
+        
+        # Use pre-calculated positions from parameters
+        if not params.positions:
+            self.logger.error("No spherical positions provided in parameters")
+            return []
+        
+        self.logger.info(f"Spherical scan setup: {len(params.positions)} positions")
+        self.logger.info(f"Sphere: radius={params.radius}mm, center_z={params.center_z}mm")
+        
+        # Generate scan points from pre-calculated positions
+        for i, pos_data in enumerate(params.positions):
             position = Position4D(
-                x=pos_dict['x'],
-                y=pos_dict['y'], 
-                z=pos_dict['z'],
-                c=pos_dict['c']
+                x=pos_data['x'],  # Radial distance (always positive)
+                y=pos_data['y'],  # Height above turntable
+                z=pos_data['z'],  # Turntable rotation angle (degrees)
+                c=pos_data['c']   # Camera tilt angle
             )
-            yield position
+            
+            # Create scan point with same features as cylindrical
+            point = ScanPoint(
+                position=position,
+                camera_settings=self._get_camera_settings(position),
+                capture_count=1,
+                dwell_time=0.2
+            )
+            
+            # Validate point before adding
+            if self.validate_point(point):
+                points.append(point)
+            else:
+                self.logger.warning(f"Skipping invalid point: {position}")
+        
+        self.logger.info(f"Generated {len(points)} valid points for spherical pattern")
+        return points
+    
+    def _get_camera_settings(self, position: Position4D) -> CameraSettings:
+        """Generate camera settings for spherical scan position"""
+        # Use base class implementation with spherical-specific defaults
+        return CameraSettings(
+            exposure_time=0.001,  # 1ms exposure in seconds
+            iso=400,             # Standard ISO for good quality
+            white_balance="auto", # Auto white balance
+            focus_distance=None,  # Use autofocus
+            capture_format="JPEG",
+            resolution=(4608, 2592)  # ArduCam 64MP resolution
+        )
     
     def get_total_positions(self) -> int:
         """Get total number of scan positions"""
@@ -647,9 +693,10 @@ class SphericalScanPattern(ScanPattern):
         total_positions = self.get_total_positions()
         return total_positions * (move_time + capture_time)
     
+    @property
     def estimated_duration(self) -> float:
         """Abstract method implementation - same as estimate_duration"""
-        return self.estimate_duration()
+        return self.estimate_duration() / 60.0  # Convert to minutes for base class interface
 
 
 class GridScanPattern(ScanPattern):
