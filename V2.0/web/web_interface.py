@@ -3765,6 +3765,24 @@ class ScannerWebInterface:
                 )
                 self.logger.info(f"🔄 Cylindrical scan: Z-axis (cylinder) rotations={z_rotations} ({len(z_rotations)} positions)")
                 self.logger.info(f"📈 Pattern parameters: radius={pattern_data['radius']}, y_range={pattern_data['y_range']}, y_step={pattern_data['y_step']}")
+            elif pattern_data['pattern_type'] == 'spherical':
+                # Spherical pattern: use pre-calculated positions from validation
+                positions = pattern_data.get('positions', [])
+                if not positions:
+                    raise ValueError("No spherical scan positions provided")
+                
+                self.logger.info(f"🌐 Spherical scan: {len(positions)} positions")
+                self.logger.info(f"📊 Sphere parameters: radius={pattern_data['radius']}, center_z={pattern_data['center_z']}")
+                self.logger.info(f"📊 Elevation steps: {pattern_data['elevation_steps']}, Azimuth positions: {pattern_data['azimuth_positions']}")
+                
+                # Create spherical pattern using the orchestrator
+                pattern = self.orchestrator.create_spherical_pattern(
+                    positions=positions,
+                    radius=pattern_data['radius'],
+                    center_z=pattern_data['center_z'],
+                    elevation_steps=pattern_data['elevation_steps'],
+                    azimuth_positions=pattern_data['azimuth_positions']
+                )
             else:
                 raise ValueError(f"Unknown pattern type: {pattern_data['pattern_type']}")
             

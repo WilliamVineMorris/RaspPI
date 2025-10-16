@@ -9,7 +9,7 @@ for systematic object coverage.
 import logging
 import math
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterator, List, Optional, Tuple, Dict, Any
 
@@ -22,6 +22,7 @@ class PatternType(Enum):
     """Types of scan patterns"""
     GRID = "grid"
     CYLINDRICAL = "cylindrical"
+    SPHERICAL = "spherical"
     SPIRAL = "spiral"  
     ADAPTIVE = "adaptive"
     CUSTOM = "custom"
@@ -400,6 +401,52 @@ class CylindricalPatternParameters(PatternParameters):
             raise ValueError(f"x_end {self.x_end}mm outside valid range [30, 200]mm (30mm safety margin)")
 
 
+@dataclass
+class SphericalPatternParameters(PatternParameters):
+    """Parameters for spherical scan pattern - spherical point cloud scanning"""
+    # Pre-calculated spherical positions
+    positions: List[Dict[str, float]] = field(default_factory=list)  # List of {x, y, z, c} positions
+    
+    # Sphere definition
+    radius: float = 50.0        # Sphere radius (mm)
+    center_z: float = 50.0      # Z height of sphere center above turntable (mm)
+    
+    # Pattern generation parameters
+    elevation_steps: int = 5    # Number of elevation levels
+    azimuth_positions: int = 8  # Number of azimuth positions per elevation
+    
+    # Scanning strategy
+    scan_pattern: str = "raster"  # "raster", "optimized"
+    
+    def __post_init__(self):
+        super().__post_init__()
+        
+        # Validate radius is within safe scanning range
+        if self.radius < 30.0 or self.radius > 200.0:
+            raise ValueError(f"Sphere radius {self.radius}mm outside valid range [30, 200]mm")
+        
+        # Validate center height
+        if self.center_z < 0.0 or self.center_z > 200.0:
+            raise ValueError(f"Sphere center Z {self.center_z}mm outside valid range [0, 200]mm")
+        
+        # Validate elevation and azimuth steps
+        if self.elevation_steps < 2:
+            raise ValueError("elevation_steps must be at least 2")
+        if self.azimuth_positions < 3:
+            raise ValueError("azimuth_positions must be at least 3")
+        
+        # Validate positions if provided
+        if self.positions:
+            for i, pos in enumerate(self.positions):
+                if not all(key in pos for key in ['x', 'y', 'z', 'c']):
+                    raise ValueError(f"Position {i} missing required keys (x, y, z, c)")
+                
+                # Validate X coordinate (radial distance)
+                if pos['x'] < 30.0 or pos['x'] > 200.0:
+                    raise ValueError(f"Position {i} X={pos['x']}mm outside valid range [30, 200]mm")
+
+
+
 class CylindricalScanPattern(ScanPattern):
     """
     Cylindrical scan pattern for scanner with turntable
@@ -551,6 +598,54 @@ class CylindricalScanPattern(ScanPattern):
         capture_time = 0.5  # Capture and processing time
         
         return len(points) * (move_time + capture_time)
+    
+    def estimated_duration(self) -> float:
+        """Abstract method implementation - same as estimate_duration"""
+        return self.estimate_duration()
+
+
+class SphericalScanPattern(ScanPattern):
+    """
+    Spherical scan pattern for 3D point cloud scanning
+    
+    Coordinate system:
+    - X: Radial distance from turntable center (linear)
+    - Y: Vertical height above turntable (linear)
+    - Z: Turntable rotation angle (rotational)
+    - C: Camera tilt angle (rotational)
+    
+    This pattern creates systematic spherical coverage by positioning
+    the camera at points on a sphere around the object, with appropriate
+    camera tilt angles to maintain focus on the sphere center.
+    """
+    
+    def __init__(self, pattern_id: str, parameters: SphericalPatternParameters):
+        super().__init__(pattern_id, parameters)
+        self.sphere_params = parameters
+        
+    @property
+    def pattern_type(self) -> PatternType:
+        return PatternType.SPHERICAL
+        
+    def generate_positions(self) -> Iterator[Position4D]:
+        """Generate spherical scan positions from pre-calculated coordinates"""
+        for pos_dict in self.sphere_params.positions:
+            position = Position4D(
+                x=pos_dict['x'],
+                y=pos_dict['y'], 
+                z=pos_dict['z'],
+                c=pos_dict['c']
+            )
+            yield position
+    
+    def get_total_positions(self) -> int:
+        """Get total number of scan positions"""
+        return len(self.sphere_params.positions)
+    
+    def estimate_duration(self, move_time: float = 2.0, capture_time: float = 1.0) -> float:
+        """Estimate total scan duration in seconds"""
+        total_positions = self.get_total_positions()
+        return total_positions * (move_time + capture_time)
     
     def estimated_duration(self) -> float:
         """Abstract method implementation - same as estimate_duration"""

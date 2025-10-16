@@ -5191,6 +5191,54 @@ class ScanOrchestrator:
         
         return pattern
     
+    def create_spherical_pattern(self,
+                               positions: List[Dict[str, float]],
+                               radius: float,
+                               center_z: float,
+                               elevation_steps: int,
+                               azimuth_positions: int):
+        """
+        Create a spherical scan pattern for turntable scanner
+        
+        Args:
+            positions: Pre-calculated spherical scan positions with x, y, z, c coordinates
+            radius: Sphere radius in mm
+            center_z: Z height of sphere center above turntable in mm
+            elevation_steps: Number of elevation steps
+            azimuth_positions: Number of azimuth positions per elevation
+        """
+        from .scan_patterns import SphericalPatternParameters, SphericalScanPattern
+        
+        # Validate radius is within safe scanning range
+        if radius < 30.0 or radius > 200.0:
+            raise ValueError(f"Sphere radius {radius}mm outside valid range [30, 200]mm")
+        
+        logger.info(f"🌐 Creating spherical pattern: radius={radius}mm, center_z={center_z}mm")
+        logger.info(f"📊 Pattern: {elevation_steps} elevation steps, {azimuth_positions} azimuth positions, {len(positions)} total points")
+        
+        # Validate positions
+        if not positions:
+            raise ValueError("No spherical scan positions provided")
+        
+        parameters = SphericalPatternParameters(
+            positions=positions,
+            radius=radius,
+            center_z=center_z,
+            elevation_steps=elevation_steps,
+            azimuth_positions=azimuth_positions,
+            safety_margin=0.5
+        )
+        
+        # Generate pattern ID
+        pattern_id = f"spherical_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        pattern = SphericalScanPattern(pattern_id=pattern_id, parameters=parameters)
+        
+        # Apply web UI focus settings to pattern
+        pattern = self._apply_web_focus_to_pattern(pattern)
+        
+        return pattern
+    
     # Focus Control Methods
     def set_focus_mode(self, mode: str) -> bool:
         """
