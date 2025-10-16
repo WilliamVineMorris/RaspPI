@@ -2138,7 +2138,8 @@
                             <span class="range-separator">to</span>
                             <input type="number" id="sphericalYMax" class="parameter-input" min="10" max="200" value="120" step="5" placeholder="End" oninput="updateSphericalVisualizerFromConfig()">
                         </div>
-                        <small class="parameter-help">Vertical height range from turntable level (Z=0 is turntable, positive is up)</small>
+                        <small class="parameter-help">Vertical height range from turntable level (automatically capped to sphere bounds)</small>
+                        <div id="spherical-height-validation" class="parameter-validation" style="display: none; color: orange; font-size: 0.85em; margin-top: 5px;"></div>
                     </div>
                     
                     <div class="parameter-group">
@@ -4466,6 +4467,22 @@ async function updateSphericalVisualizerFromConfig() {
         // Generate spherical scan points
         const points = generateSphericalScanPoints(radius, centerZ, zMin, zMax, elevationSteps, azimuthPositions);
         
+        // Show validation feedback about height capping
+        const validationDiv = document.getElementById('spherical-height-validation');
+        if (validationDiv) {
+            const sphereBottom = centerZ - radius;
+            const sphereTop = centerZ + radius;
+            const validZMin = Math.max(zMin, sphereBottom + 1);
+            const validZMax = Math.min(zMax, sphereTop - 1);
+            
+            if (zMin < sphereBottom + 1 || zMax > sphereTop - 1) {
+                validationDiv.style.display = 'block';
+                validationDiv.innerHTML = `⚠️ Height range capped to sphere bounds: ${validZMin.toFixed(0)}-${validZMax.toFixed(0)}mm (sphere: ${sphereBottom.toFixed(0)}-${sphereTop.toFixed(0)}mm)`;
+            } else {
+                validationDiv.style.display = 'none';
+            }
+        }
+        
         // Visualize the points
         visualizeSphericalScanPath(points);
         
@@ -4482,19 +4499,33 @@ async function updateSphericalVisualizerFromConfig() {
 function generateSphericalScanPoints(radius, centerZ, zMin, zMax, elevationSteps, azimuthPositions) {
     const points = [];
     
+    // Calculate sphere bounds - limit scan range to physically possible heights
+    const sphereBottom = centerZ - radius;  // Lowest point of sphere
+    const sphereTop = centerZ + radius;     // Highest point of sphere
+    
+    // Cap the scan range to sphere bounds
+    const validZMin = Math.max(zMin, sphereBottom + 1);  // Add 1mm margin to avoid edge cases
+    const validZMax = Math.min(zMax, sphereTop - 1);     // Add 1mm margin to avoid edge cases
+    
+    // Validate that we have a valid range
+    if (validZMin >= validZMax) {
+        console.warn(`Invalid scan range: sphere at Z=${centerZ} with radius=${radius} cannot reach Z=${zMin}-${zMax}`);
+        return [];
+    }
+    
     // Calculate elevation angles based on Z range and sphere geometry
     // This creates the "height levels" equivalent to cylindrical heights
     const elevationAngles = [];
     for (let i = 0; i < elevationSteps; i++) {
-        // Linear interpolation of Z values (vertical height)
-        const z = zMin + (zMax - zMin) * i / (elevationSteps - 1);
+        // Linear interpolation of Z values (vertical height) - use capped range
+        const z = validZMin + (validZMax - validZMin) * i / (elevationSteps - 1);
         
         // Calculate elevation angle from sphere center to reach this Z coordinate
         const relativeZ = z - centerZ;
         const sinElevation = Math.max(-1, Math.min(1, relativeZ / radius));
         const elevationAngle = Math.asin(sinElevation);
         
-        elevationAngles.push(elevationAngle);
+        elevationAngles.push({angle: elevationAngle, targetZ: z});
     }
     
     // Generate points following cylindrical pattern but with spherical arcs
@@ -4504,18 +4535,18 @@ function generateSphericalScanPoints(radius, centerZ, zMin, zMax, elevationSteps
         
         // Create an arc at this azimuth position (equivalent to vertical line in cylindrical)
         for (let elevIndex = 0; elevIndex < elevationSteps; elevIndex++) {
-            const elevation = elevationAngles[elevIndex];
+            const elevData = elevationAngles[elevIndex];
+            const elevation = elevData.angle;
+            const targetZ = elevData.targetZ;
             
             // Calculate spherical coordinates
             const effectiveRadius = radius * Math.cos(elevation);
-            // Use the original Z coordinate we calculated, not the spherical recalculation
-            const targetZ = zMin + (zMax - zMin) * elevIndex / (elevationSteps - 1);
             
             // Convert to Cartesian coordinates (FluidNC system)
             // Turntable rotates in X-Y plane, Z is vertical height
             const x = effectiveRadius * Math.cos(azimuth);
             const y = effectiveRadius * Math.sin(azimuth);  
-            const z = targetZ;  // Use the target Z directly from scan range
+            const z = targetZ;  // Use the capped and validated Z coordinate
             
             points.push({
                 x: x,
