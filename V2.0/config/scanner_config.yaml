@@ -139,10 +139,10 @@ cameras:
   positioning:
     camera_offset:
       x: -50   # mm - Horizontal offset of camera from FluidNC X position (negative)
-      y: -65.0    # mm - Vertical offset of camera from FluidNC Y position
+      y: -60.0    # mm - Vertical offset of camera from FluidNC Y position
     turntable_offset:
       x: 80.0    # mm - Horizontal offset of turntable center from origin
-      y: 10.0   # mm - Vertical offset of turntable surface from origin (negative)
+      y: 30.0   # mm - Vertical offset of turntable surface from origin (negative)
   
   # Stereo camera array configuration (for photogrammetry exports)
   stereo:
