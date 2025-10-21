@@ -40,7 +40,7 @@ motion:
       type: "linear"
       units: "mm"
       min_limit: 0.0
-      max_limit: 200.0              # From FluidNC max_travel_mm
+      max_limit: 270.0              # From FluidNC max_travel_mm
       home_position: 0.0
       max_feedrate: 1000            # From FluidNC max_rate_mm_per_min
       steps_per_mm: 800             # From FluidNC configuration
@@ -51,8 +51,8 @@ motion:
       type: "linear" 
       units: "mm"
       min_limit: 0.0
-      max_limit: 200.0              # From FluidNC max_travel_mm
-      home_position: 200.0          # From FluidNC mpos_mm (homes to max)
+      max_limit: 240.0              # From FluidNC max_travel_mm
+      home_position: 240.0          # From FluidNC mpos_mm (homes to max)
       max_feedrate: 1000            # From FluidNC max_rate_mm_per_min
       steps_per_mm: 800             # From FluidNC configuration
       has_limits: true              # Has both neg (gpio.13) and pos (gpio.4) limits
@@ -138,10 +138,10 @@ cameras:
   # Camera positioning offsets for servo angle calculation
   positioning:
     camera_offset:
-      x: -10.0   # mm - Horizontal offset of camera from FluidNC X position (negative)
-      y: 20.0    # mm - Vertical offset of camera from FluidNC Y position
+      x: -50   # mm - Horizontal offset of camera from FluidNC X position (negative)
+      y: 65.0    # mm - Vertical offset of camera from FluidNC Y position
     turntable_offset:
-      x: 30.0    # mm - Horizontal offset of turntable center from origin
+      x: 80.0    # mm - Horizontal offset of turntable center from origin
       y: -10.0   # mm - Vertical offset of turntable surface from origin (negative)
   
   # Stereo camera array configuration (for photogrammetry exports)
