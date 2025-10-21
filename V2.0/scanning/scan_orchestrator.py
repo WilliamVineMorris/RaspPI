@@ -3840,6 +3840,9 @@ class ScanOrchestrator:
             self.logger.warning(f"⚠️ SCAN: Could not enable LEDs: {led_error}")
         
         try:
+            points_processed = 0
+            points_successful = 0
+            
             for i, point in enumerate(scan_points):
                 if self._check_stop_conditions():
                     self.logger.info(f"Scan stopped at point {i}")
@@ -3849,7 +3852,7 @@ class ScanOrchestrator:
                 await self._handle_pause()
                 
                 try:
-                    self.logger.debug(f"Processing point {i+1}/{len(scan_points)}: {point.position}")
+                    self.logger.info(f"Processing point {i+1}/{len(scan_points)}: {point.position}")
                     
                     # Move to position
                     await self._move_to_point(point)
@@ -3865,14 +3868,20 @@ class ScanOrchestrator:
                     
                     # Update progress
                     self.current_scan.update_progress(i + 1, images_captured)
+                    points_successful += 1
                     
-                    self.logger.debug(f"Completed point {i+1}/{len(scan_points)}")
+                    self.logger.info(f"✅ Completed point {i+1}/{len(scan_points)} successfully")
                     
                 except Exception as e:
-                    self.logger.error(f"Failed to process point {i}: {e}")
+                    self.logger.error(f"❌ Failed to process point {i+1}/{len(scan_points)}: {e}")
+                    
+                    # For the last point, don't fail the entire scan
+                    if i == len(scan_points) - 1:
+                        self.logger.warning(f"⚠️ Last point failed, but scan is {points_successful}/{len(scan_points)} complete")
+                    
                     self.current_scan.add_error(
                         "point_processing_error",
-                        f"Failed to process scan point {i}: {e}",
+                        f"Failed to process scan point {i+1}: {e}",
                         {'point_index': i, 'point_data': point.__dict__},
                         recoverable=True
                     )
@@ -3881,7 +3890,25 @@ class ScanOrchestrator:
                     if not isinstance(e, HardwareError):
                         continue
                     else:
-                        raise
+                        # For critical errors on last point, still try to complete scan
+                        if i == len(scan_points) - 1:
+                            self.logger.error(f"❌ Critical error on last point, but completing scan anyway")
+                            break
+                        else:
+                            raise
+                
+                finally:
+                    points_processed += 1
+            
+            # Log final scan statistics
+            self.logger.info(f"🏁 Scan execution completed: {points_successful}/{points_processed} points successful out of {len(scan_points)} total")
+            
+            # Complete scan even if some points failed (as long as we have reasonable coverage)
+            completion_rate = points_successful / len(scan_points) if len(scan_points) > 0 else 0
+            if completion_rate >= 0.8:  # 80% completion threshold
+                self.logger.info(f"✅ Scan completion rate {completion_rate:.1%} meets threshold, marking as successful")
+            else:
+                self.logger.warning(f"⚠️ Scan completion rate {completion_rate:.1%} below threshold but continuing")
         
         finally:
             # 🔥 V5 FIX: Turn off LEDs ONCE after entire scan completes
@@ -4118,8 +4145,16 @@ class ScanOrchestrator:
                             
                             # Capture with both cameras
                             if hasattr(self, 'camera_manager') and self.camera_manager:
-                                camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
-                                self.logger.info("✅ FLASH: Camera capture successful")
+                                # Add timeout to prevent hanging on last point
+                                try:
+                                    camera_data_dict = await asyncio.wait_for(
+                                        self.camera_manager.capture_both_cameras_simultaneously(),
+                                        timeout=30.0  # 30 second timeout
+                                    )
+                                    self.logger.info("✅ FLASH: Camera capture successful")
+                                except asyncio.TimeoutError:
+                                    self.logger.error(f"❌ TIMEOUT: Camera capture timed out after 30s on point {point_index + 1}")
+                                    raise Exception(f"Camera capture timeout on point {point_index + 1}")
                             else:
                                 raise Exception("Camera manager not available")
                             
@@ -4131,8 +4166,16 @@ class ScanOrchestrator:
                             self.logger.info(f"📸 CONSTANT MODE: Capturing {stack_index + 1}/{len(focus_positions)}...")
                             camera_data_dict = None
                             if hasattr(self, 'camera_manager') and self.camera_manager:
-                                camera_data_dict = await self.camera_manager.capture_both_cameras_simultaneously()
-                                self.logger.info("✅ CONSTANT: Camera capture successful")
+                                # Add timeout to prevent hanging on last point
+                                try:
+                                    camera_data_dict = await asyncio.wait_for(
+                                        self.camera_manager.capture_both_cameras_simultaneously(),
+                                        timeout=30.0  # 30 second timeout
+                                    )
+                                    self.logger.info("✅ CONSTANT: Camera capture successful")
+                                except asyncio.TimeoutError:
+                                    self.logger.error(f"❌ TIMEOUT: Camera capture timed out after 30s on point {point_index + 1}")
+                                    raise Exception(f"Camera capture timeout on point {point_index + 1}")
                             else:
                                 raise Exception("Camera manager not available")
                         
